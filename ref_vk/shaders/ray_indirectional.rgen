@@ -4,7 +4,6 @@
 #include "ray_primary_common.glsl"
 #include "utils.glsl"
 #include "noise.glsl"
-#include "brdf.h"
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_image_##name;
 RAY_INDIRECTIONAL_INPUTS(X)

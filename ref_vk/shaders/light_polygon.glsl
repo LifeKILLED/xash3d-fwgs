@@ -188,7 +188,7 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 	specular += emissive * poly_specular;
 }
 
-#if 0
+#ifdef ONE_LIGHT_PER_TEXEL
 // Sample random one
 void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
 	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
@@ -212,6 +212,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
+
 	for (uint i = 0; i < num_polygons; ++i) {
 		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
 		const PolygonLight poly = lights.polygons[index];

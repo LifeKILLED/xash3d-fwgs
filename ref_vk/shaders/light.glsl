@@ -8,6 +8,8 @@ layout (set = 0, binding = BINDING_LIGHT_CLUSTERS, align = 1) readonly buffer UB
 const float color_culling_threshold = 0;//600./color_factor;
 const float shadow_offset_fudge = .1;
 
+
+#include "noise.glsl"
 #include "brdf.h"
 #include "light_common.glsl"
 
@@ -20,7 +22,13 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 	diffuse = specular = vec3(0.);
 	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
 	for (uint j = 0; j < num_point_lights; ++j) {
+
+#ifdef ONE_LIGHT_PER_TEXEL
+		const uint selected = rand() % num_point_lights;
+		const uint i = uint(light_grid.clusters[cluster_index].point_lights[selected]);
+#else
 		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
+#endif
 
 		vec3 color = lights.point_lights[i].color_stopdot.rgb * throughput;
 		if (dot(color,color) < color_culling_threshold)
@@ -99,9 +107,16 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 				continue;
 		}
 
+#ifdef ONE_LIGHT_PER_TEXEL
+		diffuse += ldiffuse * float(num_point_lights);
+		specular += lspecular * float(num_point_lights);
+		break;
+#endif
+
 		diffuse += ldiffuse;
 		specular += lspecular;
 	} // for all lights
+
 }
 #endif
 
