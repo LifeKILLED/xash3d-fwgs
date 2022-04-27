@@ -15,6 +15,10 @@
 	X(6, emissive) \
 	X(7, position_t) \
 	X(8, normals_gs) \
+	X(9, light_poly_reflection) \
+	X(10, light_point_reflection) \
+	X(11, light_poly_indirect) \
+	X(12, light_point_indirect) \
 
 static const VkDescriptorSetLayoutBinding bindings[] = {
 #define BIND_IMAGE(index, name) \

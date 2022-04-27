@@ -8,9 +8,10 @@
 #include "ray_interop.h"
 #undef GLSL
 
-#define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D name;
-RAY_LIGHT_DIRECT_INPUTS(X)
-#undef X
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
+
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
 #undef X
@@ -66,11 +67,25 @@ void main() {
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 	computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
 
+#if GLOBAL_ILLUMINATION
 #if LIGHT_POINT
-	imageStore(out_image_light_point_diffuse, pix, vec4(diffuse, 0.f));
-	imageStore(out_image_light_point_specular, pix, vec4(specular, 0.f));
+	imageStore(out_image_light_point_indirect, pix, vec4(specular + diffuse, 0.));
 #else
-	imageStore(out_image_light_poly_diffuse, pix, vec4(diffuse, 0.f));
-	imageStore(out_image_light_poly_specular, pix, vec4(specular, 0.f));
+	imageStore(out_image_light_poly_indirect, pix, vec4(specular + diffuse, 0.));
+#endif
+#elif REFLECTIONS
+#if LIGHT_POINT
+	imageStore(out_image_light_point_reflection, pix, vec4(specular + diffuse, 0.));
+#else
+	imageStore(out_image_light_poly_reflection, pix, vec4(specular + diffuse, 0.));
+#endif
+#else
+#if LIGHT_POINT
+	imageStore(out_image_light_point_diffuse, pix, vec4(diffuse, 0.));
+	imageStore(out_image_light_point_specular, pix, vec4(specular, 0.));
+#else
+	imageStore(out_image_light_poly_diffuse, pix, vec4(diffuse, 0.));
+	imageStore(out_image_light_poly_specular, pix, vec4(specular, 0.));
+#endif
 #endif
 }

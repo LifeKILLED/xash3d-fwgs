@@ -19,6 +19,11 @@ layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_emissive;
 layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_normals_gs;
 
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_light_poly_reflection;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_light_point_reflection;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_light_poly_indirect;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_light_point_indirect;
+
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
 /* layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_additive; */
@@ -175,6 +180,12 @@ void main() {
 	colour *= base_color.rgb;
 	colour += imageLoad(src_emissive, pix).rgb;
 	//colour += imageLoad(src_additive, pix).rgb;
+
+	colour *= 0.2;
+	colour += imageLoad(src_light_poly_reflection, pix).rgb * 0.05;
+	colour += imageLoad(src_light_point_reflection, pix).rgb * 0.05;
+	colour += imageLoad(src_light_poly_indirect, pix).rgb * 0.03 * base_color.rgb;
+	colour += imageLoad(src_light_point_indirect, pix).rgb * 0.03 * base_color.rgb;
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
