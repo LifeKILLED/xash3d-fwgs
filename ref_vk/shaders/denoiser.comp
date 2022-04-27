@@ -200,11 +200,11 @@ void main() {
 		}
 	}
 
-	colour += poly_refl * 0.05;
-	colour += poly_refl * 0.05;
+	colour += poly_refl * 0.03;
+	colour += poly_refl * 0.03;
 
-	colour += imageLoad(src_light_poly_indirect, pix).rgb * 0.03 * base_color.rgb;
-	colour += imageLoad(src_light_point_indirect, pix).rgb * 0.03 * base_color.rgb;
+	colour += imageLoad(src_light_poly_indirect, pix).rgb * 0.015 * base_color.rgb;
+	colour += imageLoad(src_light_point_indirect, pix).rgb * 0.015 * base_color.rgb;
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
