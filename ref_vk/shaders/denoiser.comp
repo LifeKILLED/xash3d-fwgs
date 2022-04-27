@@ -66,6 +66,11 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	shading_normal = normalDecode(n.zw);
 }
 
+ivec2 UVToPix(vec2 uv, ivec2 res) {
+	vec2 screen_uv = uv * 0.5 + vec2(0.5);
+	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
+}
+
 void main() {
 	ivec2 res = ivec2(imageSize(src_base_color));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -182,8 +187,22 @@ void main() {
 	//colour += imageLoad(src_additive, pix).rgb;
 
 	colour *= 0.2;
-	colour += imageLoad(src_light_poly_reflection, pix).rgb * 0.05;
-	colour += imageLoad(src_light_point_reflection, pix).rgb * 0.05;
+
+	vec3 poly_refl = imageLoad(src_light_poly_reflection, pix).rgb;
+	vec3 point_refl = imageLoad(src_light_point_reflection, pix).rgb;
+
+	// Reuse lighting from screen if we can
+	if (poly_refl.b < 99.) {
+		ivec2 screen_pix = UVToPix(poly_refl.rg, res);
+			if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
+			poly_refl = imageLoad(src_light_direct_poly_diffuse, screen_pix).rgb + imageLoad(src_light_direct_poly_specular, screen_pix).rgb;
+			point_refl = imageLoad(src_light_direct_point_diffuse, screen_pix).rgb + imageLoad(src_light_direct_point_specular, screen_pix).rgb;
+		}
+	}
+
+	colour += poly_refl * 0.05;
+	colour += poly_refl * 0.05;
+
 	colour += imageLoad(src_light_poly_indirect, pix).rgb * 0.03 * base_color.rgb;
 	colour += imageLoad(src_light_point_indirect, pix).rgb * 0.03 * base_color.rgb;
 
