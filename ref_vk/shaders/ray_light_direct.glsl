@@ -109,21 +109,25 @@ void main() {
 
 	// Try to use SSR and put this UV to output texture if all is OK
 	uint lighting_is_reused = 0;
+	const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 
-	const ivec2 res = ivec2(imageSize(first_position_t));
-	const vec2 first_uv = WorldPositionToUV(pos, inverse(ubo.inv_proj), inverse(ubo.inv_view));
-	const ivec2 first_pix = UVToPix(first_uv, res);
+	// can we see it in reflection?
+	if (dot(direction, pos - origin) > .0) {
+		const ivec2 res = ivec2(imageSize(first_position_t));
+		const vec2 first_uv = WorldPositionToUV(pos, inverse(ubo.inv_proj), inverse(ubo.inv_view));
+		const ivec2 first_pix = UVToPix(first_uv, res);
 
-	if (any(greaterThanEqual(first_pix, ivec2(0))) && any(lessThan(first_pix, res))) {
+		if (any(greaterThanEqual(first_pix, ivec2(0))) && any(lessThan(first_pix, res))) {
 	
-		const vec3 first_pos = imageLoad(first_position_t, first_pix).xyz;
-		const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
-		const float nessesary_depth = length(origin - pos);
-		const float current_depth = length(origin - first_pos);
+			const vec3 first_pos = imageLoad(first_position_t, first_pix).xyz;
 
-		if (abs(nessesary_depth - current_depth) < 2.) {
-			lighting_is_reused = 1;
-			diffuse = vec3(first_uv, -100.); // -100 it's SSR marker
+			const float nessesary_depth = length(origin - pos);
+			const float current_depth = length(origin - first_pos);
+
+			if (abs(nessesary_depth - current_depth) < 2.) {
+				lighting_is_reused = 1;
+				diffuse = vec3(first_uv, -100.); // -100 it's SSR marker
+			}
 		}
 	}
 
