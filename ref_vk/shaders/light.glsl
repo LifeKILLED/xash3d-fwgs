@@ -20,6 +20,7 @@ const float shadow_offset_fudge = .1;
 #if LIGHT_POINT
 void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
+	vec3 rndVec = normalize(vec3(rand01(), rand01(), rand01()));
 	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
 	for (uint j = 0; j < num_point_lights; ++j) {
 
@@ -99,11 +100,11 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 
 		// FIXME split environment and other lights
 		if (not_environment) {
-			if (shadowed(P, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowed(P + rndVec * radius, light_dir_norm, light_dist + shadow_offset_fudge))
 				continue;
 		} else {
 			// for environment light check that we've hit SURF_SKY
-			if (shadowedSky(P, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowedSky(P + rndVec * 10., light_dir_norm, light_dist + shadow_offset_fudge))
 				continue;
 		}
 
