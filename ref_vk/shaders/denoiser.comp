@@ -202,7 +202,9 @@ void main() {
 	// polygon lights are visible in the reflection, we don't need fake specular?
 	specular += imageLoad(src_light_direct_poly_specular, pix).rgb;
 
-	vec3 reflection = imageLoad(src_light_poly_reflection, pix).rgb + imageLoad(src_light_point_reflection, pix).rgb;
+	vec3 reflection = imageLoad(src_light_poly_reflection, pix).rgb +
+					  imageLoad(src_light_point_reflection, pix).rgb +
+					  imageLoad(src_refl_emissive, pix).rgb;
 
 	// Reuse lighting from screen if we can. -100 is SSR marker)
 	if (reflection.b < -99.) {
