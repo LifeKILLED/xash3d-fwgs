@@ -93,7 +93,7 @@ void main() {
 	MaterialProperties material;
 	
 #ifdef GRAY_MATERIAL
-	material.baseColor = vec3(0.1);
+	material.baseColor = vec3(1.);
 #else
 	material.baseColor = imageLoad(base_color_a, pix).rgb;
 #endif
@@ -120,7 +120,8 @@ void main() {
 
 		// Can we see this texel from camera?
 		const float frunsum_theshold = 0.25;
-		if (dot(direction, pos - origin) > frunsum_theshold ) {
+		if (dot(direction, pos - origin) > frunsum_theshold &&
+			dot(pos - first_pos, pos - origin) > frunsum_theshold ) {
 
 			const float nessesary_depth = length(origin - pos);
 			const float current_depth = length(origin - first_pos);
@@ -160,7 +161,7 @@ void main() {
 		specular *= 0.04;
 #endif
 
-		diffuse = clamp(diffuse, 0., 2.);
+		diffuse = clamp(diffuse, 0., 5.);
 		specular = clamp(specular, 0., 5.);
 
 	}

@@ -115,10 +115,18 @@ void main() {
 	vec3 diffuse = vec3(0.);
 	vec3 specular = vec3(0.);
 //#if 1
+
+	// gray material diffuse component
 	diffuse += imageLoad(src_light_direct_poly_diffuse, pix).rgb;
-	specular += imageLoad(src_light_direct_poly_specular, pix).rgb;
-	colour += imageLoad(src_light_direct_point_diffuse, pix).rgb;
+	diffuse += imageLoad(src_light_direct_point_diffuse, pix).rgb;
+
+	// specular from point lights
 	specular += imageLoad(src_light_direct_point_specular, pix).rgb;
+
+	// polygon lights are visible in the reflection, we don't need fake specular?
+	specular += imageLoad(src_light_direct_poly_specular, pix).rgb;
+
+
 //#else
 //	float total_scale = 0.;
 //	const int KERNEL_SIZE = 8;
@@ -196,11 +204,10 @@ void main() {
 	if (reflection.b < -99.) {
 		ivec2 screen_pix = UVToPix(reflection.rg, res);
 		if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
-			reflection = imageLoad(src_light_direct_poly_diffuse, screen_pix).rgb +
+			reflection = imageLoad(src_light_direct_poly_diffuse, screen_pix).rgb * base_color.rgb +
 			imageLoad(src_light_direct_poly_specular, screen_pix).rgb +
-			imageLoad(src_light_direct_point_diffuse, screen_pix).rgb +
+			imageLoad(src_light_direct_point_diffuse, screen_pix).rgb * base_color.rgb +
 			imageLoad(src_light_direct_point_specular, screen_pix).rgb;
-			//reflection *= 2.0; // SSR color correction... why?
 			//reflection = point_refl = vec3(100., 0., 0.); // TEST: visualize SSR texels
 		}
 	}
@@ -212,11 +219,10 @@ void main() {
 	// try to reconstruct pbr-like picture from all components
 	float metalness = imageLoad(src_material_rmxx, pix).g;
 	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
-	float specular_level = grayscale; // fake specular map
-	float final_correction =  mix(grayscale, 1., 0.5) * 1.3; // extra contrast from base color
+	float specular_level = pow(grayscale, 0.45); // fake specular map
 	vec3 metal_colour = (specular + reflection) * base_color.rgb;
 	vec3 dielectric_colour = diffuse * base_color.rgb + (specular + reflection * 0.1) * specular_level;
-	colour += mix(dielectric_colour, metal_colour, metalness) * final_correction;
+	colour += mix(dielectric_colour, metal_colour, metalness);
 
 	//colour = base_color.rgb;
 
