@@ -230,7 +230,7 @@ void main() {
 									 (refl_specular) * refl_specular_level;
 
 			// pbr
-			reflection = mix(refl_dielectric_colour, refl_metal_colour, refl_metalness);
+			reflection = mix(refl_dielectric_colour, refl_metal_colour, refl_metalness) + refl_emissive;
 
 			//reflection = vec3(100., 0., 0.); // TEST: visualize SSR texels
 		}
