@@ -151,6 +151,18 @@ void main() {
 
 		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
 
+		// correction for avoiding difference in sampling algorythms
+#if LIGHT_POINT
+		diffuse *= 0.25;
+		specular *= 0.25;
+#else
+		diffuse *= 0.04;
+		specular *= 0.04;
+#endif
+
+		diffuse = clamp(diffuse, 0., 2.);
+		specular = clamp(specular, 0., 5.);
+
 	}
 
 #if GLOBAL_ILLUMINATION

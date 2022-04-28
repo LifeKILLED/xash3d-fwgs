@@ -19,6 +19,7 @@
 	X(10, light_point_reflection) \
 	X(11, light_poly_indirect) \
 	X(12, light_point_indirect) \
+	X(13, material_rmxx) \
 
 static const VkDescriptorSetLayoutBinding bindings[] = {
 #define BIND_IMAGE(index, name) \
