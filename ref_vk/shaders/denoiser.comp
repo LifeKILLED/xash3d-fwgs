@@ -220,7 +220,7 @@ void main() {
 								imageLoad(src_light_direct_point_diffuse, screen_pix).rgb;
 			vec3 refl_specular = imageLoad(src_light_direct_poly_specular, screen_pix).rgb +
 								imageLoad(src_light_direct_point_specular, screen_pix).rgb;
-			vec3 refl_emissive = imageLoad(src_refl_emissive, screen_pix).rgb;
+			vec3 refl_emissive = imageLoad(src_emissive, screen_pix).rgb;
 
 			// metalness == 1
 			vec3 refl_metal_colour = refl_specular * refl_base_color.rgb;
