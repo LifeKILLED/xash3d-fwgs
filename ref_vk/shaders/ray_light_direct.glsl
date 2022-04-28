@@ -109,6 +109,7 @@ void main() {
 
 	// Try to use SSR and put this UV to output texture if all is OK
 	uint lighting_is_reused = 0;
+
 	const ivec2 res = ivec2(imageSize(first_position_t));
 	const vec2 first_uv = WorldPositionToUV(pos, inverse(ubo.inv_proj), inverse(ubo.inv_view));
 	const ivec2 first_pix = UVToPix(first_uv, res);
@@ -117,23 +118,16 @@ void main() {
 	
 		const vec3 first_pos = imageLoad(first_position_t, first_pix).xyz;
 		const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+		const float nessesary_depth = length(origin - pos);
+		const float current_depth = length(origin - first_pos);
 
-		// Can we see this texel from camera?
-		const float frunsum_theshold = 0.25;
-		if (dot(direction, pos - origin) > frunsum_theshold &&
-			dot(pos - first_pos, pos - origin) > frunsum_theshold ) {
-
-			const float nessesary_depth = length(origin - pos);
-			const float current_depth = length(origin - first_pos);
-
-			if (abs(nessesary_depth - current_depth) < 1.) {
-				lighting_is_reused = 1;
-				diffuse = vec3(first_uv, -100.); // -100 it's SSR marker
-			}
+		if (abs(nessesary_depth - current_depth) < 2.) {
+			lighting_is_reused = 1;
+			diffuse = vec3(first_uv, -100.); // -100 it's SSR marker
 		}
 	}
 
-	if (lighting_is_reused == 0) {
+	if (lighting_is_reused != 1) {
 #else
 	{
 #endif // REUSE_SCREEN_LIGHTING

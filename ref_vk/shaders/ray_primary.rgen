@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "ray_primary_common.glsl"
+#include "color_spaces.glsl"
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform image2D out_image_##name;
 RAY_PRIMARY_OUTPUTS(X)
@@ -37,7 +38,7 @@ void main() {
 		PAYLOAD_LOCATION_PRIMARY);
 
 	imageStore(out_image_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
-	imageStore(out_image_base_color_a, ivec2(gl_LaunchIDEXT.xy), payload.base_color_a);
+	imageStore(out_image_base_color_a, ivec2(gl_LaunchIDEXT.xy), SRGBtoLINEAR(payload.base_color_a));
 	imageStore(out_image_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);

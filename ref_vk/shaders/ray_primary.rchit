@@ -3,7 +3,6 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 
 #include "utils.glsl"
-#include "color_spaces.glsl"
 
 #include "ray_primary_common.glsl"
 
@@ -34,8 +33,7 @@ void main() {
 		payload.emissive.rgb = pow(texture(skybox, gl_WorldRayDirectionEXT).rgb, vec3(2.2));
 		return;
 	} else {
-		//payload.base_color_a = sampleTexture(tex_base_color, geom.uv, geom.uv_lods) * kusok.color; // colors so weak
-		payload.base_color_a = SRGBtoLINEAR(sampleTexture(tex_base_color, geom.uv, geom.uv_lods) * kusok.color);
+		payload.base_color_a = sampleTexture(tex_base_color, geom.uv, geom.uv_lods) * kusok.color;
 		payload.material_rmxx.r = (kusok.tex_roughness > 0) ? sampleTexture(kusok.tex_roughness, geom.uv, geom.uv_lods).r : kusok.roughness;
 		payload.material_rmxx.g = (kusok.tex_metalness > 0) ? sampleTexture(kusok.tex_metalness, geom.uv, geom.uv_lods).r : kusok.metalness;
 

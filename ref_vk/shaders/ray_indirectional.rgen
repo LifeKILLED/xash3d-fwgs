@@ -4,6 +4,7 @@
 #include "ray_primary_common.glsl"
 #include "utils.glsl"
 #include "noise.glsl"
+#include "color_spaces.glsl"
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_image_##name;
 RAY_INDIRECTIONAL_INPUTS(X)
@@ -76,7 +77,7 @@ void main() {
 		PAYLOAD_LOCATION_PRIMARY);
 
 	imageStore(out_image_gi_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
-	imageStore(out_image_gi_base_color_a, ivec2(gl_LaunchIDEXT.xy), payload.base_color_a);
+	imageStore(out_image_gi_base_color_a, ivec2(gl_LaunchIDEXT.xy), SRGBtoLINEAR(payload.base_color_a));
 	imageStore(out_image_gi_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_gi_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_gi_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
