@@ -186,22 +186,23 @@ void main() {
 	colour += imageLoad(src_emissive, pix).rgb;
 	//colour += imageLoad(src_additive, pix).rgb;
 
-	colour *= 0.2;
+	colour *= 0.5;
 
 	vec3 poly_refl = imageLoad(src_light_poly_reflection, pix).rgb;
 	vec3 point_refl = imageLoad(src_light_point_reflection, pix).rgb;
 
-	// Reuse lighting from screen if we can
-	if (poly_refl.b < 99.) {
+	// Reuse lighting from screen if we can. -100 is SSR marker)
+	if (poly_refl.b < -99.) {
 		ivec2 screen_pix = UVToPix(poly_refl.rg, res);
-			if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
+		if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
 			poly_refl = imageLoad(src_light_direct_poly_diffuse, screen_pix).rgb + imageLoad(src_light_direct_poly_specular, screen_pix).rgb;
 			point_refl = imageLoad(src_light_direct_point_diffuse, screen_pix).rgb + imageLoad(src_light_direct_point_specular, screen_pix).rgb;
+			//poly_refl = point_refl = vec3(100., 0., 0.); // TEST: visualize SSR texels
 		}
 	}
 
 	colour += poly_refl * 0.03;
-	colour += poly_refl * 0.03;
+	colour += point_refl * 0.03;
 
 	colour += imageLoad(src_light_poly_indirect, pix).rgb * 0.015 * base_color.rgb;
 	colour += imageLoad(src_light_point_indirect, pix).rgb * 0.015 * base_color.rgb;

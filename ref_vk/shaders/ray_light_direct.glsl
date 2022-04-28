@@ -12,6 +12,7 @@ layout(set = 0, binding = 10, rgba32f) uniform readonly image2D first_position_t
 layout(set = 0, binding = 11, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 14, rgba8) uniform readonly image2D base_color_a;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -90,7 +91,12 @@ void main() {
 	const vec4 material_data = imageLoad(material_rmxx, pix);
 
 	MaterialProperties material;
-	material.baseColor = vec3(1.);
+	
+#ifdef GRAY_MATERIAL
+	material.baseColor = vec3(0.1);
+#else
+	material.baseColor = imageLoad(base_color_a, pix).rgb;
+#endif
 	material.emissive = vec3(0.f);
 	material.metalness = material_data.g;
 	material.roughness = material_data.r;
@@ -114,8 +120,7 @@ void main() {
 
 		// Can we see this texel from camera?
 		const float frunsum_theshold = 0.25;
-		if (dot(direction, pos - first_pos) > frunsum_theshold &&
-			dot(direction, pos - origin) > frunsum_theshold ) {
+		if (dot(direction, pos - origin) > frunsum_theshold ) {
 
 			const float nessesary_depth = length(origin - pos);
 			const float current_depth = length(origin - first_pos);
@@ -128,14 +133,23 @@ void main() {
 	}
 
 	if (lighting_is_reused == 0) {
-	#else
+#else
 	{
-	#endif // REUSE_SCREEN_LIGHTING
+#endif // REUSE_SCREEN_LIGHTING
 
 		vec3 geometry_normal, shading_normal;
 		readNormals(pix, geometry_normal, shading_normal);
+
 		const vec3 throughput = vec3(1.);
-		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
+
+#if PRIMARY_VIEW
+		const vec3 V = -direction;
+#else
+		const vec3 primary_pos = imageLoad(first_position_t, pix).xyz;
+		const vec3 V = normalize(primary_pos - pos);
+#endif
+
+		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
 
 	}
 

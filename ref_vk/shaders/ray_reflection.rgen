@@ -43,7 +43,7 @@ vec3 simpleRoughnessReflection(vec3 randomVec, vec3 viewDir, vec3 normal, float 
 	vec3 clear = reflect(viewDir, normal);
 	vec3 randomized = randomizedOnHemisphere(randomVec, normal);
 	float distribution = ggxNormalDistribution(dot(normal, viewDir), roughness);
-	return normalize(mix(clear, randomized, distribution));
+	return normalize(mix(clear, randomized, distribution * 0.5));
 }
 
 
