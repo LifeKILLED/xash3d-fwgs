@@ -20,6 +20,8 @@
 	X(11, light_poly_indirect) \
 	X(12, light_point_indirect) \
 	X(13, material_rmxx) \
+	X(14, refl_emissive) \
+	X(15, gi_emissive) \
 
 static const VkDescriptorSetLayoutBinding bindings[] = {
 #define BIND_IMAGE(index, name) \
