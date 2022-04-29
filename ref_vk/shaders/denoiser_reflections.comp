@@ -1,6 +1,7 @@
 #version 460
 
-#define USE_KERNEL_8_OPTIMIZED 1
+//#define USE_KERNEL_8_OPTIMIZED 1
+
 #include "noise.glsl"
 
 #include "utils.glsl"
@@ -27,8 +28,6 @@ layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_normals_
 //	return c * (1. + c / Cwhite2) / (1. + c);
 //}
 //
-//float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }
-//float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
 //
 //
 
@@ -49,6 +48,7 @@ void readReflNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 }
 
 
+
 void main() {
 	ivec2 res = ivec2(imageSize(src_specular_accum));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -62,34 +62,59 @@ void main() {
 	// on corners we just use fallback filter if samples is small count
 	// it's looks like we add little roughness and fixed black dots
 
+#ifdef USE_KERNEL_8_OPTIMIZED
 	float clean_sum = blur_kernel8_center_weight;
 	float fallback_sum = blur_kernel8_center_weight;
 	vec3 specular_clean = imageLoad(src_specular_accum, pix).rgb * clean_sum;
 	vec3 specular_fallback = specular_clean;
-	int clean_samples_count = 0;
+#else
+	vec3 specular_clean = vec3(0.);
+	vec3 specular_fallback = vec3(0.);
+	float clean_sum = 0.;
+	float fallback_sum = 0.;
+#endif
 
-	const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
-	vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
-	vec3 coneDirection = normalize(reflectionCone.xyz);
 	float roughness = imageLoad(src_material_rmxx, pix).r;
 
-	const float fallback_treshold = roughness * 0.25 + 0.05;
-	const float coneDotTreshold = max(reflectionCone.w, 0.7);
-	const float coneDotTresholdFallback = coneDotTreshold - fallback_treshold;
-	const float coneDotFalloff = mix(coneDotTreshold, 1., 0.2);
-	const float coneDotFalloffFallback = mix(coneDotTresholdFallback, 1., 0.2);
+	vec3 specular = vec3(0.);
+	int clean_samples_count = 0;
 
-//	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
-//	vec3 refl_shading_normal = vec3(0.), refl_geometry_normal = vec3(0.);
-//	readNormals(pix, geometry_normal, shading_normal);
+	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
+	vec3 refl_shading_normal = vec3(0.), refl_geometry_normal = vec3(0.);
+	vec3 current_shading_normal = vec3(0.), current_geometry_normal = vec3(0.);
+	readNormals(pix, geometry_normal, shading_normal);
 
 	if (roughness > 0.05) { // don't use for mirrors
+
+		const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
+		vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
+		vec3 coneDirection = normalize(reflectionCone.xyz);
+
+
+		const float fallback_treshold = roughness * 0.25 + 0.05;
+		const float coneDotTreshold = reflectionCone.w;
+		const float coneDotTresholdFallback = coneDotTreshold - fallback_treshold;
+		const float coneDotFalloff = mix(coneDotTreshold, 1., 0.2);
+		const float coneDotFalloffFallback = mix(coneDotTresholdFallback, 1., 0.2);
+#ifdef USE_KERNEL_8_OPTIMIZED
 		for (int i = 0; i < blur_kernel8_samples_count; i++) {
 			const ivec2 p = pix + blur_kernel8_offsets[i] * 2;
+#else
+		#define KERNEL_SIZE 8
+		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
+		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+			const ivec2 p = pix + ivec2(x, y) * 2;
+#endif
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;
 			}
+
+#ifdef USE_KERNEL_8_OPTIMIZED
 			const float weight = blur_kernel8_weights[i];
+#else
+			const float sigma = KERNEL_SIZE / 2.;
+			const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+#endif
 
 			// is in roughness cone?
 			const vec3 refl_pos = imageLoad(src_refl_position_t, p).xyz;
@@ -97,8 +122,11 @@ void main() {
 
 			if (currentDot <= coneDotTresholdFallback) continue;
 
-//			readReflNormals(pix, refl_geometry_normal, refl_shading_normal);
-//			if (dot(geometry_normal, refl_geometry_normal) < 0.7) continue;
+			//readReflNormals(p, refl_geometry_normal, refl_shading_normal);
+			//if (dot(coneDirection, refl_geometry_normal) > 0.) continue;
+
+			readNormals(p, current_geometry_normal, current_shading_normal);
+			if (dot(geometry_normal, current_geometry_normal) < 0.5) continue;
 
 			const vec3 current_specular = imageLoad(src_specular_accum, p).rgb * weight;
 
@@ -107,16 +135,23 @@ void main() {
 
 			if (currentDot <= coneDotTreshold) continue;
 
+			//const float rayLength = length(refl_pos - center_pos);
+			//const float lengthWeight = 1. / (rayLength * rayLength);
+
 			specular_clean += current_specular;
 			clean_sum += weight;
 			clean_samples_count++;
 		}
+
+		specular_clean /= float(clean_sum);
+		specular_fallback /= float(fallback_sum);
+
+		specular = clean_samples_count < 2 ? specular_fallback : specular_clean;
 	}
-
-	specular_clean /= float(clean_sum);
-	specular_fallback /= float(fallback_sum);
-
-	vec3 specular = clean_samples_count < 2 ? specular_fallback : specular_clean;
+	else
+	{
+		specular = imageLoad(src_specular_accum, pix).rgb; // mirror, don't need to denoise
+	}
 
 	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
 

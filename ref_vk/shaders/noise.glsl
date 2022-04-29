@@ -187,7 +187,7 @@ vec3 patternDirection(ivec2 pix) {
 
 vec3 controlledRandomDirection(ivec2 pix, vec3 rndVec) {
 	int id = pix.x % 4 + (pix.y % 4) * 4;
-	float dither_scale = 0.05; // 0.1 / 2.
+	float dither_scale = 0.1;
 	return normalize(points_on_sphere16x[id] + rndVec * dither_scale);
 }
 
