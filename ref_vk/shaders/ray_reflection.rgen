@@ -85,7 +85,9 @@ void main() {
 		origin, 0., normalize(direction), L,
 		PAYLOAD_LOCATION_PRIMARY);
 
-	imageStore(out_image_refl_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
+	float depth = length(view_origin - origin);
+
+	imageStore(out_image_refl_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(payload.hit_t.xyz, depth));
 	imageStore(out_image_refl_base_color_a, ivec2(gl_LaunchIDEXT.xy), SRGBtoLINEAR(payload.base_color_a));
 	imageStore(out_image_refl_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_refl_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);

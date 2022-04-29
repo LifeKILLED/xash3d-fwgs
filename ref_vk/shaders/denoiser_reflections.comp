@@ -1,0 +1,50 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_specular_denoised;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_specular_accum;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
+
+//
+//vec3 reinhard(vec3 color){
+//	return color / (color + 1.0);
+//}
+//
+//vec3 reinhard02(vec3 c, vec3 Cwhite2) {
+//	return c * (1. + c / Cwhite2) / (1. + c);
+//}
+//
+//float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }
+//float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
+//
+//
+
+//ivec2 UVToPix(vec2 uv, ivec2 res) {
+//	vec2 screen_uv = uv * 0.5 + vec2(0.5);
+//	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
+//}
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_specular_accum));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	vec3 specular = vec3(0.);
+
+	specular = imageLoad(src_specular_accum, pix).rgb;
+
+	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
+
+}

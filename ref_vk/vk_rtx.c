@@ -187,6 +187,9 @@ static struct {
 		struct ray_pass_s* light_indirect_poly;
 		struct ray_pass_s* light_indirect_point;
 		struct ray_pass_s* denoiser_accumulate;
+		struct ray_pass_s* denoiser_reflections;
+		struct ray_pass_s* denoiser_diffuse;
+		struct ray_pass_s* denoiser_compose;
 		struct ray_pass_s *denoiser;
 	} pass;
 
@@ -1099,7 +1102,10 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_poly, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_point, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_accumulate, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_reflections, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_diffuse, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
+	//RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
 
 	{
 		const xvk_blit_args blit_args = {
@@ -1170,6 +1176,9 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.light_indirect_poly, R_VkRayLightIndirectPolyPassCreate());
 		reloadPass( &g_rtx.pass.light_indirect_point, R_VkRayLightIndirectPointPassCreate());
 		reloadPass( &g_rtx.pass.denoiser_accumulate, R_VkRayDenoiserAccumulateCreate());
+		reloadPass( &g_rtx.pass.denoiser_reflections, R_VkRayDenoiserReflectionsCreate());
+		reloadPass( &g_rtx.pass.denoiser_diffuse, R_VkRayDenoiserDiffuseCreate());
+		reloadPass( &g_rtx.pass.denoiser_compose, R_VkRayDenoiserComposeCreate());
 		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
 
 		g_rtx.reload_pipeline = false;
@@ -1370,6 +1379,15 @@ qboolean VK_RayInit( void )
 	g_rtx.pass.denoiser_accumulate = R_VkRayDenoiserAccumulateCreate();
 	ASSERT(g_rtx.pass.denoiser_accumulate);
 
+	g_rtx.pass.denoiser_reflections = R_VkRayDenoiserReflectionsCreate();
+	ASSERT(g_rtx.pass.denoiser_reflections);
+
+	g_rtx.pass.denoiser_diffuse = R_VkRayDenoiserDiffuseCreate();
+	ASSERT(g_rtx.pass.denoiser_diffuse);
+
+	g_rtx.pass.denoiser_compose = R_VkRayDenoiserComposeCreate();
+	ASSERT(g_rtx.pass.denoiser_compose);
+
 	g_rtx.pass.denoiser = R_VkRayDenoiserCreate();
 	ASSERT(g_rtx.pass.denoiser);
 
@@ -1500,6 +1518,9 @@ void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
 	RayPassDestroy(g_rtx.pass.denoiser);
+	RayPassDestroy(g_rtx.pass.denoiser_compose);
+	RayPassDestroy(g_rtx.pass.denoiser_diffuse);
+	RayPassDestroy(g_rtx.pass.denoiser_reflections);
 	RayPassDestroy(g_rtx.pass.denoiser_accumulate);
 	RayPassDestroy(g_rtx.pass.light_indirect_point);
 	RayPassDestroy(g_rtx.pass.light_indirect_poly);

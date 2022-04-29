@@ -123,3 +123,163 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 
 	return RayPassCreateCompute(&rpcc);
 }
+
+
+	// PASS 2. REFLECTIONS
+
+#define LIST_OUTPUTS_REFL(X) \
+	X(0, specular_denoised) \
+
+#define LIST_INPUTS_REFL(X) \
+	X(1, specular_accum) \
+	X(2, position_t) \
+	X(3, refl_position_t) \
+	X(4, normals_gs) \
+	X(5, material_rmxx) \
+
+static const VkDescriptorSetLayoutBinding bindings_refl[] = {
+#define BIND_IMAGE(index, name) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
+	LIST_OUTPUTS_REFL(BIND_IMAGE)
+	LIST_INPUTS_REFL(BIND_IMAGE)
+#undef BIND_IMAGE
+};
+
+static const int semantics_refl[] = {
+#define IN(index, name, ...) (RayResource_##name + 1),
+#define OUT(index, name, ...) -(RayResource_##name + 1),
+	LIST_OUTPUTS_REFL(OUT)
+	LIST_INPUTS_REFL(IN)
+#undef IN
+#undef OUT
+};
+
+struct ray_pass_s* R_VkRayDenoiserReflectionsCreate(void) {
+	const ray_pass_create_compute_t rpcc = {
+		.debug_name = "denoiser reflections",
+		.layout = {
+			.bindings = bindings_refl,
+			.bindings_semantics = semantics_refl,
+			.bindings_count = COUNTOF(bindings_refl),
+			.push_constants = {0},
+		},
+		.shader = "denoiser_reflections.comp.spv",
+		.specialization = NULL,
+	};
+
+	return RayPassCreateCompute(&rpcc);
+}
+
+
+	// PASS 3. DIFFUSE
+
+#define LIST_OUTPUTS_DIFF(X) \
+	X(0, diffuse_denoised) \
+	X(1, gi_sh1_denoised) \
+	X(2, gi_sh2_denoised) \
+
+#define LIST_INPUTS_DIFF(X) \
+	X(3, diffuse_accum) \
+	X(4, gi_accum_sh1) \
+	X(5, gi_accum_sh2) \
+	X(6, position_t) \
+	X(7, normals_gs) \
+	X(8, refl_position_t) \
+
+static const VkDescriptorSetLayoutBinding bindings_diff[] = {
+#define BIND_IMAGE(index, name) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
+	LIST_OUTPUTS_DIFF(BIND_IMAGE)
+	LIST_INPUTS_DIFF(BIND_IMAGE)
+#undef BIND_IMAGE
+};
+
+static const int semantics_diff[] = {
+#define IN(index, name, ...) (RayResource_##name + 1),
+#define OUT(index, name, ...) -(RayResource_##name + 1),
+	LIST_OUTPUTS_DIFF(OUT)
+	LIST_INPUTS_DIFF(IN)
+#undef IN
+#undef OUT
+};
+
+struct ray_pass_s* R_VkRayDenoiserDiffuseCreate(void) {
+	const ray_pass_create_compute_t rpcc = {
+		.debug_name = "denoiser reflections",
+		.layout = {
+			.bindings = bindings_diff,
+			.bindings_semantics = semantics_diff,
+			.bindings_count = COUNTOF(bindings_diff),
+			.push_constants = {0},
+		},
+		.shader = "denoiser_diffuse.comp.spv",
+		.specialization = NULL,
+	};
+
+	return RayPassCreateCompute(&rpcc);
+}
+
+
+	// PASS 4. COMPOSE
+
+#define LIST_OUTPUTS_COMP(X) \
+	X(0, denoised) \
+
+#define LIST_INPUTS_COMP(X) \
+	X(1, base_color_a) \
+	X(2, emissive) \
+	X(3, position_t) \
+	X(4, normals_gs) \
+	X(5, material_rmxx) \
+	X(7, diffuse_denoised) \
+	X(6, specular_denoised) \
+	X(8, gi_sh1_denoised) \
+	X(9, gi_sh2_denoised) \
+
+static const VkDescriptorSetLayoutBinding bindings_comp[] = {
+#define BIND_IMAGE(index, name) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
+	LIST_OUTPUTS_COMP(BIND_IMAGE)
+	LIST_INPUTS_COMP(BIND_IMAGE)
+#undef BIND_IMAGE
+};
+
+static const int semantics_comp[] = {
+#define IN(index, name, ...) (RayResource_##name + 1),
+#define OUT(index, name, ...) -(RayResource_##name + 1),
+	LIST_OUTPUTS_COMP(OUT)
+	LIST_INPUTS_COMP(IN)
+#undef IN
+#undef OUT
+};
+
+struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
+	const ray_pass_create_compute_t rpcc = {
+		.debug_name = "denoiser compose",
+		.layout = {
+			.bindings = bindings_comp,
+			.bindings_semantics = semantics_comp,
+			.bindings_count = COUNTOF(bindings_comp),
+			.push_constants = {0},
+		},
+		.shader = "denoiser_compose.comp.spv",
+		.specialization = NULL,
+	};
+
+	return RayPassCreateCompute(&rpcc);
+}

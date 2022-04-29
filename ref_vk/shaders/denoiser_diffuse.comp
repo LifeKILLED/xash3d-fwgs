@@ -1,0 +1,60 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_denoised;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_gi_sh1_denoised;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh2_denoised;
+
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_diffuse_accum;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_gi_accum_sh1;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_gi_accum_sh2;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D src_refl_position_t; // depth stored in w coord
+
+//
+//vec3 reinhard(vec3 color){
+//	return color / (color + 1.0);
+//}
+//
+//vec3 reinhard02(vec3 c, vec3 Cwhite2) {
+//	return c * (1. + c / Cwhite2) / (1. + c);
+//}
+//
+//float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }
+//float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
+//
+//
+
+//ivec2 UVToPix(vec2 uv, ivec2 res) {
+//	vec2 screen_uv = uv * 0.5 + vec2(0.5);
+//	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
+//}
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_diffuse_accum));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	vec3 diffuse = vec3(0.);
+	vec4 gi_sh1 = vec4(0.);
+	vec2 gi_sh2 = vec2(0.);
+	float depth = imageLoad(src_refl_position_t, pix).w;
+
+	diffuse = imageLoad(src_diffuse_accum, pix).rgb;
+	gi_sh1 = imageLoad(src_gi_accum_sh1, pix);
+	gi_sh2 = imageLoad(src_gi_accum_sh2, pix).xy;
+
+	imageStore(out_diffuse_denoised, pix, vec4(diffuse, 0.));
+	imageStore(out_gi_sh1_denoised, pix, gi_sh1);
+	imageStore(out_gi_sh2_denoised, pix, vec4(gi_sh2, depth, 0.));
+
+}

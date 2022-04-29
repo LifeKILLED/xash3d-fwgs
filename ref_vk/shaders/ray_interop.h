@@ -103,6 +103,10 @@
 	X(-1, diffuse_accum, rgba16f) \
 	X(-1, gi_accum_sh1, rgba16f) \
 	X(-1, gi_accum_sh2, rgba16f) \
+	X(-1, specular_denoised, rgba16f) \
+	X(-1, diffuse_denoised, rgba16f) \
+	X(-1, gi_sh1_denoised, rgba16f) \
+	X(-1, gi_sh2_denoised, rgba16f) \
 
 
 #ifndef GLSL
