@@ -186,7 +186,7 @@ void main() {
 	diffuse = imageLoad(src_diffuse, pix).rgb;
 
 	// specular from point lights
-	specular += imageLoad(src_specular, pix).rgb;
+	specular = imageLoad(src_specular, pix).rgb;
 
 
 	// try to reconstruct pbr-like picture from all components
@@ -208,6 +208,8 @@ void main() {
 
 	// pbr
 	colour += mix(dielectric_colour, metal_colour, metalness);
+
+	colour = specular;
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness

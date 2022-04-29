@@ -34,6 +34,7 @@
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_emissive, rgba16f) \
+	X(14, refl_dir_dot, rgba16f) \
 
 
 

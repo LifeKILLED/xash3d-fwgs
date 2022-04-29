@@ -1,6 +1,8 @@
 #version 460
 
+#define USE_KERNEL_8_OPTIMIZED 1
 #include "noise.glsl"
+
 #include "utils.glsl"
 #include "denoiser_tools.glsl"
 
@@ -13,6 +15,8 @@ layout(set = 0, binding = 2, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 3, rgba32f) uniform readonly image2D src_refl_position_t;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_refl_dir_dot;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_normals_gs;
 
 //
 //vec3 reinhard(vec3 color){
@@ -32,6 +36,18 @@ layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
 //	vec2 screen_uv = uv * 0.5 + vec2(0.5);
 //	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
 //}
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+void readReflNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_refl_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
 
 void main() {
 	ivec2 res = ivec2(imageSize(src_specular_accum));
@@ -41,9 +57,66 @@ void main() {
 		return;
 	}
 
-	vec3 specular = vec3(0.);
+	// clean reflections filter get only texels from roughness cone
+	// fallback reflections get little more than roughness cone
+	// on corners we just use fallback filter if samples is small count
+	// it's looks like we add little roughness and fixed black dots
 
-	specular = imageLoad(src_specular_accum, pix).rgb;
+	float clean_sum = blur_kernel8_center_weight;
+	float fallback_sum = blur_kernel8_center_weight;
+	vec3 specular_clean = imageLoad(src_specular_accum, pix).rgb * clean_sum;
+	vec3 specular_fallback = specular_clean;
+	int clean_samples_count = 0;
+
+	const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
+	vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
+	vec3 coneDirection = normalize(reflectionCone.xyz);
+	float roughness = imageLoad(src_material_rmxx, pix).r;
+
+	const float fallback_treshold = roughness * 0.25 + 0.05;
+	const float coneDotTreshold = max(reflectionCone.w, 0.7);
+	const float coneDotTresholdFallback = coneDotTreshold - fallback_treshold;
+	const float coneDotFalloff = mix(coneDotTreshold, 1., 0.2);
+	const float coneDotFalloffFallback = mix(coneDotTresholdFallback, 1., 0.2);
+
+//	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
+//	vec3 refl_shading_normal = vec3(0.), refl_geometry_normal = vec3(0.);
+//	readNormals(pix, geometry_normal, shading_normal);
+
+	if (roughness > 0.05) { // don't use for mirrors
+		for (int i = 0; i < blur_kernel8_samples_count; i++) {
+			const ivec2 p = pix + blur_kernel8_offsets[i] * 2;
+			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+				continue;
+			}
+			const float weight = blur_kernel8_weights[i];
+
+			// is in roughness cone?
+			const vec3 refl_pos = imageLoad(src_refl_position_t, p).xyz;
+			const float currentDot = dot(coneDirection, normalize(refl_pos - center_pos));
+
+			if (currentDot <= coneDotTresholdFallback) continue;
+
+//			readReflNormals(pix, refl_geometry_normal, refl_shading_normal);
+//			if (dot(geometry_normal, refl_geometry_normal) < 0.7) continue;
+
+			const vec3 current_specular = imageLoad(src_specular_accum, p).rgb * weight;
+
+			specular_fallback += current_specular;
+			fallback_sum += weight;
+
+			if (currentDot <= coneDotTreshold) continue;
+
+			specular_clean += current_specular;
+			clean_sum += weight;
+			clean_samples_count++;
+		}
+	}
+
+	specular_clean /= float(clean_sum);
+	specular_fallback /= float(fallback_sum);
+
+	vec3 specular = clean_samples_count < 2 ? specular_fallback : specular_clean;
 
 	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
 

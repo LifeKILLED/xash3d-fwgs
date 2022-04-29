@@ -112,8 +112,8 @@ void main() {
 	}
 
 //	// specular from lighting
-//	reflection +=	imageLoad(src_light_direct_point_specular, pix).rgb +
-//					imageLoad(src_light_direct_poly_specular, pix).rgb;
+	reflection +=	imageLoad(src_light_direct_point_specular, pix).rgb +
+					imageLoad(src_light_direct_poly_specular, pix).rgb;
 
 	reflection += imageLoad(src_refl_emissive, pix).rgb;
 

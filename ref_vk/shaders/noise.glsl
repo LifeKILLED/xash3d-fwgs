@@ -157,4 +157,38 @@ vec3 rand3_f01(uvec3 seed) {
     uvec3 v = pcg3d(seed);
     return vec3(uintToFloat01(v.x), uintToFloat01(v.y), uintToFloat01(v.z));
 }
+
+// uniformity spaced points on sphere, not normalized
+// distance between points nearly to 0.1 (use this for dither)
+const vec3 points_on_sphere16x[16] = {
+vec3(.2, .1, .99),
+vec3(.05, .2, -.99),
+vec3(-.7, -.78, -.15),
+vec3(.64, .76, .45),
+vec3(.24, -.99, -.25),
+vec3(-.22, .65, .8),
+vec3(.84, -.23, -.62),
+vec3(-.89, -.05, -.6),
+vec3(.83, -.52, .47),
+vec3(-.9, -.18, .62),
+vec3(-.08, .99, -.05),
+vec3(-.26, -.71, -.73),
+vec3(.99, .29, .12),
+vec3(-.79, .77, -.14),
+vec3(-.15, -.71, .79),
+vec3(.71, .6, -.5)
+};
+
+
+vec3 patternDirection(ivec2 pix) {
+	int id = pix.x % 4 + (pix.y % 4) * 4;
+	return normalize(points_on_sphere16x[id]);
+}
+
+vec3 controlledRandomDirection(ivec2 pix, vec3 rndVec) {
+	int id = pix.x % 4 + (pix.y % 4) * 4;
+	float dither_scale = 0.05; // 0.1 / 2.
+	return normalize(points_on_sphere16x[id] + rndVec * dither_scale);
+}
+
 #endif // NOISE_GLSL_INCLUDED
