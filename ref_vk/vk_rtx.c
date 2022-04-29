@@ -109,6 +109,7 @@ RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
 RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
 RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
 RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+RAY_DENOISER_TEXTURES(X)
 #undef X
 
 	xvk_image_t diffuse_gi;
@@ -185,6 +186,7 @@ static struct {
 		struct ray_pass_s* light_reflect_point;
 		struct ray_pass_s* light_indirect_poly;
 		struct ray_pass_s* light_indirect_point;
+		struct ray_pass_s* denoiser_accumulate;
 		struct ray_pass_s *denoiser;
 	} pass;
 
@@ -1058,6 +1060,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 			RAY_LIGHT_REFLECT_POINT_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_INDIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_INDIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_DENOISER_TEXTURES(RES_SET_IMAGE)
 			RES_SET_IMAGE(-1, denoised)
 #undef RES_SET_IMAGE
 		},
@@ -1095,6 +1098,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_reflect_point, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_poly, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_point, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_accumulate, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
 
 	{
@@ -1165,6 +1169,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.light_reflect_point, R_VkRayLightReflectPointPassCreate());
 		reloadPass( &g_rtx.pass.light_indirect_poly, R_VkRayLightIndirectPolyPassCreate());
 		reloadPass( &g_rtx.pass.light_indirect_point, R_VkRayLightIndirectPointPassCreate());
+		reloadPass( &g_rtx.pass.denoiser_accumulate, R_VkRayDenoiserAccumulateCreate());
 		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
 
 		g_rtx.reload_pipeline = false;
@@ -1362,6 +1367,9 @@ qboolean VK_RayInit( void )
 	g_rtx.pass.light_indirect_point = R_VkRayLightIndirectPointPassCreate();
 	ASSERT(g_rtx.pass.light_indirect_point);
 
+	g_rtx.pass.denoiser_accumulate = R_VkRayDenoiserAccumulateCreate();
+	ASSERT(g_rtx.pass.denoiser_accumulate);
+
 	g_rtx.pass.denoiser = R_VkRayDenoiserCreate();
 	ASSERT(g_rtx.pass.denoiser);
 
@@ -1470,6 +1478,7 @@ qboolean VK_RayInit( void )
 		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+		RAY_DENOISER_TEXTURES(X)
 #undef X
 #undef rgba8
 #undef rgba32f
@@ -1491,6 +1500,7 @@ void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
 	RayPassDestroy(g_rtx.pass.denoiser);
+	RayPassDestroy(g_rtx.pass.denoiser_accumulate);
 	RayPassDestroy(g_rtx.pass.light_indirect_point);
 	RayPassDestroy(g_rtx.pass.light_indirect_poly);
 	RayPassDestroy(g_rtx.pass.light_reflect_point);
@@ -1513,6 +1523,7 @@ void VK_RayShutdown( void ) {
 		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+		RAY_DENOISER_TEXTURES(X)
 #undef X
 		XVK_ImageDestroy(&g_rtx.frames[i].diffuse_gi);
 		XVK_ImageDestroy(&g_rtx.frames[i].specular);

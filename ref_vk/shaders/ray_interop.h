@@ -48,6 +48,7 @@
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_emissive, rgba16f) \
+	X(15, gi_direction, rgba16f) \
 
 
 
@@ -95,6 +96,13 @@
 
 #define RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X) \
 	X(20, light_point_indirect, rgba16f) \
+
+
+#define RAY_DENOISER_TEXTURES(X) \
+	X(-1, specular_accum, rgba16f) \
+	X(-1, diffuse_accum, rgba16f) \
+	X(-1, gi_accum_sh1, rgba16f) \
+	X(-1, gi_accum_sh2, rgba16f) \
 
 
 #ifndef GLSL

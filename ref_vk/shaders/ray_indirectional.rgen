@@ -81,4 +81,5 @@ void main() {
 	imageStore(out_image_gi_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_gi_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_gi_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+	imageStore(out_image_gi_direction, ivec2(gl_LaunchIDEXT.xy), vec4(normalize(payload.hit_t.xyz - origin), material_data.g));
 }
