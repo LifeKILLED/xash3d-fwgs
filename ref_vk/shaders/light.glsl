@@ -20,7 +20,7 @@ const float shadow_offset_fudge = .1;
 #if LIGHT_POINT
 void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
-	vec3 rndVec = normalize(vec3(rand01(), rand01(), rand01()));
+	const vec3 shadow_sample_offset = normalize(vec3(rand01(), rand01(), rand01()) - vec3(.5));
 	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
 	for (uint j = 0; j < num_point_lights; ++j) {
 
@@ -98,13 +98,16 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		if (dot(combined,combined) < color_culling_threshold)
 			continue;
 
-		// FIXME split environment and other lights
+		const float shadow_sample_radius = not_environment ? radius : 1000.;
+		const vec3 shadow_sample_dir = light_dir_norm * light_dist + shadow_sample_offset * shadow_sample_radius;
 		if (not_environment) {
-			if (shadowed(P + rndVec * radius, light_dir_norm, light_dist + shadow_offset_fudge))
+			//if (shadowed(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowed(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				continue;
 		} else {
 			// for environment light check that we've hit SURF_SKY
-			if (shadowedSky(P + rndVec * 10., light_dir_norm, light_dist + shadow_offset_fudge))
+			//if (shadowedSky(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowedSky(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				continue;
 		}
 
