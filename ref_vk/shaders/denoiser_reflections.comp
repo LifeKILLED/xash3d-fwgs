@@ -1,6 +1,7 @@
 #version 460
 
 //#define USE_KERNEL_8_OPTIMIZED 1
+#define KERNEL_SIZE 8
 
 #include "noise.glsl"
 
@@ -100,10 +101,9 @@ void main() {
 		for (int i = 0; i < blur_kernel8_samples_count; i++) {
 			const ivec2 p = pix + blur_kernel8_offsets[i] * 2;
 #else
-		#define KERNEL_SIZE 8
 		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
 		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y) * 2;
+			const ivec2 p = pix + ivec2(x, y) * 3;
 #endif
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;
@@ -126,7 +126,7 @@ void main() {
 			//if (dot(coneDirection, refl_geometry_normal) > 0.) continue;
 
 			readNormals(p, current_geometry_normal, current_shading_normal);
-			if (dot(geometry_normal, current_geometry_normal) < 0.5) continue;
+			if (dot(geometry_normal, current_geometry_normal) < 0.77) continue;
 
 			const vec3 current_specular = imageLoad(src_specular_accum, p).rgb * weight;
 
@@ -135,8 +135,8 @@ void main() {
 
 			if (currentDot <= coneDotTreshold) continue;
 
-			//const float rayLength = length(refl_pos - center_pos);
-			//const float lengthWeight = 1. / (rayLength * rayLength);
+			const float rayLength = length(refl_pos - center_pos);
+			const float lengthWeight = 1. / max(rayLength, 3.0);
 
 			specular_clean += current_specular;
 			clean_sum += weight;
@@ -146,7 +146,7 @@ void main() {
 		specular_clean /= float(clean_sum);
 		specular_fallback /= float(fallback_sum);
 
-		specular = clean_samples_count < 2 ? specular_fallback : specular_clean;
+		specular = clean_samples_count < 4 ? specular_fallback : specular_clean;
 	}
 	else
 	{

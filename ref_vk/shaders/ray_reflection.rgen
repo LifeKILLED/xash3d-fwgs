@@ -75,9 +75,9 @@ void main() {
 
 	const vec4 material_data = imageLoad(src_image_material_rmxx, pix);
 
-	const vec3 randomVec = vec3(rand01(), rand01(), rand01()) * 2.0 - vec3(1.0);
-
-	const vec3 u = controlledRandomDirection(pix, randomVec);
+	// true pseudo-random used only like dithering for two levels of fixed pattern-based directions
+	const vec3 randomVec = vec3(rand01(), rand01(), rand01()) * - vec3(0.5);
+	const vec3 u = controlledRandomDirection(pix, controlledRandomDirection(pix/4, randomVec * 8.).yzx * 4.);
 
 	vec3 direction = simpleRoughnessReflection(u, view_dir, shading_normal, material_data.r);
 
