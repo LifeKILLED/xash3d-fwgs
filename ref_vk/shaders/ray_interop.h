@@ -110,6 +110,11 @@
 	X(-1, gi_sh2_denoised, rgba16f) \
 
 
+// If default textures loading function is changed in sources,
+// this ID can be changed, look new ID in engine logs
+#define BLUE_NOISE_TEX_ID 6
+#define BLUE_NOISE_TEX_RESOLUTION 64
+
 #ifndef GLSL
 #include "xash3d_types.h"
 #define MAX_EMISSIVE_KUSOCHKI 256

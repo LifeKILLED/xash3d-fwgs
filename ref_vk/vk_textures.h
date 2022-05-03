@@ -38,6 +38,7 @@ typedef struct vk_textures_global_s
 	int		lightmapTextures[MAX_LIGHTMAPS];
 	int		dlightTexture;	// custom dlight texture
 	int		cinTexture;      	// cinematic texture
+	int		blueNoiseTexture; // for raytracing sampling
 
 	int		skytexturenum;	// this not a gl_texturenum!
 	int		skyboxbasenum;	// start with 5800 FIXME remove this, lewa says this is a GL1 hack

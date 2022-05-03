@@ -18,6 +18,9 @@ RAY_REFLECTION_OUTPUTS(X)
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
 
+// TODO: only for one texture, but... too many dependencies on adding more descriptors
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+
 layout(location = PAYLOAD_LOCATION_PRIMARY) rayPayloadEXT RayPayloadPrimary payload;
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
@@ -75,9 +78,14 @@ void main() {
 
 	const vec4 material_data = imageLoad(src_image_material_rmxx, pix);
 
+	// sample blue noise
+	vec2 blue_noise_uv = vec2(pix % BLUE_NOISE_TEX_RESOLUTION) / vec2(BLUE_NOISE_TEX_RESOLUTION);
+	vec4 blue_noise = texture(textures[BLUE_NOISE_TEX_ID], blue_noise_uv);
+	const vec3 u = normalize(blue_noise.rgb - vec3(.5));
+
 	// true pseudo-random used only like dithering for two levels of fixed pattern-based directions
-	const vec3 randomVec = vec3(rand01(), rand01(), rand01()) * - vec3(0.5);
-	const vec3 u = controlledRandomDirection(pix, controlledRandomDirection(pix/4, randomVec * 8.).yzx * 4.);
+	//const vec3 randomVec = vec3(rand01(), rand01(), rand01()) * - vec3(0.5);
+	//const vec3 u = controlledRandomDirection(pix, controlledRandomDirection(pix/4, randomVec * 8.).yzx * 4.);
 
 	vec3 direction = simpleRoughnessReflection(u, view_dir, shading_normal, material_data.r);
 
