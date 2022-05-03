@@ -20,6 +20,8 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
+	X(15, blue_noise, rgba8) \
+
 
 
 
@@ -30,11 +32,11 @@
 
 #define RAY_REFLECTION_OUTPUTS(X) \
 	X(10, refl_base_color_a, rgba8) \
-	X(11, refl_position_t, rgba32f) \
+	X(11, refl_position_t, rgba16f) \
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_emissive, rgba16f) \
-	X(14, refl_dir_dot, rgba16f) \
+	X(15, refl_dir_dot, rgba16f) \
 
 
 
@@ -43,13 +45,15 @@
 	X(21, normals_gs, rgba16f) \
 	X(22, material_rmxx, rgba8) \
 
+	//X(23, blue_noise, rgba8) \
+
 #define RAY_INDIRECTIONAL_OUTPUTS(X) \
 	X(10, gi_base_color_a, rgba8) \
-	X(11, gi_position_t, rgba32f) \
+	X(11, gi_position_t, rgba16f) \
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_emissive, rgba16f) \
-	X(15, gi_direction, rgba16f) \
+	X(15, gi_direction, rgba8) \
 
 
 
@@ -72,7 +76,7 @@
 
 #define RAY_LIGHT_REFLECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
-	X(11, refl_position_t, rgba32f) \
+	X(11, refl_position_t, rgba16f) \
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_base_color_a, rgba8) \
@@ -87,7 +91,7 @@
 
 #define RAY_LIGHT_INDIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
-	X(11, gi_position_t, rgba32f) \
+	X(11, gi_position_t, rgba16f) \
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_base_color_a, rgba8) \

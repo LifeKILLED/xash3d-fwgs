@@ -16,8 +16,8 @@ layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
 
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_diffuse;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_specular;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D gi_sh1;
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D gi_sh2;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_gi_sh1;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_gi_sh2;
 
 
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
@@ -234,6 +234,8 @@ void main() {
 #if 0
 	}
 #endif
+
+	//colour = colour  * 0.2 + vec4(imageLoad(src_blue_noise, ivec2(pix.x % 64, pix.y % 64))).rgb;
 
 	imageStore(dest, pix, vec4(colour, 0.));
 	//imageStore(dest, pix, imageLoad(src_light_direct_poly, pix));

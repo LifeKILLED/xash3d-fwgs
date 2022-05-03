@@ -1,7 +1,7 @@
 #version 460
 
 //#define USE_KERNEL_8_OPTIMIZED 1
-#define KERNEL_SIZE 8
+#define KERNEL_SIZE 4
 
 #include "noise.glsl"
 
@@ -14,7 +14,7 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D out_specular_denoised;
 
 layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_specular_accum;
 layout(set = 0, binding = 2, rgba32f) uniform readonly image2D src_position_t;
-layout(set = 0, binding = 3, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_refl_position_t;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_refl_dir_dot;
@@ -85,7 +85,8 @@ void main() {
 	vec3 current_shading_normal = vec3(0.), current_geometry_normal = vec3(0.);
 	readNormals(pix, geometry_normal, shading_normal);
 
-	if (roughness > 0.05) { // don't use for mirrors
+	if (false) { // TEST
+	//if (roughness > 0.05) { // don't use for mirrors
 
 		const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
 		vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
@@ -103,7 +104,7 @@ void main() {
 #else
 		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
 		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y) * 3;
+			const ivec2 p = pix + ivec2(x, y);
 #endif
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;

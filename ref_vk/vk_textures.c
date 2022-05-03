@@ -192,7 +192,7 @@ static rgbdata_t* Common_ByteArrayImage(int width, int height, byte *data2D, int
 	r_image.flags = flags;
 	r_image.type = PF_RGBA_32;
 	r_image.size = r_image.width * r_image.height * r_image.depth * 4;
-	r_image.buffer = (r_image.size > sizeof(data2D)) ? NULL : data2D;
+	r_image.buffer = data2D;
 	r_image.palette = NULL;
 	r_image.numMips = 1;
 	r_image.encode = 0;
@@ -329,7 +329,7 @@ static void VK_CreateInternalTextures( void )
 	tglob.cinTexture = VK_LoadTextureInternal( "*cintexture", pic, TF_NOMIPMAP|TF_CLAMP );
 
 	// blue noise
-	pic = Common_ByteArrayImage(64, 64, (byte*)blue_noise_rgba8_64x64, 1, IMAGE_HAS_COLOR | IMAGE_HAS_ALPHA | IMAGE_FORCE_RGBA);
+	pic = Common_ByteArrayImage(64, 64, (byte*)blue_noise_rgba8_64x64, 1, IMAGE_HAS_COLOR | IMAGE_HAS_ALPHA);
 	tglob.blueNoiseTexture = VK_LoadTextureInternal("blue_noise", pic, TF_NOMIPMAP | TF_CLAMP | TF_COLORMAP);
 	gEngine.Con_Printf("Blue noise texture ID is %d, put this in shaders\n", tglob.blueNoiseTexture);
 

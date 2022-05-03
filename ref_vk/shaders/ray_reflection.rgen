@@ -79,7 +79,7 @@ void main() {
 	const vec4 material_data = imageLoad(src_image_material_rmxx, pix);
 
 	// sample blue noise
-	vec2 blue_noise_uv = vec2(pix % BLUE_NOISE_TEX_RESOLUTION) / vec2(BLUE_NOISE_TEX_RESOLUTION);
+	vec2 blue_noise_uv = vec2(pix % ivec2(BLUE_NOISE_TEX_RESOLUTION)) / vec2(BLUE_NOISE_TEX_RESOLUTION);
 	vec4 blue_noise = texture(textures[BLUE_NOISE_TEX_ID], blue_noise_uv);
 	const vec3 u = normalize(blue_noise.rgb - vec3(.5));
 
@@ -124,7 +124,8 @@ void main() {
 	}
 
 	imageStore(out_image_refl_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(payload.hit_t.xyz, depth));
-	imageStore(out_image_refl_base_color_a, ivec2(gl_LaunchIDEXT.xy), SRGBtoLINEAR(payload.base_color_a));
+	//imageStore(out_image_refl_base_color_a, ivec2(gl_LaunchIDEXT.xy), SRGBtoLINEAR(payload.base_color_a));
+	imageStore(out_image_refl_base_color_a, ivec2(gl_LaunchIDEXT.xy), blue_noise);
 	imageStore(out_image_refl_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_refl_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_refl_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);

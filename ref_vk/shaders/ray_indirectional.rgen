@@ -78,10 +78,12 @@ void main() {
 		origin, 0., normalize(direction), L,
 		PAYLOAD_LOCATION_PRIMARY);
 
+	vec3 gi_direction_01 = normalize(payload.hit_t.xyz - origin) * 0.47 + vec3(0.5);
+
 	imageStore(out_image_gi_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
 	imageStore(out_image_gi_base_color_a, ivec2(gl_LaunchIDEXT.xy), SRGBtoLINEAR(payload.base_color_a));
 	imageStore(out_image_gi_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_gi_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_gi_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
-	imageStore(out_image_gi_direction, ivec2(gl_LaunchIDEXT.xy), vec4(normalize(payload.hit_t.xyz - origin), material_data.g));
+	imageStore(out_image_gi_direction, ivec2(gl_LaunchIDEXT.xy), vec4(gi_direction_01, material_data.g));
 }
