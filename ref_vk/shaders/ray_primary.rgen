@@ -50,5 +50,6 @@ void main() {
 	imageStore(out_image_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+	imageStore(out_image_search_info_ktuv, ivec2(gl_LaunchIDEXT.xy), payload.search_info_ktuv);
 	//imageStore(out_image_blue_noise, ivec2(gl_LaunchIDEXT.xy), blue_noise);
 }

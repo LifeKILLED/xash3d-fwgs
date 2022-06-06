@@ -995,7 +995,7 @@ static void blitImage( const xvk_blit_args *blit_args ) {
 	}
 }
 
-vk_ray_frame_render_args_t* last_frame_args = 0;
+
 static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int frame_index, float fov_angle_y) {
 	struct UniformBuffer *ubo = (struct UniformBuffer*)((char*)g_rtx.uniform_buffer.mapped + frame_index * g_rtx.uniform_unit_size);
 
@@ -1009,20 +1009,16 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 	Matrix4x4_ToArrayFloatGL(view_inv, (float*)ubo->inv_view);
 
 	// last frame matrices
-	if (last_frame_args != 0) {
-		vk_ray_frame_render_args_t* last_args = last_frame_args;
-		matrix4x4 last_proj_inv, last_view_inv;
-		matrix4x4 last_proj, last_view;
-		Matrix4x4_Invert_Full(last_proj_inv, *last_args->projection);
-		Matrix4x4_ToArrayFloatGL(last_proj_inv, (float*)ubo->last_inv_proj);
-		Matrix4x4_ToArrayFloatGL(*last_args->projection, (float*)ubo->last_proj);
-
-		Matrix4x4_Invert_Full(last_view_inv, *last_args->view);
-		Matrix4x4_ToArrayFloatGL(last_view_inv, (float*)ubo->last_inv_view);
-		Matrix4x4_ToArrayFloatGL(*last_args->view, (float*)ubo->last_view);
-	}
-
-	last_frame_args = (vk_ray_frame_render_args_t*)args;
+	static matrix4x4 last_proj, last_view;
+	matrix4x4 last_proj_inv, last_view_inv;
+	Matrix4x4_Invert_Full(last_proj_inv, last_proj);
+	Matrix4x4_ToArrayFloatGL(last_proj_inv, (float*)ubo->last_inv_proj);
+	Matrix4x4_ToArrayFloatGL(last_proj, (float*)ubo->last_proj);
+	Matrix4x4_Invert_Full(last_view_inv, last_view);
+	Matrix4x4_ToArrayFloatGL(last_view_inv, (float*)ubo->last_inv_view);
+	Matrix4x4_ToArrayFloatGL(last_view, (float*)ubo->last_view);
+	Matrix4x4_Copy(last_view, *args->view);
+	Matrix4x4_Copy(last_proj, *args->projection);
 
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);

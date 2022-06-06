@@ -13,7 +13,7 @@ static const xvk_material_t k_default_material = {
 		.tex_roughness = 0,
 		.tex_normalmap = 0,
 
-		.metalness = 0.f,
+		.metalness = 0.2f,
 		.roughness = 0.3f,
 		.base_color = { 1.f, 1.f, 1.f },
 

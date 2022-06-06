@@ -172,7 +172,7 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	const vec3 origin = imageLoad(src_image_position_t, pix).xyz;
+	const vec3 origin = imageLoad(src_image_position_t, pix).xyz + geometry_normal;
 
 	const vec4 material_data = imageLoad(src_image_material_rmxx, pix);
 
@@ -213,7 +213,12 @@ void main() {
 //	//const vec3 microfacet = shading_normal;
 //
 ////	if (dot(microfacet, view_dir) < 0.) {
-		direction = reflect(view_dir, microfacet);
+	direction = reflect(view_dir, microfacet);
+
+	float coplanar = dot(geometry_normal, direction);
+	if (coplanar < 0.) {
+		direction += geometry_normal * (coplanar * -2.);
+	}
 
 
 

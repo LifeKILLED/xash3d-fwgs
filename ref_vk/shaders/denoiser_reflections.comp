@@ -114,9 +114,6 @@ void main() {
 	//if (false) {
 	if (roughness > 0.05) { // don't use for mirrors
 
-
-
-
 		float weightPow = 1. / (roughness * roughness);
 		float dotTreshold = 0.3;
 
@@ -132,7 +129,7 @@ void main() {
 				const float currentDot = dot(coneDirection, normalize(refl_pos - center_pos));
 				const float rayLength = length(refl_pos - center_pos);
 
-				const float sigma = blur_strengh * KERNEL_SIZE / 2.;
+				const float sigma = max(blur_strengh * KERNEL_SIZE / 2., 1.);
 				const float weight = normpdf(x, sigma) * normpdf(y, sigma);
 
 				if (currentDot <= dotTreshold) continue;
@@ -151,72 +148,40 @@ void main() {
 		specular_clean /= clean_sum;
 		specular = specular_clean;
 
-/*
-		const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
-		vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
-		vec3 coneDirection = normalize(reflectionCone.xyz);
-
-
-		const float fallback_treshold = roughness * 0.25 + 0.05;
-		const float coneDotTreshold = reflectionCone.w;
-		const float coneDotTresholdFallback = coneDotTreshold - fallback_treshold;
-		const float coneDotFalloff = mix(coneDotTreshold, 1., 0.2);
-		const float coneDotFalloffFallback = mix(coneDotTresholdFallback, 1., 0.2);
-#ifdef USE_KERNEL_8_OPTIMIZED
-		for (int i = 0; i < blur_kernel8_samples_count; i++) {
-			const ivec2 p = pix + blur_kernel8_offsets[i] * 2;
-#else
-		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
-		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y) * 2;
-#endif
-			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-				continue;
-			}
-
-#ifdef USE_KERNEL_8_OPTIMIZED
-			const float weight = blur_kernel8_weights[i];
-#else
-			const float sigma = KERNEL_SIZE / 2.;
-			const float weight = normpdf(x, sigma) * normpdf(y, sigma);
-#endif
-
-			// is in roughness cone?
-			const vec3 refl_pos = imageLoad(src_refl_position_t, p).xyz;
-			const float currentDot = dot(coneDirection, normalize(refl_pos - center_pos));
-
-			if (currentDot <= coneDotTresholdFallback) continue;
-
-			//readReflNormals(p, refl_geometry_normal, refl_shading_normal);
-			//if (dot(coneDirection, refl_geometry_normal) > 0.) continue;
-
-			readNormals(p, current_geometry_normal, current_shading_normal);
-			if (dot(geometry_normal, current_geometry_normal) < 0.77) continue;
-
-			const vec3 current_specular = imageLoad(src_specular_accum, p).rgb * weight;
-
-			specular_fallback += current_specular;
-			fallback_sum += weight;
-
-			if (currentDot <= coneDotTreshold) continue;
-
-			const float rayLength = length(refl_pos - center_pos);
-			const float lengthWeight = 1. / max(rayLength, 3.0);
-
-			specular_clean += current_specular;
-			clean_sum += weight;
-			clean_samples_count++;
-		}
-
-		specular_clean /= float(clean_sum);
-		specular_fallback /= float(fallback_sum);
-
-		specular = clean_samples_count < 4 ? specular_fallback : specular_clean;*/
+//		if (clean_sum > 1.5) {
+//			const int LOW_KERNEL_SIZE = 2;
+//			float weight_sum = 0.;
+//			vec3 blurred_specular_sum = vec3(0.);
+//			for (int x = -LOW_KERNEL_SIZE; x <= LOW_KERNEL_SIZE; ++x) {
+//				for (int y = -LOW_KERNEL_SIZE; y <= LOW_KERNEL_SIZE; ++y) {
+//					const ivec2 p = pix + ivec2(x, y);
+//					if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//						continue;
+//					}
+//
+//					const float sigma = LOW_KERNEL_SIZE / 2.;
+//					const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+//
+//					vec3 current_geometry_normal, current_shading_normal;
+//					readNormals(p, current_geometry_normal, current_shading_normal);
+//					if (dot(geometry_normal, current_geometry_normal) < 0.77) continue;
+//
+//					const vec3 current_specular = imageLoad(src_specular_accum, p).rgb;
+//
+//					blurred_specular_sum += current_specular * weight;
+//					weight_sum += weight;
+//				}
+//	
+//				specular = blurred_specular_sum / weight_sum;
+//			}
+//		}
 	}
 	else
 	{
 		specular = imageLoad(src_specular_accum, pix).rgb; // mirror, don't need to denoise
 	}
+
+
 
 	
 	const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
@@ -227,7 +192,10 @@ void main() {
 	if (motion_offset.x > -99.) {
 		const ivec2 last_pix = UVToPix(motion_offset, res);
 		const vec3 last_specular = imageLoad(src_last_reflection, last_pix).xyz;
-		specular = clamp(mix(specular, last_specular, 0.9), 0., 1.3);
+
+		float specular_difference = 1. - smoothstep(0.5, 1.0, length(last_specular - specular));
+
+		specular = clamp(mix(specular, last_specular, specular_difference * 0.8), 0., 5.0);
 	}
 	//specular = dot(view_dir, shading_normal) * vec3(1.);
 

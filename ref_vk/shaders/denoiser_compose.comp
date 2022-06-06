@@ -196,7 +196,7 @@ void main() {
 	// pbr
 	colour += PBRMix(base_color, diffuse, specular, metalness);
 
-	colour = specular;
+	//colour = specular;
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
