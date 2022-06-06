@@ -3,6 +3,7 @@
 #include "noise.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
+#include "denoiser_tools.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -53,8 +54,6 @@ vec3 reinhard02(vec3 c, vec3 Cwhite2) {
 	return c * (1. + c / Cwhite2) / (1. + c);
 }
 
-float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }
-float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
@@ -62,10 +61,6 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	shading_normal = normalDecode(n.zw);
 }
 
-ivec2 UVToPix(vec2 uv, ivec2 res) {
-	vec2 screen_uv = uv * 0.5 + vec2(0.5);
-	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
-}
 
 void main() {
 	ivec2 res = ivec2(imageSize(src_base_color));
@@ -180,7 +175,8 @@ void main() {
 	colour += imageLoad(src_emissive, pix).rgb;
 
 	// albedo
-	const vec4 base_color = imageLoad(src_base_color, pix);
+	const vec4 base_color_a = imageLoad(src_base_color, pix);
+	const vec3 base_color = SRGBtoLINEAR(base_color_a.rgb);
 
 	// gray material diffuse component
 	diffuse = imageLoad(src_diffuse, pix).rgb;
@@ -191,23 +187,14 @@ void main() {
 
 	// try to reconstruct pbr-like picture from all components
 	float metalness = imageLoad(src_material_rmxx, pix).g;
-	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
-	float specular_level = pow(grayscale, 0.45); // fake specular map
+//	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
+//	float specular_level = pow(grayscale, 0.45); // fake specular map
 
 	// global illumination
 	vec3 global_illumination =	vec3(0.);
 
-
-
-	// metalness == 1
-	vec3 metal_colour = specular * base_color.rgb;
-
-	// metalness == 0
-	vec3 dielectric_colour = (diffuse + global_illumination * 0.4) * base_color.rgb +
-							 (specular * specular_level);
-
 	// pbr
-	colour += mix(dielectric_colour, metal_colour, metalness);
+	colour += PBRMix(base_color, diffuse, specular, metalness);
 
 	colour = specular;
 

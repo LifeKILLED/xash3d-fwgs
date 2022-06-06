@@ -329,9 +329,13 @@ static void VK_CreateInternalTextures( void )
 	tglob.cinTexture = VK_LoadTextureInternal( "*cintexture", pic, TF_NOMIPMAP|TF_CLAMP );
 
 	// blue noise
-	pic = Common_ByteArrayImage(64, 64, (byte*)blue_noise_rgba8_64x64, 1, IMAGE_HAS_COLOR | IMAGE_HAS_ALPHA);
-	tglob.blueNoiseTexture = VK_LoadTextureInternal("blue_noise", pic, TF_NOMIPMAP | TF_CLAMP | TF_COLORMAP);
-	gEngine.Con_Printf("Blue noise texture ID is %d, put this in shaders\n", tglob.blueNoiseTexture);
+	for (int i = 0; i < 8; i++) {
+		char buf[15];
+		sprintf(buf, "blue_noise_%d", i);
+		pic = Common_ByteArrayImage(64, 64, (byte*)blue_noise_3d_rgba8_64x64x8 + i*64*64*4, 1, IMAGE_HAS_COLOR | IMAGE_HAS_ALPHA);
+		tglob.blueNoiseTextures[i] = VK_LoadTextureInternal(buf, pic, TF_NOMIPMAP | TF_COLORMAP);
+		gEngine.Con_Printf("Blue noise texture ID is %d, put this in shaders\n", tglob.blueNoiseTextures[i]);
+	}
 
 	{
 		rgbdata_t *sides[6];

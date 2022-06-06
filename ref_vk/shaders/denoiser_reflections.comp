@@ -1,10 +1,10 @@
 #version 460
 
 //#define USE_KERNEL_8_OPTIMIZED 1
-#define KERNEL_SIZE 4
+#define KERNEL_SIZE 6
 
 #include "noise.glsl"
-
+#include "brdf.h"
 #include "utils.glsl"
 #include "denoiser_tools.glsl"
 
@@ -17,8 +17,8 @@ layout(set = 0, binding = 2, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_refl_position_t;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_refl_dir_dot;
-layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_normals_gs;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_refl_normals_gs;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_dir_dot;
 
 //
 //vec3 reinhard(vec3 color){
@@ -63,31 +63,93 @@ void main() {
 	// on corners we just use fallback filter if samples is small count
 	// it's looks like we add little roughness and fixed black dots
 
-#ifdef USE_KERNEL_8_OPTIMIZED
-	float clean_sum = blur_kernel8_center_weight;
-	float fallback_sum = blur_kernel8_center_weight;
-	vec3 specular_clean = imageLoad(src_specular_accum, pix).rgb * clean_sum;
-	vec3 specular_fallback = specular_clean;
-#else
+//#ifdef USE_KERNEL_8_OPTIMIZED
+//	float clean_sum = blur_kernel8_center_weight;
+//	float fallback_sum = blur_kernel8_center_weight;
+//	vec3 specular_clean = imageLoad(src_specular_accum, pix).rgb * clean_sum;
+//	vec3 specular_fallback = specular_clean;
+//#else
 	vec3 specular_clean = vec3(0.);
 	vec3 specular_fallback = vec3(0.);
 	float clean_sum = 0.;
 	float fallback_sum = 0.;
-#endif
+//#endif
 
 	float roughness = imageLoad(src_material_rmxx, pix).r;
 
 	vec3 specular = vec3(0.);
 	int clean_samples_count = 0;
-
+		
 	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
 	vec3 refl_shading_normal = vec3(0.), refl_geometry_normal = vec3(0.);
 	vec3 current_shading_normal = vec3(0.), current_geometry_normal = vec3(0.);
 	readNormals(pix, geometry_normal, shading_normal);
 
-	if (false) { // TEST
+	const float maxKernelDistance = roughness < 0.08 ? 1000000000. :
+									roughness < 0.11 ? 70000. : 
+									roughness < 0.21 ? 250. : 
+									roughness < 0.31 ? 100. : 
+									roughness < 0.41 ? 70. : 
+									roughness < 0.51 ? 30. : 
+									roughness < 0.61 ? 10. : 
+									roughness < 0.71 ? 5. : 2.;
+
+	const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
+	const vec3 refl_pos_src = imageLoad(src_refl_position_t, pix).xyz;
+	const float rayLength_src = length(refl_pos_src - center_pos);
+	const float blur_strengh = smoothstep(0., maxKernelDistance, rayLength_src);
+	const vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
+	const vec3 coneDirection = normalize(reflectionCone.xyz);
+	const vec3 view_dir = reflect(-coneDirection, shading_normal);
+
+
+	MaterialProperties material;
+	material.baseColor = vec3(1.);
+	material.emissive = vec3(0.);
+	material.metalness = 1.;
+	material.roughness = roughness;
+
+	if (false) {
 	//if (roughness > 0.05) { // don't use for mirrors
 
+
+
+
+		float weightPow = 1. / (roughness * roughness);
+		float dotTreshold = 0.3;
+
+		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+				const ivec2 p = pix + ivec2(x, y) * 4;
+				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+					continue;
+				}
+
+				// is in roughness cone?
+				const vec3 refl_pos = imageLoad(src_refl_position_t, p).xyz;
+				const float currentDot = dot(coneDirection, normalize(refl_pos - center_pos));
+				const float rayLength = length(refl_pos - center_pos);
+
+				const float sigma = KERNEL_SIZE / 2.;
+				const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+
+				if (currentDot <= dotTreshold) continue;
+
+//				const BrdfData data = prepareBRDFData(shading_normal, normalize(refl_pos - center_pos), normalize(view_dir - center_pos), material);
+//				vec3 eval = evalSpecular(data);
+				float eval = 1.;
+
+				const vec3 current_specular = imageLoad(src_specular_accum, p).rgb;
+
+				specular_clean += current_specular * weight * eval.r;
+				clean_sum += weight * eval.r;
+			}
+		}
+
+		specular_clean /= clean_sum;
+		specular = specular_clean;
+
+/*
 		const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
 		vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
 		vec3 coneDirection = normalize(reflectionCone.xyz);
@@ -104,7 +166,7 @@ void main() {
 #else
 		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
 		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y);
+			const ivec2 p = pix + ivec2(x, y) * 2;
 #endif
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;
@@ -147,12 +209,14 @@ void main() {
 		specular_clean /= float(clean_sum);
 		specular_fallback /= float(fallback_sum);
 
-		specular = clean_samples_count < 4 ? specular_fallback : specular_clean;
+		specular = clean_samples_count < 4 ? specular_fallback : specular_clean;*/
 	}
 	else
 	{
 		specular = imageLoad(src_specular_accum, pix).rgb; // mirror, don't need to denoise
 	}
+
+	//specular = dot(view_dir, shading_normal) * vec3(1.);
 
 	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
 

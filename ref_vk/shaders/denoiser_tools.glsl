@@ -1,7 +1,5 @@
 
 
-// ??????? ????? ???? ??????? ?? ?????? ???
-
 
 // denoising of global illumination on mirrors now works bad
 //#define DONT_DENOISE_SPECULAR_GI
@@ -51,6 +49,12 @@ float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
 ivec2 UVToPix(vec2 uv, ivec2 res) {
 	vec2 screen_uv = uv * 0.5 + vec2(0.5);
 	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
+}
+
+vec3 PBRMix(vec3 base_color, vec3 diffuse, vec3 specular, float metalness) {
+	vec3 metal_colour = specular * base_color;
+	vec3 dielectric_colour = mix(diffuse * base_color, specular, 0.04);
+	return mix(dielectric_colour, metal_colour, metalness);
 }
 
 int per_frame_offset = 0;
@@ -168,7 +172,6 @@ void UnpackNormals(in vec4 packed, out vec3 shadingNormals, out vec3 geometryNor
 	geometryNormals = vec3(valueY.y, valueZ.xy) * 2. - 1.;
 }
 
-
 // circle pattern of integer offsets without center texel
 const ivec2 circle_7x7[36] = {
 ivec2(-1, -3), ivec2(0, -3), ivec2(1, -3),
@@ -188,6 +191,14 @@ vec3(-1., 0., 0.),
 vec3(1., 0., 0.),
 vec3(0., -1., 0.),
 vec3(0., 1., 0.)
+};
+
+const vec2 uv_samples[5] = {
+vec2(0., 0.),
+vec2(1., 0.),
+vec2(0., 1.),
+vec2(1., 1.),
+vec2(.5, .5)
 };
 
 //#define USE_KERNEL_8_FULL_WEIGHTS 1

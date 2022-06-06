@@ -20,7 +20,7 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
-	X(15, blue_noise, rgba8) \
+	X(15, search_info_ktuv, rgba16f) \
 
 
 
@@ -32,12 +32,11 @@
 
 #define RAY_REFLECTION_OUTPUTS(X) \
 	X(10, refl_base_color_a, rgba8) \
-	X(11, refl_position_t, rgba16f) \
+	X(11, refl_position_t, rgba32f) \
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_emissive, rgba16f) \
 	X(15, refl_dir_dot, rgba16f) \
-
 
 
 #define RAY_INDIRECTIONAL_INPUTS(X) \
@@ -45,15 +44,39 @@
 	X(21, normals_gs, rgba16f) \
 	X(22, material_rmxx, rgba8) \
 
-	//X(23, blue_noise, rgba8) \
-
 #define RAY_INDIRECTIONAL_OUTPUTS(X) \
 	X(10, gi_base_color_a, rgba8) \
-	X(11, gi_position_t, rgba16f) \
+	X(11, gi_position_t, rgba32f) \
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_emissive, rgba16f) \
 	X(15, gi_direction, rgba8) \
+
+
+#define RAY_LAST_FRAME_BUFFERS_OUTPUTS(X) \
+	X(10, last_position_t, rgba32f) \
+	X(11, last_refl_position_t, rgba32f) \
+	X(12, last_normals_gs, rgba16f) \
+	X(13, last_search_info_ktuv, rgba16f) \
+	X(14, last_diffuse, rgba16f) \
+	X(15, last_reflection, rgba16f) \
+	X(16, last_gi_sh1, rgba16f) \
+	X(17, last_gi_sh2, rgba16f) \
+
+
+
+#define RAY_MOTION_RECONSTRUCT_INPUTS(X) \
+	X(20, position_t, rgba32f) \
+	X(21, refl_position_t, rgba32f) \
+	X(22, normals_gs, rgba16f) \
+	X(23, search_info_ktuv, rgba16f) \
+	X(24, last_position_t, rgba32f) \
+	X(25, last_refl_position_t, rgba32f) \
+	X(26, last_normals_gs, rgba16f) \
+	X(27, last_search_info_ktuv, rgba16f) \
+
+#define RAY_MOTION_RECONSTRUCT_OUTPUTS(X) \
+	X(10, motion_offsets_uvs, rgba16f) \
 
 
 
@@ -76,7 +99,7 @@
 
 #define RAY_LIGHT_REFLECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
-	X(11, refl_position_t, rgba16f) \
+	X(11, refl_position_t, rgba32f) \
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_base_color_a, rgba8) \
@@ -91,7 +114,7 @@
 
 #define RAY_LIGHT_INDIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
-	X(11, gi_position_t, rgba16f) \
+	X(11, gi_position_t, rgba32f) \
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_base_color_a, rgba8) \
@@ -118,6 +141,7 @@
 // this ID can be changed, look new ID in engine logs
 #define BLUE_NOISE_TEX_ID 6
 #define BLUE_NOISE_TEX_RESOLUTION 64
+#define BLUE_NOISE_TEX_COUNT 8
 
 #ifndef GLSL
 #include "xash3d_types.h"
@@ -245,12 +269,14 @@ struct PushConstants {
 	float pixel_cone_spread_angle;
 	uint debug_light_index_begin, debug_light_index_end;
 	uint flags;
+	uint blue_noise_seed;
 };
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
 	float ray_cone_width;
 	uint random_seed;
+	uint blue_noise_seed;
 	PAD(2)
 };
 

@@ -103,6 +103,8 @@ typedef struct {
 RAY_PRIMARY_OUTPUTS(X)
 RAY_REFLECTION_OUTPUTS(X)
 RAY_INDIRECTIONAL_OUTPUTS(X)
+RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
+RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
 RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
@@ -755,6 +757,7 @@ static void updateDescriptors( const vk_ray_frame_render_args_t *args, int frame
 	VK_DescriptorsWrite(&g_rtx.descriptors, 0);
 }
 
+
 static qboolean rayTrace( VkCommandBuffer cmdbuf, const xvk_ray_frame_images_t *current_frame, float fov_angle_y ) {
 
 	// 4. dispatch ray tracing
@@ -768,6 +771,7 @@ static qboolean rayTrace( VkCommandBuffer cmdbuf, const xvk_ray_frame_images_t *
 			.debug_light_index_begin = (uint32_t)(vk_rtx_light_begin->value),
 			.debug_light_index_end = (uint32_t)(vk_rtx_light_end->value),
 			.flags = r_lightmap->value ? PUSH_FLAG_LIGHTMAP_ONLY : 0,
+			.blue_noise_seed = g_rtx.frame_number % BLUE_NOISE_TEX_COUNT,
 		};
 		vkCmdPushConstants(cmdbuf, g_rtx.descriptors.pipeline_layout, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR, 0, sizeof(push_constants), &push_constants);
 	}
@@ -996,6 +1000,7 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);
+	ubo->blue_noise_seed = g_rtx.frame_number % BLUE_NOISE_TEX_COUNT;
 }
 
 static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_args_t* args, int frame_index, const xvk_ray_frame_images_t *current_frame, float fov_angle_y) {
@@ -1057,6 +1062,8 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 			RAY_PRIMARY_OUTPUTS(RES_SET_IMAGE)
 			RAY_REFLECTION_OUTPUTS(RES_SET_IMAGE)
 			RAY_INDIRECTIONAL_OUTPUTS(RES_SET_IMAGE)
+			RAY_MOTION_RECONSTRUCT_OUTPUTS(RES_SET_IMAGE)
+			RAY_LAST_FRAME_BUFFERS_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_REFLECT_POLY_OUTPUTS(RES_SET_IMAGE)
@@ -1490,6 +1497,8 @@ qboolean VK_RayInit( void )
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_REFLECTION_OUTPUTS(X)
 		RAY_INDIRECTIONAL_OUTPUTS(X)
+		RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
+		RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
@@ -1538,6 +1547,8 @@ void VK_RayShutdown( void ) {
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_REFLECTION_OUTPUTS(X)
 		RAY_INDIRECTIONAL_OUTPUTS(X)
+		RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
+		RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)

@@ -721,9 +721,9 @@ static qboolean loadBrushSurfaces(model_sizes_t sizes, const model_t* mod, qbool
 
 					if (first_vertex->ipos[0] == second_vertex->ipos[0] &&
 						first_vertex->ipos[1] == second_vertex->ipos[1] &&
-						first_vertex->ipos[2] == second_vertex->ipos[2] /* &&
+						first_vertex->ipos[2] == second_vertex->ipos[2] &&
 						first_vertex->iuv[0] == second_vertex->iuv[0] && // need for fixing of artifacts?
-						first_vertex->iuv[1] == second_vertex->iuv[1]*/) {
+						first_vertex->iuv[1] == second_vertex->iuv[1]) {
 						if (DotProduct(first_vertex->vertex->normal, second_vertex->vertex->normal) > MAX_SMOOTHING_DOT_TRESHOLD) {
 							first_vertex->linked[(first_vertex->linked_count)++] = s;
 							second_vertex->linked[(second_vertex->linked_count)++] = f;

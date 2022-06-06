@@ -59,4 +59,6 @@ void main() {
 	if (any(greaterThan(kusok.emissive, vec3(0.))))
 		payload.emissive.rgb = payload.base_color_a.rgb;
 #endif
+
+	payload.search_info_ktuv = vec4(float(geom.kusok_index), float(tex_base_color), geom.uv);
 }
