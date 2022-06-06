@@ -7,6 +7,7 @@
 #include "vk_ray_reflection.h"
 #include "vk_ray_indirect.h"
 #include "vk_ray_light_direct.h"
+#include "vk_ray_motion_reconstruct.h"
 
 #include "vk_core.h"
 #include "vk_common.h"
@@ -51,8 +52,8 @@ enum {
 };
 
 // TODO settings/realtime modifiable/adaptive
-#define FRAME_WIDTH 1280
-#define FRAME_HEIGHT 720
+#define FRAME_WIDTH 800
+#define FRAME_HEIGHT 480
 
 // TODO sync with shaders
 // TODO optimal values
@@ -117,6 +118,7 @@ RAY_DENOISER_TEXTURES(X)
 	xvk_image_t diffuse_gi;
 	xvk_image_t specular;
 	xvk_image_t additive;
+
 } xvk_ray_frame_images_t;
 
 static struct {
@@ -179,11 +181,13 @@ static struct {
 	xvk_ray_frame_images_t frames[MAX_FRAMES_IN_FLIGHT];
 
 	struct {
-		struct ray_pass_s *primary_ray;
-		struct ray_pass_s *reflection_ray;
-		struct ray_pass_s *indirect_ray;
-		struct ray_pass_s *light_direct_poly;
-		struct ray_pass_s *light_direct_point;
+		struct ray_pass_s* primary_ray;
+		struct ray_pass_s* reflection_ray;
+		struct ray_pass_s* indirect_ray;
+		struct ray_pass_s* last_frame_buffers_init;
+		struct ray_pass_s* motion_reconstruction;
+		struct ray_pass_s* light_direct_poly;
+		struct ray_pass_s* light_direct_point;
 		struct ray_pass_s* light_reflect_poly;
 		struct ray_pass_s* light_reflect_point;
 		struct ray_pass_s* light_indirect_poly;
@@ -197,6 +201,8 @@ static struct {
 
 	qboolean reload_pipeline;
 	qboolean reload_lighting;
+
+	qboolean last_frame_buffers_inited;
 } g_rtx = {0};
 
 VkDeviceAddress getBufferDeviceAddress(VkBuffer buffer) {
@@ -367,6 +373,9 @@ void VK_RayNewMap( void ) {
 
 		createTlas(VK_NULL_HANDLE);
 	}
+
+	// recreate buffers
+	g_rtx.last_frame_buffers_inited = false;
 }
 
 void VK_RayMapLoadEnd( void ) {
@@ -986,7 +995,8 @@ static void blitImage( const xvk_blit_args *blit_args ) {
 	}
 }
 
-static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int frame_index, float fov_angle_y ) {
+vk_ray_frame_render_args_t* last_frame_args = 0;
+static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int frame_index, float fov_angle_y) {
 	struct UniformBuffer *ubo = (struct UniformBuffer*)((char*)g_rtx.uniform_buffer.mapped + frame_index * g_rtx.uniform_unit_size);
 
 	matrix4x4 proj_inv, view_inv;
@@ -998,12 +1008,28 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 	Matrix4x4_Invert_Full(view_inv, *args->view);
 	Matrix4x4_ToArrayFloatGL(view_inv, (float*)ubo->inv_view);
 
+	// last frame matrices
+	if (last_frame_args != 0) {
+		vk_ray_frame_render_args_t* last_args = last_frame_args;
+		matrix4x4 last_proj_inv, last_view_inv;
+		matrix4x4 last_proj, last_view;
+		Matrix4x4_Invert_Full(last_proj_inv, *last_args->projection);
+		Matrix4x4_ToArrayFloatGL(last_proj_inv, (float*)ubo->last_inv_proj);
+		Matrix4x4_ToArrayFloatGL(*last_args->projection, (float*)ubo->last_proj);
+
+		Matrix4x4_Invert_Full(last_view_inv, *last_args->view);
+		Matrix4x4_ToArrayFloatGL(last_view_inv, (float*)ubo->last_inv_view);
+		Matrix4x4_ToArrayFloatGL(*last_args->view, (float*)ubo->last_view);
+	}
+
+	last_frame_args = (vk_ray_frame_render_args_t*)args;
+
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);
 	ubo->blue_noise_seed = g_rtx.frame_number % BLUE_NOISE_TEX_COUNT;
 }
 
-static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_args_t* args, int frame_index, const xvk_ray_frame_images_t *current_frame, float fov_angle_y) {
+static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_args_t* args, int frame_index, const xvk_ray_frame_images_t *current_frame, float fov_angle_y, const xvk_ray_frame_images_t* last_frame) {
 	vk_ray_resources_t res = {
 		.width = FRAME_WIDTH,
 		.height = FRAME_HEIGHT,
@@ -1099,9 +1125,50 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 			0, 0, NULL, ARRAYSIZE(bmb), bmb, 0, NULL);
 	}
 
+
+#define BLIT_IMAGES(destination_name, source_name, width_dest, height_dest)\
+	{\
+		const xvk_blit_args blit_args = {\
+			.cmdbuf = args->cmdbuf,\
+			.in_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,\
+			.src = {\
+				.image = source_name,\
+				.width = FRAME_WIDTH,\
+				.height = FRAME_HEIGHT,\
+				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,\
+				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,\
+			},\
+			.dst = {\
+				.image = destination_name,\
+				.width = width_dest,\
+				.height = height_dest,\
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,\
+				.srcAccessMask = 0,\
+			},\
+		};\
+		blitImage( &blit_args );\
+	}
+
+	// blit images from last frame, now for test this is just simple
+	if (g_rtx.last_frame_buffers_inited == false && frame_index == 1) {
+		g_rtx.last_frame_buffers_inited = true;
+	}
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.last_frame_buffers_init, &res);
+	if (g_rtx.last_frame_buffers_inited == true) {
+		BLIT_IMAGES(current_frame->last_position_t.image,		last_frame->position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_refl_position_t.image,	last_frame->refl_position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_normals_gs.image,		last_frame->normals_gs.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_search_info_ktuv.image, last_frame->search_info_ktuv.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_diffuse.image,			last_frame->diffuse_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_reflection.image,		last_frame->specular_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_gi_sh1.image,			last_frame->gi_sh1_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_gi_sh2.image,			last_frame->gi_sh2_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
+	}
+
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.primary_ray, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.reflection_ray, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.indirect_ray, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.motion_reconstruction, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_poly, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_point, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_reflect_poly, &res);
@@ -1114,28 +1181,9 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
 	//RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
 
-	{
-		const xvk_blit_args blit_args = {
-			.cmdbuf = args->cmdbuf,
-			.in_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			.src = {
-				.image = current_frame->denoised.image,
-				.width = FRAME_WIDTH,
-				.height = FRAME_HEIGHT,
-				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-			},
-			.dst = {
-				.image = args->dst.image,
-				.width = args->dst.width,
-				.height = args->dst.height,
-				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.srcAccessMask = 0,
-			},
-		};
 
-		blitImage( &blit_args );
-	}
+	BLIT_IMAGES(args->dst.image, current_frame->denoised.image, args->dst.width, args->dst.height)
+
 	DEBUG_END(cmdbuf);
 }
 
@@ -1154,6 +1202,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 {
 	const VkCommandBuffer cmdbuf = args->cmdbuf;
 	const xvk_ray_frame_images_t* current_frame = g_rtx.frames + (g_rtx.frame_number % 2);
+	const xvk_ray_frame_images_t* last_frame = g_rtx.frames + ((g_rtx.frame_number + 1) % 2);
 
 	ASSERT(vk_core.rtx);
 	// ubo should contain two matrices
@@ -1176,6 +1225,8 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.primary_ray, R_VkRayPrimaryPassCreate());
 		reloadPass( &g_rtx.pass.reflection_ray, R_VkRayReflectionPassCreate());
 		reloadPass( &g_rtx.pass.indirect_ray, R_VkRayIndirectPassCreate());
+		reloadPass( &g_rtx.pass.last_frame_buffers_init, R_VkRayLastFrameBuffersInitPassCreate());
+		reloadPass( &g_rtx.pass.motion_reconstruction, R_VkRayMotionReconstructPassCreate());
 		reloadPass( &g_rtx.pass.light_direct_poly, R_VkRayLightDirectPolyPassCreate());
 		reloadPass( &g_rtx.pass.light_direct_point, R_VkRayLightDirectPointPassCreate());
 		reloadPass( &g_rtx.pass.light_reflect_poly, R_VkRayLightReflectPolyPassCreate());
@@ -1189,6 +1240,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
 
 		g_rtx.reload_pipeline = false;
+		g_rtx.last_frame_buffers_inited = false;
 	}
 
 	if (g_ray_model_state.frame.num_models == 0) {
@@ -1214,7 +1266,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		clearVkImage( cmdbuf, current_frame->denoised.image );
 		blitImage( &blit_args );
 	} else {
-		performTracing( cmdbuf, args, (g_rtx.frame_number % 2), current_frame, args->fov_angle_y );
+		performTracing( cmdbuf, args, (g_rtx.frame_number % 2), current_frame, args->fov_angle_y, last_frame);
 	}
 }
 
@@ -1364,6 +1416,12 @@ qboolean VK_RayInit( void )
 
 	g_rtx.pass.indirect_ray = R_VkRayIndirectPassCreate();
 	ASSERT(g_rtx.pass.indirect_ray);
+
+	g_rtx.pass.last_frame_buffers_init = R_VkRayLastFrameBuffersInitPassCreate();
+	ASSERT(g_rtx.pass.last_frame_buffers_init);
+
+	g_rtx.pass.motion_reconstruction = R_VkRayMotionReconstructPassCreate();
+	ASSERT(g_rtx.pass.motion_reconstruction);
 
 	g_rtx.pass.light_direct_poly = R_VkRayLightDirectPolyPassCreate();
 	ASSERT(g_rtx.pass.light_direct_poly);
@@ -1537,6 +1595,8 @@ void VK_RayShutdown( void ) {
 	RayPassDestroy(g_rtx.pass.light_reflect_poly);
 	RayPassDestroy(g_rtx.pass.light_direct_point);
 	RayPassDestroy(g_rtx.pass.light_direct_poly);
+	RayPassDestroy(g_rtx.pass.motion_reconstruction);
+	RayPassDestroy(g_rtx.pass.last_frame_buffers_init);
 	RayPassDestroy(g_rtx.pass.indirect_ray);
 	RayPassDestroy(g_rtx.pass.reflection_ray);
 	RayPassDestroy(g_rtx.pass.primary_ray);

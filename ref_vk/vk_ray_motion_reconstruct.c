@@ -73,7 +73,7 @@ static const int semantics[] = {
 
 
 
-struct ray_pass_s * R_VkRayMotionBuffersInitPassCreate( void ) {
+struct ray_pass_s * R_VkRayLastFrameBuffersInitPassCreate( void ) {
 	// FIXME move this into vk_pipeline or something
 	const struct SpecializationData {
 		uint32_t sbt_record_size;
@@ -111,7 +111,7 @@ struct ray_pass_s * R_VkRayMotionBuffersInitPassCreate( void ) {
 			.bindings_count = COUNTOF(bindings_init),
 			.push_constants = {0},
 		},
-		.raygen = "ray_primary.rgen.spv",
+		.raygen = "ray_last_frame_buffers_init.rgen.spv",
 		.miss = miss,
 		.miss_count = COUNTOF(miss),
 		.hit = hit,
@@ -162,7 +162,7 @@ struct ray_pass_s* R_VkRayMotionReconstructPassCreate(void) {
 			.bindings_count = COUNTOF(bindings),
 			.push_constants = {0},
 		},
-		.raygen = "ray_primary.rgen.spv",
+		.raygen = "ray_motion_reconstruction.rgen.spv",
 		.miss = miss,
 		.miss_count = COUNTOF(miss),
 		.hit = hit,

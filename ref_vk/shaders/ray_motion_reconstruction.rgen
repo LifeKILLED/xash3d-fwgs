@@ -2,9 +2,10 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "ray_primary_common.glsl"
-#include "color_spaces.glsl"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
 
-#define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_image_##name;
+#define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_##name;
 RAY_MOTION_RECONSTRUCT_INPUTS(X)
 #undef X
 
@@ -20,34 +21,129 @@ layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
 
 layout(location = PAYLOAD_LOCATION_PRIMARY) rayPayloadEXT RayPayloadPrimary payload;
 
+
+const float ray_length_difference_treshold = 1.5;
+
+
+const float distance_treshold = 1.0;
+const float normal_treshold = 0.9;
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
 void main() {
-	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+	ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
 	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
 
-	// FIXME start on a near plane
-	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
-	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
-	//vec3 direction = (ubo.inv_view * vec4(normalize(target.xyz), 0)).xyz;
-	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
 
-//	payload.hit_t = vec4(0.);
-//	payload.base_color_a = vec4(0.);
-//	payload.normals_gs = vec4(0.);
-//	payload.material_rmxx = vec4(0.);
-//	payload.emissive = vec4(0.);
+	vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+	float aspect = float(res.x) / float(res.y);
+
+
 //
-//	const uint flags = gl_RayFlagsCullFrontFacingTrianglesEXT;
-//	const uint sbt_offset = 0;
-//	const uint sbt_stride = 0;
-//	const float L = 10000.; // TODO Why 10k?
-//	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE, // | GEOMETRY_BIT_REFRACTIVE,
-//		sbt_offset, sbt_stride, SHADER_OFFSET_MISS_REGULAR,
-//		origin, 0., direction, L,
-//		PAYLOAD_LOCATION_PRIMARY);
+//	X(20, position_t, rgba32f)
+//	X(21, refl_position_t, rgba32f)
+//	X(22, normals_gs, rgba16f)
+//	X(23, search_info_ktuv, rgba16f)
+//	X(24, last_position_t, rgba32f)
+//	X(25, last_refl_position_t, rgba32f)
+//	X(26, last_normals_gs, rgba16f)
+//	X(27, last_search_info_ktuv, rgba16f)
 
-	// sample blue noise
-	//vec2 blue_noise_uv = vec2(pix % BLUE_NOISE_TEX_RESOLUTION) / vec2(BLUE_NOISE_TEX_RESOLUTION);
-	//vec4 blue_noise = texture(textures[BLUE_NOISE_TEX_ID], blue_noise_uv);
+	const vec3 position = imageLoad(src_position_t, pix).xyz;
+	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
+	
+	vec3 shadingNormal, geometryNormal;
+	readNormals(pix, geometryNormal, shadingNormal);
 
-	imageStore(out_image_motion_offsets_uvs, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	vec3 origin = OriginWorldPosition(ubo.inv_view);
+	vec3 direction = ScreenToWorldDirection(uv, ubo.inv_view, ubo.inv_proj);
+	vec3 previous_origin = OriginWorldPosition(ubo.last_inv_view);
+	vec2 previous_uv = WorldPositionToUV(position, ubo.last_proj, ubo.last_view);
+	ivec2 previous_pix = UVToPix(previous_uv, res);
+
+	const float depth = length(origin - position);
+
+	//vec3 reflection_cone_center = normalize(reflect(position - origin, shadingNormal));
+
+	vec4 current_sh1 = vec4(0.);
+	vec2 current_sh2 = vec2(0.);
+
+	uint reflection_parallax_reprojection = depth < 40. ? 0 : 1; // revolver hack
+
+	float previous_depth = -1000.; // guaranted non-equal
+	float depth_need = length(previous_origin - position);
+	vec4 debug_reprojection = vec4(1., 0., 0., 1.);
+	float reflection_ray_lenth = length(reflection_pos - position);
+
+	//previous_pix = closest_checker_texel(previous_pix, source_checker_texel);
+
+	vec2 forward_offset = vec2(-100., 0.);
+	vec2 parallax_offset = vec2(-100., 0.);
+
+	if (any(greaterThanEqual(previous_pix, ivec2(0))) && any(lessThan(previous_pix, res))) {
+
+		vec4 last_reflection_pos = imageLoad(src_last_refl_position_t, previous_pix);
+		previous_depth = last_reflection_pos.w;
+
+		//if (abs(previous_depth - depth_need) < (distance_treshold + distance_far_multiplier * depth_need)) {
+		if (abs(previous_depth - depth_need) < distance_treshold) {
+			forward_offset = previous_uv;
+			//previous_diffuse = imageLoad(src_last_diffuse, previous_pix);
+
+			// Try to get specular without reflection parallax
+//			float previous_ray_length = length(last_reflection_pos.xyz - position);
+//			float ray_length_difference = previous_ray_length / reflection_ray_lenth;
+//			if (ray_length_difference < ray_length_difference_treshold && ray_length_difference > (1. / ray_length_difference_treshold)) {
+//				previous_specular = imageLoad(src_last_specular, previous_pix);
+//			}
+		}
+
+		if (reflection_parallax_reprojection == 1) { 
+
+			// Parallax reprojection
+			vec3 texel_normal = normalize(geometryNormal.xyz);
+			vec3 reflection_destination = normalize(reflect(normalize(position - origin), texel_normal)) * length(reflection_pos.xyz - position) + position;
+			float reflection_distance_to_plane = dot(reflection_destination - position, texel_normal);
+			vec3 reflection_destination_on_plane = reflection_destination - texel_normal * reflection_distance_to_plane;
+			float previous_distance_to_plane = dot(previous_origin - position, texel_normal);
+			vec3 previous_origin_on_plane = previous_origin - texel_normal * previous_distance_to_plane;
+			float reflection_center = previous_distance_to_plane / (previous_distance_to_plane + reflection_distance_to_plane);
+			vec3 reflection_parallax_position = mix(previous_origin_on_plane, reflection_destination_on_plane, reflection_center);
+
+			vec2 parallax_uv = WorldPositionToUV(reflection_parallax_position, ubo.last_proj, ubo.last_view);
+			ivec2 parallax_pix = UVToPix(parallax_uv, res);
+
+			if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
+
+				vec4 last_reflection_pos = imageLoad(src_last_refl_position_t, parallax_pix);
+				previous_depth = last_reflection_pos.w;
+
+				float previous_ray_length = length(last_reflection_pos.xyz - position);
+				float ray_length_difference = previous_ray_length / reflection_ray_lenth;
+				
+				float depth_need_parallax = length(previous_origin - reflection_parallax_position);
+
+				//vec3 parallax_shadingNormal, parallax_geometryNormal;
+				//UnpackNormals(imageLoad(src_normals, parallax_pix), parallax_shadingNormal, parallax_geometryNormal);
+
+				if (abs(previous_depth - depth_need_parallax) < distance_treshold &&
+					/*dot(normalize(texel_normal), normalize(parallax_geometryNormal)) > normal_treshold &&*/
+					ray_length_difference < ray_length_difference_treshold && ray_length_difference > (1. / ray_length_difference_treshold)) {
+						parallax_offset = parallax_uv;
+						//previous_specular = imageLoad(src_last_specular, parallax_pix);
+				} else {
+					//previous_specular = specular; // fallback to clean value
+				}
+			}
+		}
+	}
+
+	imageStore(out_image_motion_offsets_uvs, ivec2(gl_LaunchIDEXT.xy), vec4(forward_offset, parallax_offset));
 }

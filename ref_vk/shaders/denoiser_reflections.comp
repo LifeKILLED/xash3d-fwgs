@@ -19,6 +19,8 @@ layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_refl_normals_gs;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_dir_dot;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_reflection;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
 
 //
 //vec3 reinhard(vec3 color){
@@ -109,8 +111,8 @@ void main() {
 	material.metalness = 1.;
 	material.roughness = roughness;
 
-	if (false) {
-	//if (roughness > 0.05) { // don't use for mirrors
+	//if (false) {
+	if (roughness > 0.05) { // don't use for mirrors
 
 
 
@@ -120,7 +122,7 @@ void main() {
 
 		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
 			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-				const ivec2 p = pix + ivec2(x, y) * 4;
+				const ivec2 p = pix + ivec2(x, y) * 2;
 				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 					continue;
 				}
@@ -130,7 +132,7 @@ void main() {
 				const float currentDot = dot(coneDirection, normalize(refl_pos - center_pos));
 				const float rayLength = length(refl_pos - center_pos);
 
-				const float sigma = KERNEL_SIZE / 2.;
+				const float sigma = blur_strengh * KERNEL_SIZE / 2.;
 				const float weight = normpdf(x, sigma) * normpdf(y, sigma);
 
 				if (currentDot <= dotTreshold) continue;
@@ -216,6 +218,17 @@ void main() {
 		specular = imageLoad(src_specular_accum, pix).rgb; // mirror, don't need to denoise
 	}
 
+	
+	const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
+	const vec2 forward_offset = motion_offsets_uvs.xy;
+	const vec2 parallax_offset = motion_offsets_uvs.zw;
+
+	const vec2 motion_offset = parallax_offset.x > -99. ? parallax_offset : forward_offset;
+	if (motion_offset.x > -99.) {
+		const ivec2 last_pix = UVToPix(motion_offset, res);
+		const vec3 last_specular = imageLoad(src_last_reflection, last_pix).xyz;
+		specular = clamp(mix(specular, last_specular, 0.9), 0., 1.3);
+	}
 	//specular = dot(view_dir, shading_normal) * vec3(1.);
 
 	imageStore(out_specular_denoised, pix, vec4(specular, 0.));

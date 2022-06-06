@@ -138,6 +138,8 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	X(5, material_rmxx) \
 	X(6, refl_normals_gs) \
 	X(7, refl_dir_dot) \
+	X(8, last_reflection) \
+	X(9, motion_offsets_uvs) \
 
 static const VkDescriptorSetLayoutBinding bindings_refl[] = {
 #define BIND_IMAGE(index, name) \
