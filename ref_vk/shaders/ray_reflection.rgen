@@ -181,7 +181,7 @@ void main() {
 	material.emissive = vec3(0.);
 	material.metalness = material_data.g;
 	material.roughness = material_data.r;
-	//material.roughness = 0.1;
+	//material.roughness = 0.3;
 
 	// sample blue noise
 	vec2 blue_noise_uv = vec2(pix % ivec2(BLUE_NOISE_TEX_RESOLUTION)) / vec2(BLUE_NOISE_TEX_RESOLUTION);

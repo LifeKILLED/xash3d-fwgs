@@ -99,7 +99,7 @@ void main() {
 	if (motion_offset.x > -99.) {
 		const ivec2 last_pix = UVToPix(motion_offset, res);
 		const vec3 last_diffuse = imageLoad(src_last_diffuse, last_pix).xyz;
-		diffuse = clamp(mix(diffuse, last_diffuse, 0.6), 0., 1.3);
+		diffuse = clamp(mix(diffuse, last_diffuse, 0.6), 0., 2.5);
 	}
 
 	imageStore(out_diffuse_denoised, pix, vec4(diffuse, 0.));

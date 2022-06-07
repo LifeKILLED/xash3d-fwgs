@@ -148,6 +148,7 @@ void main() {
 		specular_clean /= clean_sum;
 		specular = specular_clean;
 
+//		// extra blur in bad places
 //		if (clean_sum > 1.5) {
 //			const int LOW_KERNEL_SIZE = 2;
 //			float weight_sum = 0.;
@@ -196,8 +197,11 @@ void main() {
 		float specular_difference = 1. - smoothstep(0.5, 1.0, length(last_specular - specular));
 
 		specular = clamp(mix(specular, last_specular, specular_difference * 0.8), 0., 5.0);
+
+
 	}
-	//specular = dot(view_dir, shading_normal) * vec3(1.);
+
+	//specular = vec3(motion_offset.xy, 0.); // TEST: motion offsets visualize
 
 	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
 

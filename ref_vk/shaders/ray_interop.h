@@ -20,7 +20,7 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
-	X(15, search_info_ktuv, rgba16f) \
+	X(15, search_info_ktuv, rgba32f) \
 
 
 
@@ -57,7 +57,7 @@
 	X(10, last_position_t, rgba32f) \
 	X(11, last_refl_position_t, rgba32f) \
 	X(12, last_normals_gs, rgba16f) \
-	X(13, last_search_info_ktuv, rgba16f) \
+	X(13, last_search_info_ktuv, rgba32f) \
 	X(14, last_diffuse, rgba16f) \
 	X(15, last_reflection, rgba16f) \
 	X(16, last_gi_sh1, rgba16f) \
@@ -69,11 +69,11 @@
 	X(20, position_t, rgba32f) \
 	X(21, refl_position_t, rgba32f) \
 	X(22, normals_gs, rgba16f) \
-	X(23, search_info_ktuv, rgba16f) \
+	X(23, search_info_ktuv, rgba32f) \
 	X(24, last_position_t, rgba32f) \
 	X(25, last_refl_position_t, rgba32f) \
 	X(26, last_normals_gs, rgba16f) \
-	X(27, last_search_info_ktuv, rgba16f) \
+	X(27, last_search_info_ktuv, rgba32f) \
 
 #define RAY_MOTION_RECONSTRUCT_OUTPUTS(X) \
 	X(10, motion_offsets_uvs, rgba16f) \
