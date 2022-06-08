@@ -199,6 +199,7 @@ static struct {
 		struct ray_pass_s* denoiser_reflections;
 		struct ray_pass_s* denoiser_diffuse;
 		struct ray_pass_s* denoiser_compose;
+		struct ray_pass_s* denoiser_fxaa;
 		struct ray_pass_s *denoiser;
 	} pass;
 
@@ -1183,6 +1184,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_reflections, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_diffuse, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_fxaa, &res);
 	//RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
 
 
@@ -1235,6 +1237,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.denoiser_reflections, R_VkRayDenoiserReflectionsCreate());
 		reloadPass( &g_rtx.pass.denoiser_diffuse, R_VkRayDenoiserDiffuseCreate());
 		reloadPass( &g_rtx.pass.denoiser_compose, R_VkRayDenoiserComposeCreate());
+		reloadPass( &g_rtx.pass.denoiser_fxaa, R_VkRayDenoiserFXAACreate());
 		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
 
 		g_rtx.reload_pipeline = false;
@@ -1450,6 +1453,9 @@ qboolean VK_RayInit( void )
 	g_rtx.pass.denoiser_compose = R_VkRayDenoiserComposeCreate();
 	ASSERT(g_rtx.pass.denoiser_compose);
 
+	g_rtx.pass.denoiser_fxaa = R_VkRayDenoiserFXAACreate();
+	ASSERT(g_rtx.pass.denoiser_fxaa);
+
 	g_rtx.pass.denoiser = R_VkRayDenoiserCreate();
 	ASSERT(g_rtx.pass.denoiser);
 
@@ -1585,6 +1591,7 @@ void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
 	RayPassDestroy(g_rtx.pass.denoiser);
+	RayPassDestroy(g_rtx.pass.denoiser_fxaa);
 	RayPassDestroy(g_rtx.pass.denoiser_compose);
 	RayPassDestroy(g_rtx.pass.denoiser_diffuse);
 	RayPassDestroy(g_rtx.pass.denoiser_reflections);

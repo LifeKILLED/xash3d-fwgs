@@ -242,7 +242,7 @@ struct ray_pass_s* R_VkRayDenoiserDiffuseCreate(void) {
 	// PASS 4. COMPOSE
 
 #define LIST_OUTPUTS_COMP(X) \
-	X(0, denoised) \
+	X(0, final_image) \
 
 #define LIST_INPUTS_COMP(X) \
 	X(1, base_color_a) \
@@ -287,6 +287,52 @@ struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 			.push_constants = {0},
 		},
 		.shader = "denoiser_compose.comp.spv",
+		.specialization = NULL,
+	};
+
+	return RayPassCreateCompute(&rpcc);
+}
+
+// PASS 5. FXAA
+
+#define LIST_OUTPUTS_FXAA(X) \
+	X(0, denoised) \
+
+#define LIST_INPUTS_FXAA(X) \
+	X(1, final_image) \
+
+static const VkDescriptorSetLayoutBinding bindings_fxaa[] = {
+#define BIND_IMAGE(index, name) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
+	LIST_OUTPUTS_FXAA(BIND_IMAGE)
+	LIST_INPUTS_FXAA(BIND_IMAGE)
+#undef BIND_IMAGE
+};
+
+static const int semantics_fxaa[] = {
+#define IN(index, name, ...) (RayResource_##name + 1),
+#define OUT(index, name, ...) -(RayResource_##name + 1),
+	LIST_OUTPUTS_FXAA(OUT)
+	LIST_INPUTS_FXAA(IN)
+#undef IN
+#undef OUT
+};
+
+struct ray_pass_s* R_VkRayDenoiserFXAACreate(void) {
+	const ray_pass_create_compute_t rpcc = {
+		.debug_name = "denoiser fxaa",
+		.layout = {
+			.bindings = bindings_fxaa,
+			.bindings_semantics = semantics_fxaa,
+			.bindings_count = COUNTOF(bindings_fxaa),
+			.push_constants = {0},
+		},
+		.shader = "denoiser_fxaa.comp.spv",
 		.specialization = NULL,
 	};
 

@@ -135,6 +135,7 @@
 	X(-1, diffuse_denoised, rgba16f) \
 	X(-1, gi_sh1_denoised, rgba16f) \
 	X(-1, gi_sh2_denoised, rgba16f) \
+	X(-1, final_image, rgba16f) \
 
 
 // If default textures loading function is changed in sources,

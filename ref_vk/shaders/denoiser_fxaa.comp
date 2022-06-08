@@ -1,0 +1,91 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "denoiser_tools.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D dest;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_final_image;
+
+
+// Modified simple FXAA glsl realization
+// https://github.com/mattdesl/glsl-fxaa/
+
+
+#ifndef FXAA_REDUCE_MIN
+    #define FXAA_REDUCE_MIN   (1.0/ 128.0)
+#endif
+#ifndef FXAA_REDUCE_MUL
+    #define FXAA_REDUCE_MUL   (1.0 / 8.0)
+#endif
+#ifndef FXAA_SPAN_MAX
+    #define FXAA_SPAN_MAX     8.0
+#endif
+
+vec4 safeSample(ivec2 pix, ivec2 res) {
+	const ivec2 pix_clamped = clamp(pix, ivec2(0), res - ivec2(1));
+	return imageLoad(src_final_image, pix_clamped);
+}
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_final_image));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const ivec2 v_rgbNW = (pix + ivec2(-1, -1));
+	const ivec2 v_rgbNE = (pix + ivec2(1, -1));
+	const ivec2 v_rgbSW = (pix + ivec2(-1, 1));
+	const ivec2 v_rgbSE = (pix + ivec2(1, 1));
+	const ivec2 v_rgbM = pix;
+
+	vec4 color;
+    vec3 rgbNW = safeSample(v_rgbNW, res).xyz;
+    vec3 rgbNE = safeSample(v_rgbNE, res).xyz;
+    vec3 rgbSW = safeSample(v_rgbSW, res).xyz;
+    vec3 rgbSE = safeSample(v_rgbSE, res).xyz;
+    vec4 texColor = safeSample(v_rgbM, res);
+    vec3 rgbM  = texColor.xyz;
+    vec3 luma = vec3(0.299, 0.587, 0.114);
+    float lumaNW = dot(rgbNW, luma);
+    float lumaNE = dot(rgbNE, luma);
+    float lumaSW = dot(rgbSW, luma);
+    float lumaSE = dot(rgbSE, luma);
+    float lumaM  = dot(rgbM,  luma);
+    float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
+    float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
+    
+    mediump vec2 dir;
+    dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
+    dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
+    
+    float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) *
+                          (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
+    
+    float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+    dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX),
+              max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
+              dir * rcpDirMin));
+    
+    vec3 rgbA = 0.5 * (
+        safeSample(pix + ivec2(dir * (1.0 / 3.0 - 0.5)), res).xyz +
+        safeSample(pix + ivec2(dir * (2.0 / 3.0 - 0.5)), res).xyz);
+    vec3 rgbB = rgbA * 0.5 + 0.25 * (
+        safeSample(pix + ivec2(dir * -0.5), res).xyz +
+        safeSample(pix + ivec2(dir * 0.5), res).xyz);
+
+
+    float lumaB = dot(rgbB, luma);
+    if ((lumaB < lumaMin) || (lumaB > lumaMax))
+        color = vec4(rgbA, texColor.a);
+    else
+        color = vec4(rgbB, texColor.a);
+
+	imageStore(dest, pix, color);
+}
