@@ -4,5 +4,7 @@
 #define LIGHT_POINT 1
 #define PRIMARY_VIEW 1
 #define GRAY_MATERIAL 1
+//#define MAX_LIGHTS_PER_TEXEL 32
+//#define ONE_LIGHT_PER_TEXEL 1
 #define OUTPUTS RAY_LIGHT_DIRECT_POINT_OUTPUTS
 #include "ray_light_direct.glsl"

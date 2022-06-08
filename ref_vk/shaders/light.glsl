@@ -22,14 +22,25 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 	diffuse = specular = vec3(0.);
 	const vec3 shadow_sample_offset = normalize(vec3(rand01(), rand01(), rand01()) - vec3(.5));
 	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
+#ifdef MAX_LIGHTS_PER_TEXEL
+	const uint selected_count = min(num_point_lights, MAX_LIGHTS_PER_TEXEL);
+	const uint skipped_count = num_point_lights - selected_count;
+	const uint skipped_start = rand() % num_point_lights;
+	const uint skipped_end = skipped_start + skipped_count;
+	const uint skipped_ringed = skipped_end < num_point_lights ? -1 : skipped_end % num_point_lights;
+	const float sampling_factor = float(num_point_lights) / float(selected_count);
 	for (uint j = 0; j < num_point_lights; ++j) {
-
+		if (j < skipped_ringed || (j >= skipped_start && j < skipped_end)) continue;
+		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
+#else // Full count of lights in every texel
+	for (uint j = 0; j < num_point_lights; ++j) {
 #ifdef ONE_LIGHT_PER_TEXEL
 		const uint selected = rand() % num_point_lights;
 		const uint i = uint(light_grid.clusters[cluster_index].point_lights[selected]);
-#else
+#else // Full count of lights in every texel
 		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
-#endif
+#endif // ONE_LIGHT_PER_TEXEL
+#endif // MAX_LIGHTS_PER_TEXEL
 
 		vec3 color = lights.point_lights[i].color_stopdot.rgb * throughput;
 		if (dot(color,color) < color_culling_threshold)
@@ -120,6 +131,11 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		diffuse += ldiffuse;
 		specular += lspecular;
 	} // for all lights
+
+#if MAX_LIGHTS_PER_TEXEL
+	diffuse *= sampling_factor;
+	specular *= sampling_factor;
+#endif
 
 }
 #endif

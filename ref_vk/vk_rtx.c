@@ -52,8 +52,8 @@ enum {
 };
 
 // TODO settings/realtime modifiable/adaptive
-#define FRAME_WIDTH 800
-#define FRAME_HEIGHT 480
+#define FRAME_WIDTH 1280
+#define FRAME_HEIGHT 720
 
 // TODO sync with shaders
 // TODO optimal values

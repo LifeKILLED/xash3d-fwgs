@@ -94,7 +94,6 @@ void main() {
 		diffuse = diffuse_sum / weight_sum;
 	}
 
-
 	const vec2 motion_offset = imageLoad(src_motion_offsets_uvs, pix).xy;
 	if (motion_offset.x > -99.) {
 		const ivec2 last_pix = UVToPix(motion_offset, res);

@@ -212,8 +212,19 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
-
+#if MAX_LIGHTS_PER_TEXEL
+	const uint selected_count = min(num_polygons, MAX_LIGHTS_PER_TEXEL);
+	const uint skipped_count = num_polygons - selected_count;
+	const uint skipped_start = rand() % num_polygons;
+	const uint skipped_end = skipped_start + skipped_count;
+	const uint skipped_ringed = skipped_end < num_polygons ? -1 : skipped_end % num_polygons;
+	const float sampling_factor = float(num_polygons) / float(selected_count);
 	for (uint i = 0; i < num_polygons; ++i) {
+		if (i < skipped_ringed || (i >= skipped_start && i < skipped_end)) continue;
+
+#else // Full count of lights
+	for (uint i = 0; i < num_polygons; ++i) {
+#endif // MAX_LIGHTS_PER_TEXEL
 		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
 		const PolygonLight poly = lights.polygons[index];
 
@@ -324,6 +335,11 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 		specular += throughput * emissive * estimate;
 	}
 #endif
+#endif
+
+#if MAX_LIGHTS_PER_TEXEL
+	diffuse *= sampling_factor;
+	specular *= sampling_factor;
 #endif
 }
 #endif
