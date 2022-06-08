@@ -1,0 +1,182 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#include "ray_primary_common.glsl"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+const float uv_treshold = 0.025;
+
+#define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_##name;
+RAY_MOTION_RECONSTRUCT_INPUTS(X)
+#undef X
+
+#define X(index, name, format) layout(set=0,binding=index,format) uniform image2D out_image_##name;
+RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
+#undef X
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
+
+// TODO: only for one texture, but... too many dependencies if we want to add special descriptor
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+
+layout(location = PAYLOAD_LOCATION_PRIMARY) rayPayloadEXT RayPayloadPrimary payload;
+
+
+const float ray_length_difference_treshold = 1.5;
+
+
+const float distance_treshold = 5.0;
+const float normal_treshold = 0.9;
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+void main() {
+	ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
+	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+	float aspect = float(res.x) / float(res.y);
+
+	const vec3 position = imageLoad(src_position_t, pix).xyz;
+	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
+	
+	vec3 shadingNormal, geometryNormal;
+	readNormals(pix, geometryNormal, shadingNormal);
+
+	vec3 origin = OriginWorldPosition(ubo.inv_view);
+	vec3 direction = ScreenToWorldDirection(uv, ubo.inv_view, ubo.inv_proj);
+	vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
+	vec2 last_uv = WorldPositionToUV(position, ubo.last_proj, ubo.last_view);
+	ivec2 last_pix = UVToPix(last_uv, res);
+
+	const float depth = length(origin - position);
+
+	//vec3 reflection_cone_center = normalize(reflect(position - origin, shadingNormal));
+
+	uint reflection_parallax_reprojection = 1;
+	//uint reflection_parallax_reprojection = depth < 40. ? 0 : 1; // revolver hack
+
+	float last_depth = -1000.; // guaranted non-equal
+	float depth_need = length(last_origin - position);
+	vec4 debug_reprojection = vec4(1., 0., 0., 1.);
+	float reflection_ray_lenth = length(reflection_pos - position);
+
+	//last_pix = closest_checker_texel(last_pix, source_checker_texel);
+
+	vec2 forward_offset = vec2(-100., 0.);
+	vec2 parallax_offset = vec2(-100., 0.);
+
+	//if (any(greaterThanEqual(last_pix, ivec2(0))) && any(lessThan(last_pix, res))) {
+
+		vec3 last_reflection_pos = imageLoad(src_last_refl_position_t, last_pix).xyz;
+		vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
+		last_depth = length(last_origin - last_position);
+
+		// Simple get calculate position 
+		//if (abs(last_depth - depth_need) < (distance_treshold + distance_far_multiplier * depth_need)) {
+		//if (abs(last_depth - depth_need) < distance_treshold) {
+			// forward_offset = last_uv;
+		//}
+
+		// But we will searching for better equal texel in last frame
+		const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
+		const int KERNEL_SIZE = 4;
+		ivec2 better_pix = ivec2(0, 0);
+		float better_uv_offset = 1000.;
+		int search_done = 0;
+
+	#define SEARCH_CYCLE(CENTER_PIX, KERNEL_OFFSET) \
+		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {\
+			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) { \
+				const ivec2 p = CENTER_PIX + ivec2(x, y) * KERNEL_OFFSET; \
+				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) continue; \
+				const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, p); \
+				if (search_info_ktuv.x == current_info_ktuv.x && search_info_ktuv.y == current_info_ktuv.y) { \
+					const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw); \
+					if (current_uv_offset < better_uv_offset) { \
+						better_pix = p; \
+						better_uv_offset = current_uv_offset; \
+						search_done = 1; \
+					} \
+				} \
+			} \
+		} 
+
+		// We need to search texels relative to camera (pix) and to world (last_pix)
+		// Moving platforms and weapon in hand need to searched in camera space
+
+		// low velocity, good precision
+		SEARCH_CYCLE(pix, 6);
+		SEARCH_CYCLE(last_pix, 6);
+
+		// more velocity, low precision
+		if (search_done == 0) {
+			SEARCH_CYCLE(pix, 12);
+			SEARCH_CYCLE(last_pix, 12);
+		}
+
+		// refine by searching in little area
+		if (search_done == 1) {
+			const ivec2 refinement_pix = better_pix;
+			SEARCH_CYCLE(refinement_pix, 1);
+
+			last_pix = better_pix;
+			last_uv = (vec2(last_pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+
+			if (better_uv_offset < uv_treshold) {
+				forward_offset = last_uv;
+			}
+			//forward_offset = abs(last_uv - uv) * 5.; // TEST: motion offsets visualize
+		}
+
+
+		//if (false) {
+		if (reflection_parallax_reprojection == 1 && dot(geometryNormal, shadingNormal) > normal_treshold) { 
+
+			// Parallax reprojection
+			vec3 texel_normal = normalize(geometryNormal.xyz);
+			vec3 reflection_destination = normalize(reflect(normalize(position - origin), texel_normal)) * length(reflection_pos.xyz - position) + position;
+			float reflection_distance_to_plane = dot(reflection_destination - position, texel_normal);
+			vec3 reflection_destination_on_plane = reflection_destination - texel_normal * reflection_distance_to_plane;
+			float last_distance_to_plane = dot(last_origin - position, texel_normal);
+			vec3 last_origin_on_plane = last_origin - texel_normal * last_distance_to_plane;
+			float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
+			vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_destination_on_plane, reflection_center);
+
+			vec2 parallax_uv = WorldPositionToUV(reflection_parallax_position, ubo.last_proj, ubo.last_view);
+			ivec2 parallax_pix = UVToPix(parallax_uv, res);
+
+			if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
+
+				vec4 last_reflection_pos = imageLoad(src_last_refl_position_t, parallax_pix);
+				last_depth = last_reflection_pos.w;
+
+				float last_ray_length = length(last_reflection_pos.xyz - position);
+				float ray_length_difference = last_ray_length / reflection_ray_lenth;
+				
+				float depth_need_parallax = length(last_origin - reflection_parallax_position);
+
+				vec3 parallax_shadingNormal, parallax_geometryNormal;
+				readNormals(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
+
+				if (/*abs(last_depth - depth_need_parallax) < distance_treshold &&*/
+					dot(normalize(texel_normal), normalize(parallax_shadingNormal)) > normal_treshold &&
+					ray_length_difference < ray_length_difference_treshold && ray_length_difference > (1. / ray_length_difference_treshold)) {
+						parallax_offset = parallax_uv;
+				}
+			}
+		}
+	//}
+
+	imageStore(out_image_motion_offsets_uvs, ivec2(gl_LaunchIDEXT.xy), vec4(forward_offset, parallax_offset));
+}

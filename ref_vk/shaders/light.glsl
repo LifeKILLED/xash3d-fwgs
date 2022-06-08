@@ -8,6 +8,8 @@ layout (set = 0, binding = BINDING_LIGHT_CLUSTERS, align = 1) readonly buffer UB
 const float color_culling_threshold = 0;//600./color_factor;
 const float shadow_offset_fudge = .1;
 
+
+#include "noise.glsl"
 #include "brdf.h"
 #include "light_common.glsl"
 
@@ -18,9 +20,27 @@ const float shadow_offset_fudge = .1;
 #if LIGHT_POINT
 void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
+	const vec3 shadow_sample_offset = normalize(vec3(rand01(), rand01(), rand01()) - vec3(.5));
 	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
+#ifdef MAX_LIGHTS_PER_TEXEL
+	const uint selected_count = min(num_point_lights, MAX_LIGHTS_PER_TEXEL);
+	const uint skipped_count = num_point_lights - selected_count;
+	const uint skipped_start = rand() % num_point_lights;
+	const uint skipped_end = skipped_start + skipped_count;
+	const uint skipped_ringed = skipped_end < num_point_lights ? -1 : skipped_end % num_point_lights;
+	const float sampling_factor = float(num_point_lights) / float(selected_count);
 	for (uint j = 0; j < num_point_lights; ++j) {
+		if (j < skipped_ringed || (j >= skipped_start && j < skipped_end)) continue;
 		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
+#else // Full count of lights in every texel
+	for (uint j = 0; j < num_point_lights; ++j) {
+#ifdef ONE_LIGHT_PER_TEXEL
+		const uint selected = rand() % num_point_lights;
+		const uint i = uint(light_grid.clusters[cluster_index].point_lights[selected]);
+#else // Full count of lights in every texel
+		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
+#endif // ONE_LIGHT_PER_TEXEL
+#endif // MAX_LIGHTS_PER_TEXEL
 
 		vec3 color = lights.point_lights[i].color_stopdot.rgb * throughput;
 		if (dot(color,color) < color_culling_threshold)
@@ -89,19 +109,34 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		if (dot(combined,combined) < color_culling_threshold)
 			continue;
 
-		// FIXME split environment and other lights
+		const float shadow_sample_radius = not_environment ? radius : 1000.;
+		const vec3 shadow_sample_dir = light_dir_norm * light_dist + shadow_sample_offset * shadow_sample_radius;
 		if (not_environment) {
-			if (shadowed(P, light_dir_norm, light_dist + shadow_offset_fudge))
+			//if (shadowed(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowed(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				continue;
 		} else {
 			// for environment light check that we've hit SURF_SKY
-			if (shadowedSky(P, light_dir_norm, light_dist + shadow_offset_fudge))
+			//if (shadowedSky(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowedSky(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				continue;
 		}
+
+#ifdef ONE_LIGHT_PER_TEXEL
+		diffuse += ldiffuse * float(num_point_lights);
+		specular += lspecular * float(num_point_lights);
+		break;
+#endif
 
 		diffuse += ldiffuse;
 		specular += lspecular;
 	} // for all lights
+
+#if MAX_LIGHTS_PER_TEXEL
+	diffuse *= sampling_factor;
+	specular *= sampling_factor;
+#endif
+
 }
 #endif
 

@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "ray_primary_common.glsl"
+#include "color_spaces.glsl"
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform image2D out_image_##name;
 RAY_PRIMARY_OUTPUTS(X)
@@ -10,10 +11,14 @@ RAY_PRIMARY_OUTPUTS(X)
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
 
+// TODO: only for one texture, but... too many dependencies if we want to add special descriptor
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+
 layout(location = PAYLOAD_LOCATION_PRIMARY) rayPayloadEXT RayPayloadPrimary payload;
 
 void main() {
 	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
 
 	// FIXME start on a near plane
 	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
@@ -36,9 +41,15 @@ void main() {
 		origin, 0., direction, L,
 		PAYLOAD_LOCATION_PRIMARY);
 
+	// sample blue noise
+	//vec2 blue_noise_uv = vec2(pix % BLUE_NOISE_TEX_RESOLUTION) / vec2(BLUE_NOISE_TEX_RESOLUTION);
+	//vec4 blue_noise = texture(textures[BLUE_NOISE_TEX_ID], blue_noise_uv);
+
 	imageStore(out_image_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
 	imageStore(out_image_base_color_a, ivec2(gl_LaunchIDEXT.xy), payload.base_color_a);
 	imageStore(out_image_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+	imageStore(out_image_search_info_ktuv, ivec2(gl_LaunchIDEXT.xy), payload.search_info_ktuv);
+	//imageStore(out_image_blue_noise, ivec2(gl_LaunchIDEXT.xy), blue_noise);
 }

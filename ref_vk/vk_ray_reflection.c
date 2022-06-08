@@ -1,4 +1,4 @@
-#include "vk_ray_primary.h"
+#include "vk_ray_reflection.h"
 
 #include "ray_resources.h"
 #include "ray_pass.h"
@@ -24,7 +24,8 @@ static const VkDescriptorSetLayoutBinding bindings[] = {
 		INIT_BINDING(index, name, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_RAYGEN_BIT_KHR)
 
 	LIST_COMMON_BINDINGS(INIT_BINDING)
-	RAY_PRIMARY_OUTPUTS(INIT_IMAGE)
+	RAY_REFLECTION_INPUTS(INIT_IMAGE)
+	RAY_REFLECTION_OUTPUTS(INIT_IMAGE)
 
 #undef INIT_IMAGE
 #undef INIT_BINDING
@@ -34,12 +35,13 @@ static const int semantics[] = {
 #define IN(index, name, ...) (RayResource_##name + 1),
 #define OUT(index, name, ...) -(RayResource_##name + 1),
 	LIST_COMMON_BINDINGS(IN)
-	RAY_PRIMARY_OUTPUTS(OUT)
+	RAY_REFLECTION_INPUTS(IN)
+	RAY_REFLECTION_OUTPUTS(OUT)
 #undef IN
 #undef OUT
 };
 
-struct ray_pass_s *R_VkRayPrimaryPassCreate( void ) {
+struct ray_pass_s *R_VkRayReflectionPassCreate( void ) {
 	// FIXME move this into vk_pipeline or something
 	const struct SpecializationData {
 		uint32_t sbt_record_size;
@@ -70,14 +72,14 @@ struct ray_pass_s *R_VkRayPrimaryPassCreate( void ) {
 	};
 
 	const ray_pass_create_tracing_t rpc = {
-		.debug_name = "primary ray",
+		.debug_name = "reflection ray",
 		.layout = {
 			.bindings = bindings,
 			.bindings_semantics = semantics,
 			.bindings_count = COUNTOF(bindings),
 			.push_constants = {0},
 		},
-		.raygen = "ray_primary.rgen.spv",
+		.raygen = "ray_reflection.rgen.spv",
 		.miss = miss,
 		.miss_count = COUNTOF(miss),
 		.hit = hit,

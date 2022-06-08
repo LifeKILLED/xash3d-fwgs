@@ -12,6 +12,7 @@
 #include "crclib.h"
 #include "com_strings.h"
 #include "eiface.h"
+#include "blue_noise.h"
 
 #include <memory.h>
 #include <math.h>
@@ -180,6 +181,25 @@ static rgbdata_t *Common_FakeImage( int width, int height, int depth, int flags 
 	return &r_image;
 }
 
+static rgbdata_t* Common_ByteArrayImage(int width, int height, byte *data2D, int depth, int flags)
+{
+	static rgbdata_t	r_image;
+
+	// also use this for bad textures, but without alpha
+	r_image.width = Q_max(1, width);
+	r_image.height = Q_max(1, height);
+	r_image.depth = Q_max(1, depth);
+	r_image.flags = flags;
+	r_image.type = PF_RGBA_32;
+	r_image.size = r_image.width * r_image.height * r_image.depth * 4;
+	r_image.buffer = data2D;
+	r_image.palette = NULL;
+	r_image.numMips = 1;
+	r_image.encode = 0;
+
+	return &r_image;
+}
+
 /*
 ===============
 GL_ProcessImage
@@ -307,6 +327,15 @@ static void VK_CreateInternalTextures( void )
 	// cinematic dummy
 	pic = Common_FakeImage( 640, 100, 1, IMAGE_HAS_COLOR );
 	tglob.cinTexture = VK_LoadTextureInternal( "*cintexture", pic, TF_NOMIPMAP|TF_CLAMP );
+
+	// blue noise
+	for (int i = 0; i < 8; i++) {
+		char buf[15];
+		sprintf(buf, "blue_noise_%d", i);
+		pic = Common_ByteArrayImage(64, 64, (byte*)blue_noise_3d_rgba8_64x64x8 + i*64*64*4, 1, IMAGE_HAS_COLOR | IMAGE_HAS_ALPHA);
+		tglob.blueNoiseTextures[i] = VK_LoadTextureInternal(buf, pic, TF_NOMIPMAP | TF_COLORMAP);
+		gEngine.Con_Printf("Blue noise texture ID is %d, put this in shaders\n", tglob.blueNoiseTextures[i]);
+	}
 
 	{
 		rgbdata_t *sides[6];
