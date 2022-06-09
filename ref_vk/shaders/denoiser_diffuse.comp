@@ -15,11 +15,10 @@ layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_gi_accum_sh1;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_gi_accum_sh2;
 layout(set = 0, binding = 6, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_refl_position_t; // depth stored in w coord
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_last_diffuse;
-layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_gi_sh1;
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_gi_sh2;
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_diffuse;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_gi_sh1;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_gi_sh2;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
 
 //
 //vec3 reinhard(vec3 color){
@@ -57,7 +56,7 @@ void main() {
 	vec3 diffuse = vec3(0.);
 	vec4 gi_sh1 = vec4(0.);
 	vec2 gi_sh2 = vec2(0.);
-	float depth = imageLoad(src_refl_position_t, pix).w;
+	float depth = imageLoad(src_position_t, pix).w;
 
 	diffuse = imageLoad(src_diffuse_accum, pix).rgb;
 	gi_sh1 = imageLoad(src_gi_accum_sh1, pix);
@@ -98,7 +97,7 @@ void main() {
 	if (motion_offset.x > -99.) {
 		const ivec2 last_pix = UVToPix(motion_offset, res);
 		const vec3 last_diffuse = imageLoad(src_last_diffuse, last_pix).xyz;
-		diffuse = clamp(mix(diffuse, last_diffuse, 0.6), 0., 2.5);
+		diffuse = clamp(mix(diffuse, last_diffuse, 0.8), 0., 2.5);
 	}
 
 	imageStore(out_diffuse_denoised, pix, vec4(diffuse, 0.));

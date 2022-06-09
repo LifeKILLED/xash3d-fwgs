@@ -1,7 +1,9 @@
 #version 460
 
-//#define USE_KERNEL_8_OPTIMIZED 1
-#define KERNEL_SIZE 6
+#define KERNEL_SIZE 8
+#define KERNEL_OFFSET 2
+
+#define KERNEL_FALLBACK 4
 
 #include "noise.glsl"
 #include "brdf.h"
@@ -20,7 +22,9 @@ layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_refl_normals_gs;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_dir_dot;
 layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_reflection;
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_last_position_t;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_last_normals_gs;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
 
 //
 //vec3 reinhard(vec3 color){
@@ -51,6 +55,13 @@ void readReflNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 }
 
 
+void readLastNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_last_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+
 
 void main() {
 	ivec2 res = ivec2(imageSize(src_specular_accum));
@@ -65,61 +76,41 @@ void main() {
 	// on corners we just use fallback filter if samples is small count
 	// it's looks like we add little roughness and fixed black dots
 
-//#ifdef USE_KERNEL_8_OPTIMIZED
-//	float clean_sum = blur_kernel8_center_weight;
-//	float fallback_sum = blur_kernel8_center_weight;
-//	vec3 specular_clean = imageLoad(src_specular_accum, pix).rgb * clean_sum;
-//	vec3 specular_fallback = specular_clean;
-//#else
-	vec3 specular_clean = vec3(0.);
-	vec3 specular_fallback = vec3(0.);
-	float clean_sum = 0.;
-	float fallback_sum = 0.;
-//#endif
+	vec3 specular = vec3(0.);
+	//vec3 specular = imageLoad(src_specular_accum, pix).rgb;
+
+
 
 	float roughness = imageLoad(src_material_rmxx, pix).r;
-
-	vec3 specular = vec3(0.);
-	int clean_samples_count = 0;
 		
 	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
 	vec3 refl_shading_normal = vec3(0.), refl_geometry_normal = vec3(0.);
 	vec3 current_shading_normal = vec3(0.), current_geometry_normal = vec3(0.);
 	readNormals(pix, geometry_normal, shading_normal);
 
-	const float maxKernelDistance = roughness < 0.08 ? 1000000000. :
-									roughness < 0.11 ? 70000. : 
-									roughness < 0.21 ? 250. : 
-									roughness < 0.31 ? 100. : 
-									roughness < 0.41 ? 70. : 
-									roughness < 0.51 ? 30. : 
-									roughness < 0.61 ? 10. : 
-									roughness < 0.71 ? 5. : 2.;
-
 	const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
 	const vec3 refl_pos_src = imageLoad(src_refl_position_t, pix).xyz;
 	const float rayLength_src = length(refl_pos_src - center_pos);
-	const float blur_strengh = smoothstep(0., maxKernelDistance, rayLength_src);
 	const vec4 reflectionCone = imageLoad(src_refl_dir_dot, pix);
 	const vec3 coneDirection = normalize(reflectionCone.xyz);
 	const vec3 view_dir = reflect(-coneDirection, shading_normal);
 
 
-	MaterialProperties material;
-	material.baseColor = vec3(1.);
-	material.emissive = vec3(0.);
-	material.metalness = 1.;
-	material.roughness = roughness;
+	// Hand-made formula created by LifeKILLED on online graph visualizer
+	const float lower_eval_value = 1. - mix(pow(1. - roughness, 5.), pow(1. - roughness, 2.), 0.4);
+	const float max_blur_mixing = smoothstep(0.6, 0.7, roughness);
 
+	//if (true) {
 	//if (false) {
 	if (roughness > 0.05) { // don't use for mirrors
-
-		float weightPow = 1. / (roughness * roughness);
-		float dotTreshold = 0.3;
+	
+		const float dotTreshold = 0.01;
+		const float fallbackTreshold = 0.001;
+		float weights_sum = 0.;
 
 		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
 			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-				const ivec2 p = pix + ivec2(x, y) * 2;
+				const ivec2 p = pix + ivec2(x, y) * KERNEL_OFFSET;
 				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 					continue;
 				}
@@ -127,79 +118,121 @@ void main() {
 				// is in roughness cone?
 				const vec3 refl_pos = imageLoad(src_refl_position_t, p).xyz;
 				const float currentDot = dot(coneDirection, normalize(refl_pos - center_pos));
-				const float rayLength = length(refl_pos - center_pos);
 
-				const float sigma = max(blur_strengh * KERNEL_SIZE / 2., 1.);
-				const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+				// Hand-made formula created by LifeKILLED on online graph visualizer
+				const float eval = mix(smoothstep(lower_eval_value, 1., asin(currentDot) * 0.66), currentDot, max_blur_mixing);
 
-				if (currentDot <= dotTreshold) continue;
+				const float sigma = KERNEL_SIZE / 2.;
+				const float weight = normpdf(x, sigma) * normpdf(y, sigma) * eval;
 
-//				const BrdfData data = prepareBRDFData(shading_normal, normalize(refl_pos - center_pos), normalize(view_dir - center_pos), material);
-//				vec3 eval = evalSpecular(data);
-				float eval = 1.;
+				if (currentDot > dotTreshold && weight > 0.) {
+					const vec3 current_specular = imageLoad(src_specular_accum, p).rgb;
 
-				const vec3 current_specular = imageLoad(src_specular_accum, p).rgb;
-
-				specular_clean += current_specular * weight * eval.r;
-				clean_sum += weight * eval.r;
+					specular += current_specular * weight;
+					weights_sum += weight;
+				}
 			}
 		}
 
-		specular_clean /= clean_sum;
-		specular = specular_clean;
+		// extra blur by normals in noisy places
+		if (weights_sum < fallbackTreshold) {
+			const float normalsTreshold = 0.95;
+			for (int x = -KERNEL_FALLBACK; x <= KERNEL_FALLBACK; ++x) {
+				for (int y = -KERNEL_FALLBACK; y <= KERNEL_FALLBACK; ++y) {
+					const ivec2 p = pix + ivec2(x, y);
+					if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+						continue;
+					}
 
-//		// extra blur in bad places
-//		if (clean_sum > 1.5) {
-//			const int LOW_KERNEL_SIZE = 2;
-//			float weight_sum = 0.;
-//			vec3 blurred_specular_sum = vec3(0.);
-//			for (int x = -LOW_KERNEL_SIZE; x <= LOW_KERNEL_SIZE; ++x) {
-//				for (int y = -LOW_KERNEL_SIZE; y <= LOW_KERNEL_SIZE; ++y) {
-//					const ivec2 p = pix + ivec2(x, y);
-//					if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-//						continue;
-//					}
-//
-//					const float sigma = LOW_KERNEL_SIZE / 2.;
-//					const float weight = normpdf(x, sigma) * normpdf(y, sigma);
-//
-//					vec3 current_geometry_normal, current_shading_normal;
-//					readNormals(p, current_geometry_normal, current_shading_normal);
-//					if (dot(geometry_normal, current_geometry_normal) < 0.77) continue;
-//
-//					const vec3 current_specular = imageLoad(src_specular_accum, p).rgb;
-//
-//					blurred_specular_sum += current_specular * weight;
-//					weight_sum += weight;
-//				}
-//	
-//				specular = blurred_specular_sum / weight_sum;
-//			}
-//		}
+					const float sigma = KERNEL_FALLBACK / 2.;
+					const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+
+					vec3 current_geometry_normal, current_shading_normal;
+					readNormals(p, current_geometry_normal, current_shading_normal);
+
+					if (dot(geometry_normal, current_geometry_normal) > normalsTreshold) {
+						const vec3 current_specular = imageLoad(src_specular_accum, p).rgb;
+						specular += current_specular * weight;
+						weights_sum += weight;
+					}
+				}
+			}
+		}
+
+		if (weights_sum > 0.) {
+			specular /= weights_sum;
+		} else {
+			specular = imageLoad(src_specular_accum, pix).rgb;
+		}
+
 	}
 	else
 	{
 		specular = imageLoad(src_specular_accum, pix).rgb; // mirror, don't need to denoise
 	}
 
+	#define THERE_IS(uv_offset) (uv_offset.x > -99.)
 
-
-	
+	// Temporal reprojection
+	const float depth = imageLoad(src_position_t, pix).w;
 	const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
 	const vec2 forward_offset = motion_offsets_uvs.xy;
 	const vec2 parallax_offset = motion_offsets_uvs.zw;
+	const float depthTreshold = 30.;
 
-	const vec2 motion_offset = parallax_offset.x > -99. ? parallax_offset : forward_offset;
-	if (motion_offset.x > -99.) {
-		const ivec2 last_pix = UVToPix(motion_offset, res);
-		const vec3 last_specular = imageLoad(src_last_reflection, last_pix).xyz;
+	vec3 last_forward_spec = specular;
+	vec3 last_parallax_spec = specular;
+	float parallaxFactor = 0.;
 
-		float specular_difference = 1. - smoothstep(0.5, 1.0, length(last_specular - specular));
+	if (THERE_IS(forward_offset)) {
+		const ivec2 last_pix = UVToPix(forward_offset, res);
+		last_forward_spec = imageLoad(src_last_reflection, last_pix).xyz;
 
-		specular = clamp(mix(specular, last_specular, specular_difference * 0.8), 0., 5.0);
-
-
+		const float last_depth = imageLoad(src_last_position_t, last_pix).w;
+		const float overlap_factor = smoothstep(0., depthTreshold, depth - last_depth);
+		last_forward_spec = mix(last_forward_spec, specular, overlap_factor);
 	}
+
+	if (THERE_IS(parallax_offset.x)) {
+		const ivec2 last_pix = UVToPix(parallax_offset, res);
+		last_parallax_spec = imageLoad(src_last_reflection, last_pix).xyz;
+
+		const float normalsDifferenceLower = 0.95;
+		const float normalsDifferenceHigher = 1.;
+		const float normalsDifference = dot(normalize(geometry_normal), normalize(shading_normal));
+
+		vec3 parallaxGeometry_normal, parallaxShading_normal;
+		readLastNormals(last_pix, parallaxGeometry_normal, parallaxShading_normal);
+
+		const float lastNormalsDifference = dot(normalize(parallaxGeometry_normal), normalize(parallaxShading_normal));
+
+		const float normalsLastDifference = dot(normalize(geometry_normal), normalize(shading_normal));
+		const float parallaxFactorLast = smoothstep(normalsDifferenceLower, normalsDifferenceHigher, lastNormalsDifference);
+		parallaxFactor = smoothstep(normalsDifferenceLower, normalsDifferenceHigher, normalsDifference) * parallaxFactorLast;
+
+		const float last_depth = imageLoad(src_last_position_t, last_pix).w;
+		const float overlap_factor = smoothstep(0., depthTreshold, depth - last_depth);
+		last_parallax_spec = mix(last_parallax_spec, specular, overlap_factor);
+	}
+
+	vec3 last_specular = mix(last_forward_spec, last_parallax_spec, parallaxFactor);
+
+	float specular_difference = 1.;
+	//float specular_difference = 1. - smoothstep(0.5, 1.0, length(last_specular - specular));
+
+
+
+
+//    // Simple get sample by last position
+//	float specular_difference = 0.;
+//	vec3 last_specular = vec3(0.);
+//	if (THERE_IS(forward_offset)) {
+//		const ivec2 last_pix = UVToPix(forward_offset, res);
+//		last_specular = imageLoad(src_last_reflection, last_pix).xyz;
+//		specular_difference = 1.;
+//	}
+
+	specular = clamp(mix(specular, last_specular, specular_difference * 0.8), 0., 5.0);
 
 	//specular = vec3(motion_offset.xy, 0.); // TEST: motion offsets visualize
 

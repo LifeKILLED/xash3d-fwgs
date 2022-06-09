@@ -41,11 +41,13 @@ void main() {
 		origin, 0., direction, L,
 		PAYLOAD_LOCATION_PRIMARY);
 
+	float depth = length(origin - payload.hit_t.xyz);
+
 	// sample blue noise
 	//vec2 blue_noise_uv = vec2(pix % BLUE_NOISE_TEX_RESOLUTION) / vec2(BLUE_NOISE_TEX_RESOLUTION);
 	//vec4 blue_noise = texture(textures[BLUE_NOISE_TEX_ID], blue_noise_uv);
 
-	imageStore(out_image_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
+	imageStore(out_image_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(payload.hit_t.xyz, depth));
 	imageStore(out_image_base_color_a, ivec2(gl_LaunchIDEXT.xy), payload.base_color_a);
 	imageStore(out_image_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
