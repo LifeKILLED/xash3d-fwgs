@@ -6,9 +6,9 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_denoised;
-layout(set = 0, binding = 1, rgba16f) uniform image2D out_gi_sh1_denoised;
-layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh2_denoised;
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reproject;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_gi_spread_sh1;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_spread_sh2;
 
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_diffuse_accum;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_gi_accum_sh1;
@@ -65,43 +65,80 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	const int KERNEL_SIZE = 4;
-	float weight_sum = 0.;
-	vec3 diffuse_sum = vec3(0.);
-	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y);
-			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-				continue;
-			}
+//	const int KERNEL_SIZE = 4;
+//	float weight_sum = 0.;
+//	vec3 diffuse_sum = vec3(0.);
+//	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+//		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//			const ivec2 p = pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//
+//			const float sigma = KERNEL_SIZE / 2.;
+//			const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+//
+//			vec3 current_geometry_normal, current_shading_normal;
+//			readNormals(p, current_geometry_normal, current_shading_normal);
+//			if (dot(geometry_normal, current_geometry_normal) < 0.77) continue;
+//
+//			const vec3 current_diffuse = imageLoad(src_diffuse_accum, p).rgb;
+//
+//			diffuse_sum += current_diffuse * weight;
+//			weight_sum += weight;
+//		}
+//	}
+//
+//	if (weight_sum != 0.) {
+//		diffuse = diffuse_sum / weight_sum;
+//	}
 
-			const float sigma = KERNEL_SIZE / 2.;
-			const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+	// TODO: CALCULATE THIS LIKE IN REFLECTIONS!
+//	float samples_count_diffuse = 1.; 
+//	float samples_count_gi = 1.; 
+//
+//	const vec2 motion_offset = imageLoad(src_motion_offsets_uvs, pix).xy;
+//	if (motion_offset.x > -99.) {
+//		const ivec2 last_pix = UVToPix(motion_offset, res);
+//		const vec3 last_diffuse = imageLoad(src_last_diffuse, last_pix).xyz;
+//		diffuse = clamp(mix(diffuse, last_diffuse, 0.8), 0., 2.5);
+//	}
 
-			vec3 current_geometry_normal, current_shading_normal;
-			readNormals(p, current_geometry_normal, current_shading_normal);
-			if (dot(geometry_normal, current_geometry_normal) < 0.77) continue;
 
-			const vec3 current_diffuse = imageLoad(src_diffuse_accum, p).rgb;
+		// ----------------------//
+		// Temporal reprojection //
+		// --------------------- //
 
-			diffuse_sum += current_diffuse * weight;
-			weight_sum += weight;
-		}
+#define THERE_IS(uv_offset) (uv_offset.x > -99.)
+
+	//const float depth = imageLoad(src_position_t, pix).w;
+	const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
+	const vec2 forward_offset = motion_offsets_uvs.xy;
+	const vec2 parallax_offset = motion_offsets_uvs.zw;
+	const float depthTreshold = 30.;
+	//const vec4 specular_src = vec4(specular, 1.); 
+
+
+	vec4 last_forward_diffuse = vec4(diffuse, 1.);
+	float parallaxFactor = 0.;
+	float last_parallaxFactor = 0.;
+	float fallbackFactor = 0.;
+	float samples_count = 0;
+	//vec4 last_specular = vec4(specular, 1.);
+	float overlap_factor = 0.;
+
+	if (THERE_IS(forward_offset)) {
+		const ivec2 last_pix = UVToPix(forward_offset, res);
+		last_forward_diffuse = imageLoad(src_last_diffuse, last_pix) + vec4(vec3(0.), 1.);
+		last_forward_diffuse.w += 1.; // increase sample count
+
+		//const float last_depth = imageLoad(src_last_position_t, last_pix).w;
+		//overlap_factor = smoothstep(0., depthTreshold, depth - last_depth);
+		//last_forward_spec = mix(last_forward_spec, specular_src, overlap_factor);
 	}
 
-	if (weight_sum != 0.) {
-		diffuse = diffuse_sum / weight_sum;
-	}
-
-	const vec2 motion_offset = imageLoad(src_motion_offsets_uvs, pix).xy;
-	if (motion_offset.x > -99.) {
-		const ivec2 last_pix = UVToPix(motion_offset, res);
-		const vec3 last_diffuse = imageLoad(src_last_diffuse, last_pix).xyz;
-		diffuse = clamp(mix(diffuse, last_diffuse, 0.8), 0., 2.5);
-	}
-
-	imageStore(out_diffuse_denoised, pix, vec4(diffuse, 0.));
-	imageStore(out_gi_sh1_denoised, pix, gi_sh1);
-	imageStore(out_gi_sh2_denoised, pix, vec4(gi_sh2, depth, 0.));
+	imageStore(out_diffuse_reproject, pix, last_forward_diffuse);
+	imageStore(out_gi_spread_sh1, pix, gi_sh1);
+	imageStore(out_gi_spread_sh2, pix, vec4(gi_sh2, depth, 0.));
 
 }

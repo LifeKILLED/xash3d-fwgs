@@ -6,15 +6,18 @@
 #include "denoiser_tools.glsl"
 #include "color_spaces.glsl"
 
+#define EMISSIVE_TRESHOLD 0.1
+
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
 
-layout(set = 0, binding = 10, rgba32f) uniform readonly image2D first_position_t;
-layout(set = 0, binding = 11, rgba32f) uniform readonly image2D position_t;
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D normals_gs;
-layout(set = 0, binding = 13, rgba8) uniform readonly image2D material_rmxx;
-layout(set = 0, binding = 14, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_first_position_t;
+layout(set = 0, binding = 11, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 14, rgba8) uniform readonly image2D src_base_color_a;
+layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_emissive;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -39,7 +42,7 @@ layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
 #include "light.glsl"
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(normals_gs, uv);
+	const vec4 n = imageLoad(src_normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -90,8 +93,11 @@ void main() {
 	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
 
-	const vec4 material_data = imageLoad(material_rmxx, pix);
-	const vec3 base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+	vec3 diffuse = vec3(0.), specular = vec3(0.);
+
+
+	const vec4 material_data = imageLoad(src_material_rmxx, pix);
+	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);
 
 	MaterialProperties material;
 	
@@ -107,9 +113,9 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	const vec3 pos = imageLoad(position_t, pix).xyz + geometry_normal * 0.1;
+	const vec3 pos = imageLoad(src_position_t, pix).xyz + geometry_normal * 0.1;
 
-	vec3 diffuse = vec3(0.), specular = vec3(0.);
+
 
 #if REUSE_SCREEN_LIGHTING
 
@@ -119,13 +125,13 @@ void main() {
 
 	// can we see it in reflection?
 	if (dot(direction, pos - origin) > .0) {
-		const ivec2 res = ivec2(imageSize(first_position_t));
+		const ivec2 res = ivec2(imageSize(src_first_position_t));
 		const vec2 first_uv = WorldPositionToUV(pos, inverse(ubo.inv_proj), inverse(ubo.inv_view));
 		const ivec2 first_pix = UVToPix(first_uv, res);
 
 		if (any(greaterThanEqual(first_pix, ivec2(0))) && any(lessThan(first_pix, res))) {
 	
-			const vec3 first_pos = imageLoad(first_position_t, first_pix).xyz;
+			const vec3 first_pos = imageLoad(src_first_position_t, first_pix).xyz;
 
 			const float nessesary_depth = length(origin - pos);
 			const float current_depth = length(origin - first_pos);
@@ -149,12 +155,15 @@ void main() {
 #if PRIMARY_VIEW
 		const vec3 V = -direction;
 #else
-		const vec3 primary_pos = imageLoad(first_position_t, pix).xyz;
+		const vec3 primary_pos = imageLoad(src_first_position_t, pix).xyz;
 		const vec3 V = normalize(primary_pos - pos);
 #endif
 
+	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
+	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
 		const vec3 throughput = vec3(1.);
 		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
+	//}
 
 		// correction for avoiding difference in sampling algorythms
 #if LIGHT_POINT

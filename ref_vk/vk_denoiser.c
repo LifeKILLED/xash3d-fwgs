@@ -3,6 +3,7 @@
 #include "ray_resources.h"
 #include "ray_pass.h"
 
+
 	// SIMPLE OUT PASS WITHOUT DENOISE
 
 #define LIST_OUTPUTS(X) \
@@ -86,6 +87,19 @@ struct ray_pass_s *R_VkRayDenoiserCreate( void ) {
 	X(14, gi_emissive) \
 	X(15, gi_direction) \
 
+//// Aliases for maps reusing
+//#define DENOISER_IMAGE_0 light_poly_diffuse
+//#define DENOISER_IMAGE_1 light_poly_specular
+//#define DENOISER_IMAGE_2 light_point_diffuse
+//#define DENOISER_IMAGE_3 light_point_specular
+//#define DENOISER_IMAGE_4 light_poly_reflection
+//#define DENOISER_IMAGE_5 light_point_reflection
+//#define DENOISER_IMAGE_6 light_poly_indirect
+//#define DENOISER_IMAGE_7 light_point_indirect
+//#define DENOISER_IMAGE_8 refl_emissive
+//#define DENOISER_IMAGE_9 gi_emissive
+//#define DENOISER_IMAGE_10 gi_direction
+
 static const VkDescriptorSetLayoutBinding bindings_accum[] = {
 #define BIND_IMAGE(index, name) \
 	{ \
@@ -127,21 +141,26 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 
 	// PASS 2. REFLECTIONS
 
+//// Aliases for maps reusing
+//#define DENOISER_IMAGE_0 specular_spread
+//#define DENOISER_IMAGE_1 specular_reproject
+
 #define LIST_OUTPUTS_REFL(X) \
-	X(0, specular_denoised) \
+	X(0, specular_spread) \
+	X(1, specular_reproject) \
 
 #define LIST_INPUTS_REFL(X) \
-	X(1, specular_accum) \
-	X(2, position_t) \
-	X(3, refl_position_t) \
-	X(4, normals_gs) \
-	X(5, material_rmxx) \
-	X(6, refl_normals_gs) \
-	X(7, refl_dir_dot) \
-	X(8, last_reflection) \
-	X(9, last_position_t) \
-	X(10, last_normals_gs) \
-	X(11, motion_offsets_uvs) \
+	X(2, specular_accum) \
+	X(3, position_t) \
+	X(4, refl_position_t) \
+	X(5, normals_gs) \
+	X(6, material_rmxx) \
+	X(7, refl_normals_gs) \
+	X(8, refl_dir_dot) \
+	X(9, last_reflection) \
+	X(10, last_position_t) \
+	X(11, last_normals_gs) \
+	X(12, motion_offsets_uvs) \
 
 static const VkDescriptorSetLayoutBinding bindings_refl[] = {
 #define BIND_IMAGE(index, name) \
@@ -185,9 +204,9 @@ struct ray_pass_s* R_VkRayDenoiserReflectionsCreate(void) {
 	// PASS 3. DIFFUSE
 
 #define LIST_OUTPUTS_DIFF(X) \
-	X(0, diffuse_denoised) \
-	X(1, gi_sh1_denoised) \
-	X(2, gi_sh2_denoised) \
+	X(0, diffuse_reproject) \
+	X(1, gi_spread_sh1) \
+	X(2, gi_spread_sh2) \
 
 #define LIST_INPUTS_DIFF(X) \
 	X(3, diffuse_accum) \
@@ -240,7 +259,67 @@ struct ray_pass_s* R_VkRayDenoiserDiffuseCreate(void) {
 }
 
 
-	// PASS 4. COMPOSE
+// PASS 4. REFINE
+
+#define LIST_OUTPUTS_REFINE(X) \
+	X(0, diffuse_denoised) \
+	X(1, specular_denoised) \
+	X(2, gi_sh1_denoised) \
+	X(3, gi_sh2_denoised) \
+
+#define LIST_INPUTS_REFINE(X) \
+	X(4, diffuse_accum) \
+	X(5, diffuse_reproject) \
+	X(6, specular_spread) \
+	X(7, specular_reproject) \
+	X(8, gi_spread_sh1) \
+	X(9, gi_spread_sh2) \
+	X(10, position_t) \
+	X(11, normals_gs) \
+	X(12, material_rmxx) \
+
+
+static const VkDescriptorSetLayoutBinding bindings_refine[] = {
+#define BIND_IMAGE(index, name) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
+	LIST_OUTPUTS_REFINE(BIND_IMAGE)
+	LIST_INPUTS_REFINE(BIND_IMAGE)
+#undef BIND_IMAGE
+};
+
+static const int semantics_refine[] = {
+#define IN(index, name, ...) (RayResource_##name + 1),
+#define OUT(index, name, ...) -(RayResource_##name + 1),
+	LIST_OUTPUTS_REFINE(OUT)
+	LIST_INPUTS_REFINE(IN)
+#undef IN
+#undef OUT
+};
+
+struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
+	const ray_pass_create_compute_t rpcc = {
+		.debug_name = "denoiser refine",
+		.layout = {
+			.bindings = bindings_refine,
+			.bindings_semantics = semantics_refine,
+			.bindings_count = COUNTOF(bindings_refine),
+			.push_constants = {0},
+		},
+		.shader = "denoiser_refine.comp.spv",
+		.specialization = NULL,
+	};
+
+	return RayPassCreateCompute(&rpcc);
+}
+
+
+
+	// PASS 5. COMPOSE
 
 #define LIST_OUTPUTS_COMP(X) \
 	X(0, final_image) \
@@ -294,7 +373,7 @@ struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 	return RayPassCreateCompute(&rpcc);
 }
 
-// PASS 5. FXAA
+// PASS 6. FXAA
 
 #define LIST_OUTPUTS_FXAA(X) \
 	X(0, denoised) \

@@ -28,7 +28,7 @@ const float ray_length_difference_treshold = 1.5;
 
 
 const float distance_treshold = 5.0;
-const float normal_treshold = 0.9;
+const float normal_treshold = 0.98;
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
@@ -144,21 +144,20 @@ void main() {
 
 	if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
 
-		vec4 last_reflection_pos = imageLoad(src_last_refl_position_t, parallax_pix);
-		last_depth = last_reflection_pos.w;
+		vec4 last_parallax_pos = imageLoad(src_last_refl_position_t, parallax_pix);
+		float co_planar_difference = abs(dot(texel_normal, normalize(last_parallax_pos.xyz - position)));
 
-		float last_ray_length = length(last_reflection_pos.xyz - position);
+		float last_ray_length = length(last_parallax_pos.xyz - position);
 		float ray_length_difference = last_ray_length / reflection_ray_lenth;
-				
-		float depth_need_parallax = length(last_origin - reflection_parallax_position);
 
 		vec3 parallax_shadingNormal, parallax_geometryNormal;
 		readNormals(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
 
-		if (/*abs(last_depth - depth_need_parallax) < distance_treshold &&*/
+		if (co_planar_difference < 1. /*&&
 			dot(normalize(texel_normal), normalize(parallax_shadingNormal)) > normal_treshold &&
-			ray_length_difference < ray_length_difference_treshold && ray_length_difference > (1. / ray_length_difference_treshold)) {
-				parallax_offset = parallax_uv;
+			ray_length_difference < ray_length_difference_treshold && ray_length_difference > (1. / ray_length_difference_treshold)*/) {
+
+			parallax_offset = parallax_uv;
 		}
 	}
 

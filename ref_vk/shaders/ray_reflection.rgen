@@ -9,6 +9,8 @@
 #include "denoiser_tools.glsl"
 #include "brdf.h"
 
+//#define EXTRA_SAMPLES_FOR_EMISSIVE 4
+
 #define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_image_##name;
 RAY_REFLECTION_INPUTS(X)
 #undef X
@@ -120,37 +122,52 @@ void main() {
 	material.baseColor = vec3(1.);
 	material.emissive = vec3(0.);
 	material.metalness = material_data.g;
-	material.roughness = material_data.r;
+	material.roughness = min(0.6, material_data.r);
 	//material.roughness = 0.3;
 
 	// sample blue noise
 	vec2 blue_noise_uv = vec2(pix % ivec2(BLUE_NOISE_TEX_RESOLUTION)) / vec2(BLUE_NOISE_TEX_RESOLUTION);
 	vec4 blue_noise = texture(textures[nonuniformEXT(ubo.blue_noise_seed + BLUE_NOISE_TEX_ID)], blue_noise_uv);
+	//const vec3 noise_vec = blue_noise.xyz;
 
 	const float specPower = 1./ pow(material.roughness, 4.5);
-	const vec3 microfacet = PowRand( blue_noise.xyz, shading_normal, specPower );
 
-	vec3 direction = reflect(view_dir, microfacet);
+	vec3 emissive = vec3(0.);
 
-	float coplanar = dot(geometry_normal, direction);
-	if (coplanar < 0.) {
-		direction += geometry_normal * (coplanar * -2.);
+#ifdef EXTRA_SAMPLES_FOR_EMISSIVE
+	for (int n = 0; n < EXTRA_SAMPLES_FOR_EMISSIVE; n++) {	
+#endif
+
+		const vec3 noise_vec = vec3(rand01(),rand01(),rand01());
+		const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
+		vec3 direction = reflect(view_dir, microfacet);
+		float coplanar = dot(geometry_normal, direction);
+		if (coplanar < 0.) {
+			direction += geometry_normal * (coplanar * -2.);
+		}
+
+		payload.hit_t = vec4(0.);
+		payload.base_color_a = vec4(0.);
+		payload.normals_gs = vec4(0.);
+		payload.material_rmxx = vec4(0.);
+		payload.emissive = vec4(0.);
+
+		const uint flags = gl_RayFlagsCullFrontFacingTrianglesEXT;
+		const uint sbt_offset = 0;
+		const uint sbt_stride = 0;
+		const float L = 10000.; // TODO Why 10k?
+		traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE, // | GEOMETRY_BIT_REFRACTIVE,
+			sbt_offset, sbt_stride, SHADER_OFFSET_MISS_REGULAR,
+			origin, 0., normalize(direction), L,
+			PAYLOAD_LOCATION_PRIMARY);
+
+		emissive += max(vec3(0.), payload.emissive.rgb);
+
+#ifdef EXTRA_SAMPLES_FOR_EMISSIVE
 	}
 
-	payload.hit_t = vec4(0.);
-	payload.base_color_a = vec4(0.);
-	payload.normals_gs = vec4(0.);
-	payload.material_rmxx = vec4(0.);
-	payload.emissive = vec4(0.);
-
-	const uint flags = gl_RayFlagsCullFrontFacingTrianglesEXT;
-	const uint sbt_offset = 0;
-	const uint sbt_stride = 0;
-	const float L = 10000.; // TODO Why 10k?
-	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE, // | GEOMETRY_BIT_REFRACTIVE,
-		sbt_offset, sbt_stride, SHADER_OFFSET_MISS_REGULAR,
-		origin, 0., normalize(direction), L,
-		PAYLOAD_LOCATION_PRIMARY);
+	emissive /= EXTRA_SAMPLES_FOR_EMISSIVE;
+#endif
 
 	vec3 medianDirection = reflect(view_dir, shading_normal);
 	float minimalDot = 1.;
@@ -160,6 +177,6 @@ void main() {
 	imageStore(out_image_refl_base_color_a, ivec2(gl_LaunchIDEXT.xy), vec4(payload.base_color_a.rgb, payload.material_rmxx.y));
 	imageStore(out_image_refl_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_refl_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
-	imageStore(out_image_refl_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+	imageStore(out_image_refl_emissive, ivec2(gl_LaunchIDEXT.xy), vec4(emissive, 0.));
 	imageStore(out_image_refl_dir_dot, ivec2(gl_LaunchIDEXT.xy), vec4(medianDirection, minimalDot));
 }

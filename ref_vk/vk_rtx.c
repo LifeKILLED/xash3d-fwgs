@@ -198,6 +198,7 @@ static struct {
 		struct ray_pass_s* denoiser_accumulate;
 		struct ray_pass_s* denoiser_reflections;
 		struct ray_pass_s* denoiser_diffuse;
+		struct ray_pass_s* denoiser_refine;
 		struct ray_pass_s* denoiser_compose;
 		struct ray_pass_s* denoiser_fxaa;
 		struct ray_pass_s *denoiser;
@@ -1183,6 +1184,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_accumulate, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_reflections, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_diffuse, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_refine, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_fxaa, &res);
 	//RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
@@ -1236,6 +1238,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.denoiser_accumulate, R_VkRayDenoiserAccumulateCreate());
 		reloadPass( &g_rtx.pass.denoiser_reflections, R_VkRayDenoiserReflectionsCreate());
 		reloadPass( &g_rtx.pass.denoiser_diffuse, R_VkRayDenoiserDiffuseCreate());
+		reloadPass( &g_rtx.pass.denoiser_refine, R_VkRayDenoiserRefineCreate());
 		reloadPass( &g_rtx.pass.denoiser_compose, R_VkRayDenoiserComposeCreate());
 		reloadPass( &g_rtx.pass.denoiser_fxaa, R_VkRayDenoiserFXAACreate());
 		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
@@ -1450,6 +1453,9 @@ qboolean VK_RayInit( void )
 	g_rtx.pass.denoiser_diffuse = R_VkRayDenoiserDiffuseCreate();
 	ASSERT(g_rtx.pass.denoiser_diffuse);
 
+	g_rtx.pass.denoiser_refine = R_VkRayDenoiserRefineCreate();
+	ASSERT(g_rtx.pass.denoiser_refine);
+
 	g_rtx.pass.denoiser_compose = R_VkRayDenoiserComposeCreate();
 	ASSERT(g_rtx.pass.denoiser_compose);
 
@@ -1593,6 +1599,7 @@ void VK_RayShutdown( void ) {
 	RayPassDestroy(g_rtx.pass.denoiser);
 	RayPassDestroy(g_rtx.pass.denoiser_fxaa);
 	RayPassDestroy(g_rtx.pass.denoiser_compose);
+	RayPassDestroy(g_rtx.pass.denoiser_refine);
 	RayPassDestroy(g_rtx.pass.denoiser_diffuse);
 	RayPassDestroy(g_rtx.pass.denoiser_reflections);
 	RayPassDestroy(g_rtx.pass.denoiser_accumulate);

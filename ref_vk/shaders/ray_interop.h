@@ -86,6 +86,7 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, base_color_a, rgba8) \
+	X(15, emissive, rgba16f) \
 
 #define RAY_LIGHT_DIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_diffuse, rgba16f) \
@@ -103,6 +104,7 @@
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_base_color_a, rgba8) \
+	X(15, refl_emissive, rgba16f) \
 
 #define RAY_LIGHT_REFLECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_reflection, rgba16f) \
@@ -118,6 +120,7 @@
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_base_color_a, rgba8) \
+	X(15, gi_emissive, rgba16f) \
 
 #define RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_indirect, rgba16f) \
@@ -131,8 +134,13 @@
 	X(-1, diffuse_accum, rgba16f) \
 	X(-1, gi_accum_sh1, rgba16f) \
 	X(-1, gi_accum_sh2, rgba16f) \
-	X(-1, specular_denoised, rgba16f) \
+	X(-1, specular_spread, rgba16f) \
+	X(-1, specular_reproject, rgba16f) \
+	X(-1, diffuse_reproject, rgba16f) \
+	X(-1, gi_spread_sh1, rgba16f) \
+	X(-1, gi_spread_sh2, rgba16f) \
 	X(-1, diffuse_denoised, rgba16f) \
+	X(-1, specular_denoised, rgba16f) \
 	X(-1, gi_sh1_denoised, rgba16f) \
 	X(-1, gi_sh2_denoised, rgba16f) \
 	X(-1, final_image, rgba16f) \
