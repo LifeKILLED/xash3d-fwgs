@@ -196,8 +196,8 @@ static struct {
 		struct ray_pass_s* light_indirect_poly;
 		struct ray_pass_s* light_indirect_point;
 		struct ray_pass_s* denoiser_accumulate;
-		struct ray_pass_s* denoiser_reflections;
-		struct ray_pass_s* denoiser_diffuse;
+		struct ray_pass_s* denoiser_reproject;
+		struct ray_pass_s* denoiser_spread;
 		struct ray_pass_s* denoiser_refine;
 		struct ray_pass_s* denoiser_compose;
 		struct ray_pass_s* denoiser_fxaa;
@@ -1162,13 +1162,12 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.last_frame_buffers_init, &res);
 	if (g_rtx.last_frame_buffers_inited == true) {
 		BLIT_IMAGES(current_frame->last_position_t.image,		last_frame->position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(current_frame->last_refl_position_t.image,	last_frame->refl_position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(current_frame->last_normals_gs.image,		last_frame->normals_gs.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(current_frame->last_search_info_ktuv.image, last_frame->search_info_ktuv.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(current_frame->last_diffuse.image,			last_frame->diffuse_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(current_frame->last_reflection.image,		last_frame->specular_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(current_frame->last_gi_sh1.image,			last_frame->gi_sh1_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(current_frame->last_gi_sh2.image,			last_frame->gi_sh2_denoised.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_diffuse.image,			last_frame->diffuse_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_specular.image,			last_frame->specular_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_gi_sh1.image,			last_frame->gi_sh1_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(current_frame->last_gi_sh2.image,			last_frame->gi_sh2_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
 	}
 
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.primary_ray, &res );
@@ -1182,8 +1181,8 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_poly, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_point, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_accumulate, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_reflections, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_diffuse, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_reproject, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_spread, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_refine, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_fxaa, &res);
@@ -1236,8 +1235,8 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.light_indirect_poly, R_VkRayLightIndirectPolyPassCreate());
 		reloadPass( &g_rtx.pass.light_indirect_point, R_VkRayLightIndirectPointPassCreate());
 		reloadPass( &g_rtx.pass.denoiser_accumulate, R_VkRayDenoiserAccumulateCreate());
-		reloadPass( &g_rtx.pass.denoiser_reflections, R_VkRayDenoiserReflectionsCreate());
-		reloadPass( &g_rtx.pass.denoiser_diffuse, R_VkRayDenoiserDiffuseCreate());
+		reloadPass( &g_rtx.pass.denoiser_reproject, R_VkRayDenoiserReprojectCreate());
+		reloadPass( &g_rtx.pass.denoiser_spread, R_VkRayDenoiserSpreadCreate());
 		reloadPass( &g_rtx.pass.denoiser_refine, R_VkRayDenoiserRefineCreate());
 		reloadPass( &g_rtx.pass.denoiser_compose, R_VkRayDenoiserComposeCreate());
 		reloadPass( &g_rtx.pass.denoiser_fxaa, R_VkRayDenoiserFXAACreate());
@@ -1447,11 +1446,11 @@ qboolean VK_RayInit( void )
 	g_rtx.pass.denoiser_accumulate = R_VkRayDenoiserAccumulateCreate();
 	ASSERT(g_rtx.pass.denoiser_accumulate);
 
-	g_rtx.pass.denoiser_reflections = R_VkRayDenoiserReflectionsCreate();
-	ASSERT(g_rtx.pass.denoiser_reflections);
+	g_rtx.pass.denoiser_reproject = R_VkRayDenoiserReprojectCreate();
+	ASSERT(g_rtx.pass.denoiser_reproject);
 
-	g_rtx.pass.denoiser_diffuse = R_VkRayDenoiserDiffuseCreate();
-	ASSERT(g_rtx.pass.denoiser_diffuse);
+	g_rtx.pass.denoiser_spread = R_VkRayDenoiserSpreadCreate();
+	ASSERT(g_rtx.pass.denoiser_spread);
 
 	g_rtx.pass.denoiser_refine = R_VkRayDenoiserRefineCreate();
 	ASSERT(g_rtx.pass.denoiser_refine);
@@ -1600,8 +1599,8 @@ void VK_RayShutdown( void ) {
 	RayPassDestroy(g_rtx.pass.denoiser_fxaa);
 	RayPassDestroy(g_rtx.pass.denoiser_compose);
 	RayPassDestroy(g_rtx.pass.denoiser_refine);
-	RayPassDestroy(g_rtx.pass.denoiser_diffuse);
-	RayPassDestroy(g_rtx.pass.denoiser_reflections);
+	RayPassDestroy(g_rtx.pass.denoiser_spread);
+	RayPassDestroy(g_rtx.pass.denoiser_reproject);
 	RayPassDestroy(g_rtx.pass.denoiser_accumulate);
 	RayPassDestroy(g_rtx.pass.light_indirect_point);
 	RayPassDestroy(g_rtx.pass.light_indirect_poly);

@@ -169,8 +169,8 @@ void main() {
 	emissive /= EXTRA_SAMPLES_FOR_EMISSIVE;
 #endif
 
-	vec3 medianDirection = reflect(view_dir, shading_normal);
-	float minimalDot = 1.;
+	const vec3 refl_direction = reflect(view_dir, shading_normal);
+	const float refl_length = length(origin - payload.hit_t.xyz);
 	
 
 	imageStore(out_image_refl_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(payload.hit_t.xyz, material.roughness));
@@ -178,5 +178,5 @@ void main() {
 	imageStore(out_image_refl_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_refl_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_refl_emissive, ivec2(gl_LaunchIDEXT.xy), vec4(emissive, 0.));
-	imageStore(out_image_refl_dir_dot, ivec2(gl_LaunchIDEXT.xy), vec4(medianDirection, minimalDot));
+	imageStore(out_image_refl_dir_length, ivec2(gl_LaunchIDEXT.xy), vec4(refl_direction, refl_length));
 }

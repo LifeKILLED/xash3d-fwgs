@@ -36,7 +36,7 @@
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_emissive, rgba16f) \
-	X(15, refl_dir_dot, rgba16f) \
+	X(15, refl_dir_length, rgba16f) \
 
 
 #define RAY_INDIRECTIONAL_INPUTS(X) \
@@ -50,18 +50,17 @@
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, gi_material_rmxx, rgba8) \
 	X(14, gi_emissive, rgba16f) \
-	X(15, gi_direction, rgba8) \
+	X(15, gi_direction, rgba16f) \
 
 
 #define RAY_LAST_FRAME_BUFFERS_OUTPUTS(X) \
 	X(10, last_position_t, rgba32f) \
-	X(11, last_refl_position_t, rgba32f) \
-	X(12, last_normals_gs, rgba16f) \
-	X(13, last_search_info_ktuv, rgba32f) \
-	X(14, last_diffuse, rgba16f) \
-	X(15, last_reflection, rgba16f) \
-	X(16, last_gi_sh1, rgba16f) \
-	X(17, last_gi_sh2, rgba16f) \
+	X(11, last_normals_gs, rgba16f) \
+	X(12, last_search_info_ktuv, rgba32f) \
+	X(13, last_diffuse, rgba16f) \
+	X(14, last_specular, rgba16f) \
+	X(15, last_gi_sh1, rgba16f) \
+	X(16, last_gi_sh2, rgba16f) \
 
 
 
@@ -71,9 +70,9 @@
 	X(22, normals_gs, rgba16f) \
 	X(23, search_info_ktuv, rgba32f) \
 	X(24, last_position_t, rgba32f) \
-	X(25, last_refl_position_t, rgba32f) \
-	X(26, last_normals_gs, rgba16f) \
-	X(27, last_search_info_ktuv, rgba32f) \
+	X(25, last_normals_gs, rgba16f) \
+	X(26, last_search_info_ktuv, rgba32f) \
+	X(27, last_gi_sh2, rgba16f) \
 
 #define RAY_MOTION_RECONSTRUCT_OUTPUTS(X) \
 	X(10, motion_offsets_uvs, rgba16f) \
@@ -130,15 +129,13 @@
 
 
 #define RAY_DENOISER_TEXTURES(X) \
-	X(-1, specular_accum, rgba16f) \
 	X(-1, diffuse_accum, rgba16f) \
-	X(-1, gi_accum_sh1, rgba16f) \
-	X(-1, gi_accum_sh2, rgba16f) \
+	X(-1, specular_accum, rgba16f) \
+	X(-1, gi_sh1_accum, rgba16f) \
+	X(-1, gi_sh2_accum, rgba16f) \
 	X(-1, specular_spread, rgba16f) \
-	X(-1, specular_reproject, rgba16f) \
-	X(-1, diffuse_reproject, rgba16f) \
-	X(-1, gi_spread_sh1, rgba16f) \
-	X(-1, gi_spread_sh2, rgba16f) \
+	X(-1, gi_sh1_spread, rgba16f) \
+	X(-1, gi_sh2_spread, rgba16f) \
 	X(-1, diffuse_denoised, rgba16f) \
 	X(-1, specular_denoised, rgba16f) \
 	X(-1, gi_sh1_denoised, rgba16f) \

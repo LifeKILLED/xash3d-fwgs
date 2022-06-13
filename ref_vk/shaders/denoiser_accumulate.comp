@@ -11,8 +11,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_specular_accum;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_diffuse_accum;
-layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_accum_sh1;
-layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_accum_sh2;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_accum;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
 
 layout(set = 0, binding = 4, rgba8) uniform readonly image2D src_base_color;
 
@@ -117,7 +117,7 @@ void main() {
 	// store indirectional light in spherical harmonics
 	if (global_illumination.rgb != vec3(0., 0., 0.)) {
 		vec3 indirect_color = global_illumination.rgb * STORAGE_SCALE_LF;
-		vec3 gi_direction = normalize(imageLoad(src_gi_direction, pix).xyz - vec3(0.5));
+		vec3 gi_direction = normalize(imageLoad(src_gi_direction, pix).xyz);
 
 		SH low_freq = irradiance_to_SH(indirect_color, gi_direction);
 		gi_sh1 = low_freq.shY;
@@ -126,7 +126,6 @@ void main() {
 
 	imageStore(out_specular_accum, pix, vec4(reflection, 0.));
 	imageStore(out_diffuse_accum, pix, vec4(diffuse, 0.));
-	imageStore(out_gi_accum_sh1, pix, gi_sh1);
-	imageStore(out_gi_accum_sh2, pix, vec4(gi_sh2, 0., 0.));
-
+	imageStore(out_gi_sh1_accum, pix, gi_sh1);
+	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2, 0., 0.));
 }

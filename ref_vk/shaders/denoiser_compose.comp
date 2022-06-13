@@ -4,6 +4,7 @@
 #include "utils.glsl"
 #include "color_spaces.glsl"
 #include "denoiser_tools.glsl"
+#include "spherical_harmonics.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -19,6 +20,7 @@ layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_diffuse;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_specular;
 layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_gi_sh1;
 layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_gi_sh2;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_refl_dir_length;
 
 
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
@@ -171,6 +173,9 @@ void main() {
 //	}
 //#endif
 
+
+	float metalness = imageLoad(src_material_rmxx, pix).g;
+
 	// emissive/sky
 	colour += imageLoad(src_emissive, pix).rgb;
 
@@ -184,9 +189,17 @@ void main() {
 	// specular from point lights
 	specular = imageLoad(src_specular, pix).rgb;
 
+	// global illumination re-light
+	SH low_freq;
+	low_freq.shY = imageLoad(src_gi_sh1, pix);
+	low_freq.CoCg = imageLoad(src_gi_sh2, pix).xy;
+	const vec3 refl_dir = imageLoad(src_refl_dir_length, pix).xyz;
+	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF * base_color;
+	const vec3 reflect_gi= project_SH_irradiance(low_freq, refl_dir) / STORAGE_SCALE_LF * base_color;
+
+	specular *= 4.;
 
 	// try to reconstruct pbr-like picture from all components
-	float metalness = imageLoad(src_material_rmxx, pix).g;
 //	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
 //	float specular_level = pow(grayscale, 0.45); // fake specular map
 
@@ -195,6 +208,8 @@ void main() {
 
 	// pbr
 	colour += PBRMix(base_color, diffuse, specular, metalness);
+	colour += mix(diffuse_gi, reflect_gi, metalness);
+
 
 	//colour = specular;
 

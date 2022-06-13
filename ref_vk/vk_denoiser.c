@@ -70,8 +70,8 @@ struct ray_pass_s *R_VkRayDenoiserCreate( void ) {
 #define LIST_OUTPUTS_ACCUM(X) \
 	X(0, specular_accum) \
 	X(1, diffuse_accum) \
-	X(2, gi_accum_sh1) \
-	X(3, gi_accum_sh2) \
+	X(2, gi_sh1_accum) \
+	X(3, gi_sh2_accum) \
 
 #define LIST_INPUTS_ACCUM(X) \
 	X(4, base_color_a) \
@@ -139,30 +139,30 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 }
 
 
-	// PASS 2. REFLECTIONS
+// PASS 3. REPROJECT
 
-//// Aliases for maps reusing
-//#define DENOISER_IMAGE_0 specular_spread
-//#define DENOISER_IMAGE_1 specular_reproject
+#define LIST_OUTPUTS_REPROJ(X) \
+	X(0, diffuse_accum) \
+	X(1, specular_accum) \
+	X(2, gi_sh1_accum) \
+	X(3, gi_sh2_accum) \
 
-#define LIST_OUTPUTS_REFL(X) \
-	X(0, specular_spread) \
-	X(1, specular_reproject) \
+#define LIST_INPUTS_REPROJ(X) \
+	X(4, last_diffuse) \
+	X(5, last_specular) \
+	X(6, last_gi_sh1) \
+	X(7, last_gi_sh2) \
+	X(8, position_t) \
+	X(9, normals_gs) \
+	X(10, material_rmxx) \
+	X(11, motion_offsets_uvs) \
+	X(12, refl_normals_gs) \
+	X(13, refl_dir_length) \
+	X(14, last_position_t) \
+	X(15, last_normals_gs) \
 
-#define LIST_INPUTS_REFL(X) \
-	X(2, specular_accum) \
-	X(3, position_t) \
-	X(4, refl_position_t) \
-	X(5, normals_gs) \
-	X(6, material_rmxx) \
-	X(7, refl_normals_gs) \
-	X(8, refl_dir_dot) \
-	X(9, last_reflection) \
-	X(10, last_position_t) \
-	X(11, last_normals_gs) \
-	X(12, motion_offsets_uvs) \
 
-static const VkDescriptorSetLayoutBinding bindings_refl[] = {
+static const VkDescriptorSetLayoutBinding bindings_reproj[] = {
 #define BIND_IMAGE(index, name) \
 	{ \
 		.binding = index, \
@@ -170,30 +170,30 @@ static const VkDescriptorSetLayoutBinding bindings_refl[] = {
 		.descriptorCount = 1, \
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
 	},
-	LIST_OUTPUTS_REFL(BIND_IMAGE)
-	LIST_INPUTS_REFL(BIND_IMAGE)
+	LIST_OUTPUTS_REPROJ(BIND_IMAGE)
+	LIST_INPUTS_REPROJ(BIND_IMAGE)
 #undef BIND_IMAGE
 };
 
-static const int semantics_refl[] = {
+static const int semantics_reproj[] = {
 #define IN(index, name, ...) (RayResource_##name + 1),
 #define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_REFL(OUT)
-	LIST_INPUTS_REFL(IN)
+	LIST_OUTPUTS_REPROJ(OUT)
+	LIST_INPUTS_REPROJ(IN)
 #undef IN
 #undef OUT
 };
 
-struct ray_pass_s* R_VkRayDenoiserReflectionsCreate(void) {
+struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser reflections",
+		.debug_name = "denoiser reproject",
 		.layout = {
-			.bindings = bindings_refl,
-			.bindings_semantics = semantics_refl,
-			.bindings_count = COUNTOF(bindings_refl),
+			.bindings = bindings_reproj,
+			.bindings_semantics = semantics_reproj,
+			.bindings_count = COUNTOF(bindings_reproj),
 			.push_constants = {0},
 		},
-		.shader = "denoiser_reflections.comp.spv",
+		.shader = "denoiser_reproject.comp.spv",
 		.specialization = NULL,
 	};
 
@@ -201,26 +201,31 @@ struct ray_pass_s* R_VkRayDenoiserReflectionsCreate(void) {
 }
 
 
-	// PASS 3. DIFFUSE
+	// PASS 2. SPREAD
 
-#define LIST_OUTPUTS_DIFF(X) \
-	X(0, diffuse_reproject) \
-	X(1, gi_spread_sh1) \
-	X(2, gi_spread_sh2) \
+//// Aliases for maps reusing
+//#define DENOISER_IMAGE_0 specular_spread
+//#define DENOISER_IMAGE_1 specular_reproject
 
-#define LIST_INPUTS_DIFF(X) \
-	X(3, diffuse_accum) \
-	X(4, gi_accum_sh1) \
-	X(5, gi_accum_sh2) \
+#define LIST_OUTPUTS_SPREAD(X) \
+	X(0, specular_spread) \
+	X(1, gi_sh1_spread) \
+	X(2, gi_sh2_spread) \
+
+#define LIST_INPUTS_SPREAD(X) \
+	X(3, specular_accum) \
+	X(4, gi_sh1_accum) \
+	X(5, gi_sh2_accum) \
 	X(6, position_t) \
-	X(7, normals_gs) \
-	X(8, last_diffuse) \
-	X(9, last_gi_sh1) \
-	X(10, last_gi_sh2) \
-	X(11, motion_offsets_uvs) \
+	X(7, refl_position_t) \
+	X(8, normals_gs) \
+	X(9, material_rmxx) \
+	X(10, refl_normals_gs) \
+	X(11, refl_dir_length) \
+	X(12, refl_base_color_a) \
+	
 
-
-static const VkDescriptorSetLayoutBinding bindings_diff[] = {
+static const VkDescriptorSetLayoutBinding bindings_spread[] = {
 #define BIND_IMAGE(index, name) \
 	{ \
 		.binding = index, \
@@ -228,30 +233,30 @@ static const VkDescriptorSetLayoutBinding bindings_diff[] = {
 		.descriptorCount = 1, \
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
 	},
-	LIST_OUTPUTS_DIFF(BIND_IMAGE)
-	LIST_INPUTS_DIFF(BIND_IMAGE)
+	LIST_OUTPUTS_SPREAD(BIND_IMAGE)
+	LIST_INPUTS_SPREAD(BIND_IMAGE)
 #undef BIND_IMAGE
 };
 
-static const int semantics_diff[] = {
+static const int semantics_spread[] = {
 #define IN(index, name, ...) (RayResource_##name + 1),
 #define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_DIFF(OUT)
-	LIST_INPUTS_DIFF(IN)
+	LIST_OUTPUTS_SPREAD(OUT)
+	LIST_INPUTS_SPREAD(IN)
 #undef IN
 #undef OUT
 };
 
-struct ray_pass_s* R_VkRayDenoiserDiffuseCreate(void) {
+struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void) {
 	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser reflections",
+		.debug_name = "denoiser spread",
 		.layout = {
-			.bindings = bindings_diff,
-			.bindings_semantics = semantics_diff,
-			.bindings_count = COUNTOF(bindings_diff),
+			.bindings = bindings_spread,
+			.bindings_semantics = semantics_spread,
+			.bindings_count = COUNTOF(bindings_spread),
 			.push_constants = {0},
 		},
-		.shader = "denoiser_diffuse.comp.spv",
+		.shader = "denoiser_spread.comp.spv",
 		.specialization = NULL,
 	};
 
@@ -269,14 +274,12 @@ struct ray_pass_s* R_VkRayDenoiserDiffuseCreate(void) {
 
 #define LIST_INPUTS_REFINE(X) \
 	X(4, diffuse_accum) \
-	X(5, diffuse_reproject) \
-	X(6, specular_spread) \
-	X(7, specular_reproject) \
-	X(8, gi_spread_sh1) \
-	X(9, gi_spread_sh2) \
-	X(10, position_t) \
-	X(11, normals_gs) \
-	X(12, material_rmxx) \
+	X(5, specular_spread) \
+	X(6, gi_sh1_spread) \
+	X(7, gi_sh2_spread) \
+	X(8, position_t) \
+	X(9, normals_gs) \
+	X(10, material_rmxx) \
 
 
 static const VkDescriptorSetLayoutBinding bindings_refine[] = {
@@ -318,7 +321,6 @@ struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
 }
 
 
-
 	// PASS 5. COMPOSE
 
 #define LIST_OUTPUTS_COMP(X) \
@@ -334,6 +336,7 @@ struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
 	X(7, specular_denoised) \
 	X(8, gi_sh1_denoised) \
 	X(9, gi_sh2_denoised) \
+	X(10, refl_dir_length) \
 
 static const VkDescriptorSetLayoutBinding bindings_comp[] = {
 #define BIND_IMAGE(index, name) \

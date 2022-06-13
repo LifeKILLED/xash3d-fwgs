@@ -20,11 +20,9 @@ void main() {
 	// run this only before map loaded frame or after init
 
 	imageStore(out_image_last_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
-	imageStore(out_image_last_refl_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 	imageStore(out_image_last_normals_gs, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 	imageStore(out_image_last_search_info_ktuv, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 	imageStore(out_image_last_diffuse, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
-	imageStore(out_image_last_reflection, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 	imageStore(out_image_last_gi_sh1, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 	imageStore(out_image_last_gi_sh2, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 }

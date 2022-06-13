@@ -1,0 +1,187 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+#define PARALLAX_FACTOR_POW 2.
+
+#define NORMALS_DIFFERENCE_LOW 0.93
+#define NORMALS_DIFFERENCE_HIGH 0.97
+
+#define DIFFUSE_BLEND_LIMIT .9
+#define SPECULAR_BLEND_LIMIT .77
+#define GI_BLEND_LIMIT .9
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+//layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reproject;
+//layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reproject;
+//layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_reproject;
+//layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_reproject;
+//
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_accum;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_accum;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_accum;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
+
+layout(set = 0, binding = 4, rgba16f)  uniform readonly image2D src_last_diffuse;
+layout(set = 0, binding = 5, rgba16f)  uniform readonly image2D src_last_specular;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_last_gi_sh1;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_last_gi_sh2;
+
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 10, rgba8)   uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
+
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_refl_normals_gs;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_refl_dir_length;
+layout(set = 0, binding = 14, rgba32f) uniform readonly image2D src_last_position_t;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_last_normals_gs;
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+void readReflNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	//const vec4 n = imageLoad(src_refl_normals_gs, uv);
+	const vec4 n = vec4(1.);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+
+void readLastNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	//const vec4 n = imageLoad(src_last_normals_gs, uv);
+	const vec4 n = vec4(1.);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+void main() {
+	ivec2 res = ivec2(imageSize(out_diffuse_accum));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+	
+#define THERE_IS(uv_offset) (uv_offset.x > -99.)
+
+
+	vec3 geometry_normal, shading_normal;
+	readNormals(pix, geometry_normal, shading_normal);
+
+	const float depth = imageLoad(src_position_t, pix).w;
+	const float reflLength = imageLoad(src_refl_dir_length, pix).w;
+
+	const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
+	const vec2 forward_offset = motion_offsets_uvs.xy;
+	const vec2 parallax_offset = motion_offsets_uvs.zw;
+	const float depthTreshold = 30.;
+	
+	const vec4 diffuse_src = vec4(imageLoad(out_diffuse_accum, pix).rgb, 1.); 
+	const vec4 specular_src = vec4(imageLoad(out_specular_accum, pix).rgb, 1.); 
+	const vec4 gi_sh1_src = imageLoad(out_gi_sh1_accum, pix); 
+	const vec3 gi_sh2_src = vec3(imageLoad(out_gi_sh2_accum, pix).xy, 1.); 
+
+	float parallaxFactor = 0.;
+	float last_parallaxFactor = 0.;
+	float fallbackFactor = 0.;
+	float samples_count = 0;
+	float overlap_factor = 0.;
+
+	vec4 last_diffuse = diffuse_src;
+	vec4 last_specular = specular_src;
+	vec4 last_gi_sh1 = gi_sh1_src;
+	vec3 last_gi_sh2 = gi_sh2_src;
+
+	vec4 diffuse_mixed = diffuse_src;
+	vec4 specular_mixed = specular_src;
+	vec4 gi_sh1_mixed = gi_sh1_src;
+	vec3 gi_sh2_mixed = gi_sh2_src;
+	vec4 last_forward_spec = specular_src;
+	vec4 last_parallax_spec = specular_src;
+
+	// Get color from simple motion vector
+	if (THERE_IS(forward_offset)) {
+		const ivec2 last_pix = UVToPix(forward_offset, res);
+		last_forward_spec = imageLoad(src_last_specular, last_pix) + vec4(vec3(0.), 1.);
+		last_forward_spec.w += 1.; // increase sample count
+
+		last_diffuse = imageLoad(src_last_diffuse, last_pix);
+		last_diffuse.w += 1.; // increase sample count
+
+		last_gi_sh1 = imageLoad(src_last_gi_sh1, last_pix);
+		last_gi_sh2 = imageLoad(src_last_gi_sh2, last_pix).xyz;
+		last_gi_sh2.z += 1.; // increase sample count
+
+		const float last_depth = imageLoad(src_last_position_t, last_pix).w;
+		overlap_factor = smoothstep(0., depthTreshold, depth - last_depth);
+
+		diffuse_mixed = mix(last_diffuse, diffuse_src, overlap_factor);
+		gi_sh1_mixed = mix(last_gi_sh1, gi_sh1_src, overlap_factor);
+		gi_sh2_mixed = mix(last_gi_sh2, gi_sh2_src, overlap_factor);
+		last_forward_spec = mix(last_forward_spec, specular_src, overlap_factor);
+	}
+
+	// Parallax reprojecting for specular reflection
+	if (THERE_IS(parallax_offset.x)) {
+		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
+		last_parallax_spec = imageLoad(src_last_specular, parallax_pix);
+		last_parallax_spec.w += 1.; // increase sample count
+
+		vec3 parallaxGeometry_normal, parallaxShading_normal;
+		readLastNormals(parallax_pix, parallaxGeometry_normal, parallaxShading_normal);
+
+		// Is parallax reprojecting in current texel?
+		const float normalsDifference = dot(normalize(geometry_normal), normalize(shading_normal));
+		parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, normalsDifference), PARALLAX_FACTOR_POW);
+
+		// Is parallax reprojecting on previous frame texel?
+		const float last_normalsDifference = dot(normalize(parallaxGeometry_normal), normalize(parallaxShading_normal));
+		last_parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, last_normalsDifference), PARALLAX_FACTOR_POW);
+
+		// Is parallax reprojecting canceled in texel from previous frame? 
+		fallbackFactor = parallaxFactor > 0. ? 1. - clamp(0., 1., ((1. - last_parallaxFactor) - (1. - parallaxFactor))) * 2. : 0.;
+
+		const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
+		overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
+		last_parallax_spec = mix(specular_src, last_parallax_spec, parallaxFactor * overlap_factor);
+	}
+
+	specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
+	specular_mixed = mix(last_forward_spec, specular_mixed, parallaxFactor);
+
+	//const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_last.rgb - diffuse_current));
+	//const float specular_difference = smoothstep(0.5, 1.5, length(specular_last.rgb - specular_current));
+
+	const float diffuse_difference = 0.;
+	const float specular_difference = 0.;
+	const float gi_difference = 0.;
+
+//	const float diffuse_frames_blend = 0.9;
+//	const float specular_frames_blend = 0.9;
+//	const float gi_frames_blend = 0.9;
+
+	const float duffuse_samples_count = mix(diffuse_mixed.w, 1., diffuse_difference);
+	const float specular_samples_count = mix(specular_mixed.w, 1., specular_difference);
+	const float gi_samples_count = mix(gi_sh2_mixed.z, 1., gi_difference);
+
+	const float diffuse_frames_blend = clamp(1. - 1. / duffuse_samples_count, .5, DIFFUSE_BLEND_LIMIT) /** diffuse_difference*/;
+	const float specular_frames_blend = clamp(1. - 1. / specular_samples_count, .5, SPECULAR_BLEND_LIMIT) /** specular_difference*/;
+	const float gi_frames_blend = clamp(1. - 1. / gi_samples_count, .5, GI_BLEND_LIMIT) /** gi_difference*/;
+
+	diffuse_mixed = mix(diffuse_src, diffuse_mixed, diffuse_frames_blend);
+	specular_mixed = mix(specular_src, specular_mixed, specular_frames_blend);
+	gi_sh1_mixed = mix(gi_sh1_src, gi_sh1_mixed, gi_frames_blend);
+	gi_sh2_mixed = mix(gi_sh2_src, gi_sh2_mixed, gi_frames_blend);
+
+	imageStore(out_specular_accum, pix, specular_mixed);
+	imageStore(out_diffuse_accum, pix, diffuse_mixed);
+	imageStore(out_gi_sh1_accum, pix, gi_sh1_mixed);
+	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2_mixed, reflLength));
+}
