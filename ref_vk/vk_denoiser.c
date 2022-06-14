@@ -4,12 +4,48 @@
 #include "ray_pass.h"
 
 
-	// SIMPLE OUT PASS WITHOUT DENOISE
+#define BIND_IMAGE(index, name) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
 
-#define LIST_OUTPUTS(X) \
+#define IN(index, name, ...) (RayResource_##name + 1),
+#define OUT(index, name, ...) -(RayResource_##name + 1),
+
+#define PASS_CREATE_FUNC(debug_text, shader_name, postfix) \
+	static const VkDescriptorSetLayoutBinding bindings_##postfix[] = {\
+		LIST_OUTPUTS_##postfix(BIND_IMAGE)\
+		LIST_INPUTS_##postfix(BIND_IMAGE)\
+	};\
+	static const int semantics_##postfix[] = {\
+		LIST_OUTPUTS_##postfix(OUT)\
+		LIST_INPUTS_##postfix(IN)\
+	};\
+	const ray_pass_create_compute_t rpcc = {\
+		.debug_name = debug_text,\
+		.layout = {\
+			.bindings = bindings_##postfix,\
+			.bindings_semantics = semantics_##postfix,\
+			.bindings_count = COUNTOF(bindings_##postfix),\
+			.push_constants = {0},\
+		},\
+		.shader = shader_name,\
+		.specialization = NULL,\
+	};\
+	return RayPassCreateCompute( &rpcc );
+
+
+
+
+	// SIMPLE PASS WITHOUT DENOISE
+
+#define LIST_OUTPUTS_BYPASS(X) \
 	X(0, denoised) \
 
-#define LIST_INPUTS(X) \
+#define LIST_INPUTS_BYPASS(X) \
 	X(1, base_color_a) \
 	X(2, light_poly_diffuse) \
 	X(3, light_poly_specular) \
@@ -26,44 +62,9 @@
 	X(14, refl_emissive) \
 	X(15, gi_emissive) \
 
-static const VkDescriptorSetLayoutBinding bindings[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS(BIND_IMAGE)
-	LIST_INPUTS(BIND_IMAGE)
-#undef BIND_IMAGE
-};
-
-static const int semantics[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS(OUT)
-	LIST_INPUTS(IN)
-#undef IN
-#undef OUT
-};
-
-struct ray_pass_s *R_VkRayDenoiserNoDenoiseCreate( void ) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser",
-		.layout = {
-			.bindings = bindings,
-			.bindings_semantics = semantics,
-			.bindings_count = COUNTOF(bindings),
-			.push_constants = {0},
-		},
-		.shader = "denoiser.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute( &rpcc );
+struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
+	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS)
 }
-
 
 		// PASS 1. ACCUMULATE
 
@@ -87,55 +88,8 @@ struct ray_pass_s *R_VkRayDenoiserNoDenoiseCreate( void ) {
 	X(14, gi_emissive) \
 	X(15, gi_direction) \
 
-//// Aliases for maps reusing
-//#define DENOISER_IMAGE_0 light_poly_diffuse
-//#define DENOISER_IMAGE_1 light_poly_specular
-//#define DENOISER_IMAGE_2 light_point_diffuse
-//#define DENOISER_IMAGE_3 light_point_specular
-//#define DENOISER_IMAGE_4 light_poly_reflection
-//#define DENOISER_IMAGE_5 light_point_reflection
-//#define DENOISER_IMAGE_6 light_poly_indirect
-//#define DENOISER_IMAGE_7 light_point_indirect
-//#define DENOISER_IMAGE_8 refl_emissive
-//#define DENOISER_IMAGE_9 gi_emissive
-//#define DENOISER_IMAGE_10 gi_direction
-
-static const VkDescriptorSetLayoutBinding bindings_accum[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS_ACCUM(BIND_IMAGE)
-	LIST_INPUTS_ACCUM(BIND_IMAGE)
-#undef BIND_IMAGE
-};
-
-static const int semantics_accum[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_ACCUM(OUT)
-	LIST_INPUTS_ACCUM(IN)
-#undef IN
-#undef OUT
-};
-
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser accumulate",
-		.layout = {
-			.bindings = bindings_accum,
-			.bindings_semantics = semantics_accum,
-			.bindings_count = COUNTOF(bindings_accum),
-			.push_constants = {0},
-		},
-		.shader = "denoiser_accumulate.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute(&rpcc);
+	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM)
 }
 
 
@@ -161,51 +115,13 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	X(14, last_position_t) \
 	X(15, last_normals_gs) \
 
-
-static const VkDescriptorSetLayoutBinding bindings_reproj[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS_REPROJ(BIND_IMAGE)
-	LIST_INPUTS_REPROJ(BIND_IMAGE)
-#undef BIND_IMAGE
-};
-
-static const int semantics_reproj[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_REPROJ(OUT)
-	LIST_INPUTS_REPROJ(IN)
-#undef IN
-#undef OUT
-};
-
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser reproject",
-		.layout = {
-			.bindings = bindings_reproj,
-			.bindings_semantics = semantics_reproj,
-			.bindings_count = COUNTOF(bindings_reproj),
-			.push_constants = {0},
-		},
-		.shader = "denoiser_reproject.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute(&rpcc);
+	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ)
 }
 
 
 	// PASS 2. SPREAD
 
-//// Aliases for maps reusing
-//#define DENOISER_IMAGE_0 specular_spread
-//#define DENOISER_IMAGE_1 specular_reproject
 
 #define LIST_OUTPUTS_SPREAD(X) \
 	X(0, specular_spread) \
@@ -223,44 +139,9 @@ struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 	X(10, refl_normals_gs) \
 	X(11, refl_dir_length) \
 	X(12, refl_base_color_a) \
-	
-
-static const VkDescriptorSetLayoutBinding bindings_spread[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS_SPREAD(BIND_IMAGE)
-	LIST_INPUTS_SPREAD(BIND_IMAGE)
-#undef BIND_IMAGE
-};
-
-static const int semantics_spread[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_SPREAD(OUT)
-	LIST_INPUTS_SPREAD(IN)
-#undef IN
-#undef OUT
-};
 
 struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser spread",
-		.layout = {
-			.bindings = bindings_spread,
-			.bindings_semantics = semantics_spread,
-			.bindings_count = COUNTOF(bindings_spread),
-			.push_constants = {0},
-		},
-		.shader = "denoiser_spread.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute(&rpcc);
+	PASS_CREATE_FUNC("denoiser spread", "denoiser_spread.comp.spv", SPREAD)
 }
 
 
@@ -281,43 +162,8 @@ struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void) {
 	X(9, normals_gs) \
 	X(10, material_rmxx) \
 
-
-static const VkDescriptorSetLayoutBinding bindings_refine[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS_REFINE(BIND_IMAGE)
-	LIST_INPUTS_REFINE(BIND_IMAGE)
-#undef BIND_IMAGE
-};
-
-static const int semantics_refine[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_REFINE(OUT)
-	LIST_INPUTS_REFINE(IN)
-#undef IN
-#undef OUT
-};
-
 struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser refine",
-		.layout = {
-			.bindings = bindings_refine,
-			.bindings_semantics = semantics_refine,
-			.bindings_count = COUNTOF(bindings_refine),
-			.push_constants = {0},
-		},
-		.shader = "denoiser_refine.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute(&rpcc);
+	PASS_CREATE_FUNC("denoiser refine", "denoiser_refine.comp.spv", REFINE)
 }
 
 
@@ -338,42 +184,8 @@ struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
 	X(9, gi_sh2_denoised) \
 	X(10, refl_dir_length) \
 
-static const VkDescriptorSetLayoutBinding bindings_comp[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS_COMP(BIND_IMAGE)
-	LIST_INPUTS_COMP(BIND_IMAGE)
-#undef BIND_IMAGE
-};
-
-static const int semantics_comp[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_COMP(OUT)
-	LIST_INPUTS_COMP(IN)
-#undef IN
-#undef OUT
-};
-
 struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser compose",
-		.layout = {
-			.bindings = bindings_comp,
-			.bindings_semantics = semantics_comp,
-			.bindings_count = COUNTOF(bindings_comp),
-			.push_constants = {0},
-		},
-		.shader = "denoiser_compose.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute(&rpcc);
+	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", COMP)
 }
 
 // PASS 6. FXAA
@@ -384,40 +196,13 @@ struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 #define LIST_INPUTS_FXAA(X) \
 	X(1, final_image) \
 
-static const VkDescriptorSetLayoutBinding bindings_fxaa[] = {
-#define BIND_IMAGE(index, name) \
-	{ \
-		.binding = index, \
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, \
-		.descriptorCount = 1, \
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
-	},
-	LIST_OUTPUTS_FXAA(BIND_IMAGE)
-	LIST_INPUTS_FXAA(BIND_IMAGE)
-#undef BIND_IMAGE
-};
+struct ray_pass_s* R_VkRayDenoiserFXAACreate(void) {
+	PASS_CREATE_FUNC("denoiser fxaa", "denoiser_fxaa.comp.spv", FXAA)
+}
 
-static const int semantics_fxaa[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_OUTPUTS_FXAA(OUT)
-	LIST_INPUTS_FXAA(IN)
+
+
+#undef PASS_CREATE_FUNC
+#undef BIND_IMAGE
 #undef IN
 #undef OUT
-};
-
-struct ray_pass_s* R_VkRayDenoiserFXAACreate(void) {
-	const ray_pass_create_compute_t rpcc = {
-		.debug_name = "denoiser fxaa",
-		.layout = {
-			.bindings = bindings_fxaa,
-			.bindings_semantics = semantics_fxaa,
-			.bindings_count = COUNTOF(bindings_fxaa),
-			.push_constants = {0},
-		},
-		.shader = "denoiser_fxaa.comp.spv",
-		.specialization = NULL,
-	};
-
-	return RayPassCreateCompute(&rpcc);
-}
