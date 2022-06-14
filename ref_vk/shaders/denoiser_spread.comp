@@ -1,17 +1,17 @@
 #version 460
 
-#define KERNEL_SPECULAR_SIZE 4
+#define KERNEL_SPECULAR_SIZE 3
 #define KERNEL_SPECULAR_OFFSET 3
 
-#define KERNEL_LENGTHS_SAMPLE 4
-#define KERNEL_LENGTHS_OFFSET 2
+#define KERNEL_LENGTHS_SAMPLE 2
+#define KERNEL_LENGTHS_OFFSET 1
 
 #define KERNEL_FALLBACK 4
 #define KERNEL_FALLBACK_OFFSET 2
 
 #define NORMALS_THRESHOLD 0.97
 
-#define GI_KERNEL_SIZE 12
+#define GI_KERNEL_SIZE 8
 #define GI_OFFSET 3
 #define GI_DEPTH_THRESHOLD 25.0
 #define DEPTH_THRESHOLD 5.0
@@ -133,8 +133,8 @@ void main() {
 									roughness < 0.71 ? 5. : 2.;
 
 //	//if (true) {
-	//if (false) {
-	if (roughness > 0.05) { // don't use for mirrors
+	if (false) {
+	//if (roughness > 0.05) { // don't use for mirrors
 
 		// Sample median ray lengths for accurate pattern blur strengh
 		float rayLength_src = 0.;

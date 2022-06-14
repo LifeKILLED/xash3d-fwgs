@@ -48,7 +48,7 @@ static const int semantics[] = {
 #undef OUT
 };
 
-struct ray_pass_s *R_VkRayDenoiserCreate( void ) {
+struct ray_pass_s *R_VkRayDenoiserNoDenoiseCreate( void ) {
 	const ray_pass_create_compute_t rpcc = {
 		.debug_name = "denoiser",
 		.layout = {

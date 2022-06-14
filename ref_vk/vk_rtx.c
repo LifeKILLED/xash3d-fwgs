@@ -201,11 +201,12 @@ static struct {
 		struct ray_pass_s* denoiser_refine;
 		struct ray_pass_s* denoiser_compose;
 		struct ray_pass_s* denoiser_fxaa;
-		struct ray_pass_s *denoiser;
+		struct ray_pass_s* denoiser_no_denoise;
 	} pass;
 
 	qboolean reload_pipeline;
 	qboolean reload_lighting;
+	qboolean denoiser_enabled;
 
 	qboolean last_frame_buffers_inited;
 } g_rtx = {0};
@@ -383,6 +384,9 @@ void VK_RayNewMap( void ) {
 
 	// recreate buffers
 	g_rtx.last_frame_buffers_inited = false;
+
+	// enable denoising for default
+	g_rtx.denoiser_enabled = true;
 }
 
 void VK_RayMapLoadEnd( void ) {
@@ -1180,13 +1184,18 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_reflect_point, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_poly, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_indirect_point, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_accumulate, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_reproject, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_spread, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_refine, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_fxaa, &res);
-	//RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser, &res );
+
+	if (g_rtx.denoiser_enabled) {
+		RayPassPerform(cmdbuf, frame_index, g_rtx.pass.denoiser_accumulate, &res);
+		RayPassPerform(cmdbuf, frame_index, g_rtx.pass.denoiser_reproject, &res);
+		RayPassPerform(cmdbuf, frame_index, g_rtx.pass.denoiser_spread, &res);
+		RayPassPerform(cmdbuf, frame_index, g_rtx.pass.denoiser_refine, &res);
+		RayPassPerform(cmdbuf, frame_index, g_rtx.pass.denoiser_compose, &res);
+		RayPassPerform(cmdbuf, frame_index, g_rtx.pass.denoiser_fxaa, &res);
+	}
+	else {
+		RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_no_denoise, &res );
+	}
 
 
 	BLIT_IMAGES(args->dst.image, current_frame->denoised.image, args->dst.width, args->dst.height)
@@ -1240,7 +1249,7 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		reloadPass( &g_rtx.pass.denoiser_refine, R_VkRayDenoiserRefineCreate());
 		reloadPass( &g_rtx.pass.denoiser_compose, R_VkRayDenoiserComposeCreate());
 		reloadPass( &g_rtx.pass.denoiser_fxaa, R_VkRayDenoiserFXAACreate());
-		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
+		reloadPass( &g_rtx.pass.denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate());
 
 		g_rtx.reload_pipeline = false;
 		g_rtx.last_frame_buffers_inited = false;
@@ -1393,6 +1402,11 @@ static void createLayouts( void ) {
 	VK_DescriptorsCreate(&g_rtx.descriptors);
 }
 
+
+static void denoiserSwitch(void) {
+	g_rtx.denoiser_enabled = !g_rtx.denoiser_enabled;
+}
+
 static void reloadPipeline( void ) {
 	g_rtx.reload_pipeline = true;
 }
@@ -1461,8 +1475,8 @@ qboolean VK_RayInit( void )
 	g_rtx.pass.denoiser_fxaa = R_VkRayDenoiserFXAACreate();
 	ASSERT(g_rtx.pass.denoiser_fxaa);
 
-	g_rtx.pass.denoiser = R_VkRayDenoiserCreate();
-	ASSERT(g_rtx.pass.denoiser);
+	g_rtx.pass.denoiser_no_denoise = R_VkRayDenoiserNoDenoiseCreate();
+	ASSERT(g_rtx.pass.denoiser_no_denoise);
 
 	g_rtx.sbt_record_size = vk_core.physical_device.sbt_record_size;
 	g_rtx.uniform_unit_size = ALIGN_UP(sizeof(struct UniformBuffer), vk_core.physical_device.properties.limits.minUniformBufferOffsetAlignment);
@@ -1588,6 +1602,7 @@ qboolean VK_RayInit( void )
 	gEngine.Cmd_AddCommand("vk_rtx_reload", reloadPipeline, "Reload RTX shader");
 	gEngine.Cmd_AddCommand("vk_rtx_reload_rad", reloadLighting, "Reload RAD files for static lights");
 	gEngine.Cmd_AddCommand("vk_rtx_freeze", freezeModels, "Freeze models, do not update/add/delete models from to-draw list");
+	gEngine.Cmd_AddCommand("vk_rtx_denoiser", denoiserSwitch, "Enable or disable denoiser");
 
 	return true;
 }
@@ -1595,7 +1610,7 @@ qboolean VK_RayInit( void )
 void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
-	RayPassDestroy(g_rtx.pass.denoiser);
+	RayPassDestroy(g_rtx.pass.denoiser_no_denoise);
 	RayPassDestroy(g_rtx.pass.denoiser_fxaa);
 	RayPassDestroy(g_rtx.pass.denoiser_compose);
 	RayPassDestroy(g_rtx.pass.denoiser_refine);

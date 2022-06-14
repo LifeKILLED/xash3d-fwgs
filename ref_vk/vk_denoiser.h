@@ -1,7 +1,7 @@
 #pragma once
 
 struct ray_pass_s;
-struct ray_pass_s *R_VkRayDenoiserCreate( void );
+struct ray_pass_s *R_VkRayDenoiserNoDenoiseCreate( void );
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void);
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void);
 struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void);

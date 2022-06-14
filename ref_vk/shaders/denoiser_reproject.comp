@@ -9,9 +9,9 @@
 #define NORMALS_DIFFERENCE_LOW 0.93
 #define NORMALS_DIFFERENCE_HIGH 0.97
 
-#define DIFFUSE_BLEND_LIMIT .9
-#define SPECULAR_BLEND_LIMIT .77
-#define GI_BLEND_LIMIT .9
+#define DIFFUSE_BLEND_LIMIT .95
+#define SPECULAR_BLEND_LIMIT .9
+#define GI_BLEND_LIMIT .95
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -129,7 +129,9 @@ void main() {
 	}
 
 	// Parallax reprojecting for specular reflection
-	if (THERE_IS(parallax_offset.x)) {
+	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
+
+
 		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
 		last_parallax_spec = imageLoad(src_last_specular, parallax_pix);
 		last_parallax_spec.w += 1.; // increase sample count
