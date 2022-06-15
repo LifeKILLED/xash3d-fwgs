@@ -101,6 +101,78 @@ vec3 PowRand( vec3 rand, vec3 axis, float fpow )
 
 
 
+
+
+// http://jcgt.org/published/0007/04/01/paper.pdf by Eric Heitz
+// Input Ve: view direction
+// Input alpha_x, alpha_y: roughness parameters
+// Input U1, U2: uniform random numbers
+// Output Ne: normal sampled with PDF D_Ve(Ne) = G1(Ve) * max(0, dot(Ve, Ne)) * D(Ne) / Ve.z
+vec3 SampleGGXVNDF(vec3 Ve, float alpha_x, float alpha_y, float U1, float U2) {
+    // Section 3.2: transforming the view direction to the hemisphere configuration
+    vec3 Vh = normalize(vec3(alpha_x * Ve.x, alpha_y * Ve.y, Ve.z));
+    // Section 4.1: orthonormal basis (with special case if cross product is zero)
+    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    vec3 T1 = lensq > 0 ? vec3(-Vh.y, Vh.x, 0) * rsqrt(lensq) : vec3(1, 0, 0);
+    vec3 T2 = cross(Vh, T1);
+    // Section 4.2: parameterization of the projected area
+    float r = sqrt(U1);
+    float phi = 2.0 * M_PI * U2;
+    float t1 = r * cos(phi);
+    float t2 = r * sin(phi);
+    float s = 0.5 * (1.0 + Vh.z);
+    t2 = (1.0 - s) * sqrt(1.0 - t1 * t1) + s * t2;
+    // Section 4.3: reprojection onto hemisphere
+    vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+    // Section 3.4: transforming the normal back to the ellipsoid configuration
+    vec3 Ne = normalize(vec3(alpha_x * Nh.x, alpha_y * Nh.y, max(0.0, Nh.z)));
+    return Ne;
+}
+
+vec3 Sample_GGX_VNDF_Ellipsoid(vec3 Ve, float alpha_x, float alpha_y, float U1, float U2) {
+    return SampleGGXVNDF(Ve, alpha_x, alpha_y, U1, U2);
+}
+
+vec3 Sample_GGX_VNDF_Hemisphere(vec3 Ve, float alpha, float U1, float U2) {
+    return Sample_GGX_VNDF_Ellipsoid(Ve, alpha, alpha, U1, U2);
+}
+
+mat3 CreateTBN(vec3 N) {
+    vec3 U;
+    if (abs(N.z) > 0.0) {
+        float k = sqrt(N.y * N.y + N.z * N.z);
+        U.x = 0.0; U.y = -N.z / k; U.z = N.y / k;
+    }
+    else {
+        float k = sqrt(N.x * N.x + N.y * N.y);
+        U.x = N.y / k; U.y = -N.x / k; U.z = 0.0;
+    }
+
+    mat3 TBN;
+    TBN[0] = U;
+    TBN[1] = cross(N, U);
+    TBN[2] = N;
+    return transpose(TBN);
+}
+
+vec3 SampleReflectionVector(vec3 view_direction, vec3 normal, float roughness, vec2 u) {
+    mat3 tbn_transform = CreateTBN(normal);
+    vec3 view_direction_tbn = (-view_direction) * tbn_transform;
+    
+    vec3 sampled_normal_tbn = Sample_GGX_VNDF_Hemisphere(view_direction_tbn, roughness, u.x, u.y);
+    #ifdef PERFECT_REFLECTIONS
+        sampled_normal_tbn = vec3(0, 0, 1); // Overwrite normal sample to produce perfect reflection.
+    #endif
+    
+    vec3 reflected_direction_tbn = reflect(-view_direction_tbn, sampled_normal_tbn);
+
+    // Transform reflected_direction back to the initial space.
+    mat3 inv_tbn_transform = transpose(tbn_transform);
+    return reflected_direction_tbn * inv_tbn_transform;
+}
+
+
+
 void main() {
 	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
 	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
@@ -130,7 +202,7 @@ void main() {
 	vec4 blue_noise = texture(textures[nonuniformEXT(ubo.blue_noise_seed + BLUE_NOISE_TEX_ID)], blue_noise_uv);
 	//const vec3 noise_vec = blue_noise.xyz;
 
-	const float specPower = 1./ pow(material.roughness, 4.5);
+	//const float specPower = 1./ pow(material.roughness, 4.5);
 
 	vec3 emissive = vec3(0.);
 
@@ -139,12 +211,14 @@ void main() {
 #endif
 
 		const vec3 noise_vec = vec3(rand01(),rand01(),rand01());
-		const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
-		vec3 direction = reflect(view_dir, microfacet);
-		float coplanar = dot(geometry_normal, direction);
-		if (coplanar < 0.) {
-			direction += geometry_normal * (coplanar * -2.);
-		}
+		//const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
+		//vec3 direction = reflect(view_dir, microfacet);
+		//float coplanar = dot(geometry_normal, direction);
+		//if (coplanar < 0.) {
+		//	direction += geometry_normal * (coplanar * -2.);
+		//}
+
+		const vec3 direction = SampleReflectionVector(view_dir, shading_normal, material.roughness, noise_vec.xy);
 
 		payload.hit_t = vec4(0.);
 		payload.base_color_a = vec4(0.);

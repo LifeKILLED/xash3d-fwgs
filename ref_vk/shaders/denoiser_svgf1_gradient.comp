@@ -1,0 +1,196 @@
+#version 460
+
+#define KERNEL_SIZE 1
+#define NORMALS_THRESHOLD_LOW 0.999
+#define NORMALS_THRESHOLD_HIGHT 1.
+#define WEIGHT_THRESHOLD 0.
+#define GI_DEPTH_THRESHOLD 25.0
+#define DEPTH_THRESHOLD 5.0
+
+#include "noise.glsl"
+#include "brdf.h"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+//layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_denoised;
+//layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_denoised;
+//layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_denoised;
+//layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_denoised;
+//
+//layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_diffuse_reproject;
+//layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_specular_spread;
+//layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_gi_sh1_spread;
+//layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_gi_sh2_spread;
+//layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_position_t;
+//layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_normals_gs;
+//layout(set = 0, binding = 10, rgba8)  uniform readonly image2D src_material_rmxx;
+
+
+#define GRAD_DWN 3
+
+
+layout(set = 0, binding = 0, rgba16f)  uniform image2D out_svgf_grad_lf_ping;
+layout(set = 0, binding = 1, rgba16f)  uniform image2D out_svgf_grad_hf_spec;
+
+layout(set = 0, binding = 2, rgba16f)  uniform readonly image2D src_pt_color_hf;
+layout(set = 0, binding = 3, rgba16f)  uniform readonly image2D src_pt_color_spec;
+layout(set = 0, binding = 4, rgba16f)  uniform readonly image2D src_svgf_grad_hf_spec_ping;
+
+
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_specular_current;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_specular_reprojected;
+
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_last_position_t;
+
+//
+//void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+//	const vec4 n = imageLoad(src_normals_gs, uv);
+//	geometry_normal = normalize(normalDecode(n.xy));
+//	shading_normal = normalize(normalDecode(n.zw));
+//}
+
+
+
+vec2 get_lf_gradient(ivec2 ipos)
+{
+	// Get the current path tracer output and the temporally accumulated history.
+	// Ignore disocclusion, doesn't seem to be necessary here as there is a huge blur pass
+	// done on the LF gradient samples after.
+	float lum_curr = luminance(imageLoad(src_specular_current, ipos).rgb);
+	float lum_prev = luminance(imageLoad(src_specular_reprojected, ipos).rgb);
+
+	// Return raw colors, do not divide until after the blur pass. We want to detect 
+	// brightness changes over large parts of the screen to avoid noise.
+	return vec2(lum_curr, lum_prev);
+}
+
+float get_gradient(float l_curr, float l_prev)
+{
+	float l_max = max(l_curr, l_prev);
+
+	if(l_max == 0)
+		return 0;
+
+	float ret = abs(l_curr - l_prev) / l_max;
+	ret *= ret; // make small changes less significant
+	
+	return ret;
+}
+
+void main() {
+
+	ivec2 res = ivec2(imageSize(src_svgf_grad_hf_spec_ping));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	vec2 grad_lf = vec2(0);
+
+	vec2 prev_hf_spec_lum = imageLoad(src_svgf_grad_hf_spec_ping, pix).rg;
+
+	vec3 curr_hf = imageLoad(src_pt_color_hf, pix).rgb;
+	vec3 curr_spec = imageLoad(src_pt_color_spec, pix).rgb;
+
+	float grad_hf = get_gradient(luminance(curr_hf), prev_hf_spec_lum.x);
+	float grad_spec = get_gradient(luminance(curr_spec), prev_hf_spec_lum.y);
+
+	// Process all LF samples in the 3x3 square, accumulate the luminances
+	for(int yy = 0; yy < GRAD_DWN; yy++)
+	{
+		for(int xx = 0; xx < GRAD_DWN; xx++)
+		{
+			grad_lf += get_lf_gradient(pix * GRAD_DWN + ivec2(xx, yy));
+		}
+	}
+
+	imageStore(out_svgf_grad_lf_ping, pix, vec4(grad_lf, 0, 0));
+	imageStore(out_svgf_grad_hf_spec, pix, vec4(grad_hf, grad_spec, 0, 0));
+}
+//
+//void main() {
+//	ivec2 res = ivec2(imageSize(src_diffuse_reproject));
+//	ivec2 pix = ivec2(gl_GlobalInvocationID);
+//
+//	if (any(greaterThanEqual(pix, res))) {
+//		return;
+//	}
+//
+//	// clean reflections filter get only texels from roughness cone
+//	// fallback reflections get little more than roughness cone
+//	// on corners we just use fallback filter if samples is small count
+//	// it's looks like we add little roughness and fixed black dots
+//
+//
+//	const vec4 pos_depth = imageLoad(src_position_t, pix);
+//	const vec3 position = pos_depth.xyz;
+//	const float depth = pos_depth.w;
+//
+//	const float roughness = imageLoad(src_material_rmxx, pix).r;
+//
+//	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
+//	readNormals(pix, geometry_normal, shading_normal);
+//
+//	vec3 diffuse = vec3(0.);
+//	vec3 specular = vec3(0.);
+//	vec4 gi_sh1 = vec4(0.);
+//	vec2 gi_sh2 = vec2(0.);
+//	float weights_sum = 0.;
+//	float gi_weights_sum = 0.;
+//
+//	vec4 diffuse_last = vec4(0.);
+//	vec4 specular_last = vec4(0.);
+//
+//	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+//		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//			const ivec2 p = pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//
+//			vec3 current_geometry_normal, current_shading_normal;
+//			readNormals(p, current_geometry_normal, current_shading_normal);
+//			//const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
+//			const float normals_factor = 1.;
+//
+//			const float sigma = KERNEL_SIZE * 0.8;
+//			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * normals_factor;
+//
+//			if (dot(shading_normal, current_shading_normal) > 0.98) {
+////			if (weight > WEIGHT_THRESHOLD) {
+//				const float depth_current = imageLoad(src_position_t, pix).w;
+//				const float depth_offset = abs(depth - depth_current);
+//				const float depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
+//				const float gi_depth_factor = 1. - smoothstep(0., GI_DEPTH_THRESHOLD, depth_offset);
+//
+//				diffuse += imageLoad(src_diffuse_reproject, p).rgb * weight * depth_factor;
+//				specular += imageLoad(src_specular_spread, p).rgb * weight * depth_factor;
+//				weights_sum += weight * depth_factor;
+//
+//				gi_sh1 += imageLoad(src_gi_sh1_spread, p) * weight * gi_depth_factor;
+//				gi_sh2 += imageLoad(src_gi_sh2_spread, p).xy * weight * gi_depth_factor;
+//				gi_weights_sum += weight * gi_depth_factor;
+//			}
+//		}
+//	}
+//
+//
+//	if (weights_sum > WEIGHT_THRESHOLD) {
+//		diffuse /= weights_sum;
+//		specular /= weights_sum;
+//		gi_sh1 /= gi_weights_sum;
+//		gi_sh2 /= gi_weights_sum;
+//	}
+//
+//	if (roughness < 0.05) {
+//		specular = imageLoad(src_specular_spread, pix).rgb;
+//	}
+//
+//	imageStore(out_diffuse_denoised, pix, vec4(diffuse, 0.));
+//	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
+//	imageStore(out_gi_sh1_denoised, pix, gi_sh1);
+//	imageStore(out_gi_sh2_denoised, pix, vec4(gi_sh2,  0., 0.));
+//}

@@ -178,6 +178,8 @@ void main() {
 		specular = clamp(specular, 0., 5.);
 	}
 
+	diffuse += vec3(0., 0.2, 0.);
+
 #if GLOBAL_ILLUMINATION
 	#if LIGHT_POINT
 		imageStore(out_image_light_point_indirect, pix, vec4(specular + diffuse, 0.));
