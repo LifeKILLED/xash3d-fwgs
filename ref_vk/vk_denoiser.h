@@ -2,6 +2,8 @@
 
 struct ray_pass_s;
 struct ray_pass_s *R_VkRayDenoiserNoDenoiseCreate( void );
+struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersInitCreate(void);
+struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCreate(void);
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void);
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void);
 struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void);

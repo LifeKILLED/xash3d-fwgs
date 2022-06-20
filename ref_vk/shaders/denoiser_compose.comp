@@ -222,8 +222,6 @@ void main() {
 	colour += PBRMix(base_color, diffuse, specular, metalness);
 	colour += mix(diffuse_gi, reflect_gi, metalness);
 
-	
-	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 
 	//colour = specular;
 

@@ -7,7 +7,6 @@
 #include "vk_ray_reflection.h"
 #include "vk_ray_indirect.h"
 #include "vk_ray_light_direct.h"
-#include "vk_ray_motion_reconstruct.h"
 
 #include "vk_core.h"
 #include "vk_common.h"
@@ -104,7 +103,6 @@ typedef struct {
 RAY_PRIMARY_OUTPUTS(X)
 RAY_REFLECTION_OUTPUTS(X)
 RAY_INDIRECTIONAL_OUTPUTS(X)
-RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
 RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
@@ -188,8 +186,8 @@ static struct {
 	X(primary_ray, R_VkRayPrimaryPassCreate) \
 	X(reflection_ray, R_VkRayReflectionPassCreate) \
 	X(indirect_ray, R_VkRayIndirectPassCreate) \
-	X(last_frame_buffers_init, R_VkRayLastFrameBuffersInitPassCreate) \
-	X(motion_reconstruction, R_VkRayMotionReconstructPassCreate) \
+	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersInitCreate) \
+	X(denoiser_motion_reconstruction, R_VkRayDenoiserMotionReconstructionCreate) \
 	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
 	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
 	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
@@ -1107,7 +1105,6 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 			RAY_PRIMARY_OUTPUTS(RES_SET_IMAGE)
 			RAY_REFLECTION_OUTPUTS(RES_SET_IMAGE)
 			RAY_INDIRECTIONAL_OUTPUTS(RES_SET_IMAGE)
-			RAY_MOTION_RECONSTRUCT_OUTPUTS(RES_SET_IMAGE)
 			RAY_LAST_FRAME_BUFFERS_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
@@ -1172,7 +1169,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	if (g_rtx.last_frame_buffers_inited == false && frame_index == 1) {
 		g_rtx.last_frame_buffers_inited = true;
 	}
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.last_frame_buffers_init, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_last_frame_buffers_init, &res);
 	if (g_rtx.last_frame_buffers_inited == true) {
 		BLIT_IMAGES(current_frame->last_position_t.image,		last_frame->position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(current_frame->last_normals_gs.image,		last_frame->normals_gs.image, FRAME_WIDTH, FRAME_HEIGHT)
@@ -1186,7 +1183,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.primary_ray, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.reflection_ray, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.indirect_ray, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.motion_reconstruction, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_motion_reconstruction, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_poly, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_point, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_reflect_poly, &res);
@@ -1528,7 +1525,6 @@ qboolean VK_RayInit( void )
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_REFLECTION_OUTPUTS(X)
 		RAY_INDIRECTIONAL_OUTPUTS(X)
-		RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
 		RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
@@ -1569,7 +1565,6 @@ void VK_RayShutdown( void ) {
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_REFLECTION_OUTPUTS(X)
 		RAY_INDIRECTIONAL_OUTPUTS(X)
-		RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
 		RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)

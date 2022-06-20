@@ -1,0 +1,28 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+	// with this shader we just abuse system of barriers
+	// run this only before map loaded frame or after init
+
+layout(set=0, binding=1, rgba32f) uniform image2D out_image_last_position_t;
+layout(set=0, binding=2, rgba16f) uniform image2D out_image_last_normals_gs;
+layout(set=0, binding=3, rgba32f) uniform image2D out_image_last_search_info_ktuv;
+layout(set=0, binding=4, rgba16f) uniform image2D out_image_last_diffuse;
+layout(set=0, binding=5, rgba16f) uniform image2D out_image_last_gi_sh1;
+layout(set=0, binding=6, rgba16f) uniform image2D out_image_last_gi_sh2;
+
+void main() {
+	const ivec2 res = ivec2(imageSize(out_image_last_position_t));
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	imageStore(out_image_last_position_t, pix, vec4(0.));
+	imageStore(out_image_last_normals_gs, pix, vec4(0.));
+	imageStore(out_image_last_search_info_ktuv, pix, vec4(0.));
+	imageStore(out_image_last_diffuse, pix, vec4(0.));
+	imageStore(out_image_last_gi_sh1, pix, vec4(0.));
+	imageStore(out_image_last_gi_sh2, pix, vec4(0.));
+}

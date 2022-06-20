@@ -54,28 +54,13 @@
 
 
 #define RAY_LAST_FRAME_BUFFERS_OUTPUTS(X) \
-	X(10, last_position_t, rgba32f) \
-	X(11, last_normals_gs, rgba16f) \
-	X(12, last_search_info_ktuv, rgba32f) \
-	X(13, last_diffuse, rgba16f) \
-	X(14, last_specular, rgba16f) \
-	X(15, last_gi_sh1, rgba16f) \
-	X(16, last_gi_sh2, rgba16f) \
-
-
-
-#define RAY_MOTION_RECONSTRUCT_INPUTS(X) \
-	X(20, position_t, rgba32f) \
-	X(21, refl_position_t, rgba32f) \
-	X(22, normals_gs, rgba16f) \
-	X(23, search_info_ktuv, rgba32f) \
-	X(24, last_position_t, rgba32f) \
-	X(25, last_normals_gs, rgba16f) \
-	X(26, last_search_info_ktuv, rgba32f) \
-	X(27, last_gi_sh2, rgba16f) \
-
-#define RAY_MOTION_RECONSTRUCT_OUTPUTS(X) \
-	X(10, motion_offsets_uvs, rgba16f) \
+	X(0, last_position_t, rgba32f) \
+	X(1, last_normals_gs, rgba16f) \
+	X(2, last_search_info_ktuv, rgba32f) \
+	X(3, last_diffuse, rgba16f) \
+	X(4, last_specular, rgba16f) \
+	X(5, last_gi_sh1, rgba16f) \
+	X(6, last_gi_sh2, rgba16f) \
 
 
 
@@ -129,6 +114,7 @@
 
 
 #define RAY_DENOISER_TEXTURES(X) \
+	X(-1, motion_offsets_uvs, rgba16f) \
 	X(-1, diffuse_accum, rgba16f) \
 	X(-1, specular_accum, rgba16f) \
 	X(-1, gi_sh1_accum, rgba16f) \

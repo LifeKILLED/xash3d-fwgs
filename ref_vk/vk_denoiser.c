@@ -78,6 +78,46 @@ struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
 	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 15)
 }
 
+
+
+	// LAST FRAME BUFFERS INIT
+
+#define LIST_OUTPUTS_LAST_INIT(X) \
+	X(0, last_position_t) \
+	X(1, last_normals_gs) \
+	X(2, last_search_info_ktuv) \
+	X(3, last_diffuse) \
+	X(4, last_specular) \
+	X(5, last_gi_sh1) \
+	X(6, last_gi_sh2) \
+
+#define LIST_INPUTS_LAST_INIT(X) \
+
+struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersInitCreate(void) {
+	PASS_CREATE_FUNC("denoiser last frame buffers init", "denoiser_frame_buffers_init.comp.spv", LAST_INIT, 7)
+}
+
+
+	// MOTION RECONSTRUCTION
+
+#define LIST_OUTPUTS_MOTION(X) \
+	X(0, motion_offsets_uvs) \
+
+#define LIST_INPUTS_MOTION(X) \
+	X(1, position_t) \
+	X(2, refl_position_t) \
+	X(3, normals_gs) \
+	X(4, search_info_ktuv) \
+	X(5, last_position_t) \
+	X(6, last_normals_gs) \
+	X(7, last_search_info_ktuv) \
+	X(8, last_gi_sh2) \
+
+struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCreate(void) {
+	PASS_CREATE_FUNC("denoiser motion reconstruction", "denoiser_motion_reconstruction.comp.spv", MOTION, 9)
+}
+
+
 		// PASS 1. ACCUMULATE
 
 #define LIST_OUTPUTS_ACCUM(X) \

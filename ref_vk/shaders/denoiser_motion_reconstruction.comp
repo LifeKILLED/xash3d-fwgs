@@ -1,34 +1,40 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : require
+#version 460
 
-#include "ray_primary_common.glsl"
+#include "noise.glsl"
 #include "utils.glsl"
+#include "color_spaces.glsl"
 #include "denoiser_tools.glsl"
+#include "spherical_harmonics.glsl"
 
 const float uv_treshold = 0.025;
-
-#define X(index, name, format) layout(set=0,binding=index,format) uniform readonly image2D src_##name;
-RAY_MOTION_RECONSTRUCT_INPUTS(X)
-#undef X
-
-#define X(index, name, format) layout(set=0,binding=index,format) uniform image2D out_image_##name;
-RAY_MOTION_RECONSTRUCT_OUTPUTS(X)
-#undef X
-
-layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
-layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
-
-// TODO: only for one texture, but... too many dependencies if we want to add special descriptor
-layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
-
-layout(location = PAYLOAD_LOCATION_PRIMARY) rayPayloadEXT RayPayloadPrimary payload;
-
-
 const float ray_length_difference_treshold = 1.5;
-
-
 const float distance_treshold = 5.0;
 const float normal_treshold = 0.98;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_image_motion_offsets_uvs;
+
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_search_info_ktuv;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_last_position_t;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_last_normals_gs;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_gi_sh2;
+
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
+	mat4 last_proj, last_view;
+	float ray_cone_width;
+	uint random_seed;
+	uint blue_noise_seed;
+};
+
+layout(set = 0, binding = 9) uniform UBO { UniformBuffer ubo; };
+
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
@@ -36,14 +42,17 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	shading_normal = normalDecode(n.zw);
 }
 
+
+
 void main() {
-	ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
-	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
+	ivec2 res = ivec2(imageSize(src_position_t));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}
 
+	
 	vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
 	float aspect = float(res.x) / float(res.y);
 
@@ -161,5 +170,6 @@ void main() {
 		}
 	}
 
-	imageStore(out_image_motion_offsets_uvs, ivec2(gl_LaunchIDEXT.xy), vec4(forward_offset, parallax_offset));
+	imageStore(out_image_motion_offsets_uvs, pix, vec4(forward_offset, parallax_offset));
+
 }
