@@ -28,7 +28,8 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_light_point_
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 
 layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_refl_emissive;
-layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_gi_emissive;
+
+//layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_gi_emissive;
 
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
@@ -243,8 +244,8 @@ void main() {
 
 	// global illumination
 	vec3 global_illumination =	imageLoad(src_light_poly_indirect, pix).rgb +
-								imageLoad(src_light_point_indirect, pix).rgb +
-								imageLoad(src_gi_emissive, pix).rgb;
+								imageLoad(src_light_point_indirect, pix).rgb /*+
+								imageLoad(src_gi_emissive, pix).rgb*/;
 
 	// metalness == 1
 	vec3 metal_colour = (specular + reflection) * base_color.rgb;

@@ -38,7 +38,7 @@ layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_motion_offse
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_refl_normals_gs;
 layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_refl_dir_length;
 layout(set = 0, binding = 14, rgba32f) uniform readonly image2D src_last_position_t;
-layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_last_normals_gs;
+//layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_last_normals_gs;
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
@@ -55,7 +55,7 @@ void readReflNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 
 
 void readLastNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	//const vec4 n = imageLoad(src_last_normals_gs, uv);
+//	//const vec4 n = imageLoad(src_last_normals_gs, uv);
 	const vec4 n = vec4(1.);
 	geometry_normal = normalize(normalDecode(n.xy));
 	shading_normal = normalize(normalDecode(n.zw));

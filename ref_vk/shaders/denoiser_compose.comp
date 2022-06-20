@@ -23,6 +23,18 @@ layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_gi_sh2;
 layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_refl_dir_length;
 
 
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
+	mat4 last_proj, last_view;
+	float ray_cone_width;
+	uint random_seed;
+	uint blue_noise_seed;
+};
+
+layout(set = 0, binding = 11) uniform UBO { UniformBuffer ubo; };
+
+
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
 /* layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_additive; */
@@ -210,6 +222,8 @@ void main() {
 	colour += PBRMix(base_color, diffuse, specular, metalness);
 	colour += mix(diffuse_gi, reflect_gi, metalness);
 
+	
+	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 
 	//colour = specular;
 

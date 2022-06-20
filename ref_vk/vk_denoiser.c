@@ -12,17 +12,28 @@
 		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
 	},
 
+#define BIND_UBO(index) \
+	{ \
+		.binding = index, \
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, \
+		.descriptorCount = 1, \
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, \
+	},
+
 #define IN(index, name, ...) (RayResource_##name + 1),
 #define OUT(index, name, ...) -(RayResource_##name + 1),
+#define SEMANTIC_UBO() (RayResource_ubo + 1),
 
-#define PASS_CREATE_FUNC(debug_text, shader_name, postfix) \
+#define PASS_CREATE_FUNC(debug_text, shader_name, postfix, ubo_index) \
 	static const VkDescriptorSetLayoutBinding bindings_##postfix[] = {\
 		LIST_OUTPUTS_##postfix(BIND_IMAGE)\
 		LIST_INPUTS_##postfix(BIND_IMAGE)\
+		BIND_UBO(ubo_index)\
 	};\
 	static const int semantics_##postfix[] = {\
 		LIST_OUTPUTS_##postfix(OUT)\
 		LIST_INPUTS_##postfix(IN)\
+		SEMANTIC_UBO()\
 	};\
 	const ray_pass_create_compute_t rpcc = {\
 		.debug_name = debug_text,\
@@ -60,10 +71,11 @@
 	X(12, light_point_indirect) \
 	X(13, material_rmxx) \
 	X(14, refl_emissive) \
-	X(15, gi_emissive) \
+
+//	X(15, gi_emissive)
 
 struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
-	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS)
+	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 15)
 }
 
 		// PASS 1. ACCUMULATE
@@ -86,10 +98,11 @@ struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
 	X(12, light_point_indirect) \
 	X(13, refl_emissive) \
 	X(14, gi_emissive) \
-	X(15, gi_direction) \
+
+//	X(15, gi_direction)
 
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
-	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM)
+	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 15)
 }
 
 
@@ -113,10 +126,11 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	X(12, refl_normals_gs) \
 	X(13, refl_dir_length) \
 	X(14, last_position_t) \
-	X(15, last_normals_gs) \
+
+//	X(15, last_normals_gs)
 
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
-	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ)
+	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 15)
 }
 
 
@@ -141,7 +155,7 @@ struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 	X(12, refl_base_color_a) \
 
 struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void) {
-	PASS_CREATE_FUNC("denoiser spread", "denoiser_spread.comp.spv", SPREAD)
+	PASS_CREATE_FUNC("denoiser spread", "denoiser_spread.comp.spv", SPREAD, 13)
 }
 
 
@@ -163,7 +177,7 @@ struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void) {
 	X(10, material_rmxx) \
 
 struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
-	PASS_CREATE_FUNC("denoiser refine", "denoiser_refine.comp.spv", REFINE)
+	PASS_CREATE_FUNC("denoiser refine", "denoiser_refine.comp.spv", REFINE, 11)
 }
 
 
@@ -185,7 +199,7 @@ struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
 	X(10, refl_dir_length) \
 
 struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
-	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", COMP)
+	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", COMP, 11)
 }
 
 // PASS 6. FXAA
@@ -197,11 +211,13 @@ struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 	X(1, final_image) \
 
 struct ray_pass_s* R_VkRayDenoiserFXAACreate(void) {
-	PASS_CREATE_FUNC("denoiser fxaa", "denoiser_fxaa.comp.spv", FXAA)
+	PASS_CREATE_FUNC("denoiser fxaa", "denoiser_fxaa.comp.spv", FXAA, 2)
 }
 
 
 
+#undef BINDING_UBO
+#undef SEMANTIC_UBO
 #undef PASS_CREATE_FUNC
 #undef BIND_IMAGE
 #undef IN
