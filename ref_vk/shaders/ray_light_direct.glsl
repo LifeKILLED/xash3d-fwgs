@@ -178,7 +178,7 @@ void main() {
 		specular = clamp(specular, 0., 5.);
 	}
 
-	diffuse += vec3(0., 0.2, 0.);
+	//diffuse += vec3(0., 0.2, 0.);
 
 #if GLOBAL_ILLUMINATION
 	#if LIGHT_POINT
