@@ -183,26 +183,35 @@ static struct {
 	unsigned frame_number;
 	xvk_ray_frame_images_t frames[MAX_FRAMES_IN_FLIGHT];
 
+#define X(name, init_func)
+#define PASSES_LIST(X) \
+	X(primary_ray, R_VkRayPrimaryPassCreate) \
+	X(reflection_ray, R_VkRayReflectionPassCreate) \
+	X(indirect_ray, R_VkRayIndirectPassCreate) \
+	X(last_frame_buffers_init, R_VkRayLastFrameBuffersInitPassCreate) \
+	X(motion_reconstruction, R_VkRayMotionReconstructPassCreate) \
+	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
+	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
+	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
+	X(light_reflect_point, R_VkRayLightReflectPointPassCreate) \
+	X(light_indirect_poly, R_VkRayLightIndirectPolyPassCreate) \
+	X(light_indirect_point, R_VkRayLightIndirectPointPassCreate) \
+	X(denoiser_accumulate, R_VkRayDenoiserAccumulateCreate) \
+	X(denoiser_reproject, R_VkRayDenoiserReprojectCreate) \
+	X(denoiser_spread, R_VkRayDenoiserSpreadCreate) \
+	X(denoiser_refine, R_VkRayDenoiserRefineCreate) \
+	X(denoiser_compose, R_VkRayDenoiserComposeCreate) \
+	X(denoiser_fxaa, R_VkRayDenoiserFXAACreate) \
+	X(denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate) \
+
+#undef X
+
 	struct {
-		struct ray_pass_s* primary_ray;
-		struct ray_pass_s* reflection_ray;
-		struct ray_pass_s* indirect_ray;
-		struct ray_pass_s* last_frame_buffers_init;
-		struct ray_pass_s* motion_reconstruction;
-		struct ray_pass_s* light_direct_poly;
-		struct ray_pass_s* light_direct_point;
-		struct ray_pass_s* light_reflect_poly;
-		struct ray_pass_s* light_reflect_point;
-		struct ray_pass_s* light_indirect_poly;
-		struct ray_pass_s* light_indirect_point;
-		struct ray_pass_s* denoiser_accumulate;
-		struct ray_pass_s* denoiser_reproject;
-		struct ray_pass_s* denoiser_spread;
-		struct ray_pass_s* denoiser_refine;
-		struct ray_pass_s* denoiser_compose;
-		struct ray_pass_s* denoiser_fxaa;
-		struct ray_pass_s* denoiser_no_denoise;
+#define PASSES_DEFINE(name, init_func) \
+		struct ray_pass_s* name;
+		PASSES_LIST(PASSES_DEFINE)
 	} pass;
+#undef PASSES_DEFINE
 
 	qboolean reload_pipeline;
 	qboolean reload_lighting;
@@ -1232,24 +1241,11 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		//vkDestroyPipeline(vk_core.device, g_rtx.pipeline, NULL);
 		createPipeline();
 
-		reloadPass( &g_rtx.pass.primary_ray, R_VkRayPrimaryPassCreate());
-		reloadPass( &g_rtx.pass.reflection_ray, R_VkRayReflectionPassCreate());
-		reloadPass( &g_rtx.pass.indirect_ray, R_VkRayIndirectPassCreate());
-		reloadPass( &g_rtx.pass.last_frame_buffers_init, R_VkRayLastFrameBuffersInitPassCreate());
-		reloadPass( &g_rtx.pass.motion_reconstruction, R_VkRayMotionReconstructPassCreate());
-		reloadPass( &g_rtx.pass.light_direct_poly, R_VkRayLightDirectPolyPassCreate());
-		reloadPass( &g_rtx.pass.light_direct_point, R_VkRayLightDirectPointPassCreate());
-		reloadPass( &g_rtx.pass.light_reflect_poly, R_VkRayLightReflectPolyPassCreate());
-		reloadPass( &g_rtx.pass.light_reflect_point, R_VkRayLightReflectPointPassCreate());
-		reloadPass( &g_rtx.pass.light_indirect_poly, R_VkRayLightIndirectPolyPassCreate());
-		reloadPass( &g_rtx.pass.light_indirect_point, R_VkRayLightIndirectPointPassCreate());
-		reloadPass( &g_rtx.pass.denoiser_accumulate, R_VkRayDenoiserAccumulateCreate());
-		reloadPass( &g_rtx.pass.denoiser_reproject, R_VkRayDenoiserReprojectCreate());
-		reloadPass( &g_rtx.pass.denoiser_spread, R_VkRayDenoiserSpreadCreate());
-		reloadPass( &g_rtx.pass.denoiser_refine, R_VkRayDenoiserRefineCreate());
-		reloadPass( &g_rtx.pass.denoiser_compose, R_VkRayDenoiserComposeCreate());
-		reloadPass( &g_rtx.pass.denoiser_fxaa, R_VkRayDenoiserFXAACreate());
-		reloadPass( &g_rtx.pass.denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate());
+
+#define PASSES_RELOAD(name, init_func) \
+		reloadPass( &g_rtx.pass.name, init_func());
+		PASSES_LIST(PASSES_RELOAD)
+#undef PASSES_RELOAD
 
 		g_rtx.reload_pipeline = false;
 		g_rtx.last_frame_buffers_inited = false;
@@ -1424,59 +1420,11 @@ qboolean VK_RayInit( void )
 	ASSERT(vk_core.rtx);
 	// TODO complain and cleanup on failure
 
-	g_rtx.pass.primary_ray = R_VkRayPrimaryPassCreate();
-	ASSERT(g_rtx.pass.primary_ray);
-
-	g_rtx.pass.reflection_ray = R_VkRayReflectionPassCreate();
-	ASSERT(g_rtx.pass.reflection_ray);
-
-	g_rtx.pass.indirect_ray = R_VkRayIndirectPassCreate();
-	ASSERT(g_rtx.pass.indirect_ray);
-
-	g_rtx.pass.last_frame_buffers_init = R_VkRayLastFrameBuffersInitPassCreate();
-	ASSERT(g_rtx.pass.last_frame_buffers_init);
-
-	g_rtx.pass.motion_reconstruction = R_VkRayMotionReconstructPassCreate();
-	ASSERT(g_rtx.pass.motion_reconstruction);
-
-	g_rtx.pass.light_direct_poly = R_VkRayLightDirectPolyPassCreate();
-	ASSERT(g_rtx.pass.light_direct_poly);
-
-	g_rtx.pass.light_direct_point = R_VkRayLightDirectPointPassCreate();
-	ASSERT(g_rtx.pass.light_direct_point);
-
-	g_rtx.pass.light_reflect_poly = R_VkRayLightReflectPolyPassCreate();
-	ASSERT(g_rtx.pass.light_reflect_poly);
-
-	g_rtx.pass.light_reflect_point = R_VkRayLightReflectPointPassCreate();
-	ASSERT(g_rtx.pass.light_reflect_point);
-
-	g_rtx.pass.light_indirect_poly = R_VkRayLightIndirectPolyPassCreate();
-	ASSERT(g_rtx.pass.light_indirect_poly);
-
-	g_rtx.pass.light_indirect_point = R_VkRayLightIndirectPointPassCreate();
-	ASSERT(g_rtx.pass.light_indirect_point);
-
-	g_rtx.pass.denoiser_accumulate = R_VkRayDenoiserAccumulateCreate();
-	ASSERT(g_rtx.pass.denoiser_accumulate);
-
-	g_rtx.pass.denoiser_reproject = R_VkRayDenoiserReprojectCreate();
-	ASSERT(g_rtx.pass.denoiser_reproject);
-
-	g_rtx.pass.denoiser_spread = R_VkRayDenoiserSpreadCreate();
-	ASSERT(g_rtx.pass.denoiser_spread);
-
-	g_rtx.pass.denoiser_refine = R_VkRayDenoiserRefineCreate();
-	ASSERT(g_rtx.pass.denoiser_refine);
-
-	g_rtx.pass.denoiser_compose = R_VkRayDenoiserComposeCreate();
-	ASSERT(g_rtx.pass.denoiser_compose);
-
-	g_rtx.pass.denoiser_fxaa = R_VkRayDenoiserFXAACreate();
-	ASSERT(g_rtx.pass.denoiser_fxaa);
-
-	g_rtx.pass.denoiser_no_denoise = R_VkRayDenoiserNoDenoiseCreate();
-	ASSERT(g_rtx.pass.denoiser_no_denoise);
+#define PASSES_ASSERT(name, init_func) \
+	g_rtx.pass.name = init_func(); \
+	ASSERT(g_rtx.pass.name);
+	PASSES_LIST(PASSES_ASSERT)
+#undef PASSES_ASSERT
 
 	g_rtx.sbt_record_size = vk_core.physical_device.sbt_record_size;
 	g_rtx.uniform_unit_size = ALIGN_UP(sizeof(struct UniformBuffer), vk_core.physical_device.properties.limits.minUniformBufferOffsetAlignment);
@@ -1610,24 +1558,10 @@ qboolean VK_RayInit( void )
 void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
-	RayPassDestroy(g_rtx.pass.denoiser_no_denoise);
-	RayPassDestroy(g_rtx.pass.denoiser_fxaa);
-	RayPassDestroy(g_rtx.pass.denoiser_compose);
-	RayPassDestroy(g_rtx.pass.denoiser_refine);
-	RayPassDestroy(g_rtx.pass.denoiser_spread);
-	RayPassDestroy(g_rtx.pass.denoiser_reproject);
-	RayPassDestroy(g_rtx.pass.denoiser_accumulate);
-	RayPassDestroy(g_rtx.pass.light_indirect_point);
-	RayPassDestroy(g_rtx.pass.light_indirect_poly);
-	RayPassDestroy(g_rtx.pass.light_reflect_point);
-	RayPassDestroy(g_rtx.pass.light_reflect_poly);
-	RayPassDestroy(g_rtx.pass.light_direct_point);
-	RayPassDestroy(g_rtx.pass.light_direct_poly);
-	RayPassDestroy(g_rtx.pass.motion_reconstruction);
-	RayPassDestroy(g_rtx.pass.last_frame_buffers_init);
-	RayPassDestroy(g_rtx.pass.indirect_ray);
-	RayPassDestroy(g_rtx.pass.reflection_ray);
-	RayPassDestroy(g_rtx.pass.primary_ray);
+#define PASSES_DESTROY(name, init_func) \
+		RayPassDestroy(g_rtx.pass.name);
+	PASSES_LIST(PASSES_DESTROY)
+#undef PASSES_DESTROY
 
 	for (int i = 0; i < ARRAYSIZE(g_rtx.frames); ++i) {
 		XVK_ImageDestroy(&g_rtx.frames[i].denoised);
