@@ -354,7 +354,7 @@ void R_EndFrame( void )
 	if (g_frame.current.phase == Phase_FrameBegan) {
 		const VkCommandBuffer cmdbuf = currentCommandBuffer();
 		enqueueRendering( cmdbuf );
-		submit( cmdbuf, false );
+		submit( cmdbuf, false ); // fix bugs, but avoid parallel
 
 		vk_frame.cmdbuf = VK_NULL_HANDLE;
 	}

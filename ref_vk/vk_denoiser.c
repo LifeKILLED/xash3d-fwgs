@@ -71,11 +71,10 @@
 	X(12, light_point_indirect) \
 	X(13, material_rmxx) \
 	X(14, refl_emissive) \
-
-//	X(15, gi_emissive)
+	X(15, gi_emissive) \
 
 struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
-	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 15)
+	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 16)
 }
 
 
@@ -138,11 +137,10 @@ struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCreate(void) {
 	X(12, light_point_indirect) \
 	X(13, refl_emissive) \
 	X(14, gi_emissive) \
-
-//	X(15, gi_direction)
+	X(15, gi_direction)
 
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
-	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 15)
+	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 16)
 }
 
 

@@ -2,6 +2,8 @@
 
 #include "eiface.h" // ARRAYSIZE
 
+#define MAX_DESCRIPTORS_WRITE 20
+
 descriptor_pool_t vk_desc;
 
 qboolean VK_DescriptorInit( void )
@@ -173,7 +175,7 @@ void VK_DescriptorsCreate(vk_descriptors_t *desc)
 
 void VK_DescriptorsWrite(const vk_descriptors_t *desc, int set_slot)
 {
-	VkWriteDescriptorSet wds[16];
+	VkWriteDescriptorSet wds[MAX_DESCRIPTORS_WRITE];
 	ASSERT(ARRAYSIZE(wds) >= desc->num_bindings);
 	for (int i = 0; i < desc->num_bindings; ++i){
 		const VkDescriptorSetLayoutBinding *binding = desc->bindings + i;

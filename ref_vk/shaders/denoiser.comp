@@ -29,7 +29,7 @@ layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 
 layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_refl_emissive;
 
-//layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_gi_emissive;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_gi_emissive;
 
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
