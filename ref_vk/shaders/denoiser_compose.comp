@@ -224,6 +224,7 @@ void main() {
 
 
 	//colour = specular;
+	colour = vec3(1., 0., 0.);
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness

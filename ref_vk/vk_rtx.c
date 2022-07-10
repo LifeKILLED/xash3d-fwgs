@@ -187,7 +187,8 @@ static struct {
 	X(reflection_ray, R_VkRayReflectionPassCreate) \
 	X(indirect_ray, R_VkRayIndirectPassCreate) \
 	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersInitCreate) \
-	X(denoiser_motion_reconstruction, R_VkRayDenoiserMotionReconstructionCreate) \
+	X(denoiser_motion_reconstruction_init, R_VkRayDenoiserMotionReconstructionInitCreate) \
+	X(denoiser_motion_reconstruction_correct, R_VkRayDenoiserMotionReconstructionCorrectCreate) \
 	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
 	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
 	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
@@ -1183,7 +1184,8 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.primary_ray, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.reflection_ray, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.indirect_ray, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_motion_reconstruction, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_motion_reconstruction_init, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_motion_reconstruction_correct, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_poly, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_point, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_reflect_poly, &res);

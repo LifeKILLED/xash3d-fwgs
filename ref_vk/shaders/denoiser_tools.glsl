@@ -1,4 +1,5 @@
-
+#ifndef DENOISER_TOOLS_LK_12231312
+#define DENOISER_TOOLS_LK_12231312 1
 
 
 // denoising of global illumination on mirrors now works bad
@@ -11,6 +12,62 @@
 
 // More perfomance, but not so beautiful
 //#define LIGHTS_NINEFOLD_REDUCION
+
+#define IMPORTANCE_SAMPLING_4X_SIMPLE 1
+
+#define IMPORTANCE_SAMPLING_4X_SETUP(total_lights_count, random_light_id) \
+	vec4 light0 = vec4(0.), light1 = vec4(0.), light2 = vec4(0.), light3 = vec4(0.), light_rnd = vec4(0.); \
+	vec3 light0_pos = vec3(0.), light1_pos = vec3(0.), light2_pos = vec3(0.), light3_pos = vec3(0.); \
+	const uint rnd_samples_count = total_lights_count; \
+	const uint rnd_light_index = random_light_id;
+
+#define IMPORTANCE_SAMPLING_4X_SORT(current_light_radiance, curr_pos) \
+	vec4 curr_l = vec4(current_light_radiance, current_light_radiance.r + current_light_radiance.g + current_light_radiance.b); \
+	if (curr_l.w > light0.w) { \
+		light3 = light2; \
+		light2 = light1; \
+		light1 = light0; \
+		light0 = curr_l; \
+		light3_pos = light2_pos; \
+		light2_pos = light1_pos; \
+		light1_pos = light0_pos; \
+		light0_pos = curr_pos; \
+	} else if (curr_l.w > light1.w) { \
+		light3 = light2; \
+		light2 = light1; \
+		light1 = curr_l; \
+		light3_pos = light2_pos; \
+		light2_pos = light1_pos; \
+		light1_pos = curr_pos; \
+	} else if (curr_l.w > light2.w) { \
+		light3 = light2; \
+		light2 = curr_l; \
+		light3_pos = light2_pos; \
+		light2_pos = curr_pos; \
+	} else if (curr_l.w > light3.w) { \
+		light3 = curr_l; \
+		light3_pos = curr_pos; \
+	} 
+
+#define IMPORTANCE_SAMPLING_4X_ADD_RND_SAMPLE(current_light_radiance) \
+	light_rnd = vec4(current_light_radiance, dot(current_light_radiance, vec3(1.)));
+
+#define IMPORTANCE_SAMPLING_4X_LIGHT_POS_0 light0_pos
+#define IMPORTANCE_SAMPLING_4X_LIGHT_POS_1 light1_pos
+#define IMPORTANCE_SAMPLING_4X_LIGHT_POS_2 light2_pos
+#define IMPORTANCE_SAMPLING_4X_LIGHT_POS_3 light3_pos
+
+#define IMPORTANCE_SAMPLING_4X_LIGHT_VAL_0 light0
+#define IMPORTANCE_SAMPLING_4X_LIGHT_VAL_1 light1
+#define IMPORTANCE_SAMPLING_4X_LIGHT_VAL_2 light2
+#define IMPORTANCE_SAMPLING_4X_LIGHT_VAL_3 light3
+#define IMPORTANCE_SAMPLING_4X_LIGHT_VAL_RND light_rnd
+
+#define IMPORTANCE_SAMPLING_4X_FINALIZE(final_radiance, shadow_0, shadow_1, shadow_2, shadow_3) \
+	final_radiance += light0.rgb * shadow_0 + light1.rgb * shadow_1 + light2.rgb * shadow_2 + light3.rgb * shadow_3; \
+	if (light_rnd.w != light0.w && light_rnd.w != light1.w && light_rnd.w != light2.w && light_rnd.w != light3.w ) { \
+		final_radiance += light_rnd.rgb * float(rnd_samples_count); \
+	}
 
 // clamp light exposition without loosing of color
 vec3 clamp_color(vec3 color, float clamp_value) {
@@ -372,3 +429,5 @@ const float blur_kernel12_weights[340] = {
 	 0.0011, 0.0011, 0.0011, 0.0010
 };
 #endif
+
+#endif // #ifndef DENOISER_TOOLS_LK_12231312

@@ -5,6 +5,7 @@
 
 #include "noise.glsl"
 #include "utils.glsl"
+#include "denoiser_tools.glsl"
 
 struct SampleContext {
 	mat4x3 world_to_shading;
@@ -212,19 +213,25 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
-#if MAX_LIGHTS_PER_TEXEL
-	const uint selected_count = min(num_polygons, MAX_LIGHTS_PER_TEXEL);
-	const uint skipped_count = num_polygons - selected_count;
-	const uint skipped_start = rand() % num_polygons;
-	const uint skipped_end = skipped_start + skipped_count;
-	const uint skipped_ringed = skipped_end < num_polygons ? -1 : skipped_end % num_polygons;
-	const float sampling_factor = float(num_polygons) / float(selected_count);
-	for (uint i = 0; i < num_polygons; ++i) {
-		if (i < skipped_ringed || (i >= skipped_start && i < skipped_end)) continue;
 
-#else // Full count of lights
+#ifdef IMPORTANCE_SAMPLING_4X_SIMPLE
+	const uint random_light_id = rand() % num_polygons;
+	IMPORTANCE_SAMPLING_4X_SETUP(num_polygons, random_light_id)
+#endif
+
+//#if MAX_LIGHTS_PER_TEXEL
+//	const uint selected_count = min(num_polygons, MAX_LIGHTS_PER_TEXEL);
+//	const uint skipped_count = num_polygons - selected_count;
+//	const uint skipped_start = rand() % num_polygons;
+//	const uint skipped_end = skipped_start + skipped_count;
+//	const uint skipped_ringed = skipped_end < num_polygons ? -1 : skipped_end % num_polygons;
+//	const float sampling_factor = float(num_polygons) / float(selected_count);
+//	for (uint i = 0; i < num_polygons; ++i) {
+//		if (i < skipped_ringed || (i >= skipped_start && i < skipped_end)) continue;
+//
+//#else // Full count of lights
 	for (uint i = 0; i < num_polygons; ++i) {
-#endif // MAX_LIGHTS_PER_TEXEL
+//#endif // MAX_LIGHTS_PER_TEXEL
 		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
 		const PolygonLight poly = lights.polygons[index];
 
@@ -249,15 +256,49 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 		const float dist = - plane_dist / dot(light_sample_dir.xyz, poly.plane.xyz);
 		const vec3 emissive = poly.emissive;
 
+#ifndef IMPORTANCE_SAMPLING_4X_SIMPLE
 		if (!shadowed(P, light_sample_dir.xyz, dist)) {
 			//const float estimate = total_contrib;
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
 			const float estimate = light_sample_dir.w;
 			vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
 			evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
+
+			const vec3 current_light_radiance = throughput * emissive * estimate * (poly_diffuse + poly_specular);
+#ifndef IMPORTANCE_SAMPLING_4X_SIMPLE
 			diffuse += throughput * emissive * estimate * poly_diffuse;
 			specular += throughput * emissive * estimate * poly_specular;
 		}
+#else // IMPORTANCE_SAMPLING_4X_SIMPLE
+
+		const vec3 current_light_dir = normalize(light_sample_dir.xyz) * dist;
+		IMPORTANCE_SAMPLING_4X_SORT(current_light_radiance, current_light_dir)
+
+		if (i == random_light_id) {
+			if (!shadowed(P, light_sample_dir.xyz, dist)) {
+				IMPORTANCE_SAMPLING_4X_ADD_RND_SAMPLE(current_light_radiance)
+			}
+		}
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
 	}
+
+#ifdef IMPORTANCE_SAMPLING_4X_SIMPLE
+
+#define SAMPLE_SHADOW_FOR_LIGHT(lightN_pos, shadow_val_N) \
+	float shadow_val_N = 1.; \
+	if (shadowed(P, normalize(lightN_pos), length(lightN_pos))) { \
+		shadow_val_N = 0.; \
+	}
+
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_0, shadow_0)
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_1, shadow_1)
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_2, shadow_2)
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_3, shadow_3)
+
+	IMPORTANCE_SAMPLING_4X_FINALIZE(diffuse, shadow_0, shadow_1, shadow_2, shadow_3)
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
+
+
 #else
 
 #define USE_CLUSTERS
@@ -337,9 +378,9 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #endif
 #endif
 
-#if MAX_LIGHTS_PER_TEXEL
-	diffuse *= sampling_factor;
-	specular *= sampling_factor;
-#endif
+//#if MAX_LIGHTS_PER_TEXEL
+//	diffuse *= sampling_factor;
+//	specular *= sampling_factor;
+//#endif
 }
 #endif

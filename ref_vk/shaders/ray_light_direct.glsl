@@ -159,11 +159,18 @@ void main() {
 		const vec3 V = normalize(primary_pos - pos);
 #endif
 
+#if PRIMARY_VIEW // TEST!!! ONLY FIRST BOUNCE PROCESSING!!!
+
 	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
 	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
 		const vec3 throughput = vec3(1.);
-		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
+		//computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
+		diffuse = vec3(0.3);
+		specular = vec3(0.3);
 	//}
+
+#endif
+
 
 		// correction for avoiding difference in sampling algorythms
 #if LIGHT_POINT
@@ -171,6 +178,7 @@ void main() {
 		specular *= 0.25;
 #else
 		diffuse *= 0.04;
+
 		specular *= 0.04;
 #endif
 

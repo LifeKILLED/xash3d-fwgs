@@ -1,0 +1,240 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+
+// default value from example is 0.7
+#define TEMPORAL_STABILITY_FACTOR 0.7
+
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+//
+//layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_accum;
+//layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_accum;
+//layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_accum;
+//layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
+
+//layout(set = 0, binding = 4, rgba16f)  uniform readonly image2D src_last_diffuse;
+//layout(set = 0, binding = 5, rgba16f)  uniform readonly image2D src_last_specular;
+//layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_last_gi_sh1;
+//layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_last_gi_sh2;
+//
+//layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_position_t;
+//layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_normals_gs;
+//layout(set = 0, binding = 10, rgba8)   uniform readonly image2D src_material_rmxx;
+//layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
+//
+//layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_refl_normals_gs;
+//layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_refl_dir_length;
+//layout(set = 0, binding = 14, rgba32f) uniform readonly image2D src_last_position_t;
+//layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_last_normals_gs;
+//
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_spec_signal_variance;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_specular;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_specular_old_samples_count;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_variance;
+layout(set = 0, binding = 4, rgba8)   uniform readonly image2D src_material_rmxx;
+
+
+
+
+#define FFX_DNSR_REFLECTIONS_ESTIMATES_LOCAL_NEIGHBORHOOD
+#include "denoiser_amdffx_common.glsl"
+
+// Sample functions for for AMD denoiser
+// Optimizations are removed just for testing
+// In future need to return sharedgroups management from original AMD algorythm
+
+min16float3 FFX_DNSR_Reflections_LoadRadiance(ivec2 dispatch_thread_id) {
+	return imageLoad(src_specular, dispatch_thread_id).xyz;
+}
+
+min16float FFX_DNSR_Reflections_LoadRoughness(ivec2 dispatch_thread_id) {
+	return imageLoad(src_material_rmxx, dispatch_thread_id).r;
+}
+min16float FFX_DNSR_Reflections_LoadVariance(ivec2 dispatch_thread_id) {
+	return imageLoad(src_variance, dispatch_thread_id).x;
+}
+
+min16float FFX_DNSR_Reflections_LoadNumSamples(ivec2 dispatch_thread_id) {
+	return imageLoad(src_specular_old_samples_count, dispatch_thread_id).w;
+}
+
+min16float3 FFX_DNSR_Reflections_LoadRadianceReprojected(ivec2 dispatch_thread_id) {
+	return imageLoad(src_specular_old_samples_count, dispatch_thread_id).xyz;
+}
+
+void FFX_DNSR_Reflections_StoreTemporalAccumulation(ivec2 dispatch_thread_id, vec3 new_signal, float new_variance) {
+	imageStore(out_spec_signal_variance, dispatch_thread_id, vec4(new_signal, new_variance));
+}
+
+
+
+vec3 SampleAverageRadiance(ivec2 pix) {
+	const int KERNEL = 4;
+	const ivec2 res = ivec2(imageSize(src_specular));
+	float weights_sum = 0.;
+	vec3 radiance_sum = vec3(0.);
+	for (int x = -KERNEL; x < KERNEL; ++x) {
+		for (int y = -KERNEL; y < KERNEL; ++y) {
+			const ivec2 p = pix + ivec2(x, y);
+			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) continue;
+			radiance_sum += imageLoad(src_specular, p).rgb;
+			weights_sum += 1.;
+		}
+	}
+	if (weights_sum > 0.) radiance_sum /= weights_sum;
+	return radiance_sum;
+}
+
+struct FFX_DNSR_Reflections_NeighborhoodSample {
+    min16float3 radiance;
+};
+
+FFX_DNSR_Reflections_NeighborhoodSample FFX_DNSR_Reflections_LoadFromGroupSharedMemory(int2 idx) {
+    FFX_DNSR_Reflections_NeighborhoodSample s;
+    s.radiance = FFX_DNSR_Reflections_LoadRadiance(idx);
+    return s;
+}
+
+
+// AMD denoiser realization
+
+
+
+
+//FFX_DNSR_Reflections_NeighborhoodSample FFX_DNSR_Reflections_LoadFromGroupSharedMemory(int2 idx) {
+//    uint2       packed_radiance   = uint2(g_ffx_dnsr_shared_0[idx.y][idx.x], g_ffx_dnsr_shared_1[idx.y][idx.x]);
+//    min16float3 unpacked_radiance = FFX_DNSR_Reflections_UnpackFloat16_4(packed_radiance).xyz;
+//    FFX_DNSR_Reflections_NeighborhoodSample sample;
+//    sample.radiance = unpacked_radiance;
+//    return sample;
+//}
+
+struct FFX_DNSR_Reflections_Moments {
+    min16float3 mean;
+    min16float3 variance;
+};
+
+FFX_DNSR_Reflections_Moments FFX_DNSR_Reflections_EstimateLocalNeighborhoodInGroup(int2 group_thread_id) {
+    FFX_DNSR_Reflections_Moments estimate;
+    estimate.mean                 = vec3(0.);
+    estimate.variance             = vec3(0.);
+    min16float accumulated_weight = 0.;
+    for (int j = -FFX_DNSR_REFLECTIONS_LOCAL_NEIGHBORHOOD_RADIUS; j <= FFX_DNSR_REFLECTIONS_LOCAL_NEIGHBORHOOD_RADIUS; ++j) {
+        for (int i = -FFX_DNSR_REFLECTIONS_LOCAL_NEIGHBORHOOD_RADIUS; i <= FFX_DNSR_REFLECTIONS_LOCAL_NEIGHBORHOOD_RADIUS; ++i) {
+            int2        new_idx  = group_thread_id + int2(i, j);
+            min16float3 radiance = FFX_DNSR_Reflections_LoadFromGroupSharedMemory(new_idx).radiance;
+            min16float  weight   = FFX_DNSR_Reflections_LocalNeighborhoodKernelWeight(i) * FFX_DNSR_Reflections_LocalNeighborhoodKernelWeight(j);
+            accumulated_weight  += weight;
+            estimate.mean       += radiance * weight;
+            estimate.variance   += radiance * radiance * weight;
+        }
+    }
+    estimate.mean     /= accumulated_weight;
+    estimate.variance /= accumulated_weight;
+
+    estimate.variance = abs(estimate.variance - estimate.mean * estimate.mean);
+    return estimate;
+}
+
+//void FFX_DNSR_Reflections_StoreInGroupSharedMemory(int2 group_thread_id, min16float3 radiance) {
+//    g_ffx_dnsr_shared_0[group_thread_id.y][group_thread_id.x] = FFX_DNSR_Reflections_PackFloat16(radiance.xy);
+//    g_ffx_dnsr_shared_1[group_thread_id.y][group_thread_id.x] = FFX_DNSR_Reflections_PackFloat16(radiance.zz);
+//}
+
+void FFX_DNSR_Reflections_LoadNeighborhood(int2 pixel_coordinate, out min16float3 radiance) { radiance = FFX_DNSR_Reflections_LoadRadiance(pixel_coordinate); }
+
+//void FFX_DNSR_Reflections_InitializeGroupSharedMemory(int2 dispatch_thread_id, int2 group_thread_id, int2 screen_size) {
+//    // Load 16x16 region into shared memory using 4 8x8 blocks.
+//    int2 offset[4] = {int2(0, 0), int2(8, 0), int2(0, 8), int2(8, 8)};
+//
+//    // Intermediate storage registers to cache the result of all loads
+//    min16float3 radiance[4];
+//
+//    // Start in the upper left corner of the 16x16 region.
+//    dispatch_thread_id -= 4;
+//
+//    // First store all loads in registers
+//    for (int i = 0; i < 4; ++i) {
+//        FFX_DNSR_Reflections_LoadNeighborhood(dispatch_thread_id + offset[i], radiance[i]);
+//    }
+//
+//    // Then move all registers to groupshared memory
+//    for (int j = 0; j < 4; ++j) {
+//        FFX_DNSR_Reflections_StoreInGroupSharedMemory(group_thread_id + offset[j], radiance[j]);
+//    }
+//}
+
+void FFX_DNSR_Reflections_ResolveTemporal(int2 dispatch_thread_id, int2 group_thread_id, uint2 screen_size, float2 inv_screen_size, float history_clip_weight) {
+    //FFX_DNSR_Reflections_InitializeGroupSharedMemory(dispatch_thread_id, group_thread_id, screen_size);
+    //GroupMemoryBarrierWithGroupSync();
+
+   // group_thread_id += 4; // Center threads in groupshared memory
+
+    FFX_DNSR_Reflections_NeighborhoodSample center       = FFX_DNSR_Reflections_LoadFromGroupSharedMemory(group_thread_id);
+    min16float3                             new_signal   = center.radiance;
+    min16float                              roughness    = FFX_DNSR_Reflections_LoadRoughness(dispatch_thread_id);
+    min16float                              new_variance = FFX_DNSR_Reflections_LoadVariance(dispatch_thread_id);
+
+	if (true) {
+//    if (FFX_DNSR_Reflections_IsGlossyReflection(roughness)) {
+        min16float  num_samples  = FFX_DNSR_Reflections_LoadNumSamples(dispatch_thread_id);
+        //float2      uv8          = (float2(dispatch_thread_id.xy) + (0.5).xx) / FFX_DNSR_Reflections_RoundUp8(screen_size);
+        //min16float3 avg_radiance = FFX_DNSR_Reflections_SampleAverageRadiance(uv8);
+		min16float3 avg_radiance = SampleAverageRadiance(dispatch_thread_id);
+
+        min16float3                  old_signal         = FFX_DNSR_Reflections_LoadRadianceReprojected(dispatch_thread_id);
+        FFX_DNSR_Reflections_Moments local_neighborhood = FFX_DNSR_Reflections_EstimateLocalNeighborhoodInGroup(group_thread_id);
+        // Clip history based on the curren local statistics
+        min16float3                  color_std          = (sqrt(local_neighborhood.variance.xyz) + length(local_neighborhood.mean.xyz - avg_radiance)) * history_clip_weight * 1.4;
+                            local_neighborhood.mean.xyz = lerp(local_neighborhood.mean.xyz, avg_radiance, 0.2);
+        min16float3                  radiance_min       = local_neighborhood.mean.xyz - color_std;
+        min16float3                  radiance_max       = local_neighborhood.mean.xyz + color_std;
+        min16float3                  clipped_old_signal = FFX_DNSR_Reflections_ClipAABB(radiance_min, radiance_max, old_signal.xyz);
+        min16float                   accumulation_speed = 1.0 / max(num_samples, 1.0);
+        min16float                   weight             = (1.0 - accumulation_speed);
+        // Blend with average for small sample count
+        new_signal.xyz                                  = lerp(new_signal.xyz, avg_radiance, 1.0 / max(num_samples + 1.0f, 1.0));
+        // Clip outliers
+        {
+            min16float3                  radiance_min       = avg_radiance.xyz - color_std * 1.0;
+            min16float3                  radiance_max       = avg_radiance.xyz + color_std * 1.0;
+            new_signal.xyz                                  = FFX_DNSR_Reflections_ClipAABB(radiance_min, radiance_max, new_signal.xyz);
+        }
+        // Blend with history
+        new_signal                                      = lerp(new_signal, clipped_old_signal, weight);
+        new_variance                                    = lerp(FFX_DNSR_Reflections_ComputeTemporalVariance(new_signal.xyz, clipped_old_signal.xyz), new_variance, weight);
+//        if (any(isinf(new_signal)) || any(isnan(new_signal)) || any(isinf(new_variance)) || any(isnan(new_variance))) {
+//            new_signal   = vec3(0.0);
+//            new_variance = 0.0;
+//        }
+
+    }
+    FFX_DNSR_Reflections_StoreTemporalAccumulation(dispatch_thread_id, new_signal, new_variance);
+}
+
+
+//void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+//	const vec4 n = imageLoad(src_normals_gs, uv);
+//	geometry_normal = normalize(normalDecode(n.xy));
+//	shading_normal = normalize(normalDecode(n.zw));
+//}
+
+
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_specular));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	FFX_DNSR_Reflections_ResolveTemporal(pix, ivec2(0.), res, vec2(0.), TEMPORAL_STABILITY_FACTOR);
+}

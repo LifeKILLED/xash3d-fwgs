@@ -114,6 +114,7 @@
 
 
 #define RAY_DENOISER_TEXTURES(X) \
+	X(-1, motion_offsets_uvs_init, rgba16f) \
 	X(-1, motion_offsets_uvs, rgba16f) \
 	X(-1, diffuse_accum, rgba16f) \
 	X(-1, specular_accum, rgba16f) \

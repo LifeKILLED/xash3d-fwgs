@@ -97,12 +97,12 @@ struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersInitCreate(void) {
 }
 
 
-	// MOTION RECONSTRUCTION
+	// MOTION RECONSTRUCTION_INIT
 
-#define LIST_OUTPUTS_MOTION(X) \
-	X(0, motion_offsets_uvs) \
+#define LIST_OUTPUTS_MOTION_INIT(X) \
+	X(0, motion_offsets_uvs_init) \
 
-#define LIST_INPUTS_MOTION(X) \
+#define LIST_INPUTS_MOTION_INIT(X) \
 	X(1, position_t) \
 	X(2, refl_position_t) \
 	X(3, normals_gs) \
@@ -112,8 +112,29 @@ struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersInitCreate(void) {
 	X(7, last_search_info_ktuv) \
 	X(8, last_gi_sh2) \
 
-struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCreate(void) {
-	PASS_CREATE_FUNC("denoiser motion reconstruction", "denoiser_motion_reconstruction.comp.spv", MOTION, 9)
+struct ray_pass_s* R_VkRayDenoiserMotionReconstructionInitCreate(void) {
+	PASS_CREATE_FUNC("denoiser motion reconstruction init", "denoiser_motion_reconstruction_init.comp.spv", MOTION_INIT, 9)
+}
+
+
+	// MOTION RECONSTRUCTION_CORRECT
+
+#define LIST_OUTPUTS_MOTION_CORRECT(X) \
+	X(0, motion_offsets_uvs) \
+
+#define LIST_INPUTS_MOTION_CORRECT(X) \
+	X(1, motion_offsets_uvs_init) \
+	X(2, position_t) \
+	X(3, refl_position_t) \
+	X(4, normals_gs) \
+	X(5, search_info_ktuv) \
+	X(6, last_position_t) \
+	X(7, last_normals_gs) \
+	X(8, last_search_info_ktuv) \
+	X(9, last_gi_sh2) \
+
+struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCorrectCreate(void) {
+	PASS_CREATE_FUNC("denoiser motion reconstruction correct", "denoiser_motion_reconstruction_correct.comp.spv", MOTION_CORRECT, 10)
 }
 
 

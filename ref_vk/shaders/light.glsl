@@ -18,29 +18,38 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #if LIGHT_POINT
+#include "denoiser_tools.glsl"
+
 void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
+	vec3 sky_diffuse = vec3(0.), sky_specular = vec3(0.);
 	const vec3 shadow_sample_offset = normalize(vec3(rand01(), rand01(), rand01()) - vec3(.5));
 	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
-#ifdef MAX_LIGHTS_PER_TEXEL
-	const uint selected_count = min(num_point_lights, MAX_LIGHTS_PER_TEXEL);
-	const uint skipped_count = num_point_lights - selected_count;
-	const uint skipped_start = rand() % num_point_lights;
-	const uint skipped_end = skipped_start + skipped_count;
-	const uint skipped_ringed = skipped_end < num_point_lights ? -1 : skipped_end % num_point_lights;
-	const float sampling_factor = float(num_point_lights) / float(selected_count);
+
+#ifdef IMPORTANCE_SAMPLING_4X_SIMPLE
+	const uint random_light_id = rand() % num_point_lights;
+	IMPORTANCE_SAMPLING_4X_SETUP(num_point_lights, random_light_id)
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
+
+//#ifdef MAX_LIGHTS_PER_TEXEL
+//	const uint selected_count = min(num_point_lights, MAX_LIGHTS_PER_TEXEL);
+//	const uint skipped_count = num_point_lights - selected_count;
+//	const uint skipped_start = rand() % num_point_lights;
+//	const uint skipped_end = skipped_start + skipped_count;
+//	const uint skipped_ringed = skipped_end < num_point_lights ? -1 : skipped_end % num_point_lights;
+//	const float sampling_factor = float(num_point_lights) / float(selected_count);
+//	for (uint j = 0; j < num_point_lights; ++j) {
+//		if (j < skipped_ringed || (j >= skipped_start && j < skipped_end)) continue;
+//		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
+//#else // Full count of lights in every texel
 	for (uint j = 0; j < num_point_lights; ++j) {
-		if (j < skipped_ringed || (j >= skipped_start && j < skipped_end)) continue;
+//#ifdef ONE_LIGHT_PER_TEXEL
+//		const uint selected = rand() % num_point_lights;
+//		const uint i = uint(light_grid.clusters[cluster_index].point_lights[selected]);
+//#else // Full count of lights in every texel
 		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
-#else // Full count of lights in every texel
-	for (uint j = 0; j < num_point_lights; ++j) {
-#ifdef ONE_LIGHT_PER_TEXEL
-		const uint selected = rand() % num_point_lights;
-		const uint i = uint(light_grid.clusters[cluster_index].point_lights[selected]);
-#else // Full count of lights in every texel
-		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
-#endif // ONE_LIGHT_PER_TEXEL
-#endif // MAX_LIGHTS_PER_TEXEL
+//#endif // ONE_LIGHT_PER_TEXEL
+//#endif // MAX_LIGHTS_PER_TEXEL
 
 		vec3 color = lights.point_lights[i].color_stopdot.rgb * throughput;
 		if (dot(color,color) < color_culling_threshold)
@@ -111,31 +120,69 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 
 		const float shadow_sample_radius = not_environment ? radius : 1000.;
 		const vec3 shadow_sample_dir = light_dir_norm * light_dist + shadow_sample_offset * shadow_sample_radius;
-		if (not_environment) {
-			//if (shadowed(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
-			if (shadowed(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
-				continue;
-		} else {
+
+		// sample sky anyway
+		if (!not_environment) {
 			// for environment light check that we've hit SURF_SKY
 			//if (shadowedSky(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
 			if (shadowedSky(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				continue;
+			sky_diffuse += ldiffuse;
+			sky_specular += lspecular;
 		}
 
-#ifdef ONE_LIGHT_PER_TEXEL
-		diffuse += ldiffuse * float(num_point_lights);
-		specular += lspecular * float(num_point_lights);
-		break;
-#endif
+#ifdef IMPORTANCE_SAMPLING_4X_SIMPLE
+		const vec3 current_light_radiance = ldiffuse + lspecular;
+		IMPORTANCE_SAMPLING_4X_SORT(current_light_radiance, shadow_sample_dir)
 
+		if (random_light_id != j) continue;
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
+
+		//if (shadowed(payload_opaque.hit_pos_t.xyz, light_dir_norm, light_dist + shadow_offset_fudge))
+		if (shadowed(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
+			continue;
+
+#ifdef IMPORTANCE_SAMPLING_4X_SIMPLE
+		IMPORTANCE_SAMPLING_4X_ADD_RND_SAMPLE(current_light_radiance)
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
+
+
+//#ifdef ONE_LIGHT_PER_TEXEL
+//		diffuse += ldiffuse * float(num_point_lights);
+//		specular += lspecular * float(num_point_lights);
+//		break;
+//#endif
+
+#ifndef IMPORTANCE_SAMPLING_4X_SIMPLE
 		diffuse += ldiffuse;
 		specular += lspecular;
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
 	} // for all lights
 
-#if MAX_LIGHTS_PER_TEXEL
-	diffuse *= sampling_factor;
-	specular *= sampling_factor;
-#endif
+#ifdef IMPORTANCE_SAMPLING_4X_SIMPLE
+
+#define SAMPLE_SHADOW_FOR_LIGHT(lightN_pos, shadow_val_N) \
+	float shadow_val_N = 1.; \
+	if (shadowed(P, normalize(lightN_pos), length(lightN_pos))) { \
+		shadow_val_N = 0.; \
+	}
+
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_0, shadow_0)
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_1, shadow_1)
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_2, shadow_2)
+	SAMPLE_SHADOW_FOR_LIGHT(IMPORTANCE_SAMPLING_4X_LIGHT_POS_3, shadow_3)
+
+	IMPORTANCE_SAMPLING_4X_FINALIZE(diffuse, shadow_0, shadow_1, shadow_2, shadow_3)
+
+#endif // IMPORTANCE_SAMPLING_4X_SIMPLE
+
+	diffuse += sky_diffuse;
+	specular += sky_specular;
+
+//#if MAX_LIGHTS_PER_TEXEL
+//	diffuse *= sampling_factor;
+//	specular *= sampling_factor;
+//#endif
 
 }
 #endif
