@@ -160,8 +160,9 @@ void main() {
 		last_gi_sh2 = imageLoad(src_last_gi_sh2, last_pix).xyz;
 		last_gi_sh2.z += 1.; // increase sample count
 
-		const float last_depth = imageLoad(src_last_position_t, last_pix).w;
-		overlap_factor = smoothstep(0., depthTreshold, depth - last_depth);
+		//const float last_depth = imageLoad(src_last_position_t, last_pix).w;
+		//overlap_factor = smoothstep(0., depthTreshold, depth - last_depth);
+		overlap_factor = 0.; // we don't need to check depth here
 
 		diffuse_mixed = mix(last_diffuse, diffuse_src, overlap_factor);
 		gi_sh1_mixed = mix(last_gi_sh1, gi_sh1_src, overlap_factor);
@@ -171,7 +172,6 @@ void main() {
 
 	// Parallax reprojecting for specular reflection
 	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
-
 
 		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
 		last_parallax_spec = imageLoad(src_last_specular, parallax_pix);
@@ -191,12 +191,14 @@ void main() {
 		// Is parallax reprojecting canceled in texel from previous frame? 
 		fallbackFactor = parallaxFactor > 0. ? 1. - clamp(0., 1., ((1. - last_parallaxFactor) - (1. - parallaxFactor))) * 2. : 0.;
 
-		const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
-		overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
+		//const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
+		//overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
+		overlap_factor = 1.; // we don't need to check depth here
+
 		last_parallax_spec = mix(specular_src, last_parallax_spec, parallaxFactor * overlap_factor);
 	}
 
-	specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
+	//specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
 	specular_mixed = mix(last_forward_spec, specular_mixed, parallaxFactor);
 
 	//const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_last.rgb - diffuse_current));
