@@ -17,7 +17,6 @@ layout(set = 0, binding = 11, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D src_base_color_a;
-layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_emissive;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -106,9 +105,14 @@ void main() {
 #else
 	material.baseColor = base_color;
 #endif
-	material.emissive = vec3(0.f);
+#ifdef GLOBAL_ILLUMINATION
+	material.metalness = 0.;
+	material.roughness = 1.;
+#else
 	material.metalness = material_data.g;
 	material.roughness = material_data.r;
+#endif
+	material.emissive = vec3(0.f);	
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
@@ -164,9 +168,9 @@ void main() {
 	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
 	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
 		const vec3 throughput = vec3(1.);
-		//computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
-		diffuse = vec3(0.3);
-		specular = vec3(0.3);
+		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
+		//diffuse = vec3(0.3);
+		//specular = vec3(0.3);
 	//}
 
 #endif

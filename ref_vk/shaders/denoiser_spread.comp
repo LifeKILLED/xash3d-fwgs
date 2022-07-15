@@ -37,8 +37,7 @@ layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_position
 layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 9, rgba8)   uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 10, rgba16f)uniform readonly image2D src_refl_normals_gs;
-layout(set = 0, binding = 11, rgba16f)uniform readonly image2D src_refl_dir_length;
-layout(set = 0, binding = 12, rgba8)  uniform readonly image2D src_refl_base_color_a;
+layout(set = 0, binding = 11, rgba8)  uniform readonly image2D src_refl_base_color_a;
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
@@ -114,9 +113,8 @@ void main() {
 
 	const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
 	const vec3 refl_pos_src = imageLoad(src_refl_position_t, pix).xyz;
-	const vec4 reflectionDirLength = imageLoad(src_refl_dir_length, pix);
-	const vec3 reflDirection = normalize(reflectionDirLength.xyz);
-	const float reflLength = reflectionDirLength.w;
+	const vec3 reflDirection = imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
+	const float reflLength = length(reflDirection);
 	const vec3 view_dir = reflect(-reflDirection, shading_normal);
 	
 

@@ -20,7 +20,7 @@ layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_diffuse;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_specular;
 layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_gi_sh1;
 layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_gi_sh2;
-layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_refl_dir_length;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_refl_position_t;
 
 
 struct UniformBuffer {
@@ -205,7 +205,7 @@ void main() {
 	SH low_freq;
 	low_freq.shY = imageLoad(src_gi_sh1, pix);
 	low_freq.CoCg = imageLoad(src_gi_sh2, pix).xy;
-	const vec3 refl_dir = imageLoad(src_refl_dir_length, pix).xyz;
+	const vec3 refl_dir = imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
 	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF * base_color;
 	const vec3 reflect_gi= project_SH_irradiance(low_freq, refl_dir) / STORAGE_SCALE_LF * base_color;
 
@@ -223,8 +223,8 @@ void main() {
 	colour += mix(diffuse_gi, reflect_gi, metalness);
 
 
-	//colour = specular;
-	colour = vec3(1., 0., 0.);
+	//colour = specular * 0.1 + base_color * 0.02;
+	//colour = vec3(1., 0., 0.);
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness

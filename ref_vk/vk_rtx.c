@@ -4,8 +4,6 @@
 #include "ray_resources.h"
 
 #include "vk_ray_primary.h"
-#include "vk_ray_reflection.h"
-#include "vk_ray_indirect.h"
 #include "vk_ray_light_direct.h"
 
 #include "vk_core.h"
@@ -101,9 +99,6 @@ typedef struct {
 
 #define X(index, name, ...) xvk_image_t name;
 RAY_PRIMARY_OUTPUTS(X)
-RAY_REFLECTION_OUTPUTS(X)
-RAY_INDIRECTIONAL_OUTPUTS(X)
-RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
 RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
@@ -184,11 +179,8 @@ static struct {
 #define X(name, init_func)
 #define PASSES_LIST(X) \
 	X(primary_ray, R_VkRayPrimaryPassCreate) \
-	X(reflection_ray, R_VkRayReflectionPassCreate) \
-	X(indirect_ray, R_VkRayIndirectPassCreate) \
-	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersInitCreate) \
-	X(denoiser_motion_reconstruction_init, R_VkRayDenoiserMotionReconstructionInitCreate) \
-	X(denoiser_motion_reconstruction_correct, R_VkRayDenoiserMotionReconstructionCorrectCreate) \
+	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersCreate) \
+	X(denoiser_fake_motion_vectors, R_VkRayDenoiserFakeMotionVectorsCreate) \
 	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
 	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
 	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
@@ -1104,9 +1096,6 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 		.image = &current_frame->name, \
 	},
 			RAY_PRIMARY_OUTPUTS(RES_SET_IMAGE)
-			RAY_REFLECTION_OUTPUTS(RES_SET_IMAGE)
-			RAY_INDIRECTIONAL_OUTPUTS(RES_SET_IMAGE)
-			RAY_LAST_FRAME_BUFFERS_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_REFLECT_POLY_OUTPUTS(RES_SET_IMAGE)
@@ -1182,10 +1171,7 @@ static void performTracing( VkCommandBuffer cmdbuf, const vk_ray_frame_render_ar
 	}
 
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.primary_ray, &res );
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.reflection_ray, &res );
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.indirect_ray, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_motion_reconstruction_init, &res);
-	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_motion_reconstruction_correct, &res);
+	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.denoiser_fake_motion_vectors, &res);
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_poly, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_direct_point, &res );
 	RayPassPerform( cmdbuf, frame_index, g_rtx.pass.light_reflect_poly, &res);
@@ -1525,9 +1511,6 @@ qboolean VK_RayInit( void )
 // TODO better format for normals VK_FORMAT_R16G16B16A16_SNORM
 // TODO make sure this format and usage is suppported
 		RAY_PRIMARY_OUTPUTS(X)
-		RAY_REFLECTION_OUTPUTS(X)
-		RAY_INDIRECTIONAL_OUTPUTS(X)
-		RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
@@ -1565,9 +1548,6 @@ void VK_RayShutdown( void ) {
 		XVK_ImageDestroy(&g_rtx.frames[i].denoised);
 #define X(index, name, ...) XVK_ImageDestroy(&g_rtx.frames[i].name);
 		RAY_PRIMARY_OUTPUTS(X)
-		RAY_REFLECTION_OUTPUTS(X)
-		RAY_INDIRECTIONAL_OUTPUTS(X)
-		RAY_LAST_FRAME_BUFFERS_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)

@@ -21,46 +21,15 @@
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
 	X(15, search_info_ktuv, rgba32f) \
-
-
-
-
-#define RAY_REFLECTION_INPUTS(X) \
-	X(20, position_t, rgba32f) \
-	X(21, normals_gs, rgba16f) \
-	X(22, material_rmxx, rgba8) \
-
-#define RAY_REFLECTION_OUTPUTS(X) \
-	X(10, refl_base_color_a, rgba8) \
-	X(11, refl_position_t, rgba32f) \
-	X(12, refl_normals_gs, rgba16f) \
-	X(13, refl_material_rmxx, rgba8) \
-	X(14, refl_emissive, rgba16f) \
-	X(15, refl_dir_length, rgba16f) \
-
-
-#define RAY_INDIRECTIONAL_INPUTS(X) \
-	X(20, position_t, rgba32f) \
-	X(21, normals_gs, rgba16f) \
-	X(22, material_rmxx, rgba8) \
-
-#define RAY_INDIRECTIONAL_OUTPUTS(X) \
-	X(10, gi_base_color_a, rgba8) \
-	X(11, gi_position_t, rgba32f) \
-	X(12, gi_normals_gs, rgba16f) \
-	X(13, gi_material_rmxx, rgba8) \
-	X(14, gi_emissive, rgba16f) \
-	X(15, gi_direction, rgba16f) \
-
-
-#define RAY_LAST_FRAME_BUFFERS_OUTPUTS(X) \
-	X(0, last_position_t, rgba32f) \
-	X(1, last_normals_gs, rgba16f) \
-	X(2, last_search_info_ktuv, rgba32f) \
-	X(3, last_diffuse, rgba16f) \
-	X(4, last_specular, rgba16f) \
-	X(5, last_gi_sh1, rgba16f) \
-	X(6, last_gi_sh2, rgba16f) \
+	X(16, refl_base_color_a, rgba8) \
+	X(17, refl_position_t, rgba32f) \
+	X(18, refl_normals_gs, rgba16f) \
+	X(19, refl_material_rmxx, rgba8) \
+	X(20, refl_emissive, rgba16f) \
+	X(21, gi_base_color_a, rgba8) \
+	X(22, gi_position_t, rgba32f) \
+	X(23, gi_normals_gs, rgba16f) \
+	X(24, gi_emissive, rgba16f) \
 
 
 
@@ -70,7 +39,6 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, base_color_a, rgba8) \
-	X(15, emissive, rgba16f) \
 
 #define RAY_LIGHT_DIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_diffuse, rgba16f) \
@@ -88,7 +56,6 @@
 	X(12, refl_normals_gs, rgba16f) \
 	X(13, refl_material_rmxx, rgba8) \
 	X(14, refl_base_color_a, rgba8) \
-	X(15, refl_emissive, rgba16f) \
 
 #define RAY_LIGHT_REFLECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_reflection, rgba16f) \
@@ -102,9 +69,8 @@
 	X(10, position_t, rgba32f) \
 	X(11, gi_position_t, rgba32f) \
 	X(12, gi_normals_gs, rgba16f) \
-	X(13, gi_material_rmxx, rgba8) \
-	X(14, gi_base_color_a, rgba8) \
-	X(15, gi_emissive, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, base_color_a, rgba8) \
 
 #define RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_indirect, rgba16f) \
@@ -114,7 +80,13 @@
 
 
 #define RAY_DENOISER_TEXTURES(X) \
-	X(-1, motion_offsets_uvs_init, rgba16f) \
+	X(-1, last_position_t, rgba32f) \
+	X(-1, last_normals_gs, rgba16f) \
+	X(-1, last_search_info_ktuv, rgba32f) \
+	X(-1, last_diffuse, rgba16f) \
+	X(-1, last_specular, rgba16f) \
+	X(-1, last_gi_sh1, rgba16f) \
+	X(-1, last_gi_sh2, rgba16f) \
 	X(-1, motion_offsets_uvs, rgba16f) \
 	X(-1, diffuse_accum, rgba16f) \
 	X(-1, specular_accum, rgba16f) \

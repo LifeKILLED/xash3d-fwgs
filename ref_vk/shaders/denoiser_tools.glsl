@@ -96,8 +96,28 @@ vec3 FarPlaneDirectedVector(vec2 uv, vec3 forward, mat4 inv_view, mat4 inv_proj)
 }
 
 vec2 WorldPositionToUV(vec3 position, mat4 proj, mat4 view) {
-	vec4 clip_space = proj * (view * vec4(position, 1.));
+	vec4 clip_space = proj * vec4((view * vec4(position, 1.)).xyz, 1.);
 	return clip_space.xy / clip_space.w;
+}
+
+vec3 WorldPositionToUV2(vec3 position, mat4 inv_proj, mat4 inv_view) {
+	const vec3 out_of_bounds = vec3(0.,0.,-1.);
+	const float near_plane_treshold = 1.;
+	vec3 origin = OriginWorldPosition(inv_view);
+	vec3 forwardDirection = normalize(ScreenToWorldDirection(vec2(0.), inv_view, inv_proj));
+	float depth = dot(forwardDirection, position - origin);
+	if (depth < near_plane_treshold) return out_of_bounds;
+	vec3 positionNearPlane = (position - origin) / depth;
+	vec3 rightForwardDirection = ScreenToWorldDirection(vec2(1., 0.), inv_view, inv_proj);
+	vec3 upForwardDirection = ScreenToWorldDirection(vec2(0., 1.), inv_view, inv_proj);
+	rightForwardDirection /= dot(forwardDirection, rightForwardDirection);
+	upForwardDirection /= dot(forwardDirection, upForwardDirection);
+	vec3 rightDirection = rightForwardDirection - forwardDirection;
+	vec3 upDirection = upForwardDirection - forwardDirection;
+	float x = dot(normalize(rightDirection), positionNearPlane - forwardDirection) / length(rightDirection);
+	float y = dot(normalize(upDirection), positionNearPlane - forwardDirection) / length(upDirection);
+	//if (x < -1. || y < -1. || x > 1. || y > 1.) return out_of_bounds; // Not need to check bounds here
+	return vec3(x, y, 1.);
 }
 
 float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }

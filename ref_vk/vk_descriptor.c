@@ -2,7 +2,7 @@
 
 #include "eiface.h" // ARRAYSIZE
 
-#define MAX_DESCRIPTORS_WRITE 20
+#define MAX_DESCRIPTORS_WRITE 32
 
 descriptor_pool_t vk_desc;
 

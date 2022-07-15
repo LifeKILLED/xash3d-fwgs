@@ -92,15 +92,15 @@ struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
 
 #define LIST_INPUTS_LAST_INIT(X) \
 
-struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersInitCreate(void) {
+struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersCreate(void) {
 	PASS_CREATE_FUNC("denoiser last frame buffers init", "denoiser_frame_buffers_init.comp.spv", LAST_INIT, 7)
 }
 
 
-	// MOTION RECONSTRUCTION_INIT
+	// FAKE RECONSTRUCTION OF MOTION VECTORS
 
 #define LIST_OUTPUTS_MOTION_INIT(X) \
-	X(0, motion_offsets_uvs_init) \
+	X(0, motion_offsets_uvs) \
 
 #define LIST_INPUTS_MOTION_INIT(X) \
 	X(1, position_t) \
@@ -112,30 +112,10 @@ struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersInitCreate(void) {
 	X(7, last_search_info_ktuv) \
 	X(8, last_gi_sh2) \
 
-struct ray_pass_s* R_VkRayDenoiserMotionReconstructionInitCreate(void) {
-	PASS_CREATE_FUNC("denoiser motion reconstruction init", "denoiser_motion_reconstruction_init.comp.spv", MOTION_INIT, 9)
+struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
+	PASS_CREATE_FUNC("denoiser fake reconstruction of motion vectors", "denoiser_fake_motion_vectors.comp.spv", MOTION_INIT, 9)
 }
 
-
-	// MOTION RECONSTRUCTION_CORRECT
-
-#define LIST_OUTPUTS_MOTION_CORRECT(X) \
-	X(0, motion_offsets_uvs) \
-
-#define LIST_INPUTS_MOTION_CORRECT(X) \
-	X(1, motion_offsets_uvs_init) \
-	X(2, position_t) \
-	X(3, refl_position_t) \
-	X(4, normals_gs) \
-	X(5, search_info_ktuv) \
-	X(6, last_position_t) \
-	X(7, last_normals_gs) \
-	X(8, last_search_info_ktuv) \
-	X(9, last_gi_sh2) \
-
-struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCorrectCreate(void) {
-	PASS_CREATE_FUNC("denoiser motion reconstruction correct", "denoiser_motion_reconstruction_correct.comp.spv", MOTION_CORRECT, 10)
-}
 
 
 		// PASS 1. ACCUMULATE
@@ -158,10 +138,11 @@ struct ray_pass_s* R_VkRayDenoiserMotionReconstructionCorrectCreate(void) {
 	X(12, light_point_indirect) \
 	X(13, refl_emissive) \
 	X(14, gi_emissive) \
-	X(15, gi_direction)
+	X(15, gi_position_t) \
+	X(16, position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
-	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 16)
+	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 17)
 }
 
 
@@ -183,10 +164,9 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	X(10, material_rmxx) \
 	X(11, motion_offsets_uvs) \
 	X(12, refl_normals_gs) \
-	X(13, refl_dir_length) \
+	X(13, refl_position_t) \
 	X(14, last_position_t) \
 
-//	X(15, last_normals_gs)
 
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 15)
@@ -210,11 +190,10 @@ struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 	X(8, normals_gs) \
 	X(9, material_rmxx) \
 	X(10, refl_normals_gs) \
-	X(11, refl_dir_length) \
-	X(12, refl_base_color_a) \
+	X(11, refl_base_color_a) \
 
 struct ray_pass_s* R_VkRayDenoiserSpreadCreate(void) {
-	PASS_CREATE_FUNC("denoiser spread", "denoiser_spread.comp.spv", SPREAD, 13)
+	PASS_CREATE_FUNC("denoiser spread", "denoiser_spread.comp.spv", SPREAD, 12)
 }
 
 
@@ -255,7 +234,7 @@ struct ray_pass_s* R_VkRayDenoiserRefineCreate(void) {
 	X(7, specular_denoised) \
 	X(8, gi_sh1_denoised) \
 	X(9, gi_sh2_denoised) \
-	X(10, refl_dir_length) \
+	X(10, refl_position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", COMP, 11)

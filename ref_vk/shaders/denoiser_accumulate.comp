@@ -29,7 +29,8 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_light_point_
 
 layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_refl_emissive;
 layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_gi_emissive;
-layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_gi_direction;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D src_gi_position_t;
+layout(set = 0, binding = 16, rgba32f) uniform readonly image2D src_position_t;
 
 // Blatantly copypasted from https://www.shadertoy.com/view/XsGfWV
 vec3 aces_tonemap(vec3 color){
@@ -117,7 +118,7 @@ void main() {
 	// store indirectional light in spherical harmonics
 	if (global_illumination.rgb != vec3(0., 0., 0.)) {
 		const vec3 indirect_color = global_illumination.rgb * STORAGE_SCALE_LF;
-		const vec3 gi_direction_src = imageLoad(src_gi_direction, pix).xyz;
+		const vec3 gi_direction_src = imageLoad(src_gi_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
 		const vec3 gi_direction = length(gi_direction_src) > 0. ? normalize(gi_direction_src) : vec3(1., 0., 0.);
 
 		SH low_freq = irradiance_to_SH(indirect_color, gi_direction);

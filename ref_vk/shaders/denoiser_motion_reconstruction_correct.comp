@@ -89,45 +89,46 @@ void main() {
 	// But we will searching for better equal texel in last frame
 	const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
 	forward_offset = imageLoad(src_forward_offsets_uvs, pix).xy;
-	const int KERNEL_SIZE = 4;
+	const int KERNEL_SIZE = 2;
 	bool its_not_better_pix = false;
 	//ivec2 better_pix = ivec2(0, 0);
 	//float better_uv_offset = 1000.;
 	//int search_done = 0;
+	/*
+	if (forward_offset.x > -99.) {
+		const ivec2 offset_pix = UVToPix(forward_offset, res);
+		const vec4 last_search_info_ktuv = imageLoad(src_last_search_info_ktuv, offset_pix);
+		const float uv_offset = length(search_info_ktuv.zw - last_search_info_ktuv.zw);
 
-//	if (forward_offset.x > -99.) {
-//		const ivec2 offset_pix = UVToPix(forward_offset, res);
-//		const vec4 last_search_info_ktuv = imageLoad(src_last_search_info_ktuv, offset_pix);
-//		const float uv_offset = length(search_info_ktuv.zw - last_search_info_ktuv.zw);
-////
-//#define SEARCH_BETTER_PIX(PIX_OFFSET) \
-//		if (its_not_better_pix == false) { \
-//			const ivec2 p = pix + PIX_OFFSET; \
-//			if (any(greaterThanEqual(p, ivec2(0))) || any(lessThan(p, ivec2(res)))) { \
-//				const vec2 current_offset_uv = imageLoad(src_forward_offsets_uvs, p).xy; \
-//				if (current_offset_uv.x > -99.) { \
-//					const ivec2 current_pix = UVToPix(current_offset_uv, res); \
-//					const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, current_pix); \
-//					if (current_pix.x == offset_pix.x && current_pix.y == offset_pix.y && \
-//						search_info_ktuv.x == current_info_ktuv.x && search_info_ktuv.y == current_info_ktuv.y) { \
-//						const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw); \
-//						if (current_uv_offset < uv_offset) { \
-//							its_not_better_pix = true; \
-//						} \
-//					} \
-//				} \
-//			}\
-//		}\
+#define SEARCH_BETTER_PIX(PIX_OFFSET) \
+		if (its_not_better_pix == false) { \
+			const ivec2 p = pix + PIX_OFFSET; \
+			if (any(greaterThanEqual(p, ivec2(0))) || any(lessThan(p, ivec2(res)))) { \
+				const vec2 current_offset_uv = imageLoad(src_forward_offsets_uvs, p).xy; \
+				if (current_offset_uv.x > -99.) { \
+					const ivec2 current_pix = UVToPix(current_offset_uv, res); \
+					const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, current_pix); \
+					if (current_pix.x == offset_pix.x && current_pix.y == offset_pix.y && \
+						search_info_ktuv.x == current_info_ktuv.x && search_info_ktuv.y == current_info_ktuv.y) { \
+						const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw); \
+						if (current_uv_offset < uv_offset) { \
+							its_not_better_pix = true; \
+						} \
+					} \
+				} \
+			}\
+		}\
 
-//		SEARCH_BETTER_PIX(ivec2(-1,-1))
-//		SEARCH_BETTER_PIX(ivec2(-1, 0))
-//		SEARCH_BETTER_PIX(ivec2(-1, 1))
-//		SEARCH_BETTER_PIX(ivec2( 0,-1))
-//		SEARCH_BETTER_PIX(ivec2( 0, 1))
-//		SEARCH_BETTER_PIX(ivec2( 1,-1))
-//		SEARCH_BETTER_PIX(ivec2( 1, 0))
-//		SEARCH_BETTER_PIX(ivec2( 1, 1))
-//
+		SEARCH_BETTER_PIX(ivec2(-1,-1))
+		SEARCH_BETTER_PIX(ivec2(-1, 0))
+		SEARCH_BETTER_PIX(ivec2(-1, 1))
+		SEARCH_BETTER_PIX(ivec2( 0,-1))
+		SEARCH_BETTER_PIX(ivec2( 0, 1))
+		SEARCH_BETTER_PIX(ivec2( 1,-1))
+		SEARCH_BETTER_PIX(ivec2( 1, 0))
+		SEARCH_BETTER_PIX(ivec2( 1, 1))
+	}*/
+
 
 	// remove bad reproject candidates after initial pass
 	if (forward_offset.x > -99.) {
@@ -150,7 +151,7 @@ void main() {
 					const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, current_pix);
 
 					if (current_pix.x == offset_pix.x && current_pix.y == offset_pix.y &&
-						search_info_ktuv.x == current_info_ktuv.x && search_info_ktuv.y == current_info_ktuv.y) {
+						/*search_info_ktuv.x == current_info_ktuv.x &&*/ search_info_ktuv.y == current_info_ktuv.y) {
 
 						const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw);
 						if (current_uv_offset < uv_offset) {
@@ -161,7 +162,7 @@ void main() {
 			}
 		}
 	}
-
+	
 
 
 	
