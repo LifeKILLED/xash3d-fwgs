@@ -1,9 +1,10 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : enable
 
 // Reflection of emissive surfaces make a lot of hight light noise
 // This trick make specular highlights a less noisy
-//#define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 3
+#define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 3
 
 #include "ray_primary_common.glsl"
 #include "color_spaces.glsl"
@@ -209,12 +210,13 @@ void main() {
 
 	const vec3 bounce_origin = out_position_t.xyz + geometry_normal * 0.001;
 
-	const float roughness = out_material_rmxx.r;
+	//const float roughness = out_material_rmxx.r;
+	const float roughness = 0.2;
 	vec3 refl_emissive = vec3(0.);
 
 	// sample blue noise
-	// vec2 blue_noise_uv = vec2(pix % ivec2(BLUE_NOISE_TEX_RESOLUTION)) / vec2(BLUE_NOISE_TEX_RESOLUTION);
-	// vec4 blue_noise = texture(textures[nonuniformEXT(ubo.blue_noise_seed + BLUE_NOISE_TEX_ID)], blue_noise_uv);
+	//vec2 blue_noise_uv = vec2(pix % ivec2(BLUE_NOISE_TEX_RESOLUTION)) / vec2(BLUE_NOISE_TEX_RESOLUTION);
+	//vec4 blue_noise = texture(textures[nonuniformEXT(ubo.blue_noise_seed + BLUE_NOISE_TEX_ID)], blue_noise_uv);
 	//const vec3 noise_vec = blue_noise.xyz;
 
 	//const float specPower = 1./ pow(material.roughness, 4.5);

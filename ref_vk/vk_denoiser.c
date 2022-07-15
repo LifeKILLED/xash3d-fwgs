@@ -166,10 +166,12 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	X(12, refl_normals_gs) \
 	X(13, refl_position_t) \
 	X(14, last_position_t) \
+	X(15, search_info_ktuv) \
+	X(16, last_search_info_ktuv) \
 
 
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
-	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 15)
+	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 17)
 }
 
 

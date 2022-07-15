@@ -116,7 +116,7 @@ vec3 WorldPositionToUV2(vec3 position, mat4 inv_proj, mat4 inv_view) {
 	vec3 upDirection = upForwardDirection - forwardDirection;
 	float x = dot(normalize(rightDirection), positionNearPlane - forwardDirection) / length(rightDirection);
 	float y = dot(normalize(upDirection), positionNearPlane - forwardDirection) / length(upDirection);
-	//if (x < -1. || y < -1. || x > 1. || y > 1.) return out_of_bounds; // Not need to check bounds here
+	if (x < -1. || y < -1. || x > 1. || y > 1.) return out_of_bounds;
 	return vec3(x, y, 1.);
 }
 
