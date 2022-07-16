@@ -67,7 +67,8 @@ void evalSplitBRDF(vec3 N, vec3 L, vec3 V, MaterialProperties material, out vec3
 	//if (data.Vbackfacing || data.Lbackfacing) return vec3(0.0f, 0.0f, 0.0f);
 
 	// Eval specular and diffuse BRDFs
-	specular = evalSpecular(data);
+	//specular = evalSpecular(data);
+	specular = vec3(0.); // TODO: specular and diffuse are mixed in diffuse (?!), but we need to calculate it separately
 	diffuse = evalDiffuse(data);
 
 	// Combine specular and diffuse layers

@@ -156,6 +156,7 @@ void main() {
 
 		float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
 		float ray_length_difference = last_ray_length / reflection_ray_lenth;
+		//float ray_length_difference = 1.;
 
 		vec3 parallax_shadingNormal, parallax_geometryNormal;
 		readNormals(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);

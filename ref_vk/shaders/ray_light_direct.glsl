@@ -163,7 +163,7 @@ void main() {
 		const vec3 V = normalize(primary_pos - pos);
 #endif
 
-#if PRIMARY_VIEW // TEST!!! ONLY FIRST BOUNCE PROCESSING!!!
+//#if PRIMARY_VIEW // TEST!!! ONLY FIRST BOUNCE PROCESSING!!!
 
 	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
 	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
@@ -173,7 +173,12 @@ void main() {
 		//specular = vec3(0.3);
 	//}
 
-#endif
+//#if (LIGHT_POLYGON) && (PRIMARY_VIEW)
+	//diffuse = vec3(0.);
+	//specular = vec3(0.);
+//#endif
+
+//#endif
 
 
 		// correction for avoiding difference in sampling algorythms

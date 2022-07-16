@@ -2,8 +2,8 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define GLOBAL_ILLUMINATION 1
-#define ONE_LIGHT_PER_TEXEL 1
+//#define ONE_LIGHT_PER_TEXEL 1
 #define LIGHT_POINT 1
-#define ONE_LIGHT_PER_TEXEL 1
+//#define ONE_LIGHT_PER_TEXEL 1
 #define OUTPUTS RAY_LIGHT_INDIRECT_POINT_OUTPUTS
 #include "ray_light_direct.glsl"

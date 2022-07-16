@@ -171,6 +171,33 @@ void main() {
 	}
 
 	// Parallax reprojecting for specular reflection
+//	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
+//
+//		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
+//		last_parallax_spec = imageLoad(src_last_specular, parallax_pix);
+//		last_parallax_spec.w += 1.; // increase sample count
+//
+//		vec3 parallaxGeometry_normal, parallaxShading_normal;
+//		readLastNormals(parallax_pix, parallaxGeometry_normal, parallaxShading_normal);
+//
+//		// Is parallax reprojecting in current texel?
+//		const float normalsDifference = dot(normalize(geometry_normal), normalize(shading_normal));
+//		parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, normalsDifference), PARALLAX_FACTOR_POW);
+//
+//		// Is parallax reprojecting on previous frame texel?
+//		const float last_normalsDifference = dot(normalize(parallaxGeometry_normal), normalize(parallaxShading_normal));
+//		last_parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, last_normalsDifference), PARALLAX_FACTOR_POW);
+//
+//		// Is parallax reprojecting canceled in texel from previous frame? 
+//		fallbackFactor = parallaxFactor > 0. ? 1. - clamp(0., 1., ((1. - last_parallaxFactor) - (1. - parallaxFactor))) * 2. : 0.;
+//
+//		//const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
+//		//overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
+//		overlap_factor = 1.; // we don't need to check depth here
+//
+//		last_parallax_spec = mix(specular_src, last_parallax_spec, parallaxFactor * overlap_factor);
+//	}
+
 	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
 
 		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
@@ -191,14 +218,14 @@ void main() {
 		// Is parallax reprojecting canceled in texel from previous frame? 
 		fallbackFactor = parallaxFactor > 0. ? 1. - clamp(0., 1., ((1. - last_parallaxFactor) - (1. - parallaxFactor))) * 2. : 0.;
 
-		//const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
-		//overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
-		overlap_factor = 1.; // we don't need to check depth here
+		const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
+		overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
+		//overlap_factor = 1.; // we don't need to check depth here
 
 		last_parallax_spec = mix(specular_src, last_parallax_spec, parallaxFactor * overlap_factor);
 	}
 
-	//specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
+	specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
 	specular_mixed = mix(last_forward_spec, specular_mixed, parallaxFactor);
 
 	//const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_last.rgb - diffuse_current));

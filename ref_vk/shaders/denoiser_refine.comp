@@ -134,10 +134,10 @@ void main() {
 				continue;
 			}
 
-//			vec3 current_geometry_normal, current_shading_normal;
-//			readNormals(p, current_geometry_normal, current_shading_normal);
-			//const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
-			const float normals_factor = 1.;
+			vec3 current_geometry_normal, current_shading_normal;
+			readNormals(p, current_geometry_normal, current_shading_normal);
+			const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
+			//const float normals_factor = 1.;
 
 			const float sigma = KERNEL_SIZE * 0.8;
 			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * normals_factor;
@@ -170,7 +170,9 @@ void main() {
 
 	
     const float average_samples_count = imageLoad(src_diffuse_noisy, pix).w + imageLoad(src_specular_noisy, pix).w * 0.5;
-	const float threshold = 0.5 / average_samples_count + 0.1;
+	//const float threshold = 0.5 / average_samples_count + 0.1;
+	//const float threshold = max(0.2, 1. - average_samples_count * 0.1);
+	const float threshold = clamp(1.0 - sqrt((average_samples_count + 1.) / 15.) * 0.9, 0.1, 1.);
 
 	smartDeNoise(pix, res, 9., 2., threshold, diffuse, specular);
 

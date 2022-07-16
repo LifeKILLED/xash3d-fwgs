@@ -79,10 +79,15 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 void main() {
 	ivec2 res = ivec2(imageSize(src_base_color));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}
+
+	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
 
 	/* if (pix.y < res.y / 3) { */
 	/* 	imageStore(dest, pix, vec4(pow(float(pix.x) / res.x, 2.2))); return; */
@@ -185,8 +190,9 @@ void main() {
 //	}
 //#endif
 
-
-	float metalness = imageLoad(src_material_rmxx, pix).g;
+	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
+	const float roughness = material_rmxx.r;
+	const float metalness = material_rmxx.g;
 
 	// emissive/sky
 	colour += imageLoad(src_emissive, pix).rgb;
@@ -201,15 +207,19 @@ void main() {
 	// specular from point lights
 	specular = imageLoad(src_specular, pix).rgb;
 
+	//const vec3 refl_dir = imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
+	const vec3 refl_dir = reflect(normalize(imageLoad(src_position_t, pix).xyz - origin), shading_normal);
+
 	// global illumination re-light
 	SH low_freq;
 	low_freq.shY = imageLoad(src_gi_sh1, pix);
 	low_freq.CoCg = imageLoad(src_gi_sh2, pix).xy;
-	const vec3 refl_dir = imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
-	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF * base_color;
-	const vec3 reflect_gi= project_SH_irradiance(low_freq, refl_dir) / STORAGE_SCALE_LF * base_color;
 
-	specular *= 4.;
+	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF;
+	const vec3 reflect_gi= project_SH_irradiance(low_freq, normalize(refl_dir)) / STORAGE_SCALE_LF;
+
+	specular *= 2.;
+	specular = mix(specular, reflect_gi, smoothstep(.6,.8, roughness)); 
 
 	// try to reconstruct pbr-like picture from all components
 //	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
@@ -219,9 +229,9 @@ void main() {
 	vec3 global_illumination =	vec3(0.);
 
 	// pbr
-	colour += PBRMix(base_color, diffuse, specular, metalness);
-	colour += mix(diffuse_gi, reflect_gi, metalness);
+	colour += PBRMix(base_color, diffuse + diffuse_gi, specular + reflect_gi, metalness);
 
+	//colour = diffuse;
 
 	//colour = specular * 0.1 + base_color * 0.02;
 	//colour = vec3(1., 0., 0.);

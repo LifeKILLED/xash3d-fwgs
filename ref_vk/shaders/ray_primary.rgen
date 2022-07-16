@@ -3,8 +3,8 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 
 // Reflection of emissive surfaces make a lot of hight light noise
-// This trick make specular highlights a less noisy
-#define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 3
+// This trick make specular highlights a little bit more clean
+//#define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 4
 
 #include "ray_primary_common.glsl"
 #include "color_spaces.glsl"
@@ -210,8 +210,8 @@ void main() {
 
 	const vec3 bounce_origin = out_position_t.xyz + geometry_normal * 0.001;
 
-	//const float roughness = out_material_rmxx.r;
-	const float roughness = 0.2;
+	const float roughness = out_material_rmxx.r;
+	//const float roughness = 0.3;
 	vec3 refl_emissive = vec3(0.);
 
 	// sample blue noise
@@ -219,21 +219,21 @@ void main() {
 	//vec4 blue_noise = texture(textures[nonuniformEXT(ubo.blue_noise_seed + BLUE_NOISE_TEX_ID)], blue_noise_uv);
 	//const vec3 noise_vec = blue_noise.xyz;
 
-	//const float specPower = 1./ pow(material.roughness, 4.5);
+	const float specPower = 1./ pow(roughness, 4.5);
 
 #ifdef EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION
 	for (int n = 0; n < EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION; n++) {	
 #endif
 
 		const vec3 noise_vec = vec3(rand01(),rand01(),rand01());
-		//const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
-		//vec3 direction = reflect(view_dir, microfacet);
-		//float coplanar = dot(geometry_normal, direction);
-		//if (coplanar < 0.) {
-		//	direction += geometry_normal * (coplanar * -2.);
-		//}
+		const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
+		vec3 refl_direction = reflect(direction, microfacet);
+		float coplanar = dot(geometry_normal, refl_direction);
+		if (coplanar < 0.) {
+			refl_direction += geometry_normal * (coplanar * -2.);
+		}
 
-		const vec3 refl_direction = SampleReflectionVector(direction, shading_normal, roughness, noise_vec.xy);
+		//const vec3 refl_direction = SampleReflectionVector(direction, shading_normal, roughness * roughness, noise_vec.xy);
 
 		payload.hit_t = vec4(0.);
 		payload.base_color_a = vec4(0.);

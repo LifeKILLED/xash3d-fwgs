@@ -102,6 +102,8 @@ void main() {
 	reflection +=	imageLoad(src_light_direct_point_specular, pix).rgb /*+
 					imageLoad(src_light_direct_poly_specular, pix).rgb*/;
 
+	//reflection = clamp_color(reflection, 1.);
+
 	reflection += imageLoad(src_refl_emissive, pix).rgb;
 
 
