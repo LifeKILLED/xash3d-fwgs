@@ -112,7 +112,7 @@ void main() {
 	if (THERE_IS(forward_offset)) {
 		// But we will searching for better equal texel in last frame
 		const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
-		const int KERNEL_SIZE = 1;
+		const int KERNEL_SIZE = 3;
 		bool its_not_better_pix = false;
 
 		const ivec2 offset_pix = UVToPix(forward_offset, res);
@@ -228,13 +228,13 @@ void main() {
 	specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
 	specular_mixed = mix(last_forward_spec, specular_mixed, parallaxFactor);
 
-	//const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_last.rgb - diffuse_current));
-	//const float specular_difference = smoothstep(0.5, 1.5, length(specular_last.rgb - specular_current));
+//	const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_mixed.rgb - diffuse_src.rgb));
+//	const float specular_difference = smoothstep(0.5, 1.5, length(specular_mixed.rgb - specular_src.rgb));
 
 	const float diffuse_difference = 0.;
 	const float specular_difference = 0.;
 	const float gi_difference = 0.;
-
+//
 //	const float diffuse_frames_blend = 0.9;
 //	const float specular_frames_blend = 0.9;
 //	const float gi_frames_blend = 0.9;
