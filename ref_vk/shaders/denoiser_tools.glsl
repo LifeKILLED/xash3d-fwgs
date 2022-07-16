@@ -130,7 +130,7 @@ ivec2 UVToPix(vec2 uv, ivec2 res) {
 
 vec3 PBRMix(vec3 base_color, vec3 diffuse, vec3 specular, float metalness) {
 	vec3 metal_colour = specular * base_color;
-	vec3 dielectric_colour = mix(diffuse * base_color, specular, 0.1);
+	vec3 dielectric_colour = mix(diffuse * base_color, specular, 0.04);
 	return mix(dielectric_colour, metal_colour, metalness);
 }
 

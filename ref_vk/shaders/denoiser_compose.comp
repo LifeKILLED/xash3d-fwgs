@@ -218,8 +218,8 @@ void main() {
 	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF;
 	const vec3 reflect_gi= project_SH_irradiance(low_freq, normalize(refl_dir)) / STORAGE_SCALE_LF;
 
-	specular *= 2.;
-	specular = mix(specular, reflect_gi, smoothstep(.6,.8, roughness)); 
+	specular = mix(specular, reflect_gi, smoothstep(.6,.8, roughness)); // high-roughness reflection so noisy, filter it like GI
+	specular *= 4.; // TODO: ????
 
 	// try to reconstruct pbr-like picture from all components
 //	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
