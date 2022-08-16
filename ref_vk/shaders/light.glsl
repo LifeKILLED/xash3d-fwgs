@@ -19,26 +19,29 @@ const float shadow_offset_fudge = .1;
 #endif
 
 // Importaice rays rejection by light irradiance
+#define LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE 1
+
 #ifdef LIGHT_POINT // Low count, not agressive rejection
 	#define LOWER_IRRADIANCE_THRESHOLD 0.01
 	#define HIGHT_IRRADIANCE_THRESHOLD 0.5
-	#define ACCUMULATED_THRESHOLD 0.8
+	//#define ACCUMULATED_THRESHOLD 0.8
 #else // Emissive kusochki - soft lighting, big count
 	#define LOWER_IRRADIANCE_THRESHOLD 0.01
-	#define HIGHT_IRRADIANCE_THRESHOLD 1.
-	#define REJECT_ANYWHERE_THRESHOLD 0.5
-	#define ACCUMULATED_THRESHOLD 0.8
+	#define HIGHT_IRRADIANCE_THRESHOLD 2.
+	//#define REJECT_ANYWHERE_THRESHOLD 0.5
+	//#define ACCUMULATED_THRESHOLD 0.8
 #endif
 
 // If we already enlight texel, put up lower threshold
-#define REJECT_LIGHTS_LOWER_THAN_ACCUMULATION 1
-#ifdef REJECT_LIGHTS_LOWER_THAN_ACCUMULATION
-#define LOWER_IRRADIANCE_THRESHOLD_GET() mix(LOWER_IRRADIANCE_THRESHOLD, accumulated_irradiance, ACCUMULATED_THRESHOLD)
-#else
+//#define REJECT_LIGHTS_LOWER_THAN_ACCUMULATION 1
+//#ifdef REJECT_LIGHTS_LOWER_THAN_ACCUMULATION
+//#define LOWER_IRRADIANCE_THRESHOLD_GET() mix(LOWER_IRRADIANCE_THRESHOLD, accumulated_irradiance, ACCUMULATED_THRESHOLD)
+//#else
 #define LOWER_IRRADIANCE_THRESHOLD_GET() LOWER_IRRADIANCE_THRESHOLD
-#endif
+//#endif
 
 // Put this macros in sample cycle and make random reject lighing by illuminance
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 #define SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE() float accumulated_irradiance = 0.;
 #define IMPORTANCE_SKIP_BY_IRRADIANCE(diffuse, specular) \
 	const float light_luminance = luminance(diffuse + specular); \
@@ -47,16 +50,19 @@ const float shadow_offset_fudge = .1;
 	if (rand01() > rejecting_weight) SKIP_LIGHT() \
 	diffuse /= rejecting_weight; \
 	specular /= rejecting_weight;
+#endif
 
 #ifdef LIGHT_POLYGON
 #include "light_polygon.glsl"
 #endif
 
 #if LIGHT_POINT
-void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
+void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, uint pattern_texel_id, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 	SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE()
+#endif
 
 	//diffuse = vec3(1.);//float(lights.num_point_lights) / 64.);
 //#define USE_CLUSTERS
@@ -146,7 +152,9 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		if (dot(combined,combined) < color_culling_threshold)
 			SKIP_LIGHT()
 
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 		IMPORTANCE_SKIP_BY_IRRADIANCE(ldiffuse, lspecular)
+#endif
 
 		// FIXME split environment and other lights
 		if (not_environment) {
@@ -171,7 +179,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 }
 #endif
 
-void computeLighting(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
+void computeLighting(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint pattern_texel_id, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 
 	const ivec3 light_cell = ivec3(floor(P / LIGHT_GRID_CELL_SIZE)) - light_grid.grid_min;
@@ -195,13 +203,13 @@ void computeLighting(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialPro
 	//C += .3 * fract(vec3(light_cell) / 4.);
 
 #if LIGHT_POLYGON
-	sampleEmissiveSurfaces(P, N, throughput, view_dir, material, cluster_index, diffuse, specular);
+	sampleEmissiveSurfaces(P, N, throughput, view_dir, material, cluster_index, pattern_texel_id, diffuse, specular);
 #endif
 
 
 #if LIGHT_POINT
 	vec3 ldiffuse = vec3(0.), lspecular = vec3(0.);
-	computePointLights(P, N, cluster_index, throughput, view_dir, material, ldiffuse, lspecular);
+	computePointLights(P, N, cluster_index, throughput, view_dir, material, pattern_texel_id, ldiffuse, lspecular);
 	diffuse += ldiffuse;
 	specular += lspecular;
 #endif

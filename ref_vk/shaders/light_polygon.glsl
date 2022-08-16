@@ -208,11 +208,13 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 //}
 //
 //#else
-void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
+void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, uint pattern_texel_id, inout vec3 diffuse, inout vec3 specular) {
 //#if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 	SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE()
+#endif
 
 //#define USE_CLUSTERS
 //#ifdef USE_CLUSTERS
@@ -224,9 +226,14 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 	const uint num_lights = lights.num_polygons;
 #ifdef ONE_LIGHT_PER_TEXEL
 	const uint index = rand() % num_lights;
+#elif LIGHTS_REJECTION_X4
+	// stable pattern-based rejection optimization
+	const uint startIndex = num_lights < 4 || pattern_texel_id == 0 ? 0 : (num_lights / 4) * pattern_texel_id;
+	const uint endIndex =   num_lights < 4 || pattern_texel_id == 3 ? num_lights :
+					        (num_lights / 4) * (pattern_texel_id + 1);
+	for (uint index = startIndex; index < endIndex; ++index) {
 #else
 	for (uint index = 0; index < num_lights; ++index) {
-		if (rand01() > REJECT_ANYWHERE_THRESHOLD) continue; // pussy optimization
 #endif
 
 //#endif // USE_CLUSTERS
@@ -256,6 +263,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 		const float dist = - plane_dist / dot(light_sample_dir.xyz, poly.plane.xyz);
 		const vec3 emissive = poly.emissive;
 
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 		const float estimate = light_sample_dir.w;
 		vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
 		evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
@@ -269,26 +277,40 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 			diffuse += poly_diffuse;
 			specular += poly_specular;
 		}
+#else // LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
+		if (!shadowed(P, light_sample_dir.xyz, dist)) {
+			//const float estimate = total_contrib;
+			const float estimate = light_sample_dir.w;
+			vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
+			evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
+			diffuse += throughput * emissive * estimate * poly_diffuse;
+			specular += throughput * emissive * estimate * poly_specular;
+		}
+#endif // LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 
-//		if (!shadowed(P, light_sample_dir.xyz, dist)) {
-//			//const float estimate = total_contrib;
-//			const float estimate = light_sample_dir.w;
-//			vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-//			evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
-//			diffuse += throughput * emissive * estimate * poly_diffuse;
-//			specular += throughput * emissive * estimate * poly_specular;
-//		}
 
-#ifdef REJECT_ANYWHERE_THRESHOLD
-	diffuse /= REJECT_ANYWHERE_THRESHOLD;
-	specular /= REJECT_ANYWHERE_THRESHOLD;
-#endif
+
+
+//#ifdef REJECT_ANYWHERE_THRESHOLD
+//	diffuse /= REJECT_ANYWHERE_THRESHOLD;
+//	specular /= REJECT_ANYWHERE_THRESHOLD;
+//#endif
 
 #ifdef ONE_LIGHT_PER_TEXEL
 		diffuse *= float(num_lights);
 #else
 	}
+
+#ifdef LIGHTS_REJECTION_X4
+	if (num_lights >= 4) {
+		const float rejection_scale = float(num_lights) / min(1., float(endIndex - startIndex));
+		diffuse *= 4;
+		specular *= 4;
+	}
 #endif
+#endif
+
+
 
 //#else // DO_ALL_IN_CLUSTERS
 

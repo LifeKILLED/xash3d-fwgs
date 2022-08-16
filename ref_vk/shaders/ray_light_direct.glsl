@@ -58,6 +58,7 @@ void main() {
 
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 
+	const uint pattern_texel_id = pix.x % 2 + (pix.y % 2) * 2;
 
 	const vec4 material_data = imageLoad(src_material_rmxx, pix);
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);
@@ -133,7 +134,7 @@ void main() {
 	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
 //#ifdef LIGHT_POINT
 		const vec3 throughput = vec3(1.);
-		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
+		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, pattern_texel_id, diffuse, specular);
 //#else
 //		diffuse = vec3(0.0);
 //		specular = vec3(0.0);

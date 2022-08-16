@@ -7,5 +7,8 @@
 // It's reflection lighting pass
 #define REFLECTIONS 1
 
+// It's semi-soft lighting and we can calculate 1/4 of lights for texel
+#define LIGHTS_REJECTION_X4 1
+
 #define OUTPUTS RAY_LIGHT_REFLECT_POLY_OUTPUTS
 #include "ray_light_direct.glsl"
