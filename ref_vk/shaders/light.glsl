@@ -59,6 +59,7 @@ const float shadow_offset_fudge = .1;
 #if LIGHT_POINT
 void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, uint pattern_texel_id, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
+	const vec3 shadow_sample_offset = normalize(vec3(rand01(), rand01(), rand01()) - vec3(.5));
 
 #ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 	SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE()
@@ -156,13 +157,16 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		IMPORTANCE_SKIP_BY_IRRADIANCE(ldiffuse, lspecular)
 #endif
 
+		const float shadow_sample_radius = not_environment ? radius : 1000.;
+		const vec3 shadow_sample_dir = light_dir_norm * light_dist + shadow_sample_offset * shadow_sample_radius;
+
 		// FIXME split environment and other lights
 		if (not_environment) {
-			if (shadowed(P, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowed(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				SKIP_LIGHT()
 		} else {
 			// for environment light check that we've hit SURF_SKY
-			if (shadowedSky(P, light_dir_norm, light_dist + shadow_offset_fudge))
+			if (shadowedSky(P, normalize(shadow_sample_dir), length(shadow_sample_dir)))
 				SKIP_LIGHT()
 		}
 
