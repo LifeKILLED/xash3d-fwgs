@@ -18,11 +18,24 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
+	X(15, search_info_ktuv, rgba32f) \
+	X(16, refl_base_color_a, rgba8) \
+	X(17, refl_position_t, rgba32f) \
+	X(18, refl_normals_gs, rgba16f) \
+	X(19, refl_material_rmxx, rgba8) \
+	X(20, refl_emissive, rgba16f) \
+	X(21, gi_base_color_a, rgba8) \
+	X(22, gi_position_t, rgba32f) \
+	X(23, gi_normals_gs, rgba16f) \
+	X(24, gi_emissive, rgba16f) \
+
 
 #define RAY_LIGHT_DIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
-	X(11, normals_gs, rgba16f) \
-	X(12, material_rmxx, rgba8) \
+	X(11, position_t, rgba32f) \
+	X(12, normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, base_color_a, rgba8) \
 
 #define RAY_LIGHT_DIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_diffuse, rgba16f) \
@@ -31,6 +44,37 @@
 #define RAY_LIGHT_DIRECT_POINT_OUTPUTS(X) \
 	X(20, light_point_diffuse, rgba16f) \
 	X(21, light_point_specular, rgba16f) \
+
+
+#define RAY_LIGHT_REFLECT_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, refl_position_t, rgba32f) \
+	X(12, refl_normals_gs, rgba16f) \
+	X(13, refl_material_rmxx, rgba8) \
+	X(14, refl_base_color_a, rgba8) \
+
+#define RAY_LIGHT_REFLECT_POLY_OUTPUTS(X) \
+	X(20, light_poly_reflection, rgba16f) \
+
+#define RAY_LIGHT_REFLECT_POINT_OUTPUTS(X) \
+	X(20, light_point_reflection, rgba16f) \
+
+
+
+#define RAY_LIGHT_INDIRECT_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, gi_position_t, rgba32f) \
+	X(12, gi_normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, base_color_a, rgba8) \
+
+#define RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X) \
+	X(20, light_poly_indirect, rgba16f) \
+
+#define RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X) \
+	X(20, light_point_indirect, rgba16f) \
+
+
 
 #ifndef GLSL
 #include "xash3d_types.h"

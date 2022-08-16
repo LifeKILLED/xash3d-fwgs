@@ -51,7 +51,7 @@
 
 
 
-// SIMPLE PASS WITHOUT DENOISE
+	// SIMPLE PASS WITHOUT DENOISE
 
 #define LIST_OUTPUTS_BYPASS(X) \
 	X(0, denoised) \
@@ -65,9 +65,16 @@
 	X(6, emissive) \
 	X(7, position_t) \
 	X(8, normals_gs) \
+	X(9, light_poly_reflection) \
+	X(10, light_point_reflection) \
+	X(11, light_poly_indirect) \
+	X(12, light_point_indirect) \
+	X(13, material_rmxx) \
+	X(14, refl_emissive) \
+	X(15, gi_emissive) \
 
 struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
-	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 9)
+	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 16)
 }
 
 

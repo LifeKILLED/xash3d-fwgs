@@ -20,6 +20,17 @@ layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_emissive;
 layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_normals_gs;
 
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_light_poly_reflection;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_light_point_reflection;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_light_poly_indirect;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_light_point_indirect;
+
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
+
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_refl_emissive;
+
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_gi_emissive;
+
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
 /* layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_additive; */
@@ -62,6 +73,11 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	shading_normal = normalDecode(n.zw);
 }
 
+ivec2 UVToPix(vec2 uv, ivec2 res) {
+	vec2 screen_uv = uv * 0.5 + vec2(0.5);
+	return ivec2(screen_uv.x * float(res.x), screen_uv.y * float(res.y));
+}
+
 void main() {
 	ivec2 res = ivec2(imageSize(src_base_color));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -99,83 +115,147 @@ void main() {
 	/* imageStore(dest, pix, vec4(rand3_f01(uvec3(mi,mi+1,mi+2)), 0.)); */
 	/* return; */
 
-#if 1
 	vec3 colour = vec3(0.);
-	colour += imageLoad(src_light_direct_poly_diffuse, pix).rgb;
-	colour += imageLoad(src_light_direct_poly_specular, pix).rgb;
-	colour += imageLoad(src_light_direct_point_diffuse, pix).rgb;
-	colour += imageLoad(src_light_direct_point_specular, pix).rgb;
-#else
-	float total_scale = 0.;
-	vec3 colour = vec3(0.);
-	const int KERNEL_SIZE = 8;
-	float specular_total_scale = 0.;
-	vec3 speculour = vec3(0.);
+	vec3 diffuse = vec3(0.);
+	vec3 specular = vec3(0.);
+//#if 1
 
-	const vec4 center_pos = imageLoad(src_position_t, pix);
-	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
-		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y);
-			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-				continue;
-			}
 
-			float scale = 1.f;
+//#else
+//	float total_scale = 0.;
+//	const int KERNEL_SIZE = 8;
+//	float specular_total_scale = 0.;
+//	vec3 speculour = vec3(0.);
+//
+//	const vec4 center_pos = imageLoad(src_position_t, pix);
+//	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
+//		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//			const ivec2 p = pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//
+//			float scale = 1.f;
+//
+//			// const vec4 c = imageLoad(src_light_direct_poly, p);
+//			// if (c.a != material_index)
+//			// 	continue;
+//
+//			vec3 sample_geometry_normal, sample_shading_normal;
+//			readNormals(p, sample_geometry_normal, sample_shading_normal);
+//
+//			// FIXME also filter by depth, (kusok index?), etc
+//			//scale *= smoothstep(.9, 1., dot(sample_geometry_normal, geometry_normal));
+//
+//			const vec4 sample_pos = imageLoad(src_position_t, p);
+//			scale *= smoothstep(4. * center_pos.w / 100., 0., distance(center_pos.xyz, sample_pos.xyz));
+//
+//			if ( scale <= 0. )
+//				continue;
+//
+//			vec3 diffuse = vec3(0.);
+//			diffuse += imageLoad(src_light_direct_point_diffuse, p).rgb;
+//			diffuse += imageLoad(src_light_direct_poly_diffuse, p).rgb;
+//
+//			vec3 specular = vec3(0.);
+//			specular += imageLoad(src_light_direct_poly_specular, p).rgb;
+//			specular += imageLoad(src_light_direct_point_specular, p).rgb;
+//
+//			{
+//				const float sigma = KERNEL_SIZE / 2.;
+//				const float dscale = scale * normpdf(x, sigma) * normpdf(y, sigma);
+//				colour += dscale * diffuse;
+//				total_scale += dscale;
+//			}
+//
+//			const int SPECULAR_KERNEL_SIZE = 4;
+//			if (all(lessThan(abs(ivec2(x, y)), ivec2(SPECULAR_KERNEL_SIZE)))) {
+//				const float spigma = SPECULAR_KERNEL_SIZE / 2.;
+//				const float specuale = scale * normpdf(x, spigma) * normpdf(y, spigma);
+//				speculour += specuale * specular;
+//				specular_total_scale += specuale;
+//			}
+//		}
+//
+//	if (total_scale > 0.) {
+//		colour /= total_scale;
+//	}
+//
+//	if (specular_total_scale > 0.) {
+//		speculour /= specular_total_scale;
+//		colour += speculour;
+//	}
+//#endif
 
-			// const vec4 c = imageLoad(src_light_direct_poly, p);
-			// if (c.a != material_index)
-			// 	continue;
-
-			vec3 sample_geometry_normal, sample_shading_normal;
-			readNormals(p, sample_geometry_normal, sample_shading_normal);
-
-			// FIXME also filter by depth, (kusok index?), etc
-			//scale *= smoothstep(.9, 1., dot(sample_geometry_normal, geometry_normal));
-
-			const vec4 sample_pos = imageLoad(src_position_t, p);
-			scale *= smoothstep(4. * center_pos.w / 100., 0., distance(center_pos.xyz, sample_pos.xyz));
-
-			if ( scale <= 0. )
-				continue;
-
-			vec3 diffuse = vec3(0.);
-			diffuse += imageLoad(src_light_direct_point_diffuse, p).rgb;
-			diffuse += imageLoad(src_light_direct_poly_diffuse, p).rgb;
-
-			vec3 specular = vec3(0.);
-			specular += imageLoad(src_light_direct_poly_specular, p).rgb;
-			specular += imageLoad(src_light_direct_point_specular, p).rgb;
-
-			{
-				const float sigma = KERNEL_SIZE / 2.;
-				const float dscale = scale * normpdf(x, sigma) * normpdf(y, sigma);
-				colour += dscale * diffuse;
-				total_scale += dscale;
-			}
-
-			const int SPECULAR_KERNEL_SIZE = 4;
-			if (all(lessThan(abs(ivec2(x, y)), ivec2(SPECULAR_KERNEL_SIZE)))) {
-				const float spigma = SPECULAR_KERNEL_SIZE / 2.;
-				const float specuale = scale * normpdf(x, spigma) * normpdf(y, spigma);
-				speculour += specuale * specular;
-				specular_total_scale += specuale;
-			}
-		}
-
-	if (total_scale > 0.) {
-		colour /= total_scale;
-	}
-
-	if (specular_total_scale > 0.) {
-		speculour /= specular_total_scale;
-		colour += speculour;
-	}
-#endif
-
-	const vec4 base_color = imageLoad(src_base_color, pix);
-	colour *= SRGBtoLINEAR(base_color.rgb);
+	// emissive/sky
 	colour += imageLoad(src_emissive, pix).rgb;
-	//colour += imageLoad(src_additive, pix).rgb;
+
+	// albedo
+	const vec4 base_color = imageLoad(src_base_color, pix);
+
+	// gray material diffuse component
+	diffuse += imageLoad(src_light_direct_poly_diffuse, pix).rgb;
+	diffuse += imageLoad(src_light_direct_point_diffuse, pix).rgb;
+
+	// specular from point lights
+	specular += imageLoad(src_light_direct_point_specular, pix).rgb;
+
+	// polygon lights are visible in the reflection, we don't need fake specular?
+	specular += imageLoad(src_light_direct_poly_specular, pix).rgb;
+
+	// reflection and reuse info stored in texture with light data
+	vec3 reflection_poly = imageLoad(src_light_poly_reflection, pix).rgb;
+	vec3 reflection = reflection_poly +
+					  imageLoad(src_light_point_reflection, pix).rgb +
+					  imageLoad(src_refl_emissive, pix).rgb;
+
+	// Reuse lighting from screen if we can. -100 is SSR marker)
+	if (reflection_poly.b < -99.) {
+		ivec2 screen_pix = UVToPix(reflection_poly.rg, res);
+		if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
+			vec3 refl_base_color = imageLoad(src_base_color, screen_pix).rgb;
+			float refl_grayscale = (refl_base_color.r + refl_base_color.g + refl_base_color.b) * 0.33;
+			float refl_specular_level = pow(refl_grayscale, 0.45); // fake specular map
+			float refl_metalness = imageLoad(src_material_rmxx, screen_pix).g;
+			vec3 refl_diffuse = imageLoad(src_light_direct_poly_diffuse, screen_pix).rgb +
+								imageLoad(src_light_direct_point_diffuse, screen_pix).rgb;
+			vec3 refl_specular = imageLoad(src_light_direct_poly_specular, screen_pix).rgb +
+								imageLoad(src_light_direct_point_specular, screen_pix).rgb;
+			vec3 refl_emissive = imageLoad(src_emissive, screen_pix).rgb;
+
+			// metalness == 1
+			vec3 refl_metal_colour = refl_specular * refl_base_color.rgb;
+
+			// metalness == 0
+			vec3 refl_dielectric_colour = (refl_diffuse) * refl_base_color.rgb +
+									 (refl_specular) * refl_specular_level;
+
+			// pbr
+			reflection = mix(refl_dielectric_colour, refl_metal_colour, refl_metalness) + refl_emissive;
+
+			//reflection = vec3(100., 0., 0.); // TEST: visualize SSR texels
+		}
+	}
+
+	// try to reconstruct pbr-like picture from all components
+	float metalness = imageLoad(src_material_rmxx, pix).g;
+	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
+	float specular_level = pow(grayscale, 0.45); // fake specular map
+
+	// global illumination
+	vec3 global_illumination =	imageLoad(src_light_poly_indirect, pix).rgb +
+								imageLoad(src_light_point_indirect, pix).rgb /*+
+								imageLoad(src_gi_emissive, pix).rgb*/;
+
+	// metalness == 1
+	vec3 metal_colour = (specular + reflection) * base_color.rgb;
+
+	// metalness == 0
+	vec3 dielectric_colour = (diffuse + global_illumination * 0.4) * base_color.rgb +
+							 (specular + reflection * 0.1) * specular_level;
+
+	// pbr
+	colour += mix(dielectric_colour, metal_colour, metalness);
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
@@ -195,6 +275,7 @@ void main() {
 	if (pix.x < res.x / 2) {
 #endif
 		//colour *= .25;
+		//colour = pow(colour, vec3(1. / 2.2));
 		colour = LINEARtoSRGB(colour); // gamma-correction
 #if 0
 	}

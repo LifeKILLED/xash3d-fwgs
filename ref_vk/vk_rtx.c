@@ -59,8 +59,12 @@ typedef struct {
 
 #define X(index, name, ...) xvk_image_t name;
 	RAY_PRIMARY_OUTPUTS(X)
-		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
-		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+	RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
+	RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+	RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
+	RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
+	RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
+	RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
 #undef X
 
 } xvk_ray_frame_images_t;
@@ -109,6 +113,10 @@ static struct {
 	X(primary_ray, R_VkRayPrimaryPassCreate) \
 	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
 	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
+	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
+	X(light_reflect_point, R_VkRayLightReflectPointPassCreate) \
+	X(light_indirect_poly, R_VkRayLightIndirectPolyPassCreate) \
+	X(light_indirect_point, R_VkRayLightIndirectPointPassCreate) \
 	X(denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate) \
 
 #undef X
@@ -607,6 +615,10 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 			RAY_PRIMARY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_REFLECT_POLY_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_REFLECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_INDIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_INDIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
 			RES_SET_IMAGE(-1, denoised)
 #undef RES_SET_IMAGE
 		},
@@ -683,6 +695,10 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_poly, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_point, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_poly, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_point, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_poly, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_point, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_no_denoise, &res );
 
 	BLIT_IMAGES(args->render_args->dst.image, args->current_frame->denoised.image, args->render_args->dst.width, args->render_args->dst.height)
@@ -867,6 +883,10 @@ qboolean VK_RayInit( void )
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
 #undef X
 #undef rgba8
 #undef rgba32f
@@ -896,6 +916,10 @@ void VK_RayShutdown( void ) {
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
 #undef X
 	}
 
