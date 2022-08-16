@@ -191,7 +191,7 @@ void main() {
 	colour += imageLoad(src_emissive, pix).rgb;
 
 	// albedo
-	const vec4 base_color = imageLoad(src_base_color, pix);
+	const vec4 base_color = SRGBtoLINEAR(imageLoad(src_base_color, pix));
 
 	// gray material diffuse component
 	diffuse += imageLoad(src_light_direct_poly_diffuse, pix).rgb;

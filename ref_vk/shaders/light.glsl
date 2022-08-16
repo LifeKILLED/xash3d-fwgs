@@ -11,7 +11,44 @@ const float shadow_offset_fudge = .1;
 #include "brdf.h"
 #include "light_common.glsl"
 
-#if LIGHT_POLYGON
+// Different for loop and single sample, remove code doubling
+#ifdef ONE_LIGHT_PER_TEXEL
+	#define SKIP_LIGHT() return;
+#else
+	#define SKIP_LIGHT() continue;
+#endif
+
+// Importaice rays rejection by light irradiance
+#ifdef LIGHT_POINT // Low count, not agressive rejection
+	#define LOWER_IRRADIANCE_THRESHOLD 0.01
+	#define HIGHT_IRRADIANCE_THRESHOLD 0.5
+	#define ACCUMULATED_THRESHOLD 0.8
+#else // Emissive kusochki - soft lighting, big count
+	#define LOWER_IRRADIANCE_THRESHOLD 0.01
+	#define HIGHT_IRRADIANCE_THRESHOLD 1.
+	#define REJECT_ANYWHERE_THRESHOLD 0.5
+	#define ACCUMULATED_THRESHOLD 0.8
+#endif
+
+// If we already enlight texel, put up lower threshold
+#define REJECT_LIGHTS_LOWER_THAN_ACCUMULATION 1
+#ifdef REJECT_LIGHTS_LOWER_THAN_ACCUMULATION
+#define LOWER_IRRADIANCE_THRESHOLD_GET() mix(LOWER_IRRADIANCE_THRESHOLD, accumulated_irradiance, ACCUMULATED_THRESHOLD)
+#else
+#define LOWER_IRRADIANCE_THRESHOLD_GET() LOWER_IRRADIANCE_THRESHOLD
+#endif
+
+// Put this macros in sample cycle and make random reject lighing by illuminance
+#define SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE() float accumulated_irradiance = 0.;
+#define IMPORTANCE_SKIP_BY_IRRADIANCE(diffuse, specular) \
+	const float light_luminance = luminance(diffuse + specular); \
+	const float rejecting_weight = max(LOWER_IRRADIANCE_THRESHOLD_GET(), \
+                                   smoothstep(0., HIGHT_IRRADIANCE_THRESHOLD, light_luminance)); \
+	if (rand01() > rejecting_weight) SKIP_LIGHT() \
+	diffuse /= rejecting_weight; \
+	specular /= rejecting_weight;
+
+#ifdef LIGHT_POLYGON
 #include "light_polygon.glsl"
 #endif
 
@@ -19,25 +56,36 @@ const float shadow_offset_fudge = .1;
 void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 
+	SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE()
+
 	//diffuse = vec3(1.);//float(lights.num_point_lights) / 64.);
 //#define USE_CLUSTERS
 #ifdef USE_CLUSTERS
-	const uint num_point_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
-	for (uint j = 0; j < num_point_lights; ++j) {
+	const uint num_lights = uint(light_grid.clusters[cluster_index].num_point_lights);
+	for (uint j = 0; j < num_lights; ++j) {
 		const uint i = uint(light_grid.clusters[cluster_index].point_lights[j]);
 #else
-	for (uint i = 0; i < lights.num_point_lights; ++i) {
+
+	const uint num_lights = lights.num_point_lights;
+#ifdef ONE_LIGHT_PER_TEXEL
+	const uint index = rand() % num_lights;
+#else
+	for (uint index = 0; index < num_lights; ++index) {
 #endif
 
-		vec3 color = lights.point_lights[i].color_stopdot.rgb * throughput;
-		if (dot(color,color) < color_culling_threshold)
-			continue;
+#endif
 
-		const vec4 origin_r = lights.point_lights[i].origin_r;
-		const float stopdot = lights.point_lights[i].color_stopdot.a;
-		const vec3 dir = lights.point_lights[i].dir_stopdot2.xyz;
-		const float stopdot2 = lights.point_lights[i].dir_stopdot2.a;
-		const bool not_environment = (lights.point_lights[i].environment == 0);
+
+
+		vec3 color = lights.point_lights[index].color_stopdot.rgb * throughput;
+		if (dot(color,color) < color_culling_threshold)
+			SKIP_LIGHT()
+
+		const vec4 origin_r = lights.point_lights[index].origin_r;
+		const float stopdot = lights.point_lights[index].color_stopdot.a;
+		const vec3 dir = lights.point_lights[index].dir_stopdot2.xyz;
+		const float stopdot2 = lights.point_lights[index].dir_stopdot2.a;
+		const bool not_environment = (lights.point_lights[index].environment == 0);
 
 		const vec3 light_dir = not_environment ? (origin_r.xyz - P) : -dir; // TODO need to randomize sampling direction for environment soft shadow
 		const float radius = origin_r.w;
@@ -45,11 +93,11 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		const vec3 light_dir_norm = normalize(light_dir);
 		const float light_dot = dot(light_dir_norm, N);
 		if (light_dot < 1e-5)
-			continue;
+			SKIP_LIGHT()
 
 		const float spot_dot = -dot(light_dir_norm, dir);
 		if (spot_dot < stopdot2)
-			continue;
+			SKIP_LIGHT()
 
 		float spot_attenuation = 1.f;
 		if (spot_dot < stopdot)
@@ -61,11 +109,11 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		const float r2 = origin_r.w * origin_r.w;
 		if (not_environment) {
 			if (radius < 1e-3)
-				continue;
+				SKIP_LIGHT()
 
 			const float dist = length(light_dir);
 			if (radius > dist)
-				continue;
+				SKIP_LIGHT()
 #if 1
 			//light_dist = sqrt(d2);
 			light_dist = dist - radius;
@@ -96,21 +144,30 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 		vec3 combined = ldiffuse + lspecular;
 
 		if (dot(combined,combined) < color_culling_threshold)
-			continue;
+			SKIP_LIGHT()
+
+		IMPORTANCE_SKIP_BY_IRRADIANCE(ldiffuse, lspecular)
 
 		// FIXME split environment and other lights
 		if (not_environment) {
 			if (shadowed(P, light_dir_norm, light_dist + shadow_offset_fudge))
-				continue;
+				SKIP_LIGHT()
 		} else {
 			// for environment light check that we've hit SURF_SKY
 			if (shadowedSky(P, light_dir_norm, light_dist + shadow_offset_fudge))
-				continue;
+				SKIP_LIGHT()
 		}
 
 		diffuse += ldiffuse;
 		specular += lspecular;
+
+#ifdef ONE_LIGHT_PER_TEXEL
+		diffuse *= float(num_lights);
+		specular *= float(num_lights);
+#else
 	} // for all lights
+#endif
+
 }
 #endif
 

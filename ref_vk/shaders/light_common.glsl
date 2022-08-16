@@ -67,7 +67,12 @@ void evalSplitBRDF(vec3 N, vec3 L, vec3 V, MaterialProperties material, out vec3
 	//if (data.Vbackfacing || data.Lbackfacing) return vec3(0.0f, 0.0f, 0.0f);
 
 	// Eval specular and diffuse BRDFs
+#ifdef REMOVE_SPECULAR
+	specular = vec3(0.); // we don't need fake specular, because polygons is in reflections
+#else
 	specular = evalSpecular(data);
+#endif
+
 	diffuse = evalDiffuse(data);
 
 	// Combine specular and diffuse layers

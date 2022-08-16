@@ -131,10 +131,13 @@ void main() {
 
 	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
 	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
+//#ifdef LIGHT_POINT
 		const vec3 throughput = vec3(1.);
 		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
-		//diffuse = vec3(0.3);
-		//specular = vec3(0.3);
+//#else
+//		diffuse = vec3(0.0);
+//		specular = vec3(0.0);
+//#endif
 	//}
 
 //#if (LIGHT_POLYGON) && (PRIMARY_VIEW)
