@@ -1,0 +1,210 @@
+#version 460
+
+#define KERNEL_SPECULAR_SIZE 3
+#define KERNEL_SPECULAR_OFFSET 4
+
+#define KERNEL_LENGTHS_SAMPLE 1
+#define KERNEL_LENGTHS_OFFSET 1
+
+#define NORMALS_THRESHOLD_LOW 0.99
+#define NORMALS_THRESHOLD_HIGHT 1.
+
+#define NORMALS_THRESHOLD 0.97
+
+#define GI_KERNEL_SIZE 3
+#define GI_OFFSET 8
+#define GI_DEPTH_THRESHOLD 25.0
+#define DEPTH_THRESHOLD 5.0
+
+
+#include "noise.glsl"
+#include "brdf.h"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_specular;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_gi_sh1;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh2;
+
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_gi_sh1;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_gi_sh2;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 9, rgba8)   uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 10, rgba16f)uniform readonly image2D src_refl_normals_gs;
+layout(set = 0, binding = 11, rgba8)  uniform readonly image2D src_refl_base_color_a;
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+void readReflNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_refl_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_specular));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const float depth = imageLoad(src_position_t, pix).w;
+
+
+		// ------------------- //
+		// Global Illumination //
+		// ------------------- //
+
+	vec4 gi_sh1 = vec4(0.);
+	vec2 gi_sh2 = vec2(0.);
+	
+	vec3 geometry_normal, shading_normal;
+	readNormals(pix, geometry_normal, shading_normal);
+
+	float weight_sum = 0.;
+	for (int x = -GI_KERNEL_SIZE; x <= GI_KERNEL_SIZE; ++x) {
+		for (int y = -GI_KERNEL_SIZE; y <= GI_KERNEL_SIZE; ++y) {
+			const ivec2 p = pix + ivec2(x, y) * GI_OFFSET;
+			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+				continue;
+			}
+
+			const float depth_current = imageLoad(src_position_t, pix).w;
+			const float depth_offset = abs(depth - depth_current);
+			const float gi_depth_factor = 1. - smoothstep(0., GI_DEPTH_THRESHOLD, depth_offset);
+
+			const float sigma = GI_KERNEL_SIZE / 2.;
+			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor;
+
+			gi_sh1 += imageLoad(src_gi_sh1, p) * weight;
+			gi_sh2 += imageLoad(src_gi_sh2, p).xy * weight;
+			weight_sum += weight;
+		}
+	}
+
+	if (weight_sum > 0.) {
+		gi_sh1 /= weight_sum;
+		gi_sh2 /= weight_sum;
+	}
+
+//
+//	// ----------- //
+//	// Reflections //
+//	// ----------- //
+//	
+//	
+//	vec3 specular = vec3(0.);
+//	
+//	float roughness = imageLoad(src_material_rmxx, pix).r;
+//
+	vec3 refl_shading_normal = vec3(0.), refl_geometry_normal = vec3(0.);
+	vec3 current_shading_normal = vec3(0.), current_geometry_normal = vec3(0.);
+
+	const vec3 center_pos = imageLoad(src_position_t, pix).xyz;
+	const vec3 refl_pos_src = imageLoad(src_refl_position_t, pix).xyz;
+	const vec3 reflDirection = imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
+	const float reflLength = length(reflDirection);
+	const vec3 view_dir = reflect(-reflDirection, shading_normal);
+//	
+//
+//	// Hand-made formula created by LifeKILLED on online graph visualizer
+//	const float lower_eval_value = 1. - mix(pow(1. - roughness, 5.), pow(1. - roughness, 2.), 0.4);
+//	const float max_blur_mixing = smoothstep(0.6, 0.7, roughness);
+//
+//	const float maxKernelDistance = roughness < 0.08 ? 1000000. :
+//									roughness < 0.11 ? 70000. : 
+//									roughness < 0.21 ? 250. : 
+//									roughness < 0.31 ? 100. : 
+//									roughness < 0.41 ? 70. : 
+//									roughness < 0.51 ? 30. : 
+//									roughness < 0.61 ? 10. : 
+//									roughness < 0.71 ? 5. : 2.;
+//
+//	if (roughness > 0.05) { // don't use for mirrors
+//
+//		// Sample median ray lengths for accurate pattern blur strengh
+//		float rayLength_src = 0.;
+//		float rayLength_weights_sum = 0.;
+//		for (int x = -KERNEL_LENGTHS_SAMPLE; x <= KERNEL_LENGTHS_SAMPLE; ++x) {
+//			for (int y = -KERNEL_LENGTHS_SAMPLE; y <= KERNEL_LENGTHS_SAMPLE; ++y) {
+//				const ivec2 p = pix + ivec2(x, y) * KERNEL_LENGTHS_OFFSET;
+//				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//					continue;
+//				}
+//
+//				const float rayLength_current = length(imageLoad(src_refl_position_t, p).xyz - center_pos);
+//
+//				if (rayLength_current > 0.) {
+//					const float weight = 1. / (rayLength_current * rayLength_current);
+//					rayLength_src += rayLength_current * weight;
+//					rayLength_weights_sum += weight;
+//				}
+//			}
+//		}
+//		if (rayLength_weights_sum > 0.) {
+//			rayLength_src /= rayLength_weights_sum;
+//		}
+//
+//		// Huge bilateral blur for avoiding flickering
+//		const float blur_strengh = smoothstep(1. / float(KERNEL_SPECULAR_SIZE), maxKernelDistance, rayLength_src);
+//		const float dotThreshold = 0.03;
+//		const float fallbackThreshold = 0.001;
+//		float weights_sum = 0.;
+//		for (int x = -KERNEL_SPECULAR_SIZE; x <= KERNEL_SPECULAR_SIZE; ++x) {
+//			for (int y = -KERNEL_SPECULAR_SIZE; y <= KERNEL_SPECULAR_SIZE; ++y) {
+//				const ivec2 p = pix + ivec2(x, y) * KERNEL_SPECULAR_OFFSET;
+//				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//					continue;
+//				}
+//
+//				// is in roughness cone?
+//				const vec3 refl_pos = imageLoad(src_refl_position_t, p).xyz;
+//				const float rayLength = length(refl_pos - center_pos);
+//				const float reflDot = dot(reflDirection, normalize(refl_pos - center_pos));
+//
+//				vec3 current_geometry_normal, current_shading_normal;
+//				readNormals(p, current_geometry_normal, current_shading_normal);
+//				const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
+//
+//				// Hand-made formula created by LifeKILLED on online graph visualizer
+//				//const float eval_low_roughness = mix(smoothstep(lower_eval_value, 1., asin(reflDot) * 0.66), reflDot, max_blur_mixing);
+//				//const float eval = mix(eval_low_roughness, 1., smoothstep(0.4, 0.7, roughness));
+//				const float eval = normals_factor * normals_factor * normals_factor;
+//
+//				const float sigma = max(blur_strengh * KERNEL_SPECULAR_SIZE / 2., 1.);				
+//				const float weight = normpdf(x, sigma) * normpdf(y, sigma) * eval;
+//
+//				if (reflDot > dotThreshold && weight > 0.) {
+//					specular += imageLoad(src_specular, p).rgb * weight;
+//					weights_sum += weight;
+//				}
+//			}
+//		}
+//
+//		if (weights_sum > 0.) {
+//			specular /= weights_sum;
+//		} else {
+//			specular = imageLoad(src_specular, pix).rgb;
+//		}
+//	} else {
+//		specular = imageLoad(src_specular, pix).rgb; // mirror, don't need to denoise
+//	}
+
+	const float specular_samples_count = imageLoad(src_specular, pix).w;
+
+	//imageStore(out_specular, pix, vec4(specular, specular_samples_count));
+	
+	imageStore(out_specular, pix, imageLoad(src_specular, pix));
+	imageStore(out_gi_sh1, pix, gi_sh1);
+	imageStore(out_gi_sh2, pix, vec4(gi_sh2, depth, reflLength));
+}

@@ -159,8 +159,13 @@ void main() {
 		specular *= 0.04;
 #endif
 
-		diffuse = clamp(diffuse, 0., 5.);
-		specular = clamp(specular, 0., 5.);
+#ifdef IRRADIANCE_MULTIPLIER
+	diffuse *= IRRADIANCE_MULTIPLIER;
+	specular *= IRRADIANCE_MULTIPLIER;
+#endif
+
+		//diffuse = clamp(diffuse, 0., 5.);
+		//specular = clamp(specular, 0., 5.);
 	}
 
 	//diffuse += vec3(0., 0.2, 0.);

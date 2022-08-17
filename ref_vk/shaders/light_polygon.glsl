@@ -298,14 +298,15 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 
 #ifdef ONE_LIGHT_PER_TEXEL
 		diffuse *= float(num_lights);
+		specular *= float(num_lights);
 #else
 	}
 
 #ifdef LIGHTS_REJECTION_X4
 	if (num_lights >= 4) {
 		const float rejection_scale = float(num_lights) / min(1., float(endIndex - startIndex));
-		diffuse *= 4;
-		specular *= 4;
+		diffuse *= rejection_scale;
+		specular *= rejection_scale;
 	}
 #endif
 #endif

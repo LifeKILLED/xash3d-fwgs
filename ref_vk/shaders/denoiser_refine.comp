@@ -1,0 +1,187 @@
+#version 460
+
+#define KERNEL_SIZE 1
+#define NORMALS_THRESHOLD_LOW 0.99
+#define NORMALS_THRESHOLD_HIGHT 1.
+#define WEIGHT_THRESHOLD 0.
+#define GI_DEPTH_THRESHOLD 25.0
+#define DEPTH_THRESHOLD 5.0
+
+#include "noise.glsl"
+#include "brdf.h"
+#include "utils.glsl"
+#include "denoiser_tools.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_denoised;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_denoised;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_denoised;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_denoised;
+
+layout(set = 0, binding = 4, rgba16f) uniform image2D src_diffuse_noisy;
+layout(set = 0, binding = 5, rgba16f) uniform image2D src_specular_noisy;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_gi_sh1_spread;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_gi_sh2_spread;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 10, rgba8)  uniform readonly image2D src_material_rmxx;
+
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalize(normalDecode(n.xy));
+	shading_normal = normalize(normalDecode(n.zw));
+}
+
+
+// Author of SFGV function:
+// https://github.com/BrutPitt/glslSmartDeNoise
+
+#define INV_SQRT_OF_2PI 0.39894228040143267793994605993439  // 1.0/SQRT_OF_2PI
+#define INV_PI          0.31830988618379067153776752674503
+
+void smartDeNoise(ivec2 pix, ivec2 size, float sigma, float kSigma, float threshold, out vec3 diffuse, out vec3 specular)
+{
+	const float specular_mult = 0.3;
+
+    int radius = max(1, int(round(kSigma*sigma)));
+    float radQ = radius * radius;
+
+    float invSigmaQx2 = .5 / (sigma * sigma);      // 1.0 / (sigma^2 * 2.0)
+    float invSigmaQx2PI = INV_PI * invSigmaQx2;    // // 1/(2 * PI * sigma^2)
+
+    float invThresholdSqx2 = .5 / (threshold * threshold);     // 1.0 / (sigma^2 * 2.0)
+    float invThresholdSqrt2PI = INV_SQRT_OF_2PI / threshold;   // 1.0 / (sqrt(2*PI) * sigma)
+
+    vec4 centrPx_diff = imageLoad(src_diffuse_noisy, pix);
+	vec4 centrPx_spec = sqrt(imageLoad(src_specular_noisy, pix) * specular_mult);
+
+    float zBuff_diff = 0.0;
+    vec4 aBuff_diff = vec4(0.0);
+	
+    float zBuff_spec = 0.0;
+    vec4 aBuff_spec = vec4(0.0);
+
+    ivec2 d;
+    for (d.x=-radius; d.x <= radius; d.x++) {
+        int pt = int(sqrt(radQ-d.x*d.x));       // pt = yRadius: have circular trend
+        for (d.y=-pt; d.y <= pt; d.y++) {
+			const ivec2 p = pix + d;
+			const ivec2 p_clamped = clamp(p, ivec2(0), size - ivec2(1));
+			const vec2 d_float = vec2(d);
+
+            float blurFactor = exp( -dot(d_float, d_float) * invSigmaQx2 ) * invSigmaQx2PI;
+
+			{
+				vec4 walkPx =  imageLoad(src_diffuse_noisy, p_clamped);
+            
+				vec4 dC = walkPx-centrPx_diff;
+				float deltaFactor = exp( -dot(dC.rgb, dC.rgb) * invThresholdSqx2) * invThresholdSqrt2PI * blurFactor;
+
+				zBuff_diff += deltaFactor;
+				aBuff_diff += deltaFactor*walkPx;
+			}
+
+			{
+				vec4 walkPx =  sqrt(imageLoad(src_specular_noisy, p_clamped) * specular_mult);
+            
+				vec4 dC = walkPx-centrPx_spec;
+				float deltaFactor = exp( -dot(dC.rgb, dC.rgb) * invThresholdSqx2) * invThresholdSqrt2PI * blurFactor;
+
+				zBuff_spec += deltaFactor;
+				aBuff_spec += deltaFactor*walkPx;
+			}
+        }
+    }
+
+    diffuse = (aBuff_diff / zBuff_diff).rgb;
+	specular = (aBuff_spec / zBuff_spec).rgb;
+	specular = specular * specular * (1. / specular_mult);
+}
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_diffuse_noisy));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const vec4 pos_depth = imageLoad(src_position_t, pix);
+	const vec3 position = pos_depth.xyz;
+	const float depth = pos_depth.w;
+
+	const float roughness = imageLoad(src_material_rmxx, pix).r;
+
+	vec3 shading_normal = vec3(0.), geometry_normal = vec3(0.);
+	readNormals(pix, geometry_normal, shading_normal);
+
+	vec3 diffuse = vec3(0.);
+	vec3 specular = vec3(0.);
+	vec4 gi_sh1 = vec4(0.);
+	vec2 gi_sh2 = vec2(0.);
+	float weights_sum = 0.;
+	float gi_weights_sum = 0.;
+
+	vec4 diffuse_last = vec4(0.);
+	vec4 specular_last = vec4(0.);
+
+	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+			const ivec2 p = pix + ivec2(x, y);
+			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+				continue;
+			}
+
+			vec3 current_geometry_normal, current_shading_normal;
+			readNormals(p, current_geometry_normal, current_shading_normal);
+			const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
+			//const float normals_factor = 1.;
+
+			const float sigma = KERNEL_SIZE * 0.8;
+			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * normals_factor;
+
+			//if (dot(shading_normal, current_shading_normal) > 0.98) {
+			if (weight > WEIGHT_THRESHOLD) {
+				const float depth_current = imageLoad(src_position_t, pix).w;
+				const float depth_offset = abs(depth - depth_current);
+				const float depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
+				const float gi_depth_factor = 1. - smoothstep(0., GI_DEPTH_THRESHOLD, depth_offset);
+
+				diffuse += imageLoad(src_diffuse_noisy, p).rgb * weight * depth_factor;
+				//specular += imageLoad(src_specular_noisy, p).rgb * weight * depth_factor;
+				weights_sum += weight * depth_factor;
+
+				gi_sh1 += imageLoad(src_gi_sh1_spread, p) * weight * gi_depth_factor;
+				gi_sh2 += imageLoad(src_gi_sh2_spread, p).xy * weight * gi_depth_factor;
+				gi_weights_sum += weight * gi_depth_factor;
+			}
+		}
+	}
+
+
+	if (weights_sum > WEIGHT_THRESHOLD) {
+		diffuse /= weights_sum;
+		//specular /= weights_sum;
+		gi_sh1 /= gi_weights_sum;
+		gi_sh2 /= gi_weights_sum;
+	}
+
+	
+    const float average_samples_count = min(imageLoad(src_diffuse_noisy, pix).w, imageLoad(src_specular_noisy, pix).w);
+	//const float threshold = 0.5 / average_samples_count + 0.1;
+	//const float threshold = max(0.2, 1. - average_samples_count * 0.1);
+	const float threshold = clamp(1.0 - sqrt((average_samples_count + 1.) / 15.) * 0.9, 0.1, 1.);
+
+	//smartDeNoise(pix, res, 3., 2., threshold, diffuse, specular);
+
+	//if (roughness < 0.05) {
+		//specular = imageLoad(src_specular_spread, pix).rgb;
+	//}
+
+	imageStore(out_diffuse_denoised, pix, vec4(diffuse, 0.));
+	imageStore(out_specular_denoised, pix, vec4(specular, 0.));
+	imageStore(out_gi_sh1_denoised, pix, gi_sh1);
+	imageStore(out_gi_sh2_denoised, pix, vec4(gi_sh2,  0., 0.));
+}

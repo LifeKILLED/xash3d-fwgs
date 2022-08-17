@@ -66,7 +66,7 @@
 	X(11, gi_position_t, rgba32f) \
 	X(12, gi_normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
-	X(14, base_color_a, rgba8) \
+	X(14, gi_base_color_a, rgba8) \
 
 #define RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_indirect, rgba16f) \
@@ -74,6 +74,31 @@
 #define RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X) \
 	X(20, light_point_indirect, rgba16f) \
 
+
+
+#define RAY_DENOISER_TEXTURES(X) \
+	X(-1, last_position_t, rgba32f) \
+	X(-1, last_normals_gs, rgba16f) \
+	X(-1, last_search_info_ktuv, rgba32f) \
+	X(-1, last_diffuse, rgba16f) \
+	X(-1, last_specular, rgba16f) \
+	X(-1, last_gi_sh1, rgba16f) \
+	X(-1, last_gi_sh2, rgba16f) \
+	X(-1, motion_offsets_uvs, rgba16f) \
+	X(-1, diffuse_accum, rgba16f) \
+	X(-1, specular_accum, rgba16f) \
+	X(-1, gi_sh1_accum, rgba16f) \
+	X(-1, gi_sh2_accum, rgba16f) \
+	X(-1, specular_spread, rgba16f) \
+	X(-1, gi_sh1_pass_1, rgba16f) \
+	X(-1, gi_sh2_pass_1, rgba16f) \
+	X(-1, gi_sh1_pass_2, rgba16f) \
+	X(-1, gi_sh2_pass_2, rgba16f) \
+	X(-1, diffuse_denoised, rgba16f) \
+	X(-1, specular_denoised, rgba16f) \
+	X(-1, gi_sh1_denoised, rgba16f) \
+	X(-1, gi_sh2_denoised, rgba16f) \
+	X(-1, final_image, rgba16f) \
 
 
 #ifndef GLSL

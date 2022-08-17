@@ -34,8 +34,9 @@ float ggxNormalDistribution( float NdotH, float roughness )
 
 
 vec3 randomizedOnHemisphere(vec3 randomVec, vec3 normal) {
-	float directionality = normalize(dot(normal, randomVec));
-	return normalize(directionality * randomVec);
+	float directionality = dot(normal, randomVec);
+	if (directionality > 0.) return normalize(randomVec);
+	return -normalize(randomVec);
 }
 
 vec3 simpleRoughnessReflection(vec3 randomVec, vec3 viewDir, vec3 normal, float roughness) {

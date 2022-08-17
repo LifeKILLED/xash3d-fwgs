@@ -78,6 +78,182 @@ struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
 }
 
 
+
+	// LAST FRAME BUFFERS INIT
+
+#define LIST_OUTPUTS_LAST_INIT(X) \
+	X(0, last_position_t) \
+	X(1, last_normals_gs) \
+	X(2, last_search_info_ktuv) \
+	X(3, last_diffuse) \
+	X(4, last_specular) \
+	X(5, last_gi_sh1) \
+	X(6, last_gi_sh2) \
+
+#define LIST_INPUTS_LAST_INIT(X) \
+
+struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersCreate(void) {
+	PASS_CREATE_FUNC("denoiser last frame buffers init", "denoiser_frame_buffers_init.comp.spv", LAST_INIT, 7)
+}
+
+
+	// FAKE RECONSTRUCTION OF MOTION VECTORS
+
+#define LIST_OUTPUTS_MOTION_INIT(X) \
+	X(0, motion_offsets_uvs) \
+
+#define LIST_INPUTS_MOTION_INIT(X) \
+	X(1, position_t) \
+	X(2, refl_position_t) \
+	X(3, normals_gs) \
+	X(4, search_info_ktuv) \
+	X(5, last_position_t) \
+	X(6, last_normals_gs) \
+	X(7, last_search_info_ktuv) \
+	X(8, last_gi_sh2) \
+
+struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
+	PASS_CREATE_FUNC("denoiser fake reconstruction of motion vectors", "denoiser_fake_motion_vectors.comp.spv", MOTION_INIT, 9)
+}
+
+
+
+		// PASS 1. ACCUMULATE
+
+#define LIST_OUTPUTS_ACCUM(X) \
+	X(0, specular_accum) \
+	X(1, diffuse_accum) \
+	X(2, gi_sh1_accum) \
+	X(3, gi_sh2_accum) \
+
+#define LIST_INPUTS_ACCUM(X) \
+	X(4, base_color_a) \
+	X(5, light_poly_diffuse) \
+	X(6, light_poly_specular) \
+	X(7, light_point_diffuse) \
+	X(8, light_point_specular) \
+	X(9, light_poly_reflection) \
+	X(10, light_point_reflection) \
+	X(11, light_poly_indirect) \
+	X(12, light_point_indirect) \
+	X(13, refl_emissive) \
+	X(14, gi_emissive) \
+	X(15, gi_position_t) \
+	X(16, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
+	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 17)
+}
+
+
+// PASS 3. REPROJECT
+
+#define LIST_OUTPUTS_REPROJ(X) \
+	X(0, diffuse_accum) \
+	X(1, specular_accum) \
+	X(2, gi_sh1_accum) \
+	X(3, gi_sh2_accum) \
+
+#define LIST_INPUTS_REPROJ(X) \
+	X(4, last_diffuse) \
+	X(5, last_specular) \
+	X(6, last_gi_sh1) \
+	X(7, last_gi_sh2) \
+	X(8, position_t) \
+	X(9, normals_gs) \
+	X(10, material_rmxx) \
+	X(11, motion_offsets_uvs) \
+	X(12, refl_normals_gs) \
+	X(13, refl_position_t) \
+	X(14, last_position_t) \
+	X(15, search_info_ktuv) \
+	X(16, last_search_info_ktuv) \
+
+
+struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
+	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 17)
+}
+
+
+	// GI BLUR PASS 1
+
+#define LIST_OUTPUTS_GI_BLUR1(X) \
+	X(0, gi_sh1_pass_1) \
+	X(1, gi_sh2_pass_1) \
+
+#define LIST_INPUTS_GI_BLUR1(X) \
+	X(2, gi_sh1_accum) \
+	X(3, gi_sh2_accum) \
+
+struct ray_pass_s* R_VkRayDenoiserGIBlurPass1Create(void) {
+	PASS_CREATE_FUNC("denoiser gi blur pass 1", "denoiser_gi_blur_pass_1.comp.spv", GI_BLUR1, 4)
+}
+
+	// GI BLUR PASS 2
+
+#define LIST_OUTPUTS_GI_BLUR2(X) \
+	X(0, gi_sh1_pass_2) \
+	X(1, gi_sh2_pass_2) \
+
+#define LIST_INPUTS_GI_BLUR2(X) \
+	X(2, gi_sh1_pass_1) \
+	X(3, gi_sh2_pass_1) \
+
+struct ray_pass_s* R_VkRayDenoiserGIBlurPass2Create(void) {
+	PASS_CREATE_FUNC("denoiser gi blur pass 2", "denoiser_gi_blur_pass_2.comp.spv", GI_BLUR2, 4)
+}
+
+	// GI BLUR PASS 3
+
+#define LIST_OUTPUTS_GI_BLUR3(X) \
+	X(0, gi_sh1_denoised) \
+	X(1, gi_sh2_denoised) \
+
+#define LIST_INPUTS_GI_BLUR3(X) \
+	X(2, gi_sh1_pass_2) \
+	X(3, gi_sh2_pass_2) \
+
+struct ray_pass_s* R_VkRayDenoiserGIBlurPass3Create(void) {
+	PASS_CREATE_FUNC("denoiser gi blur pass 3", "denoiser_gi_blur_pass_3.comp.spv", GI_BLUR3, 4)
+}
+
+
+
+
+
+	// PASS 5. COMPOSE
+
+#define LIST_OUTPUTS_COMP(X) \
+	X(0, final_image) \
+
+#define LIST_INPUTS_COMP(X) \
+	X(1, base_color_a) \
+	X(2, emissive) \
+	X(3, position_t) \
+	X(4, normals_gs) \
+	X(5, material_rmxx) \
+	X(6, diffuse_accum) \
+	X(7, specular_accum) \
+	X(8, gi_sh1_denoised) \
+	X(9, gi_sh2_denoised) \
+	X(10, refl_position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
+	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", COMP, 11)
+}
+
+// PASS 6. FXAA
+
+#define LIST_OUTPUTS_FXAA(X) \
+	X(0, denoised) \
+
+#define LIST_INPUTS_FXAA(X) \
+	X(1, final_image) \
+
+struct ray_pass_s* R_VkRayDenoiserFXAACreate(void) {
+	PASS_CREATE_FUNC("denoiser fxaa", "denoiser_fxaa.comp.spv", FXAA, 2)
+}
+
 #undef BINDING_UBO
 #undef SEMANTIC_UBO
 #undef PASS_CREATE_FUNC

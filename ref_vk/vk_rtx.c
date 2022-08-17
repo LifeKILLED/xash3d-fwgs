@@ -65,6 +65,7 @@ typedef struct {
 	RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
 	RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
 	RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+	RAY_DENOISER_TEXTURES(X)
 #undef X
 
 } xvk_ray_frame_images_t;
@@ -111,12 +112,21 @@ static struct {
 #define X(name, init_func)
 #define PASSES_LIST(X) \
 	X(primary_ray, R_VkRayPrimaryPassCreate) \
+	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersCreate) \
+	X(denoiser_fake_motion_vectors, R_VkRayDenoiserFakeMotionVectorsCreate) \
 	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
 	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
 	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
 	X(light_reflect_point, R_VkRayLightReflectPointPassCreate) \
 	X(light_indirect_poly, R_VkRayLightIndirectPolyPassCreate) \
 	X(light_indirect_point, R_VkRayLightIndirectPointPassCreate) \
+	X(denoiser_accumulate, R_VkRayDenoiserAccumulateCreate) \
+	X(denoiser_reproject, R_VkRayDenoiserReprojectCreate) \
+	X(denoiser_gi_blur_1, R_VkRayDenoiserGIBlurPass1Create) \
+	X(denoiser_gi_blur_2, R_VkRayDenoiserGIBlurPass2Create) \
+	X(denoiser_gi_blur_3, R_VkRayDenoiserGIBlurPass3Create) \
+	X(denoiser_compose, R_VkRayDenoiserComposeCreate) \
+	X(denoiser_fxaa, R_VkRayDenoiserFXAACreate) \
 	X(denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate) \
 
 #undef X
@@ -619,6 +629,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 			RAY_LIGHT_REFLECT_POINT_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_INDIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_INDIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_DENOISER_TEXTURES(RES_SET_IMAGE)
 			RES_SET_IMAGE(-1, denoised)
 #undef RES_SET_IMAGE
 		},
@@ -668,14 +679,30 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		};\
 		blitImage( &blit_args );\
 	}
+	// Abuse passes system for init images with automatic barriers
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_last_frame_buffers_init, &res);
 
-	// blit images from last frame, now for test this is just simple
-	if (g_rtx.last_frame_buffers_inited == false && args->frame_index == (MAX_FRAMES_IN_FLIGHT - 1)) {
+	// TODO: Need to read images directly from last frame or keep this way?
+	if (g_rtx.last_frame_buffers_inited == true) {
+		BLIT_IMAGES(args->current_frame->last_position_t.image,		  args->last_frame->position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_normals_gs.image,		  args->last_frame->normals_gs.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_search_info_ktuv.image, args->last_frame->search_info_ktuv.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_diffuse.image,		  args->last_frame->diffuse_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_specular.image,		  args->last_frame->specular_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+	}
+
+	if (g_rtx.last_frame_buffers_inited == false && args->frame_index == 1) {
 		g_rtx.last_frame_buffers_inited = true;
 	}
 
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.primary_ray, &res );
-	
+
+	if (g_rtx.denoiser_enabled) {
+		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_fake_motion_vectors, &res);
+	}
+
 	{
 		//const uint32_t size = sizeof(struct Lights);
 		//const uint32_t size = sizeof(struct LightsMetadata); // + 8 * sizeof(uint32_t);
@@ -699,7 +726,19 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_point, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_poly, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_point, &res );
-	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_no_denoise, &res );
+
+	if (g_rtx.denoiser_enabled) {
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
+		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_compose, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_fxaa, &res);
+	}
+	else {
+		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_no_denoise, &res );
+	}
 
 	BLIT_IMAGES(args->render_args->dst.image, args->current_frame->denoised.image, args->render_args->dst.width, args->render_args->dst.height)
 
@@ -718,7 +757,8 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 {
 	const VkCommandBuffer cmdbuf = args->cmdbuf;
 	const xvk_ray_frame_images_t* current_frame = g_rtx.frames + (g_rtx.frame_number % MAX_FRAMES_IN_FLIGHT);
-	const xvk_ray_frame_images_t* last_frame = g_rtx.frames + ((g_rtx.frame_number + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT);
+	const xvk_ray_frame_images_t* last_frame = g_rtx.frames + ((g_rtx.frame_number + 1) % MAX_FRAMES_IN_FLIGHT);
+	//const xvk_ray_frame_images_t* last_frame = g_rtx.frames + ((g_rtx.frame_number + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT);
 
 	ASSERT(vk_core.rtx);
 	// ubo should contain two matrices
@@ -887,6 +927,7 @@ qboolean VK_RayInit( void )
 		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+		RAY_DENOISER_TEXTURES(X)
 #undef X
 #undef rgba8
 #undef rgba32f
@@ -920,6 +961,7 @@ void VK_RayShutdown( void ) {
 		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+		RAY_DENOISER_TEXTURES(X)
 #undef X
 	}
 

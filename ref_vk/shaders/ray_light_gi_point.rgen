@@ -8,7 +8,9 @@
 #define GLOBAL_ILLUMINATION 1
 
 // Soft lighting can be sampled with agressive optimization
-#define ONE_LIGHT_PER_TEXEL 1
+//#define ONE_LIGHT_PER_TEXEL 1
+
+//#define IRRADIANCE_MULTIPLIER 10.
 
 #define OUTPUTS RAY_LIGHT_INDIRECT_POINT_OUTPUTS
 #include "ray_light_direct.glsl"

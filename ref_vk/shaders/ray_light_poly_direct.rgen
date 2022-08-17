@@ -11,7 +11,7 @@
 #define GRAY_MATERIAL 1
 
 // It's semi-soft lighting and we can calculate 1/4 of lights for texel
-#define LIGHTS_REJECTION_X4 1
+//#define LIGHTS_REJECTION_X4 1
 
 // Emission polygons already seen in true reflection, we don't need sample specular?
 //#define REMOVE_SPECULAR 1

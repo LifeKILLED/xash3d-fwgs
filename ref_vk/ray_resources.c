@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 
-#define MAX_BARRIERS 16
+#define MAX_BARRIERS 32
 
 void RayResourcesFill(VkCommandBuffer cmdbuf, ray_resources_fill_t fill) {
 	VkImageMemoryBarrier image_barriers[MAX_BARRIERS];
