@@ -1122,6 +1122,9 @@ g_studio.verts must be computed
 */
 void R_StudioGenerateNormals( void )
 {
+	// For chrome models normals smoothed by other algorythm
+	if (FBitSet( g_nFaceFlags, STUDIO_NF_CHROME )) return;
+
 	int		v0, v1, v2;
 	vec3_t		e0, e1, norm;
 	mstudiomesh_t	*pmesh;
@@ -1898,6 +1901,27 @@ static int R_StudioMeshCompare( const void *a, const void *b )
 	return 0;
 }
 
+
+#define MAX_SMOOTHING_DOT_TRESHOLD 0.1
+#define MAX_SMOOTHING_NORMALS_POOL 10000
+#define MAX_SMOOTHING_NORMALS_LINKED 16
+#define SMOOTHING_NORMALS_POS_MULTIPLIER 1000.0f
+
+// structure for linking smoothing points
+typedef struct vk_smoothing_normals_s {
+	vk_vertex_t* vertex;
+	uint linked[MAX_SMOOTHING_NORMALS_LINKED];
+	uint linked_count;
+	uint already_smoothed;
+	int ipos[3];
+	int iuv[2];
+} vk_smoothing_map_normals_t;
+
+// TODO: maybe use dynamic memory? but now is fast and simple
+vk_smoothing_map_normals_t smoothing_vertices[MAX_SMOOTHING_NORMALS_POOL];
+uint smoothing_vertices_count = 0;
+
+
 static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float s, float t, int texture )
 {
 	float	*lv;
@@ -1908,6 +1932,10 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 	uint32_t vertex_offset = 0, index_offset = 0;
 	short* const ptricmds_initial = ptricmds;
 	r_geometry_buffer_lock_t buffer;
+
+	//qboolean regenerate_normals = true;
+	qboolean regenerate_normals = FBitSet( g_nFaceFlags, STUDIO_NF_CHROME );
+	smoothing_vertices_count = 0;
 
 	// Compute counts of vertices and indices
 	while(( i = *( ptricmds++ )))
@@ -1931,6 +1959,9 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 
 	dst_vtx = buffer.vertices.ptr;
 	dst_idx = buffer.indices.ptr;
+
+	vk_vertex_t* vertices_buf = dst_vtx;
+	uint16_t* indices_buf = dst_idx;
 
 	// Restore ptricmds and upload vertices
 	ptricmds = ptricmds_initial;
@@ -1989,12 +2020,130 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 						break;
 				}
 			}
+			
+			// remember data for smoothing normals
+			if (regenerate_normals && smoothing_vertices_count < MAX_SMOOTHING_NORMALS_POOL) {
+				vk_smoothing_map_normals_t* smoothing_vertex = smoothing_vertices + smoothing_vertices_count++;
+				smoothing_vertex->vertex = dst_vtx;
+				smoothing_vertex->already_smoothed = 0;
+				smoothing_vertex->linked_count = 0;
+				smoothing_vertex->ipos[0] = (int)(dst_vtx->pos[0] * SMOOTHING_NORMALS_POS_MULTIPLIER);
+				smoothing_vertex->ipos[1] = (int)(dst_vtx->pos[1] * SMOOTHING_NORMALS_POS_MULTIPLIER);
+				smoothing_vertex->ipos[2] = (int)(dst_vtx->pos[2] * SMOOTHING_NORMALS_POS_MULTIPLIER);
+				smoothing_vertex->iuv[0] = (int)(dst_vtx->gl_tc[0] * SMOOTHING_NORMALS_POS_MULTIPLIER);
+				smoothing_vertex->iuv[1] = (int)(dst_vtx->gl_tc[1] * SMOOTHING_NORMALS_POS_MULTIPLIER);
+			}
 		}
 
 		ASSERT(elements == (vertices-2)*3);
 		index_offset += elements;
 		vertex_offset += vertices;
 		dst_idx += elements;
+	}
+
+	if (regenerate_normals) {
+		// recalculate hard-edged normals for every triangle
+		vec3_t norm, e0, e1;
+		for (int i = 0; i < num_indices; i += 3) {
+			vk_vertex_t* v0 = vertices_buf + indices_buf[i];
+			vk_vertex_t* v1 = vertices_buf + indices_buf[i + 1];
+			vk_vertex_t* v2 = vertices_buf + indices_buf[i + 2];
+			VectorSubtract( v1->pos, v0->pos, e0 );
+			VectorSubtract( v2->pos, v0->pos, e1 );
+			CrossProduct( e1, e0, norm );
+			//VectorCopy(norm, v0->normal);
+			//VectorCopy(norm, v1->normal);
+			//VectorCopy(norm, v2->normal);
+			VectorAdd(v0->normal, norm, v0->normal);
+			VectorAdd(v0->normal, norm, v1->normal);
+			VectorAdd(v0->normal, norm, v2->normal);
+		}
+
+		if (smoothing_vertices_count > 0) {
+			uint linked_vertices_count = 0;
+			uint smoothing_vertices_count_minus_one = smoothing_vertices_count - 1;
+
+			// Bruteforce linking vertices
+			for (int f = 0; f < smoothing_vertices_count_minus_one; ++f) {
+				vk_smoothing_map_normals_t* first_vertex = smoothing_vertices + f;
+
+				for (int s = f + 1; s < smoothing_vertices_count; ++s) {
+					vk_smoothing_map_normals_t* second_vertex = smoothing_vertices + s;
+					qboolean already_linked = false;
+
+					// is lists overloaded?
+					if (first_vertex->linked_count >= MAX_SMOOTHING_NORMALS_LINKED) break;
+					if (second_vertex->linked_count >= MAX_SMOOTHING_NORMALS_LINKED) continue;
+
+					for (int l = 0; l < first_vertex->linked_count; ++l) {
+						if (first_vertex->linked[l] == s) {
+							already_linked = true;
+							break;
+						}
+					}
+
+					if (already_linked) continue;
+
+					for (int l = 0; l < first_vertex->linked_count; ++l) {
+						if (second_vertex->linked[l] == f) {
+							already_linked = true;
+							break;
+						}
+					}
+
+					if (already_linked) continue;
+
+					if (first_vertex->ipos[0] == second_vertex->ipos[0] &&
+						first_vertex->ipos[1] == second_vertex->ipos[1] &&
+						first_vertex->ipos[2] == second_vertex->ipos[2] &&
+						first_vertex->iuv[0] == second_vertex->iuv[0] &&
+						first_vertex->iuv[1] == second_vertex->iuv[1]) {
+						if (DotProduct(first_vertex->vertex->normal, second_vertex->vertex->normal) > MAX_SMOOTHING_DOT_TRESHOLD) {
+							first_vertex->linked[(first_vertex->linked_count)++] = s;
+							second_vertex->linked[(second_vertex->linked_count)++] = f;
+						}
+					}
+				}
+
+				if (first_vertex->linked_count > 0) {
+					linked_vertices_count++;
+				}
+			}
+
+			if (linked_vertices_count > 0) {
+
+				//gEngine.Con_Printf("Chrome model regenerate normals: searched %u vertices and %u smoothed.\n", smoothing_vertices_count, linked_vertices_count);
+
+				// Simple calculation of median normals
+				// TODO: need to recalculate tangents for better result?
+				for (int v = 0; v < smoothing_vertices_count; ++v) {
+					vk_smoothing_map_normals_t* vertex = smoothing_vertices + v;
+
+					if (vertex->already_smoothed == 1) continue;
+
+					vk_vertex_t* vert_data = vertex->vertex;
+
+					vec3_t normal = { vert_data->normal[0], vert_data->normal[1], vert_data->normal[2] };
+
+					for (int l = 0; l < vertex->linked_count; ++l) {
+						vk_smoothing_map_normals_t* linked = smoothing_vertices + vertex->linked[l];
+
+						VectorAdd(normal, linked->vertex->normal, normal);
+					}
+
+					VectorNormalize(normal);
+
+					VectorCopy(normal, vert_data->normal);
+
+					for (int l = 0; l < vertex->linked_count; ++l) {
+						vk_smoothing_map_normals_t* linked = smoothing_vertices + vertex->linked[l];
+						VectorCopy(normal, linked->vertex->normal);
+
+						linked->already_smoothed = 1;
+					}
+				}
+			}
+		}
 	}
 
 	ASSERT(vertex_offset < UINT16_MAX);
