@@ -27,10 +27,8 @@ layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_gi_sh2;
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
 	mat4 last_inv_proj, last_inv_view;
-	mat4 last_proj, last_view;
 	float ray_cone_width;
 	uint random_seed;
-	uint blue_noise_seed;
 };
 
 layout(set = 0, binding = 9) uniform UBO { UniformBuffer ubo; };
@@ -79,8 +77,6 @@ void main() {
 	vec4 debug_reprojection = vec4(1., 0., 0., 1.);
 	float reflection_ray_lenth = length(reflection_pos - position);
 
-	//last_pix = closest_checker_texel(last_pix, source_checker_texel);
-
 	vec2 forward_offset = vec2(-100., 0.);
 	vec2 parallax_offset = vec2(-100., 0.);
 
@@ -123,8 +119,8 @@ void main() {
 
 		// more velocity, low precision
 		//if (search_done == false) {
-			SEARCH_CYCLE(pix, 8);
-			SEARCH_CYCLE(last_pix, 8);
+		//	SEARCH_CYCLE(pix, 8);
+		//	SEARCH_CYCLE(last_pix, 8);
 		//}
 
 		// refine by searching in little area
@@ -134,7 +130,6 @@ void main() {
 			forward_offset = (vec2(better_pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
 		}
 	}
-
 
 	// Parallax reprojection
 	vec3 texel_normal = normalize(geometryNormal.xyz);
@@ -154,9 +149,9 @@ void main() {
 		const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_pix).xyz;
 		const float co_planar_difference = abs(dot(texel_normal, normalize(last_parallax_texel_pos - position)));
 
-		float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
-		float ray_length_difference = last_ray_length / reflection_ray_lenth;
-		//float ray_length_difference = 1.;
+//		float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
+//		float ray_length_difference = last_ray_length / reflection_ray_lenth;
+		float ray_length_difference = 1.; // DEBUG!
 
 		vec3 parallax_shadingNormal, parallax_geometryNormal;
 		readNormals(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);

@@ -125,6 +125,14 @@ static struct {
 	X(denoiser_gi_blur_1, R_VkRayDenoiserGIBlurPass1Create) \
 	X(denoiser_gi_blur_2, R_VkRayDenoiserGIBlurPass2Create) \
 	X(denoiser_gi_blur_3, R_VkRayDenoiserGIBlurPass3Create) \
+	X(denoiser_diffuse_variance, R_VkRayDenoiserDiffuseSVGFVarianceCreate ) \
+	X(denoiser_diffuse_svgf_1, R_VkRayDenoiserDiffuseSVGFPass1Create ) \
+	X(denoiser_diffuse_svgf_2, R_VkRayDenoiserDiffuseSVGFPass2Create ) \
+	X(denoiser_diffuse_svgf_3, R_VkRayDenoiserDiffuseSVGFPass3Create ) \
+	X(denoiser_specular_variance, R_VkRayDenoiserSpecularSVGFVarianceCreate ) \
+	X(denoiser_specular_svgf_1, R_VkRayDenoiserSpecularSVGFPass1Create ) \
+	X(denoiser_specular_svgf_2, R_VkRayDenoiserSpecularSVGFPass2Create ) \
+	X(denoiser_specular_svgf_3, R_VkRayDenoiserSpecularSVGFPass3Create ) \
 	X(denoiser_compose, R_VkRayDenoiserComposeCreate) \
 	X(denoiser_fxaa, R_VkRayDenoiserFXAACreate) \
 	X(denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate) \
@@ -547,11 +555,11 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 	Matrix4x4_ToArrayFloatGL(view_inv, (float*)ubo->inv_view);
 
 	// last frame matrices
-	static matrix4x4 last_proj, last_view;
-	Matrix4x4_ToArrayFloatGL(last_proj, (float*)ubo->last_proj);
-	Matrix4x4_ToArrayFloatGL(last_view, (float*)ubo->last_view);
-	Matrix4x4_Copy(last_view, *args->view);
-	Matrix4x4_Copy(last_proj, *args->projection);
+	static matrix4x4 last_inv_proj, last_inv_view;
+	Matrix4x4_ToArrayFloatGL(last_inv_proj, (float*)ubo->last_inv_proj);
+	Matrix4x4_ToArrayFloatGL(last_inv_view, (float*)ubo->last_inv_view);
+	Matrix4x4_Copy(last_inv_view, view_inv);
+	Matrix4x4_Copy(last_inv_proj, proj_inv);
 
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);
@@ -691,10 +699,8 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		BLIT_IMAGES(args->current_frame->last_specular.image,		  args->last_frame->specular_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
-	}
-
-	if (g_rtx.last_frame_buffers_inited == false && args->frame_index == 1) {
-		g_rtx.last_frame_buffers_inited = true;
+	} else {
+		g_rtx.last_frame_buffers_inited = true; // after first frame all buffers are inited
 	}
 
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.primary_ray, &res );
@@ -729,10 +735,18 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 
 	if (g_rtx.denoiser_enabled) {
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
-		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_variance, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_1, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_2, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_variance, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_1, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_2, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_3, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_compose, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_fxaa, &res);
 	}

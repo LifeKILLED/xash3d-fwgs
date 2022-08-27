@@ -234,10 +234,12 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 	for (uint index = startIndex; index < endIndex; ++index) {
 #else
 	for (uint index = 0; index < num_lights; ++index) {
+	#ifdef REJECT_ANYWHERE_THRESHOLD
+		if (rand01() < REJECT_ANYWHERE_THRESHOLD) SKIP_LIGHT()
+	#endif
 #endif
 
 //#endif // USE_CLUSTERS
-
 
 
 		const PolygonLight poly = lights.polygons[index];
@@ -291,10 +293,10 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 
 
 
-//#ifdef REJECT_ANYWHERE_THRESHOLD
-//	diffuse /= REJECT_ANYWHERE_THRESHOLD;
-//	specular /= REJECT_ANYWHERE_THRESHOLD;
-//#endif
+#ifdef REJECT_ANYWHERE_THRESHOLD
+	diffuse /= REJECT_ANYWHERE_THRESHOLD;
+	specular /= REJECT_ANYWHERE_THRESHOLD;
+#endif
 
 #ifdef ONE_LIGHT_PER_TEXEL
 		diffuse *= float(num_lights);
@@ -310,7 +312,6 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 	}
 #endif
 #endif
-
 
 
 //#else // DO_ALL_IN_CLUSTERS

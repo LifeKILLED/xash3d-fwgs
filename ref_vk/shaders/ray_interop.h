@@ -89,15 +89,22 @@
 	X(-1, specular_accum, rgba16f) \
 	X(-1, gi_sh1_accum, rgba16f) \
 	X(-1, gi_sh2_accum, rgba16f) \
-	X(-1, specular_spread, rgba16f) \
 	X(-1, gi_sh1_pass_1, rgba16f) \
 	X(-1, gi_sh2_pass_1, rgba16f) \
 	X(-1, gi_sh1_pass_2, rgba16f) \
 	X(-1, gi_sh2_pass_2, rgba16f) \
-	X(-1, diffuse_denoised, rgba16f) \
-	X(-1, specular_denoised, rgba16f) \
 	X(-1, gi_sh1_denoised, rgba16f) \
 	X(-1, gi_sh2_denoised, rgba16f) \
+	X(-1, diffuse_variance, rgba16f) \
+	X(-1, diffuse_svgf1, rgba16f) \
+	X(-1, diffuse_svgf2, rgba16f) \
+	X(-1, diffuse_svgf3, rgba16f) \
+	X(-1, diffuse_denoised, rgba16f) \
+	X(-1, specular_variance, rgba16f) \
+	X(-1, specular_svgf1, rgba16f) \
+	X(-1, specular_svgf2, rgba16f) \
+	X(-1, specular_svgf3, rgba16f) \
+	X(-1, specular_denoised, rgba16f) \
 	X(-1, final_image, rgba16f) \
 
 
@@ -222,7 +229,7 @@ struct PushConstants {
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
-	mat4 last_proj, last_view;
+	mat4 last_inv_proj, last_inv_view;
 	float ray_cone_width;
 	uint random_seed;
 	PAD(2)

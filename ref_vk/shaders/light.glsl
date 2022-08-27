@@ -28,7 +28,7 @@ const float shadow_offset_fudge = .1;
 #else // Emissive kusochki - soft lighting, big count
 	#define LOWER_IRRADIANCE_THRESHOLD 0.01
 	#define HIGHT_IRRADIANCE_THRESHOLD 2.
-	//#define REJECT_ANYWHERE_THRESHOLD 0.5
+	//#define REJECT_ANYWHERE_THRESHOLD 0.33
 	//#define ACCUMULATED_THRESHOLD 0.8
 #endif
 

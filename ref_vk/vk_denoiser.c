@@ -221,6 +221,140 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass3Create(void) {
 
 
 
+	// DIFFUSE SVGF VARIANCE
+
+#define LIST_OUTPUTS_DIFFUSE_VARIANCE(X) \
+	X(0, diffuse_variance) \
+
+#define LIST_INPUTS_DIFFUSE_VARIANCE(X) \
+	X(1, diffuse_accum) \
+
+struct ray_pass_s* R_VkRayDenoiserDiffuseSVGFVarianceCreate(void) {
+	PASS_CREATE_FUNC("denoiser diffuse init variance", "denoiser_svgf_variance.comp.spv", DIFFUSE_VARIANCE, 2)
+}
+
+
+	// DIFFUSE SVGF PASS 1
+
+#define LIST_OUTPUTS_DIFFUSE_SVGF1(X) \
+	X(0, diffuse_svgf1) \
+
+#define LIST_INPUTS_DIFFUSE_SVGF1(X) \
+	X(1, diffuse_accum) \
+	X(2, diffuse_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserDiffuseSVGFPass1Create(void) {
+	PASS_CREATE_FUNC("denoiser diffuse svgf pass 1", "denoiser_svgf_pass_1.comp.spv", DIFFUSE_SVGF1, 5)
+}
+
+
+	// DIFFUSE SVGF PASS 2
+
+#define LIST_OUTPUTS_DIFFUSE_SVGF2(X) \
+	X(0, diffuse_svgf2) \
+
+#define LIST_INPUTS_DIFFUSE_SVGF2(X) \
+	X(1, diffuse_svgf1) \
+	X(2, diffuse_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserDiffuseSVGFPass2Create(void) {
+	PASS_CREATE_FUNC("denoiser diffuse svgf pass 2", "denoiser_svgf_pass_2.comp.spv", DIFFUSE_SVGF2, 5)
+}
+
+
+
+
+	// DIFFUSE SVGF PASS 3
+
+#define LIST_OUTPUTS_DIFFUSE_SVGF3(X) \
+	X(0, diffuse_denoised) \
+
+#define LIST_INPUTS_DIFFUSE_SVGF3(X) \
+	X(1, diffuse_svgf2) \
+	X(2, diffuse_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserDiffuseSVGFPass3Create(void) {
+	PASS_CREATE_FUNC("denoiser diffuse svgf pass 3", "denoiser_svgf_pass_3.comp.spv", DIFFUSE_SVGF3, 5)
+}
+
+
+
+
+
+
+	// SPECULAR SVGF VARIANCE
+
+#define LIST_OUTPUTS_SPECULAR_VARIANCE(X) \
+	X(0, specular_variance) \
+
+#define LIST_INPUTS_SPECULAR_VARIANCE(X) \
+	X(1, specular_accum) \
+
+struct ray_pass_s* R_VkRayDenoiserSpecularSVGFVarianceCreate(void) {
+	PASS_CREATE_FUNC("denoiser specular init variance", "denoiser_svgf_variance.comp.spv", SPECULAR_VARIANCE, 2)
+}
+
+
+	// SPECULAR SVGF PASS 1
+
+#define LIST_OUTPUTS_SPECULAR_SVGF1(X) \
+	X(0, specular_svgf1) \
+
+#define LIST_INPUTS_SPECULAR_SVGF1(X) \
+	X(1, specular_accum) \
+	X(2, specular_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass1Create(void) {
+	PASS_CREATE_FUNC("denoiser specular svgf pass 1", "denoiser_svgf_pass_1.comp.spv", SPECULAR_SVGF1, 5)
+}
+
+
+	// SPECULAR SVGF PASS 2
+
+#define LIST_OUTPUTS_SPECULAR_SVGF2(X) \
+	X(0, specular_svgf2) \
+
+#define LIST_INPUTS_SPECULAR_SVGF2(X) \
+	X(1, specular_svgf1) \
+	X(2, specular_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass2Create(void) {
+	PASS_CREATE_FUNC("denoiser specular svgf pass 2", "denoiser_svgf_pass_2.comp.spv", SPECULAR_SVGF2, 5)
+}
+
+
+
+
+	// SPECULAR SVGF PASS 3
+
+#define LIST_OUTPUTS_SPECULAR_SVGF3(X) \
+	X(0, specular_denoised) \
+
+#define LIST_INPUTS_SPECULAR_SVGF3(X) \
+	X(1, specular_svgf2) \
+	X(2, specular_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass3Create(void) {
+	PASS_CREATE_FUNC("denoiser specular svgf pass 3", "denoiser_svgf_pass_3.comp.spv", SPECULAR_SVGF3, 5)
+}
+
+
+
+
+
+
 	// PASS 5. COMPOSE
 
 #define LIST_OUTPUTS_COMP(X) \
@@ -232,8 +366,8 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass3Create(void) {
 	X(3, position_t) \
 	X(4, normals_gs) \
 	X(5, material_rmxx) \
-	X(6, diffuse_accum) \
-	X(7, specular_accum) \
+	X(6, diffuse_denoised) \
+	X(7, specular_denoised) \
 	X(8, gi_sh1_denoised) \
 	X(9, gi_sh2_denoised) \
 	X(10, refl_position_t) \

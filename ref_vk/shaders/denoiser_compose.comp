@@ -26,10 +26,8 @@ layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_refl_positio
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
 	mat4 last_inv_proj, last_inv_view;
-	mat4 last_proj, last_view;
 	float ray_cone_width;
 	uint random_seed;
-	uint blue_noise_seed;
 };
 
 layout(set = 0, binding = 11) uniform UBO { UniformBuffer ubo; };
@@ -130,62 +128,62 @@ void main() {
 	float specular_total_scale = 0.;
 	vec3 speculour = vec3(0.);
 
-	const vec4 center_pos = imageLoad(src_position_t, pix);
-	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
-		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y);
-			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-				continue;
-			}
-
-			float scale = 1.f;
-
-			// const vec4 c = imageLoad(src_light_direct_poly, p);
-			// if (c.a != material_index)
-			// 	continue;
-
-			vec3 sample_geometry_normal, sample_shading_normal;
-			readNormals(p, sample_geometry_normal, sample_shading_normal);
-
-			// FIXME also filter by depth, (kusok index?), etc
-			//scale *= smoothstep(.9, 1., dot(sample_geometry_normal, geometry_normal));
-
-			const vec4 sample_pos = imageLoad(src_position_t, p);
-			scale *= smoothstep(4. * center_pos.w / 100., 0., distance(center_pos.xyz, sample_pos.xyz));
-
-			if ( scale <= 0. )
-				continue;
-
-			vec3 diffuse = vec3(0.);
-			diffuse += imageLoad(src_diffuse, p).rgb;
-
-			vec3 specular = vec3(0.);
-			specular += imageLoad(src_specular, p).rgb;
-
-			{
-				const float sigma = KERNEL_SIZE / 2.;
-				const float dscale = scale * normpdf(x, sigma) * normpdf(y, sigma);
-				colour += dscale * diffuse;
-				total_scale += dscale;
-			}
-
-			const int SPECULAR_KERNEL_SIZE = 4;
-			if (all(lessThan(abs(ivec2(x, y)), ivec2(SPECULAR_KERNEL_SIZE)))) {
-				const float spigma = SPECULAR_KERNEL_SIZE / 2.;
-				const float specuale = scale * normpdf(x, spigma) * normpdf(y, spigma);
-				speculour += specuale * specular;
-				specular_total_scale += specuale;
-			}
-		}
-
-	if (total_scale > 0.) {
-		colour /= total_scale;
-	}
-
-	if (specular_total_scale > 0.) {
-		speculour /= specular_total_scale;
-		colour += speculour;
-	}
+//	const vec4 center_pos = imageLoad(src_position_t, pix);
+//	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
+//		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//			const ivec2 p = pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//
+//			float scale = 1.f;
+//
+//			// const vec4 c = imageLoad(src_light_direct_poly, p);
+//			// if (c.a != material_index)
+//			// 	continue;
+//
+//			vec3 sample_geometry_normal, sample_shading_normal;
+//			readNormals(p, sample_geometry_normal, sample_shading_normal);
+//
+//			// FIXME also filter by depth, (kusok index?), etc
+//			//scale *= smoothstep(.9, 1., dot(sample_geometry_normal, geometry_normal));
+//
+//			const vec4 sample_pos = imageLoad(src_position_t, p);
+//			scale *= smoothstep(4. * center_pos.w / 100., 0., distance(center_pos.xyz, sample_pos.xyz));
+//
+//			if ( scale <= 0. )
+//				continue;
+//
+//			vec3 diffuse = vec3(0.);
+//			diffuse += imageLoad(src_diffuse, p).rgb;
+//
+//			vec3 specular = vec3(0.);
+//			specular += imageLoad(src_specular, p).rgb;
+//
+//			{
+//				const float sigma = KERNEL_SIZE / 2.;
+//				const float dscale = scale * normpdf(x, sigma) * normpdf(y, sigma);
+//				colour += dscale * diffuse;
+//				total_scale += dscale;
+//			}
+//
+//			const int SPECULAR_KERNEL_SIZE = 4;
+//			if (all(lessThan(abs(ivec2(x, y)), ivec2(SPECULAR_KERNEL_SIZE)))) {
+//				const float spigma = SPECULAR_KERNEL_SIZE / 2.;
+//				const float specuale = scale * normpdf(x, spigma) * normpdf(y, spigma);
+//				speculour += specuale * specular;
+//				specular_total_scale += specuale;
+//			}
+//		}
+//
+//	if (total_scale > 0.) {
+//		colour /= total_scale;
+//	}
+//
+//	if (specular_total_scale > 0.) {
+//		speculour /= specular_total_scale;
+//		colour += speculour;
+//	}
 //#endif
 
 	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);

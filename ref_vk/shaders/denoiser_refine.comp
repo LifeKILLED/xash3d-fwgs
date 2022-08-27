@@ -127,46 +127,46 @@ void main() {
 	vec4 diffuse_last = vec4(0.);
 	vec4 specular_last = vec4(0.);
 
-	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y);
-			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-				continue;
-			}
-
-			vec3 current_geometry_normal, current_shading_normal;
-			readNormals(p, current_geometry_normal, current_shading_normal);
-			const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
-			//const float normals_factor = 1.;
-
-			const float sigma = KERNEL_SIZE * 0.8;
-			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * normals_factor;
-
-			//if (dot(shading_normal, current_shading_normal) > 0.98) {
-			if (weight > WEIGHT_THRESHOLD) {
-				const float depth_current = imageLoad(src_position_t, pix).w;
-				const float depth_offset = abs(depth - depth_current);
-				const float depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
-				const float gi_depth_factor = 1. - smoothstep(0., GI_DEPTH_THRESHOLD, depth_offset);
-
-				diffuse += imageLoad(src_diffuse_noisy, p).rgb * weight * depth_factor;
-				//specular += imageLoad(src_specular_noisy, p).rgb * weight * depth_factor;
-				weights_sum += weight * depth_factor;
-
-				gi_sh1 += imageLoad(src_gi_sh1_spread, p) * weight * gi_depth_factor;
-				gi_sh2 += imageLoad(src_gi_sh2_spread, p).xy * weight * gi_depth_factor;
-				gi_weights_sum += weight * gi_depth_factor;
-			}
-		}
-	}
-
-
-	if (weights_sum > WEIGHT_THRESHOLD) {
-		diffuse /= weights_sum;
-		//specular /= weights_sum;
-		gi_sh1 /= gi_weights_sum;
-		gi_sh2 /= gi_weights_sum;
-	}
+//	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+//		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//			const ivec2 p = pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//
+//			vec3 current_geometry_normal, current_shading_normal;
+//			readNormals(p, current_geometry_normal, current_shading_normal);
+//			const float normals_factor = smoothstep(NORMALS_THRESHOLD_LOW, NORMALS_THRESHOLD_HIGHT, dot(shading_normal, current_shading_normal));
+//			//const float normals_factor = 1.;
+//
+//			const float sigma = KERNEL_SIZE * 0.8;
+//			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * normals_factor;
+//
+//			//if (dot(shading_normal, current_shading_normal) > 0.98) {
+//			if (weight > WEIGHT_THRESHOLD) {
+//				const float depth_current = imageLoad(src_position_t, pix).w;
+//				const float depth_offset = abs(depth - depth_current);
+//				const float depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
+//				const float gi_depth_factor = 1. - smoothstep(0., GI_DEPTH_THRESHOLD, depth_offset);
+//
+//				diffuse += imageLoad(src_diffuse_noisy, p).rgb * weight * depth_factor;
+//				//specular += imageLoad(src_specular_noisy, p).rgb * weight * depth_factor;
+//				weights_sum += weight * depth_factor;
+//
+//				gi_sh1 += imageLoad(src_gi_sh1_spread, p) * weight * gi_depth_factor;
+//				gi_sh2 += imageLoad(src_gi_sh2_spread, p).xy * weight * gi_depth_factor;
+//				gi_weights_sum += weight * gi_depth_factor;
+//			}
+//		}
+//	}
+//
+//
+//	if (weights_sum > WEIGHT_THRESHOLD) {
+//		diffuse /= weights_sum;
+//		//specular /= weights_sum;
+//		gi_sh1 /= gi_weights_sum;
+//		gi_sh2 /= gi_weights_sum;
+//	}
 
 	
     const float average_samples_count = min(imageLoad(src_diffuse_noisy, pix).w, imageLoad(src_specular_noisy, pix).w);
@@ -174,7 +174,7 @@ void main() {
 	//const float threshold = max(0.2, 1. - average_samples_count * 0.1);
 	const float threshold = clamp(1.0 - sqrt((average_samples_count + 1.) / 15.) * 0.9, 0.1, 1.);
 
-	//smartDeNoise(pix, res, 3., 2., threshold, diffuse, specular);
+	smartDeNoise(pix, res, 3., 2., threshold, diffuse, specular);
 
 	//if (roughness < 0.05) {
 		//specular = imageLoad(src_specular_spread, pix).rgb;

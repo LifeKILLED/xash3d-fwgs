@@ -257,6 +257,8 @@ void main() {
 	// pbr
 	colour += mix(dielectric_colour, metal_colour, metalness);
 
+	//colour = specular;
+
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
 #if 0

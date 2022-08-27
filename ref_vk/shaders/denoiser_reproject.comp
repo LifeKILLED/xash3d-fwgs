@@ -108,53 +108,55 @@ void main() {
 	vec4 last_forward_spec = specular_src;
 	vec4 last_parallax_spec = specular_src;
 
-	// remove bad reproject candidates from fake motion vectors data
-	if (THERE_IS(forward_offset)) {
-		// But we will searching for better equal texel in last frame
-		const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
-		const int KERNEL_SIZE = 3;
-		bool its_not_better_pix = false;
-
-		const ivec2 offset_pix = UVToPix(forward_offset, res);
-		const vec4 last_search_info_ktuv = imageLoad(src_last_search_info_ktuv, offset_pix);
-		const float uv_offset = length(search_info_ktuv.zw - last_search_info_ktuv.zw);
-
-		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
-			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-				const ivec2 p = pix + ivec2(x, y);
-
-				if (any(greaterThanEqual(p, res)) ||
-					any(lessThan(p, ivec2(0))) ||
-					any(equal(p, pix)))
-						continue;
-
-				const vec2 current_offset_uv = imageLoad(src_motion_offsets_uvs, p).xy;
-				if (current_offset_uv.x > -99.) {
-					const ivec2 current_pix = UVToPix(current_offset_uv, res);
-					const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, current_pix);
-
-					if (current_pix.x == offset_pix.x && current_pix.y == offset_pix.y &&
-						/*search_info_ktuv.x == current_info_ktuv.x &&*/ search_info_ktuv.y == current_info_ktuv.y) {
-
-						const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw);
-						if (current_uv_offset < uv_offset) {
-							forward_offset = vec2(-100., 0.);
-							parallax_offset = vec2(-100., 0.);
-						}
-					}
-				}
-			}
-		}
-	}
+//	// remove bad reproject candidates from fake motion vectors data
+//	if (THERE_IS(forward_offset)) {
+//		// But we will searching for better equal texel in last frame
+//		const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
+//		const int KERNEL_SIZE = 3;
+//		bool its_not_better_pix = false;
+//
+//		const ivec2 offset_pix = UVToPix(forward_offset, res);
+//		const vec4 last_search_info_ktuv = imageLoad(src_last_search_info_ktuv, offset_pix);
+//		const float uv_offset = length(search_info_ktuv.zw - last_search_info_ktuv.zw);
+//
+//		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+//			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//				const ivec2 p = pix + ivec2(x, y);
+//
+//				if (any(greaterThanEqual(p, res)) ||
+//					any(lessThan(p, ivec2(0))) ||
+//					any(equal(p, pix)))
+//						continue;
+//
+//				const vec2 current_offset_uv = imageLoad(src_motion_offsets_uvs, p).xy;
+//				if (current_offset_uv.x > -99.) {
+//					const ivec2 current_pix = UVToPix(current_offset_uv, res);
+//					const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, current_pix);
+//
+//					if (current_pix.x == offset_pix.x && current_pix.y == offset_pix.y &&
+//						/*search_info_ktuv.x == current_info_ktuv.x &&*/ search_info_ktuv.y == current_info_ktuv.y) {
+//
+//						const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw);
+//						if (current_uv_offset < uv_offset) {
+//							forward_offset = vec2(-100., 0.);
+//							parallax_offset = vec2(-100., 0.);
+//						}
+//					}
+//				}
+//			}
+//		}
+//	}
 
 	// Get color from simple motion vector
 	if (THERE_IS(forward_offset)) {
 		const ivec2 last_pix = UVToPix(forward_offset, res);
-		last_forward_spec = imageLoad(src_last_specular, last_pix) + vec4(vec3(0.), 1.);
-		last_forward_spec.w += 1.; // increase sample count
+		//const ivec2 last_pix = pix; // DEBUG!!!!!!
 
 		last_diffuse = imageLoad(src_last_diffuse, last_pix);
 		last_diffuse.w += 1.; // increase sample count
+
+		last_forward_spec = imageLoad(src_last_specular, last_pix);
+		last_forward_spec.w += 1.; // increase sample count
 
 		last_gi_sh1 = imageLoad(src_last_gi_sh1, last_pix);
 		last_gi_sh2 = imageLoad(src_last_gi_sh2, last_pix).xyz;
@@ -165,11 +167,12 @@ void main() {
 		overlap_factor = 0.; // we don't need to check depth here
 
 		diffuse_mixed = mix(last_diffuse, diffuse_src, overlap_factor);
+		specular_mixed = mix(last_forward_spec, specular_src, overlap_factor);
 		gi_sh1_mixed = mix(last_gi_sh1, gi_sh1_src, overlap_factor);
 		gi_sh2_mixed = mix(last_gi_sh2, gi_sh2_src, overlap_factor);
-		last_forward_spec = mix(last_forward_spec, specular_src, overlap_factor);
 	}
 
+	// Old, delete this 
 	// Parallax reprojecting for specular reflection
 //	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
 //
@@ -198,35 +201,36 @@ void main() {
 //		last_parallax_spec = mix(specular_src, last_parallax_spec, parallaxFactor * overlap_factor);
 //	}
 
+  // New
 	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
 
 		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
-		last_parallax_spec = imageLoad(src_last_specular, parallax_pix);
-		last_parallax_spec.w += 1.; // increase sample count
+		specular_mixed = imageLoad(src_last_specular, parallax_pix);
+		specular_mixed.w += 1.; // increase sample count
 
-		vec3 parallaxGeometry_normal, parallaxShading_normal;
-		readLastNormals(parallax_pix, parallaxGeometry_normal, parallaxShading_normal);
+		//vec3 parallaxGeometry_normal, parallaxShading_normal;
+		//readLastNormals(parallax_pix, parallaxGeometry_normal, parallaxShading_normal);
 
 		// Is parallax reprojecting in current texel?
-		const float normalsDifference = dot(normalize(geometry_normal), normalize(shading_normal));
-		parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, normalsDifference), PARALLAX_FACTOR_POW);
+		//const float normalsDifference = dot(normalize(geometry_normal), normalize(shading_normal));
+		//parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, normalsDifference), PARALLAX_FACTOR_POW);
 
 		// Is parallax reprojecting on previous frame texel?
-		const float last_normalsDifference = dot(normalize(parallaxGeometry_normal), normalize(parallaxShading_normal));
-		last_parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, last_normalsDifference), PARALLAX_FACTOR_POW);
+		//const float last_normalsDifference = dot(normalize(parallaxGeometry_normal), normalize(parallaxShading_normal));
+		//last_parallaxFactor = pow(smoothstep(NORMALS_DIFFERENCE_LOW, NORMALS_DIFFERENCE_HIGH, last_normalsDifference), PARALLAX_FACTOR_POW);
 
 		// Is parallax reprojecting canceled in texel from previous frame? 
-		fallbackFactor = parallaxFactor > 0. ? 1. - clamp(0., 1., ((1. - last_parallaxFactor) - (1. - parallaxFactor))) * 2. : 0.;
+		//fallbackFactor = parallaxFactor > 0. ? 1. - clamp(0., 1., ((1. - last_parallaxFactor) - (1. - parallaxFactor))) * 2. : 0.;
 
-		const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
-		overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
+		//const float last_depth = imageLoad(src_last_position_t, parallax_pix).w;
+		//overlap_factor = 1. - smoothstep(0., depthTreshold, depth - last_depth);
 		//overlap_factor = 1.; // we don't need to check depth here
 
-		last_parallax_spec = mix(specular_src, last_parallax_spec, parallaxFactor * overlap_factor);
+		//specular_mixed = mix(specular_src, specular_mixed, parallaxFactor * overlap_factor);
 	}
 
-	specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
-	specular_mixed = mix(last_forward_spec, specular_mixed, parallaxFactor);
+//	specular_mixed = mix(specular_src, last_parallax_spec, fallbackFactor);
+//	specular_mixed = mix(last_forward_spec, specular_mixed, parallaxFactor);
 
 //	const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_mixed.rgb - diffuse_src.rgb));
 //	const float specular_difference = smoothstep(0.5, 1.5, length(specular_mixed.rgb - specular_src.rgb));
@@ -235,9 +239,9 @@ void main() {
 	const float specular_difference = 0.;
 	const float gi_difference = 0.;
 //
-//	const float diffuse_frames_blend = 0.9;
-//	const float specular_frames_blend = 0.9;
-//	const float gi_frames_blend = 0.9;
+	//const float diffuse_frames_blend = 0.9;
+	//const float specular_frames_blend = 0.9;
+	//const float gi_frames_blend = 0.9;
 
 	const float duffuse_samples_count = mix(diffuse_mixed.w, 1., diffuse_difference);
 	const float specular_samples_count = mix(specular_mixed.w, 1., specular_difference);
@@ -251,6 +255,10 @@ void main() {
 	specular_mixed = mix(specular_src, specular_mixed, specular_frames_blend);
 	gi_sh1_mixed = mix(gi_sh1_src, gi_sh1_mixed, gi_frames_blend);
 	gi_sh2_mixed = mix(gi_sh2_src, gi_sh2_mixed, gi_frames_blend);
+
+
+
+
 
 //	vec3 motion_reprojection_debug = vec3(0., 0., 1.);
 //	if (motion_offsets_uvs.x > -99.) {
@@ -266,9 +274,11 @@ void main() {
 //		specular_mixed += vec4(.3, 0., 0., 0.);
 //	}
 
-	//imageStore(out_specular_accum, pix, vec4(motion_reprojection_debug, 0.0));
-	imageStore(out_specular_accum, pix, specular_mixed);
+	//imageStore(out_diffuse_accum, pix, vec4(motion_reprojection_debug, 0.0));
+
+
 	imageStore(out_diffuse_accum, pix, diffuse_mixed);
+	imageStore(out_specular_accum, pix, specular_mixed);
 	imageStore(out_gi_sh1_accum, pix, gi_sh1_mixed);
 	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2_mixed, reflLength));
 }

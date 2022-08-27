@@ -246,7 +246,9 @@ void main() {
 	refl_emissive /= EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION;
 #endif
 
-	const vec4 out_refl_position_t = vec4(payload.hit_t.xyz, roughness);
+	const float refl_ray_length = length(out_position_t.xyz - payload.hit_t.xyz);
+
+	const vec4 out_refl_position_t = vec4(payload.hit_t.xyz, refl_ray_length);
 	const vec4 out_refl_base_color_a = vec4(payload.base_color_a.rgb, payload.material_rmxx.y);
 	const vec4 out_refl_normals_gs = payload.normals_gs;
 	const vec4 out_refl_material_rmxx = payload.material_rmxx;

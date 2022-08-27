@@ -1,6 +1,6 @@
 
 #ifndef KERNEL_SIZE
-#define KERNEL_SIZE 3
+#define KERNEL_SIZE 1
 #endif
 
 #ifndef OFFSET
@@ -53,8 +53,10 @@ void main() {
 			const float depth_offset = abs(depth - depth_current);
 			const float gi_depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
 
-			const float sigma = KERNEL_SIZE / 2.;
-			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor;
+			float weight = 1.; // square blur for more efficient light spreading
+
+			//const float sigma = KERNEL_SIZE / 2.;
+			//const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor;
 
 			gi_sh1 += current_gi_sh1 * weight;
 			gi_sh2 += current_gi_sh2.xy * weight;
