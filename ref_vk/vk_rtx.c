@@ -121,6 +121,7 @@ static struct {
 	X(light_indirect_poly, R_VkRayLightIndirectPolyPassCreate) \
 	X(light_indirect_point, R_VkRayLightIndirectPointPassCreate) \
 	X(denoiser_accumulate, R_VkRayDenoiserAccumulateCreate) \
+	X(denoiser_specular_spread, R_VkRayDenoiserSpecularSpreadCreate) \
 	X(denoiser_reproject, R_VkRayDenoiserReprojectCreate) \
 	X(denoiser_gi_blur_1, R_VkRayDenoiserGIBlurPass1Create) \
 	X(denoiser_gi_blur_2, R_VkRayDenoiserGIBlurPass2Create) \
@@ -732,9 +733,10 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_point, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_poly, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_point, &res );
-
+	
 	if (g_rtx.denoiser_enabled) {
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
+		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_spread, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);

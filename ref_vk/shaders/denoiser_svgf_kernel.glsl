@@ -55,8 +55,8 @@ vec2 depthGradient(float src_depth, ivec2 pix, ivec2 res) {
 
 // Luminance-weighting function (4.4.3)
 float luminanceWeight(float lum0, float lum1, float variance) {
-  const float strictness = 10.0;
-  const float eps = 0.04;
+  const float strictness = 50.0;
+  const float eps = 0.05;
   return exp((-abs(lum0 - lum1)) / (strictness * variance + eps));
 }
 
@@ -108,18 +108,47 @@ void main() {
 	const float depth = imageLoad(src_position_depth, pix).w;
 	const vec2 depth_offset = vec2(1.);
 	//const float reproject_variance = 1.0; // need to calculate in reprojection
-	const float phi = PHI_COLOR * sqrt(max(0.0, 0.0001 + reproject_variance));
+	//const float phi = PHI_COLOR * sqrt(max(0.0, 0.0001 + reproject_variance));
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
 	// depth-gradient estimation from screen-space derivatives
-	const vec2 depth_gradient = depthGradient(depth, pix, res);
+//	const vec2 depth_gradient = depthGradient(depth, pix, res);
 
-//	const float kernel[2][2] = {
-//        { 1.0 / 4.0, 1.0 / 8.0  },
-//        { 1.0 / 8.0, 1.0 / 16.0 }
-//    };
+	const float kernel[2][2] = {
+        { 1.0 / 4.0, 1.0 / 8.0  },
+        { 1.0 / 8.0, 1.0 / 16.0 }
+    };
+
+//	float variance = 0.; // default value
+//	{
+//		const float sigma = KERNEL_SIZE / 2.;
+//		vec2 sigma_variance = vec2(0.0, 0.0);
+//		float weight_sum = 0.;
+//		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+//			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//				const ivec2 p = pix + ivec2(x, y) * SVGF_STEP_SIZE;
+//				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//					continue;
+//				}
+//
+//				float weight = kernel[abs(x)][abs(y)];
+//				//const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+//				//const float weight = 1.;
+//
+//				const vec3 current_irradiance = imageLoad(src_color_noisy, p).rgb;
+//				float current_luminance = luminance(current_irradiance);
+//				sigma_variance += vec2(current_luminance, current_luminance * current_luminance ) * weight;
+//				weight_sum += weight;
+//			}
+//		}
+//
+//		if (weight_sum > 0.) {
+//			sigma_variance /= weight_sum;
+//			variance = max(0.0, sigma_variance.y - sigma_variance.x * sigma_variance.x);
+//		}
+//	}
 
 	vec3 irradiance = vec3(0.);
 	float weight_sum = 0.;
@@ -134,8 +163,8 @@ void main() {
 			const vec3 current_irradiance = imageLoad(src_color_noisy, p).rgb;
 			const float depth_current = imageLoad(src_position_depth, p).w;
 
-			float weight = normpdf(x, sigma) * normpdf(y, sigma);
-			//float weight = kernel[abs(x)][abs(y)];
+			//float weight = normpdf(x, sigma) * normpdf(y, sigma);
+			float weight = kernel[abs(x)][abs(y)];
 
 			// combine the weights from above
 		#ifdef DRIVEN_BY_NORMALS

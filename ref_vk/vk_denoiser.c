@@ -76,6 +76,28 @@
 struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
 	PASS_CREATE_FUNC("denoiser_bypass", "denoiser.comp.spv", BYPASS, 16)
 }
+/*
+
+	// SIMPLE PASS WITHOUT DENOISE
+
+#define LIST_OUTPUTS_BYPASS(X) \
+	X(0, final_image) \
+
+#define LIST_INPUTS_BYPASS(X) \
+	X(1, base_color_a) \
+	X(2, emissive) \
+	X(3, position_t) \
+	X(4, normals_gs) \
+	X(5, material_rmxx) \
+	X(6, diffuse_accum) \
+	X(7, specular_accum) \
+	X(8, gi_sh1_accum) \
+	X(9, gi_sh2_accum) \
+	X(10, refl_position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserNoDenoiseCreate(void) {
+	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", BYPASS, 11)
+}*/
 
 
 
@@ -143,6 +165,25 @@ struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
 
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 17)
+}
+
+
+// PASS 3. SPECULAR SPREAD
+
+#define LIST_OUTPUTS_SPREAD(X) \
+	X(0, specular_accum) \
+
+#define LIST_INPUTS_SPREAD(X) \
+	X(1, specular_pre_spread) \
+	X(2, position_t) \
+	X(3, refl_position_t) \
+	X(4, normals_gs) \
+	X(5, material_rmxx) \
+	X(6, refl_normals_gs) \
+
+
+struct ray_pass_s* R_VkRayDenoiserSpecularSpreadCreate(void) {
+	PASS_CREATE_FUNC("denoiser specular spread", "denoiser_specular_spread.comp.spv", SPREAD, 7)
 }
 
 
