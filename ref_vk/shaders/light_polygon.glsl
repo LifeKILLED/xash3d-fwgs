@@ -41,13 +41,13 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly)
 	return vec4(light_dir_n, contrib);
 }
 
-vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly) {
+vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rand_values) {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
 	uint selected = 0;
 	float total_contrib = 0.;
-	float eps1 = rand01();
+	float eps1 = rand_values.z;
 	vec3 v[3];
 	v[0] = normalize(lights.polygon_vertices[vertices_offset + 0].xyz - P);
 	v[1] = normalize(lights.polygon_vertices[vertices_offset + 1].xyz - P);
@@ -93,9 +93,7 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 	if (selected == 0)
 		return vec4(0.);
 
-	vec2 rnd = vec2(sqrt(rand01()), rand01());
-	rnd.y *= rnd.x;
-	rnd.x = 1.f - rnd.x;
+	vec2 rnd = rand_values.xy;
 
 	const vec3 light_dir = baryMix(
 		lights.polygon_vertices[vertices_offset + 0].xyz,
@@ -208,9 +206,20 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 //}
 //
 //#else
+
+vec3 getRandValuesForSimpleSolid() {
+	vec2 rnd = vec2(sqrt(rand01()), rand01());
+	rnd.y *= rnd.x;
+	rnd.x = 1.f - rnd.x;
+
+	return vec3(rnd, rand01());
+}
+
 void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, uint pattern_texel_id, inout vec3 diffuse, inout vec3 specular) {
 //#if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
+
+	const vec3 rand_values = getRandValuesForSimpleSolid();
 
 #ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 	SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE()
@@ -234,9 +243,6 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 	for (uint index = startIndex; index < endIndex; ++index) {
 #else
 	for (uint index = 0; index < num_lights; ++index) {
-	#ifdef REJECT_ANYWHERE_THRESHOLD
-		if (rand01() < REJECT_ANYWHERE_THRESHOLD) SKIP_LIGHT()
-	#endif
 #endif
 
 //#endif // USE_CLUSTERS
@@ -254,7 +260,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #elif defined(SOLID)
 		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
 #elif defined(SIMPLE_SOLID)
-		const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly, rand_values);
 #else
 		const vec4 light_sample_dir = getPolygonLightSampleSimple(P, view_dir, poly);
 #endif
@@ -292,7 +298,6 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 
 
 
-
 #ifdef REJECT_ANYWHERE_THRESHOLD
 	diffuse /= REJECT_ANYWHERE_THRESHOLD;
 	specular /= REJECT_ANYWHERE_THRESHOLD;
@@ -304,13 +309,6 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #else
 	}
 
-#ifdef LIGHTS_REJECTION_X4
-	if (num_lights >= 4) {
-		const float rejection_scale = float(num_lights) / min(1., float(endIndex - startIndex));
-		diffuse *= rejection_scale;
-		specular *= rejection_scale;
-	}
-#endif
 #endif
 
 

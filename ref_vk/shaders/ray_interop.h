@@ -55,7 +55,7 @@
 
 #define RAY_LIGHT_REFLECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_reflection, rgba16f) \
-
+	
 #define RAY_LIGHT_REFLECT_POINT_OUTPUTS(X) \
 	X(20, light_point_reflection, rgba16f) \
 
@@ -70,7 +70,7 @@
 
 #define RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_indirect, rgba16f) \
-
+	
 #define RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X) \
 	X(20, light_point_indirect, rgba16f) \
 

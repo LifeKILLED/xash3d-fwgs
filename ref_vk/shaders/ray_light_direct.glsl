@@ -58,7 +58,7 @@ void main() {
 
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 
-	const uint pattern_texel_id = pix.x % 2 + (pix.y % 2) * 2;
+	const uint pattern_texel_id = ((pix.x % 2 + (pix.y % 2) * 2) + rand01_state) % 4;
 
 	const vec4 material_data = imageLoad(src_material_rmxx, pix);
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);

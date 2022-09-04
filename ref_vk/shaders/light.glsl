@@ -22,14 +22,13 @@ const float shadow_offset_fudge = .1;
 #define LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE 1
 
 #ifdef LIGHT_POINT // Low count, not agressive rejection
-	#define LOWER_IRRADIANCE_THRESHOLD 0.01
-	#define HIGHT_IRRADIANCE_THRESHOLD 0.5
-	//#define ACCUMULATED_THRESHOLD 0.8
+	#define LOWER_IRRADIANCE_THRESHOLD 0.025
+	#define HIGHT_IRRADIANCE_THRESHOLD 1.
+	//#define ACCUMULATED_THRESHOLD 0.1
 #else // Emissive kusochki - soft lighting, big count
-	#define LOWER_IRRADIANCE_THRESHOLD 0.01
-	#define HIGHT_IRRADIANCE_THRESHOLD 3.
-	//#define REJECT_ANYWHERE_THRESHOLD 0.25
-	//#define ACCUMULATED_THRESHOLD 0.8
+	#define LOWER_IRRADIANCE_THRESHOLD 0.004
+	#define HIGHT_IRRADIANCE_THRESHOLD 0.16
+	//#define ACCUMULATED_THRESHOLD 0.1
 #endif
 
 // If we already enlight texel, put up lower threshold
