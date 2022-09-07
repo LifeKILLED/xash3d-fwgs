@@ -47,10 +47,21 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 }
 
 void main() {
-	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
-	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
-	
+	const vec2 uv_src = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+	const ivec2 pix_src = ivec2(gl_LaunchIDEXT.xy);
+	const ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
 	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
+
+//#ifdef LIGHTS_REJECTION_X4
+//	const ivec2 pattern_4x_res = ivec2(gl_LaunchSizeEXT.xy) / 2;
+//	const ivec2 pix_segment_id = ivec2(step(pattern_4x_res.x, pix_src.x), step(pattern_4x_res.y, pix_src.y));
+//	const uint pattern_texel_id = ((pix_segment_id.x + pix_segment_id.y * 2) /*+ rand01_state*/) % 4;
+//#elif
+	const ivec2 pix = pix_src;
+	const uint pattern_texel_id = ((pix.x % 2 + (pix.y % 2) * 2)) % 4;
+	const vec2 uv = uv_src;
+//#endif
+
 
 	// FIXME incorrect for reflection/refraction
 	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
@@ -58,7 +69,6 @@ void main() {
 
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 
-	const uint pattern_texel_id = ((pix.x % 2 + (pix.y % 2) * 2) + rand01_state) % 4;
 
 	const vec4 material_data = imageLoad(src_material_rmxx, pix);
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);
@@ -132,7 +142,7 @@ void main() {
 
 	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
 	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
-//#ifdef LIGHT_POINT
+//#ifdef LIGHT_POLYGON
 		const vec3 throughput = vec3(1.);
 		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, pattern_texel_id, diffuse, specular);
 //#else
@@ -180,15 +190,15 @@ void main() {
 	#if LIGHT_POINT
 		imageStore(out_image_light_point_reflection, pix, vec4(diffuse + specular, 0.));
 	#else
-		imageStore(out_image_light_poly_reflection, pix, vec4(diffuse + specular, 0.));
+		imageStore(out_image_light_poly_reflection, pix_src, vec4(diffuse + specular, 0.));
 	#endif
 #else // direct lighting
 	#if LIGHT_POINT
 		imageStore(out_image_light_point_diffuse, pix, vec4(diffuse, 0.));
 		imageStore(out_image_light_point_specular, pix, vec4(specular, 0.));
 	#else
-		imageStore(out_image_light_poly_diffuse, pix, vec4(diffuse, 0.));
-		imageStore(out_image_light_poly_specular, pix, vec4(specular, 0.));
+		imageStore(out_image_light_poly_diffuse, pix_src, vec4(diffuse, 0.));
+		imageStore(out_image_light_poly_specular, pix_src, vec4(specular, 0.));
 	#endif
 #endif
 }

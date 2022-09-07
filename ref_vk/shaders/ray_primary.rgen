@@ -162,6 +162,17 @@ void main() {
 	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
 	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
 
+
+//	const vec2 uv_src = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+//	const ivec2 pix_src = ivec2(gl_LaunchIDEXT.xy);
+//	const ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
+//	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
+//
+//	const ivec2 pattern_4x_res = ivec2(gl_LaunchSizeEXT.xy) / 2;
+//	const ivec2 pix_segment_id = ivec2(step(pattern_4x_res.x, pix_src.x), step(pattern_4x_res.y, pix_src.y));
+//	const ivec2 pix = pix_src * 2 - pix_segment_id * res;
+//	const vec2 uv = (vec2(pix) + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+
 	// FIXME start on a near plane
 	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);

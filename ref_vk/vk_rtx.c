@@ -736,7 +736,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 	
 	if (g_rtx.denoiser_enabled) {
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
-		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_spread, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_spread, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);

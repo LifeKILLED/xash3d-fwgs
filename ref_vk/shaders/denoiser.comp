@@ -259,7 +259,7 @@ void main() {
 	//colour += mix(dielectric_colour, metal_colour, metalness);
 	colour += PBRMix(base_color.rgb, diffuse + global_illumination, specular, metalness);
 
-	//colour = specular;
+	//colour = diffuse;
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness

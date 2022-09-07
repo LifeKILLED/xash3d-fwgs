@@ -165,6 +165,29 @@ void main() {
 		}
 	}
 
+//	float best_destination_difference = -1.;
+//	if (parallax_uv.z > 0. && forward_offset.x > -.99) {
+//		for (float n = 1.; n >= 0.8; n-= 0.05) {
+//			vec2 parallax_search_uv = mix(forward_offset, parallax_uv.xy, n);
+//			ivec2 parallax_search_pix = UVToPix(parallax_search_uv, res);
+//			if (any(greaterThanEqual(parallax_search_pix, ivec2(0))) && any(lessThan(parallax_search_pix, res))) {
+//
+//				const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_search_pix).xyz;
+//				
+//				vec3 parallax_shadingNormal, parallax_geometryNormal;
+//				readNormals(parallax_search_pix, parallax_geometryNormal, parallax_shadingNormal);
+//
+//				const vec3 last_reflection_destination = normalize(reflect(normalize(last_parallax_texel_pos - last_origin), parallax_shadingNormal));
+//				const float destination_difference = dot(normalize(reflection_destination - last_parallax_texel_pos), last_reflection_destination);
+//
+//				if (destination_difference > best_destination_difference) {
+//					best_destination_difference = destination_difference;
+//					parallax_offset = parallax_search_uv;
+//				}
+//			}
+//		}
+//	}
+
 	imageStore(out_image_motion_offsets_uvs, pix, vec4(forward_offset, parallax_offset));
 
 }

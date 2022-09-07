@@ -143,7 +143,7 @@ struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
 		// PASS 1. ACCUMULATE
 
 #define LIST_OUTPUTS_ACCUM(X) \
-	X(0, specular_accum) \
+	X(0, specular_pre_spread) \
 	X(1, diffuse_accum) \
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \

@@ -19,15 +19,17 @@ const float shadow_offset_fudge = .1;
 #endif
 
 // Importaice rays rejection by light irradiance
-#define LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE 1
+//#define LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE 1
 
 #ifdef LIGHT_POINT // Low count, not agressive rejection
-	#define LOWER_IRRADIANCE_THRESHOLD 0.025
+	#define LOWER_IRRADIANCE_THRESHOLD 0.05
 	#define HIGHT_IRRADIANCE_THRESHOLD 1.
+	#define LUMINANCE_MULTIPLIER 1.
 	//#define ACCUMULATED_THRESHOLD 0.1
 #else // Emissive kusochki - soft lighting, big count
-	#define LOWER_IRRADIANCE_THRESHOLD 0.004
-	#define HIGHT_IRRADIANCE_THRESHOLD 0.16
+	#define LOWER_IRRADIANCE_THRESHOLD 0.05
+	#define HIGHT_IRRADIANCE_THRESHOLD 1.
+	#define LUMINANCE_MULTIPLIER 0.2
 	//#define ACCUMULATED_THRESHOLD 0.1
 #endif
 
@@ -43,7 +45,7 @@ const float shadow_offset_fudge = .1;
 #ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 #define SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE() float accumulated_irradiance = 0.;
 #define IMPORTANCE_SKIP_BY_IRRADIANCE(diffuse, specular) \
-	const float light_luminance = luminance(diffuse + specular); \
+	const float light_luminance = luminance(diffuse + specular) * LUMINANCE_MULTIPLIER; \
 	const float rejecting_weight = max(LOWER_IRRADIANCE_THRESHOLD_GET(), \
                                    smoothstep(0., HIGHT_IRRADIANCE_THRESHOLD, light_luminance)); \
 	if (rand01() > rejecting_weight) SKIP_LIGHT() \

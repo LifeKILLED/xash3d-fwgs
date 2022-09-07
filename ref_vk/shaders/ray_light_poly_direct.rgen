@@ -16,5 +16,7 @@
 // Emission polygons already seen in true reflection, we don't need sample specular?
 //#define REMOVE_SPECULAR 1
 
+//#define ONE_LIGHT_PER_TEXEL 1
+
 #define OUTPUTS RAY_LIGHT_DIRECT_POLY_OUTPUTS
 #include "ray_light_direct.glsl"

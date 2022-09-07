@@ -146,7 +146,7 @@ void main() {
 
 	//reflection = clamp_color(reflection, 1.);
 
-	reflection += imageLoad(src_refl_emissive, pix).rgb;
+	//reflection += imageLoad(src_refl_emissive, pix).rgb; // DEBUG!!! ENABLE THIS!!!!
 
 
 	// global illumination

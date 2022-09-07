@@ -229,7 +229,7 @@ void main() {
 
 	//colour = diffuse_gi;
 
-	//colour = specular;
+	//colour = diffuse;
 
 	//colour = specular * 0.1 + base_color * 0.02;
 	//colour = vec3(1., 0., 0.);
