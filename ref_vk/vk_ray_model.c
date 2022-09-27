@@ -217,6 +217,7 @@ vk_ray_model_t* VK_RayModelCreate( VkCommandBuffer cmdbuf, vk_ray_model_init_t a
 		kusochki[i].vertex_offset = mg->vertex_offset;
 		kusochki[i].index_offset = mg->index_offset;
 		kusochki[i].triangles = prim_count;
+		kusochki[i].flags = args.model->dynamic ? KUSOK_FLAG_DINAMIC_MODEL : 0;
 
 		if (mg->material == kXVkMaterialSky) {
 			kusochki[i].tex_base_color |= KUSOK_MATERIAL_FLAG_SKYBOX;

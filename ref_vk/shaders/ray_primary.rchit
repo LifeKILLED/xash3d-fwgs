@@ -60,5 +60,6 @@ void main() {
 		payload.emissive.rgb = payload.base_color_a.rgb;
 #endif
 
-	payload.search_info_ktuv = vec4(float(geom.kusok_index), float(tex_base_color), geom.uv - floor(geom.uv * 0.1) * 10.);
+	float is_dinamic_geometry = (kusok.flags & KUSOK_FLAG_DINAMIC_MODEL) > 0 ? 1. : 0.;
+	payload.search_info_ktuv = vec4(is_dinamic_geometry, float(tex_base_color), geom.uv - floor(geom.uv * 0.1) * 10.);
 }

@@ -159,6 +159,8 @@ LIST_SPECIALIZATION_CONSTANTS(DECLARE_SPECIALIZATION_CONSTANT)
 
 #define KUSOK_MATERIAL_FLAG_SKYBOX 0x80000000
 
+#define KUSOK_FLAG_DINAMIC_MODEL 1
+
 struct Kusok {
 	uint index_offset;
 	uint vertex_offset;
@@ -179,7 +181,8 @@ struct Kusok {
 
 	float roughness;
 	float metalness;
-	PAD(2)
+	uint flags;
+	PAD(1)
 };
 
 struct PointLight {
@@ -235,6 +238,7 @@ struct UniformBuffer {
 	uint random_seed;
 	PAD(2)
 };
+
 
 #undef PAD
 #undef STRUCT
