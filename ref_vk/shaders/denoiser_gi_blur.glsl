@@ -23,6 +23,7 @@ layout(set = 0, binding = 1, rgba16f) uniform image2D out_gi_sh2;
 
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_gi_sh1;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_gi_sh2;
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D src_material_rmxx;
 
 
 void main() {
@@ -34,6 +35,7 @@ void main() {
 	}
 
 	const float depth = imageLoad(src_gi_sh2, pix).z;
+	const float metalness_factor = imageLoad(src_material_rmxx, pix).y > .5 ? 1. : 0.;
 
 	vec4 gi_sh1 = vec4(0.);
 	vec2 gi_sh2 = vec2(0.);
@@ -45,6 +47,11 @@ void main() {
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;
 			}
+
+			// metal surfaces have gi after 2 bounce, diffuse after 1, don't mix them
+			const float current_metalness = imageLoad(src_material_rmxx, p).y;
+			if (abs(metalness_factor - current_metalness) > .5)
+				continue;
 
 			const vec4 current_gi_sh1 = imageLoad(src_gi_sh1, p);
 			const vec4 current_gi_sh2 = imageLoad(src_gi_sh2, p);

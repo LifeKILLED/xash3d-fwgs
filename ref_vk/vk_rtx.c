@@ -126,6 +126,7 @@ static struct {
 	X(denoiser_gi_blur_1, R_VkRayDenoiserGIBlurPass1Create) \
 	X(denoiser_gi_blur_2, R_VkRayDenoiserGIBlurPass2Create) \
 	X(denoiser_gi_blur_3, R_VkRayDenoiserGIBlurPass3Create) \
+	X(denoiser_add_gi_to_specular, R_VkRayDenoiserAddGIToSpecularCreate) \
 	X(denoiser_diffuse_variance, R_VkRayDenoiserDiffuseSVGFVarianceCreate ) \
 	X(denoiser_diffuse_svgf_1, R_VkRayDenoiserDiffuseSVGFPass1Create ) \
 	X(denoiser_diffuse_svgf_2, R_VkRayDenoiserDiffuseSVGFPass2Create ) \
@@ -698,8 +699,8 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		BLIT_IMAGES(args->current_frame->last_search_info_ktuv.image, args->last_frame->search_info_ktuv.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(args->current_frame->last_diffuse.image,		  args->last_frame->diffuse_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(args->current_frame->last_specular.image,		  args->last_frame->specular_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_pass_2.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_pass_2.image, FRAME_WIDTH, FRAME_HEIGHT)
 	} else {
 		g_rtx.last_frame_buffers_inited = true; // after first frame all buffers are inited
 	}
@@ -741,6 +742,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_add_gi_to_specular, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_variance, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_2, &res);

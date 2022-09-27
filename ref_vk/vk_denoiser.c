@@ -225,9 +225,10 @@ struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 #define LIST_INPUTS_GI_BLUR1(X) \
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \
+	X(4, material_rmxx) \
 
 struct ray_pass_s* R_VkRayDenoiserGIBlurPass1Create(void) {
-	PASS_CREATE_FUNC("denoiser gi blur pass 1", "denoiser_gi_blur_pass_1.comp.spv", GI_BLUR1, 4)
+	PASS_CREATE_FUNC("denoiser gi blur pass 1", "denoiser_gi_blur_pass_1.comp.spv", GI_BLUR1, 5)
 }
 
 	// GI BLUR PASS 2
@@ -239,9 +240,10 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass1Create(void) {
 #define LIST_INPUTS_GI_BLUR2(X) \
 	X(2, gi_sh1_pass_1) \
 	X(3, gi_sh2_pass_1) \
+	X(4, material_rmxx) \
 
 struct ray_pass_s* R_VkRayDenoiserGIBlurPass2Create(void) {
-	PASS_CREATE_FUNC("denoiser gi blur pass 2", "denoiser_gi_blur_pass_2.comp.spv", GI_BLUR2, 4)
+	PASS_CREATE_FUNC("denoiser gi blur pass 2", "denoiser_gi_blur_pass_2.comp.spv", GI_BLUR2, 5)
 }
 
 	// GI BLUR PASS 3
@@ -253,13 +255,29 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass2Create(void) {
 #define LIST_INPUTS_GI_BLUR3(X) \
 	X(2, gi_sh1_pass_2) \
 	X(3, gi_sh2_pass_2) \
+	X(4, material_rmxx) \
 
 struct ray_pass_s* R_VkRayDenoiserGIBlurPass3Create(void) {
-	PASS_CREATE_FUNC("denoiser gi blur pass 3", "denoiser_gi_blur_pass_3.comp.spv", GI_BLUR3, 4)
+	PASS_CREATE_FUNC("denoiser gi blur pass 3", "denoiser_gi_blur_pass_3.comp.spv", GI_BLUR3, 5)
 }
 
 
+	// PASS 5. ADD GI TO SPECULAR
 
+#define LIST_OUTPUTS_ADD_GI(X) \
+	X(0, specular_accum) \
+
+#define LIST_INPUTS_ADD_GI(X) \
+	X(1, material_rmxx) \
+	X(2, refl_base_color_a) \
+	X(3, normals_gs) \
+	X(4, refl_normals_gs) \
+	X(5, gi_sh1_denoised) \
+	X(6, gi_sh2_denoised) \
+
+struct ray_pass_s* R_VkRayDenoiserAddGIToSpecularCreate(void) {
+	PASS_CREATE_FUNC("denoiser add gi to specular", "denoiser_add_gi_to_specular.comp.spv", ADD_GI, 7)
+}
 
 
 	// DIFFUSE SVGF VARIANCE

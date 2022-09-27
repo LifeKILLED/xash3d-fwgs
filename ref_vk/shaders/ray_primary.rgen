@@ -265,13 +265,18 @@ void main() {
 	const vec4 out_refl_material_rmxx = payload.material_rmxx;
 	const vec4 out_refl_emissive = vec4(refl_emissive, 0.);
 
+	const vec3 refl_geometry_normal = normalize(normalDecode(out_refl_normals_gs.xy));
 
 		// -------------------------------- //
 		// FIRST GLOBAL ILLUMINATION BOUNCE //
 		// -------------------------------- //
-	
+
+	// metal surfaces have gi pass after 2 bounce (reflection), diffuse surfaces have it after 1 bounce
+	const vec3 gi_origin = out_material_rmxx.y > .5 ? out_refl_position_t.xyz : bounce_origin;
+	const vec3 gi_geometry_normal = out_material_rmxx.y > .5 ? refl_geometry_normal : geometry_normal;
+
 	const vec3 sphereRandom = sampleSphere(vec2(rand01(), rand01()));
-	const vec3 gi_direction = randomizedOnHemisphere(sphereRandom, geometry_normal);
+	const vec3 gi_direction = randomizedOnHemisphere(sphereRandom, gi_geometry_normal);
 
 	payload.hit_t = vec4(0.);
 	payload.base_color_a = vec4(0.);
