@@ -417,6 +417,8 @@ void VK_RayFrameAddModel( vk_ray_model_t *model, const vk_render_model_t *render
 		} else {
 			kusok->uv_speed[0] = kusok->uv_speed[1] = 0.f;
 		}
+
+		kusok->flags = render_model->dynamic ? KUSOK_FLAG_DINAMIC_MODEL : 0;
 	}
 
 	for (int i = 0; i < render_model->polylights_count; ++i) {

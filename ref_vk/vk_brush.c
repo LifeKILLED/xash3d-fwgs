@@ -325,6 +325,8 @@ const texture_t *R_TextureAnimation( const cl_entity_t *ent, const msurface_t *s
 	return base;
 }
 
+float brush_entities_offsets_hash[4096] = { 0.0 };
+
 void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4 model )
 {
 	// Expect all buffers to be bound
@@ -358,6 +360,15 @@ void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4
 			if (t->gl_texturenum >= 0)
 				geom->texture = t->gl_texturenum;
 		}
+	}
+
+	// detect dinamic geometry by sum of angle and position offsets
+	float current_offsets_hash = ent->origin[0] + ent->origin[1] + ent->origin[2] + ent->angles[0] + ent->angles[1] + ent->angles[2];
+	if (brush_entities_offsets_hash[ent->index] != current_offsets_hash) {
+		brush_entities_offsets_hash[ent->index] = current_offsets_hash;
+		bmodel->render_model.dynamic = true;
+	} else {
+		bmodel->render_model.dynamic = false;
 	}
 
 	bmodel->render_model.render_mode = render_mode;
