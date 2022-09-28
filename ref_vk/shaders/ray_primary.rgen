@@ -218,7 +218,8 @@ void main() {
 
 	const vec3 bounce_origin = out_position_t.xyz + geometry_normal * 0.001;
 
-	const float roughness = out_material_rmxx.r;
+	const float roughness_src = out_material_rmxx.r * 0.7;
+	const float roughness = mix(roughness_src, 0.4, smoothstep(0.3, 0.4, roughness_src));
 	//const float roughness = 0.3; // DEBUG
 	vec3 refl_emissive = vec3(0.);
 

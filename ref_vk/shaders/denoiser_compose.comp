@@ -227,6 +227,8 @@ void main() {
 	// pbr
 	colour += PBRMix(base_color, diffuse + diffuse_gi, specular, metalness);
 
+	//colour = specular;
+
 	//colour = diffuse_gi;
 
 	//colour = diffuse;

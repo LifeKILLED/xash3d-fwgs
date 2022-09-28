@@ -243,10 +243,16 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #ifdef ONE_LIGHT_PER_TEXEL
 	const uint index = rand() % num_lights;
 #elif LIGHTS_REJECTION_X4
-	// stable pattern-based rejection optimization
+	// stable pattern-based rejection optimization, need to accurate mixing in compose
 	const uint startIndex = num_lights < 4 || pattern_texel_id == 0 ? 0 : (num_lights / 4) * pattern_texel_id;
 	const uint endIndex =   num_lights < 4 || pattern_texel_id == 3 ? num_lights :
 					        (num_lights / 4) * (pattern_texel_id + 1);
+	for (uint index = startIndex; index < endIndex; ++index) {
+#elif MAX_LIGHTS_PER_TEXEL
+	const uint rejected_lights = num_lights - MAX_LIGHTS_PER_TEXEL;
+	const uint startIndex = num_lights <= MAX_LIGHTS_PER_TEXEL ? 0 : rand() % rejected_lights;
+	const uint endIndex =   num_lights <= MAX_LIGHTS_PER_TEXEL ? num_lights : startIndex + MAX_LIGHTS_PER_TEXEL;
+	const float irradiance_multiplier = num_lights <= MAX_LIGHTS_PER_TEXEL ? 1. : num_lights / MAX_LIGHTS_PER_TEXEL;
 	for (uint index = startIndex; index < endIndex; ++index) {
 #else
 	for (uint index = 0; index < num_lights; ++index) {
@@ -314,6 +320,11 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 #else
 	}
 
+#endif
+
+#ifdef MAX_LIGHTS_PER_TEXEL
+	diffuse *= irradiance_multiplier;
+	specular *= irradiance_multiplier;
 #endif
 
 

@@ -96,7 +96,7 @@ void main() {
 
 
 
-#if REUSE_SCREEN_LIGHTING
+#ifdef REUSE_SCREEN_LIGHTING
 
 	// Try to use SSR and put this UV to output texture if all is OK
 	uint lighting_is_reused = 0;

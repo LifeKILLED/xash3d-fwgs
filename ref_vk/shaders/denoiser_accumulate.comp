@@ -6,6 +6,8 @@
 #include "denoiser_tools.glsl"
 #include "color_spaces.glsl"
 
+//#define LIGHTS_REJECTION_X4 1
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 
@@ -100,6 +102,14 @@ void main() {
 
 	//vec3 irradiance1 = 
 
+#ifndef LIGHTS_REJECTION_X4 // full resolution
+
+	const vec3 diffuse = imageLoad(src_light_direct_point_diffuse, pix).rgb +
+						 imageLoad(src_light_direct_poly_diffuse, pix).rgb;
+	const vec3 reflection_poly = imageLoad(src_light_poly_reflection, pix).rgb;
+
+#else // LIGHTS_REJECTION_X4
+
 	// gray material diffuse component
 	const vec3 diffuse = imageLoad(src_light_direct_point_diffuse, pix).rgb +
 						 imageLoad(src_light_direct_poly_diffuse, pix).rgb +
@@ -118,6 +128,9 @@ void main() {
 								 samplePolyReflectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
 								 samplePolyReflectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
 								 samplePolyReflectOpposite(pix+ivec2(0, -1), pix+ivec2(0, 1), res);
+
+#endif // LIGHTS_REJECTION_X4
+
 	vec3 reflection = vec3(0.);
 
 	// Reuse lighting from screen if we can. -100 is SSR marker)
@@ -141,19 +154,35 @@ void main() {
 	}
 
 //	// specular from lighting
-	reflection +=	imageLoad(src_light_direct_point_specular, pix).rgb /*+
-					imageLoad(src_light_direct_poly_specular, pix).rgb*/;
-
-	//reflection = clamp_color(reflection, 1.);
-
-	//reflection += imageLoad(src_refl_emissive, pix).rgb; // DEBUG!!! ENABLE THIS!!!!
+	reflection +=	imageLoad(src_light_direct_point_specular, pix).rgb +
+					imageLoad(src_light_direct_poly_specular, pix).rgb;
 
 
 	// global illumination
-	vec3 global_illumination =	imageLoad(src_light_poly_indirect, pix).rgb +
-								imageLoad(src_light_point_indirect, pix).rgb +
+	vec3 gi_poly = imageLoad(src_light_poly_indirect, pix).rgb;
+	vec3 global_illumination =  imageLoad(src_light_point_indirect, pix).rgb +
 								imageLoad(src_gi_emissive, pix).rgb;
 
+
+	// Reuse lighting from screen if we can. -100 is SSGI marker)
+	if (gi_poly.b < -99.) {
+		ivec2 screen_pix = UVToPix(gi_poly.rg, res);
+		if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
+			vec4 gi_base_color_src = imageLoad(src_base_color, screen_pix);
+			vec3 gi_base_color = SRGBtoLINEAR(gi_base_color_src.rgb);
+			float gi_metalness = gi_base_color_src.a;
+			vec3 gi_diffuse = imageLoad(src_light_direct_poly_diffuse, screen_pix).rgb +
+								imageLoad(src_light_direct_point_diffuse, screen_pix).rgb;
+			vec3 gi_specular = imageLoad(src_light_direct_poly_specular, screen_pix).rgb +
+								imageLoad(src_light_direct_point_specular, screen_pix).rgb;
+
+			global_illumination = PBRMix(gi_base_color.rgb, gi_diffuse, gi_specular, gi_metalness);
+
+			//global_illumination = vec3(100., 0., 0.); // TEST: visualize SSGI texels
+		}
+	} else {
+		global_illumination += gi_poly;
+	}
 
 	vec4 gi_sh1 = vec4(0.);
 	vec2 gi_sh2 = vec2(0.);

@@ -7,10 +7,11 @@
 // It's reflection lighting pass
 #define REFLECTIONS 1
 
-// It's semi-soft lighting and we can calculate 1/4 of lights for texel
-#define LIGHTS_REJECTION_X4 1
+// Randomize fixed count of maximum lights
+#define MAX_LIGHTS_PER_TEXEL 16
 
-//#define ONE_LIGHT_PER_TEXEL 1
+// Enable SSR
+#define REUSE_SCREEN_LIGHTING 1
 
 #define OUTPUTS RAY_LIGHT_REFLECT_POLY_OUTPUTS
 #include "ray_light_direct.glsl"

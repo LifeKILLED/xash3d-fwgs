@@ -133,9 +133,10 @@ struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersCreate(void) {
 	X(6, last_normals_gs) \
 	X(7, last_search_info_ktuv) \
 	X(8, last_gi_sh2) \
+	X(9, material_rmxx) \
 
 struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
-	PASS_CREATE_FUNC("denoiser fake reconstruction of motion vectors", "denoiser_fake_motion_vectors.comp.spv", MOTION_INIT, 9)
+	PASS_CREATE_FUNC("denoiser fake reconstruction of motion vectors", "denoiser_fake_motion_vectors.comp.spv", MOTION_INIT, 10)
 }
 
 
