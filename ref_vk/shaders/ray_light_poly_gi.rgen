@@ -8,7 +8,7 @@
 #define GLOBAL_ILLUMINATION 1
 
 // Randomize fixed count of maximum lights
-#define MAX_LIGHTS_PER_TEXEL 8
+#define MAX_LIGHTS_PER_TEXEL 16
 
 // Enable SSGI
 #define REUSE_SCREEN_LIGHTING

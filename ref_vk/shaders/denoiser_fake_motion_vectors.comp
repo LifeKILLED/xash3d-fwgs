@@ -132,14 +132,14 @@ void main() {
 		// Moving platforms and weapon in hand need to searched in camera space
 
 		// low velocity, good precision
-		SEARCH_CYCLE(pix, 2);
-		SEARCH_CYCLE(last_pix, 2);
+		SEARCH_CYCLE(pix, 3);
+		SEARCH_CYCLE(last_pix, 3);
 
 		// more velocity, low precision
-		if (search_done == false) {
-			SEARCH_CYCLE(pix, 8);
-			SEARCH_CYCLE(last_pix, 8);
-		}
+//		if (search_done == false) {
+//			SEARCH_CYCLE(pix, 8);
+//			SEARCH_CYCLE(last_pix, 8);
+//		}
 
 		// refine by searching in little area
 		if (search_done) {

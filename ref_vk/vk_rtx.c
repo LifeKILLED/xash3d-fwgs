@@ -699,17 +699,17 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		BLIT_IMAGES(args->current_frame->last_search_info_ktuv.image, args->last_frame->search_info_ktuv.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(args->current_frame->last_diffuse.image,		  args->last_frame->diffuse_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
 		BLIT_IMAGES(args->current_frame->last_specular.image,		  args->last_frame->specular_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_pass_2.image, FRAME_WIDTH, FRAME_HEIGHT)
-		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_pass_2.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_pass_1.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_pass_1.image, FRAME_WIDTH, FRAME_HEIGHT)
 	} else {
 		g_rtx.last_frame_buffers_inited = true; // after first frame all buffers are inited
 	}
 
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.primary_ray, &res );
 
-	if (g_rtx.denoiser_enabled) {
+	//if (g_rtx.denoiser_enabled) { // used in lighting, need to execute anyway
 		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_fake_motion_vectors, &res);
-	}
+	//}
 
 	{
 		//const uint32_t size = sizeof(struct Lights);
@@ -737,11 +737,11 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 	
 	if (g_rtx.denoiser_enabled) {
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
-		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_spread, &res);
+		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_spread, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
-		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
+		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_add_gi_to_specular, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_variance, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_1, &res);

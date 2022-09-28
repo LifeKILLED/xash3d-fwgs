@@ -5,6 +5,7 @@
 #include "noise.glsl"
 #include "denoiser_tools.glsl"
 #include "color_spaces.glsl"
+#include "denoiser_tools.glsl"
 
 #define EMISSIVE_TRESHOLD 0.1
 
@@ -17,6 +18,7 @@ layout(set = 0, binding = 11, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D src_base_color_a;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -138,26 +140,33 @@ void main() {
 		const vec3 V = normalize(primary_pos - pos);
 #endif
 
-//#if PRIMARY_VIEW // TEST!!! ONLY FIRST BOUNCE PROCESSING!!!
 
-	//const vec3 emissive = imageLoad(src_emissive, pix).rgb;
-	//if (any(lessThan(emissive, vec3(EMISSIVE_TRESHOLD)))) {
-//#ifdef LIGHT_POLYGON
 		const vec3 throughput = vec3(1.);
 		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, pattern_texel_id, diffuse, specular);
-//#else
-//		diffuse = vec3(0.0);
-//		specular = vec3(0.0);
-//#endif
-	//}
 
-//#if (LIGHT_POLYGON) && (PRIMARY_VIEW)
-	//diffuse = vec3(0.);
-	//specular = vec3(0.);
-//#endif
 
-//#endif
-
+		// add more samples where we are not found correct reprojecting
+#ifdef ADD_SAMPLES_FOR_NOT_REPROJECTED
+		const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
+#ifdef REFLECTIONS
+		if (motion_offsets_uvs.z < -99.) { // parallax reprojection for reflections
+#else
+		if (motion_offsets_uvs.x < -99.) { // simple reprojecting for diffuse and gi
+#endif
+			const float min_samples = 1 + ADD_SAMPLES_FOR_NOT_REPROJECTED;
+			vec3 diffuse_additional, specular_additional;
+			for(int i = 0; i < ADD_SAMPLES_FOR_NOT_REPROJECTED; ++i) {
+				rand01_state += 1; // we need a new random seed for sampling more lights
+				diffuse_additional = vec3(.0);
+				specular_additional = vec3(.0);
+				computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, pattern_texel_id, diffuse_additional, specular_additional);
+				diffuse += diffuse_additional;
+				specular += specular_additional;
+			}
+			diffuse /= min_samples;
+			specular /= min_samples;
+		}
+#endif
 
 		// correction for avoiding difference in sampling algorythms
 #if LIGHT_POINT
@@ -174,11 +183,7 @@ void main() {
 	specular *= IRRADIANCE_MULTIPLIER;
 #endif
 
-		//diffuse = clamp(diffuse, 0., 5.);
-		//specular = clamp(specular, 0., 5.);
 	}
-
-	//diffuse += vec3(0., 0.2, 0.);
 
 #if GLOBAL_ILLUMINATION
 	#if LIGHT_POINT

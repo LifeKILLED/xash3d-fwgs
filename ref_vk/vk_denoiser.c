@@ -144,7 +144,7 @@ struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
 		// PASS 1. ACCUMULATE
 
 #define LIST_OUTPUTS_ACCUM(X) \
-	X(0, specular_pre_spread) \
+	X(0, specular_accum) \
 	X(1, diffuse_accum) \
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \
@@ -273,8 +273,8 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass3Create(void) {
 	X(2, refl_base_color_a) \
 	X(3, normals_gs) \
 	X(4, refl_normals_gs) \
-	X(5, gi_sh1_denoised) \
-	X(6, gi_sh2_denoised) \
+	X(5, gi_sh1_pass_1) \
+	X(6, gi_sh2_pass_1) \
 
 struct ray_pass_s* R_VkRayDenoiserAddGIToSpecularCreate(void) {
 	PASS_CREATE_FUNC("denoiser add gi to specular", "denoiser_add_gi_to_specular.comp.spv", ADD_GI, 7)
@@ -428,8 +428,8 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass3Create(void) {
 	X(5, material_rmxx) \
 	X(6, diffuse_denoised) \
 	X(7, specular_denoised) \
-	X(8, gi_sh1_denoised) \
-	X(9, gi_sh2_denoised) \
+	X(8, gi_sh1_pass_2) \
+	X(9, gi_sh2_pass_2) \
 	X(10, refl_position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {

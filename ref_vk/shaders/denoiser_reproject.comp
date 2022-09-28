@@ -84,11 +84,19 @@ void main() {
 	vec2 forward_offset = motion_offsets_uvs.xy;
 	vec2 parallax_offset = motion_offsets_uvs.zw;
 	const float depthTreshold = 30.;
-	
-	const vec4 diffuse_src = vec4(imageLoad(out_diffuse_accum, pix).rgb, 1.); 
-	const vec4 specular_src = vec4(imageLoad(out_specular_accum, pix).rgb, 1.); 
+
+#ifdef ADD_SAMPLES_FOR_NOT_REPROJECTED
+	const float min_samples = 1 + ADD_SAMPLES_FOR_NOT_REPROJECTED;
+#else
+	const float min_samples = 1.;
+#endif
+
+	const vec4 diffuse_src = vec4(imageLoad(out_diffuse_accum, pix).rgb, min_samples); 
+	const vec4 specular_src = vec4(imageLoad(out_specular_accum, pix).rgb, min_samples); 
 	const vec4 gi_sh1_src = imageLoad(out_gi_sh1_accum, pix); 
-	const vec3 gi_sh2_src = vec3(imageLoad(out_gi_sh2_accum, pix).xy, 1.); 
+	const vec3 gi_sh2_src = vec3(imageLoad(out_gi_sh2_accum, pix).xy, min_samples); 
+
+
 
 	float parallaxFactor = 0.;
 	float last_parallaxFactor = 0.;
@@ -243,9 +251,9 @@ void main() {
 	//const float specular_frames_blend = 0.9;
 	//const float gi_frames_blend = 0.9;
 
-	const float duffuse_samples_count = mix(diffuse_mixed.w, 1., diffuse_difference);
-	const float specular_samples_count = mix(specular_mixed.w, 1., specular_difference);
-	const float gi_samples_count = mix(gi_sh2_mixed.z, 1., gi_difference);
+	const float duffuse_samples_count = mix(diffuse_mixed.w, min_samples, diffuse_difference);
+	const float specular_samples_count = mix(specular_mixed.w, min_samples, specular_difference);
+	const float gi_samples_count = mix(gi_sh2_mixed.z, min_samples, gi_difference);
 
 	const float diffuse_frames_blend = clamp(1. - 1. / duffuse_samples_count, .5, DIFFUSE_BLEND_LIMIT) /** diffuse_difference*/;
 	const float specular_frames_blend = clamp(1. - 1. / specular_samples_count, .5, SPECULAR_BLEND_LIMIT) /** specular_difference*/;

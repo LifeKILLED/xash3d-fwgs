@@ -146,7 +146,7 @@ void main() {
 								imageLoad(src_light_direct_point_specular, screen_pix).rgb;
 
 			reflection = PBRMix(refl_base_color.rgb, refl_diffuse, refl_specular, refl_metalness);
-
+			reflection += imageLoad(src_refl_emissive, pix).rgb * 2.; // why?
 			//reflection = vec3(100., 0., 0.); // TEST: visualize SSR texels
 		}
 	} else {
@@ -155,7 +155,8 @@ void main() {
 
 //	// specular from lighting
 	reflection +=	imageLoad(src_light_direct_point_specular, pix).rgb +
-					imageLoad(src_light_direct_poly_specular, pix).rgb;
+					imageLoad(src_light_direct_poly_specular, pix).rgb +
+					imageLoad(src_refl_emissive, pix).rgb;
 
 
 	// global illumination

@@ -1,6 +1,7 @@
 #ifndef DENOISER_TOOLS_LK_12231312
 #define DENOISER_TOOLS_LK_12231312 1
 
+#define ADD_SAMPLES_FOR_NOT_REPROJECTED 3
 
 // denoising of global illumination on mirrors now works bad
 //#define DONT_DENOISE_SPECULAR_GI
