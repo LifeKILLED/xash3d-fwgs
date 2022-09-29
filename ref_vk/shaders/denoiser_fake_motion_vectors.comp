@@ -9,7 +9,8 @@
 const float uv_treshold = 0.025;
 const float ray_length_difference_treshold = 1.5;
 const float distance_treshold = 5.0;
-const float normal_treshold = 0.98;
+const float normal_treshold_low = 0.95;
+const float normal_treshold_high = 0.98;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -179,52 +180,57 @@ void main() {
 		}
 	}
 
-	// Parallax reprojection
-	vec3 texel_normal = normalize(geometryNormal.xyz);
-	vec3 reflection_destination = normalize(reflect(normalize(position - origin), texel_normal)) * length(reflection_pos.xyz - position) + position;
-	float reflection_distance_to_plane = dot(reflection_destination - position, texel_normal);
-	vec3 reflection_destination_on_plane = reflection_destination - texel_normal * reflection_distance_to_plane;
-	float last_distance_to_plane = dot(last_origin - position, texel_normal);
-	vec3 last_origin_on_plane = last_origin - texel_normal * last_distance_to_plane;
-	float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
-	vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_destination_on_plane, reflection_center);
+	if (length(origin - last_origin) < 0.1) {
+		parallax_offset = forward_offset;
+	} else {
+		// Parallax reprojection
+		vec3 texel_normal = normalize(geometryNormal.xyz);
+		vec3 reflection_destination = normalize(reflect(normalize(position - origin), texel_normal)) * length(reflection_pos.xyz - position) + position;
+		float reflection_distance_to_plane = dot(reflection_destination - position, texel_normal);
+		vec3 reflection_destination_on_plane = reflection_destination - texel_normal * reflection_distance_to_plane;
+		float last_distance_to_plane = dot(last_origin - position, texel_normal);
+		vec3 last_origin_on_plane = last_origin - texel_normal * last_distance_to_plane;
+		float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
+		vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_destination_on_plane, reflection_center);
 
-	const float low_roughness_factor = 1. - smoothstep(roughness, 0.1, 0.4);
-	//const float parallax_factor = /*smoothstep(dot(texel_normal, normalize(geometryNormal)), .9, 98.) /***/ // only co-planar normals
-	//						      low_roughness_factor; // avoid parallax on big roughness
+		const float low_roughness_factor = 1. - smoothstep(roughness, 0.1, 0.4);
+		const float parallax_factor = smoothstep(dot(texel_normal, normalize(geometryNormal)), normal_treshold_low, normal_treshold_high)* // only co-planar normals
+									  low_roughness_factor; // avoid parallax on big roughness
 
-	const float parallax_factor = 1.;
+		const float actual_difference_treshold = mix(1000., ray_length_difference_treshold, low_roughness_factor);
 
-	const float actual_difference_treshold = mix(1000., ray_length_difference_treshold, low_roughness_factor);
+		vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.last_inv_proj, ubo.last_inv_view);
 
-	vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.last_inv_proj, ubo.last_inv_view);
+		if (forward_offset.x > -99.) {
+			parallax_uv.xy = mix(forward_offset, parallax_uv.xy, parallax_factor);
+		}
 
-	if (forward_offset.x > -99.) {
-		parallax_uv.xy = mix(forward_offset, parallax_uv.xy, parallax_factor);
-	}
+		ivec2 parallax_pix = UVToPix(parallax_uv.xy, res);
 
-	ivec2 parallax_pix = UVToPix(parallax_uv.xy, res);
+		if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
 
-	if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
+			const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_pix).xyz;
+			const float co_planar_difference = abs(dot(texel_normal, normalize(last_parallax_texel_pos - position)));
 
-		const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_pix).xyz;
-		const float co_planar_difference = abs(dot(texel_normal, normalize(last_parallax_texel_pos - position)));
+	//		float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
+	//		float ray_length_difference = last_ray_length / reflection_ray_lenth;
+			float ray_length_difference = 1.; // DEBUG!
 
-//		float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
-//		float ray_length_difference = last_ray_length / reflection_ray_lenth;
-		float ray_length_difference = 1.; // DEBUG!
+			vec3 parallax_shadingNormal, parallax_geometryNormal;
+			readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
 
-		vec3 parallax_shadingNormal, parallax_geometryNormal;
-		readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
+			if (co_planar_difference < 1. &&
+				dot(texel_normal, normalize(parallax_shadingNormal)) > normal_treshold_high &&
+				ray_length_difference < actual_difference_treshold &&
+				ray_length_difference > (1. / actual_difference_treshold)) {
 
-		if (co_planar_difference < 1. &&
-			dot(normalize(texel_normal), normalize(parallax_shadingNormal)) > normal_treshold &&
-			ray_length_difference < actual_difference_treshold &&
-			ray_length_difference > (1. / actual_difference_treshold)) {
-
-			parallax_offset = parallax_uv.xy;
+				parallax_offset = parallax_uv.xy;
+				//const float parallax_factor_last = smoothstep(dot(texel_normal, normalize(parallax_shadingNormal)), normal_treshold_low, normal_treshold_high);
+				//parallax_offset = mix(forward_offset, parallax_uv.xy, parallax_factor * parallax_factor_last);
+			}
 		}
 	}
+
 
 //	float best_destination_difference = -1.;
 //	if (parallax_uv.z > 0. && forward_offset.x > -.99) {

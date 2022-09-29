@@ -195,25 +195,26 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSpreadCreate(void) {
 	X(1, specular_accum) \
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \
+	X(4, specular_variance) \
 
 #define LIST_INPUTS_REPROJ(X) \
-	X(4, last_diffuse) \
-	X(5, last_specular) \
-	X(6, last_gi_sh1) \
-	X(7, last_gi_sh2) \
-	X(8, position_t) \
-	X(9, normals_gs) \
-	X(10, material_rmxx) \
-	X(11, motion_offsets_uvs) \
-	X(12, refl_normals_gs) \
-	X(13, refl_position_t) \
-	X(14, last_position_t) \
-	X(15, search_info_ktuv) \
-	X(16, last_search_info_ktuv) \
+	X(5, last_diffuse) \
+	X(6, last_specular) \
+	X(7, last_gi_sh1) \
+	X(8, last_gi_sh2) \
+	X(9, position_t) \
+	X(10, normals_gs) \
+	X(11, material_rmxx) \
+	X(12, motion_offsets_uvs) \
+	X(13, refl_normals_gs) \
+	X(14, refl_position_t) \
+	X(15, last_position_t) \
+	X(16, search_info_ktuv) \
+	X(17, last_search_info_ktuv) \
 
 
 struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
-	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 17)
+	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 18)
 }
 
 
@@ -428,8 +429,8 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass3Create(void) {
 	X(5, material_rmxx) \
 	X(6, diffuse_denoised) \
 	X(7, specular_denoised) \
-	X(8, gi_sh1_pass_2) \
-	X(9, gi_sh2_pass_2) \
+	X(8, gi_sh1_denoised) \
+	X(9, gi_sh2_denoised) \
 	X(10, refl_position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {

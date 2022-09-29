@@ -24,23 +24,24 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_accum;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_accum;
 layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_accum;
 layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
+layout(set = 0, binding = 4, rgba16f) uniform image2D out_variance;
 
-layout(set = 0, binding = 4, rgba16f)  uniform readonly image2D src_last_diffuse;
-layout(set = 0, binding = 5, rgba16f)  uniform readonly image2D src_last_specular;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_last_gi_sh1;
-layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_last_gi_sh2;
+layout(set = 0, binding = 5, rgba16f)  uniform readonly image2D src_last_diffuse;
+layout(set = 0, binding = 6, rgba16f)  uniform readonly image2D src_last_specular;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_last_gi_sh1;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_gi_sh2;
 
-layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_position_t;
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 10, rgba8)   uniform readonly image2D src_material_rmxx;
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
+layout(set = 0, binding = 9, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 11, rgba8)   uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
 
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_refl_normals_gs;
-layout(set = 0, binding = 13, rgba32f) uniform readonly image2D src_refl_position_t;
-layout(set = 0, binding = 14, rgba32f) uniform readonly image2D src_last_position_t;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_refl_normals_gs;
+layout(set = 0, binding = 14, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D src_last_position_t;
 
-layout(set = 0, binding = 15, rgba32f) uniform readonly image2D src_search_info_ktuv;
-layout(set = 0, binding = 16, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
+layout(set = 0, binding = 16, rgba32f) uniform readonly image2D src_search_info_ktuv;
+layout(set = 0, binding = 17, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
@@ -104,6 +105,7 @@ void main() {
 	float fallbackFactor = 0.;
 	float samples_count = 0;
 	float overlap_factor = 0.;
+	vec4 variance = vec4(.0);
 
 	vec4 last_diffuse = diffuse_src;
 	vec4 last_specular = specular_src;
@@ -116,6 +118,7 @@ void main() {
 	vec3 gi_sh2_mixed = gi_sh2_src;
 	vec4 last_forward_spec = specular_src;
 	vec4 last_parallax_spec = specular_src;
+
 
 //	forward_offset = uv;
 //	parallax_offset = uv;
@@ -179,7 +182,7 @@ void main() {
 		overlap_factor = 0.; // we don't need to check depth here
 
 		diffuse_mixed = mix(last_diffuse, diffuse_src, overlap_factor);
-		specular_mixed = mix(last_forward_spec, specular_src, overlap_factor);
+		//specular_mixed = mix(last_forward_spec, specular_src, overlap_factor);
 		gi_sh1_mixed = mix(last_gi_sh1, gi_sh1_src, overlap_factor);
 		gi_sh2_mixed = mix(last_gi_sh2, gi_sh2_src, overlap_factor);
 	}
@@ -293,4 +296,5 @@ void main() {
 	imageStore(out_specular_accum, pix, specular_mixed);
 	imageStore(out_gi_sh1_accum, pix, gi_sh1_mixed);
 	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2_mixed, reflLength));
+	imageStore(out_variance, pix, variance);
 }

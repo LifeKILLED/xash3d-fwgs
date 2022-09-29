@@ -742,13 +742,13 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
-		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_add_gi_to_specular, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_variance, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_2, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_3, &res);
-		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_variance, &res);
+		//RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_variance, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_2, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_3, &res);
