@@ -55,7 +55,7 @@ vec2 depthGradient(float src_depth, ivec2 pix, ivec2 res) {
 
 // Luminance-weighting function (4.4.3)
 float luminanceWeight(float lum0, float lum1, float variance) {
-  const float strictness = 50.0;
+  const float strictness = 10.0;
   const float eps = 0.05;
   return exp((-abs(lum0 - lum1)) / (strictness * variance + eps));
 }

@@ -399,7 +399,7 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass2Create(void) {
 	// SPECULAR SVGF PASS 3
 
 #define LIST_OUTPUTS_SPECULAR_SVGF3(X) \
-	X(0, specular_denoised) \
+	X(0, specular_svgf3) \
 
 #define LIST_INPUTS_SPECULAR_SVGF3(X) \
 	X(1, specular_svgf2) \
@@ -409,6 +409,24 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass2Create(void) {
 
 struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass3Create(void) {
 	PASS_CREATE_FUNC("denoiser specular svgf pass 3", "denoiser_svgf_pass_3.comp.spv", SPECULAR_SVGF3, 5)
+}
+
+
+
+
+	// SPECULAR SVGF PASS 4
+
+#define LIST_OUTPUTS_SPECULAR_SVGF4(X) \
+	X(0, specular_denoised) \
+
+#define LIST_INPUTS_SPECULAR_SVGF4(X) \
+	X(1, specular_svgf3) \
+	X(2, specular_variance) \
+	X(3, normals_gs) \
+	X(4, position_t) \
+
+struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass4Create(void) {
+	PASS_CREATE_FUNC("denoiser specular svgf pass 4", "denoiser_svgf_pass_4.comp.spv", SPECULAR_SVGF4, 5)
 }
 
 

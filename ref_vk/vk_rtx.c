@@ -135,6 +135,7 @@ static struct {
 	X(denoiser_specular_svgf_1, R_VkRayDenoiserSpecularSVGFPass1Create ) \
 	X(denoiser_specular_svgf_2, R_VkRayDenoiserSpecularSVGFPass2Create ) \
 	X(denoiser_specular_svgf_3, R_VkRayDenoiserSpecularSVGFPass3Create ) \
+	X(denoiser_specular_svgf_4, R_VkRayDenoiserSpecularSVGFPass4Create ) \
 	X(denoiser_compose, R_VkRayDenoiserComposeCreate) \
 	X(denoiser_checker_mix, R_VkRayDenoiserCheckerMixCreate) \
 	X(denoiser_fxaa, R_VkRayDenoiserFXAACreate) \
@@ -752,6 +753,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_2, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_4, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_compose, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_checker_mix, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_fxaa, &res);
