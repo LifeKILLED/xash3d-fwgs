@@ -109,6 +109,7 @@
 	X(-1, specular_svgf2, rgba16f) \
 	X(-1, specular_svgf3, rgba16f) \
 	X(-1, specular_denoised, rgba16f) \
+	X(-1, composed_image, rgba16f) \
 	X(-1, final_image, rgba16f) \
 
 

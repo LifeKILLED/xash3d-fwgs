@@ -158,10 +158,19 @@ vec3 SampleReflectionVector(vec3 view_direction, vec3 normal, float roughness, v
 }
 
 void main() {
-	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+	const ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
 	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
+	const vec2 uv = (vec2(pix) + .5) / vec2(res) * 2. - 1.;
 	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
 
+	// checkerboard transparence
+	if (false) {
+		int checker_alpha = (pix.x + pix.y) % 2;
+		ivec2 out_pix = ivec2(pix.x / 2 + checker_alpha * (res.x / 2), pix.y);
+	}
+
+	const int checker_alpha = 1;
+	const ivec2 out_pix = pix;
 
 //	const vec2 uv_src = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
 //	const ivec2 pix_src = ivec2(gl_LaunchIDEXT.xy);
@@ -192,7 +201,7 @@ void main() {
 	const uint sbt_offset = 0;
 	const uint sbt_stride = 0;
 	const float L = 10000.; // TODO Why 10k?
-	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE, // | GEOMETRY_BIT_REFRACTIVE,
+	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE | (checker_alpha == 1 ? GEOMETRY_BIT_REFRACTIVE : 0),
 		sbt_offset, sbt_stride, SHADER_OFFSET_MISS_REGULAR,
 		origin, 0., direction, L,
 		PAYLOAD_LOCATION_PRIMARY);
@@ -290,21 +299,21 @@ void main() {
 		bounce_origin, 0., normalize(gi_direction), L,
 		PAYLOAD_LOCATION_PRIMARY);
 
-	imageStore(out_image_base_color_a, ivec2(gl_LaunchIDEXT.xy), out_base_color_a);
-	imageStore(out_image_position_t, ivec2(gl_LaunchIDEXT.xy), out_position_t);
-	imageStore(out_image_normals_gs, ivec2(gl_LaunchIDEXT.xy), out_normals_gs);
-	imageStore(out_image_material_rmxx, ivec2(gl_LaunchIDEXT.xy), out_material_rmxx);
-	imageStore(out_image_emissive, ivec2(gl_LaunchIDEXT.xy), out_emissive);
-	imageStore(out_image_search_info_ktuv, ivec2(gl_LaunchIDEXT.xy), out_search_info_ktuv);
+	imageStore(out_image_base_color_a, out_pix, out_base_color_a);
+	imageStore(out_image_position_t, out_pix, out_position_t);
+	imageStore(out_image_normals_gs, out_pix, out_normals_gs);
+	imageStore(out_image_material_rmxx, out_pix, out_material_rmxx);
+	imageStore(out_image_emissive, out_pix, out_emissive);
+	imageStore(out_image_search_info_ktuv, out_pix, out_search_info_ktuv);
 
-	imageStore(out_image_refl_base_color_a, ivec2(gl_LaunchIDEXT.xy), out_refl_base_color_a);
-	imageStore(out_image_refl_position_t, ivec2(gl_LaunchIDEXT.xy), out_refl_position_t);
-	imageStore(out_image_refl_normals_gs, ivec2(gl_LaunchIDEXT.xy), out_refl_normals_gs);
-	imageStore(out_image_refl_material_rmxx, ivec2(gl_LaunchIDEXT.xy), out_refl_material_rmxx);
-	imageStore(out_image_refl_emissive, ivec2(gl_LaunchIDEXT.xy), out_refl_emissive);
+	imageStore(out_image_refl_base_color_a, out_pix, out_refl_base_color_a);
+	imageStore(out_image_refl_position_t, out_pix, out_refl_position_t);
+	imageStore(out_image_refl_normals_gs, out_pix, out_refl_normals_gs);
+	imageStore(out_image_refl_material_rmxx, out_pix, out_refl_material_rmxx);
+	imageStore(out_image_refl_emissive, out_pix, out_refl_emissive);
 
-	imageStore(out_image_gi_base_color_a, ivec2(gl_LaunchIDEXT.xy), payload.base_color_a);
-	imageStore(out_image_gi_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
-	imageStore(out_image_gi_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
-	imageStore(out_image_gi_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+	imageStore(out_image_gi_base_color_a, out_pix, payload.base_color_a);
+	imageStore(out_image_gi_position_t, out_pix, payload.hit_t);
+	imageStore(out_image_gi_normals_gs, out_pix, payload.normals_gs);
+	imageStore(out_image_gi_emissive, out_pix, payload.emissive);
 }

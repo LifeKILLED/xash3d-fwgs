@@ -66,6 +66,7 @@ void readLastNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 void main() {
 	ivec2 res = ivec2(imageSize(out_diffuse_accum));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const vec2 uv = (pix.xy + .5) / res.xy * 2. - 1.;
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
@@ -115,6 +116,9 @@ void main() {
 	vec3 gi_sh2_mixed = gi_sh2_src;
 	vec4 last_forward_spec = specular_src;
 	vec4 last_parallax_spec = specular_src;
+
+//	forward_offset = uv;
+//	parallax_offset = uv;
 
 //	// remove bad reproject candidates from fake motion vectors data
 //	if (THERE_IS(forward_offset)) {

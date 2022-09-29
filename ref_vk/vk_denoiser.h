@@ -25,5 +25,6 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass2Create( void );
 struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass3Create( void );
 
 struct ray_pass_s* R_VkRayDenoiserComposeCreate( void );
+struct ray_pass_s* R_VkRayDenoiserCheckerMixCreate( void );
 struct ray_pass_s* R_VkRayDenoiserFXAACreate( void );
 

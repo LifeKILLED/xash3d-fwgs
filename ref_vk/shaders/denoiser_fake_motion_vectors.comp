@@ -47,7 +47,6 @@ void readNormalsLast(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 	shading_normal = normalDecode(n.zw);
 }
 
-
 void main() {
 	ivec2 res = ivec2(imageSize(src_position_t));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -56,19 +55,31 @@ void main() {
 		return;
 	}
 
-	
-	vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
-	float aspect = float(res.x) / float(res.y);
+	//const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
+
+	int checker_alpha = pix.x > res.x / 2 ? 1 : 0;
+	int checker_addition = (pix.y % 2) == 0 ? checker_alpha : 1 - checker_alpha;
+
+	ivec2 pix_opaque = ivec2(pix.x % (res.x / 2), pix.y);
+	ivec2 pix_alpha = ivec2(pix.x % (res.x / 2) + res.x / 2, pix.y);
+
+	ivec2 source_pix = ivec2((pix.x % (res.x / 2)) * 2 + checker_addition, pix.y);
+	ivec2 pair_pix = ivec2((pix.x % (res.x / 2)) * 2 + (1 - checker_addition), pix.y);
+
+	//vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+	//float aspect = float(res.x) / float(res.y);
 
 	const vec3 position = imageLoad(src_position_t, pix).xyz;
 	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
 	const float roughness = imageLoad(src_material_rmxx, pix).r;
 
+	const vec2 uv = WorldPositionToUV2(position, ubo.inv_proj, ubo.inv_view).xy;
+
 	vec3 shadingNormal, geometryNormal;
 	readNormals(pix, geometryNormal, shadingNormal);
 
 	vec3 origin = OriginWorldPosition(ubo.inv_view);
-	vec3 direction = ScreenToWorldDirection(uv, ubo.inv_view, ubo.inv_proj);
+	//vec3 direction = ScreenToWorldDirection(uv, ubo.inv_view, ubo.inv_proj);
 	vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
 
 	
@@ -77,6 +88,16 @@ void main() {
 
 	vec3 last_uv_w = WorldPositionToUV2(position, ubo.last_inv_proj, ubo.last_inv_view);
 	ivec2 last_pix = UVToPix(last_uv_w.xy, res);
+
+	if (false) { // checkerboard transparence
+		ivec2 last_pix_opaque = ivec2(last_pix.x % (res.x / 2), last_pix.y);
+		ivec2 last_pix_alpha = ivec2(last_pix.x % (res.x / 2) + res.x / 2, last_pix.y);
+
+
+		ivec2 current_pix = (checker_alpha == 1) ? pix_alpha : pix_opaque;	
+		last_pix = (checker_alpha == 1) ? last_pix_alpha : last_pix_opaque;
+	}
+	const ivec2 current_pix = pix;
 
 	const float depth = length(origin - position);
 
@@ -103,17 +124,26 @@ void main() {
 		}
 	} else { // dynamic geometry, search closest offsets by UV and material 
 
-		last_pix = clamp(last_pix, ivec2(0), ivec2(res - 1));
+		// Uncomment thisbefore checkerboard transparence debugging
+		if (false) {
+			// TODO: sorry!!! need to rewrite more pretty
+			if (last_pix.x >= (res.x / 2))
+				last_pix = clamp(last_pix, ivec2(res.x / 2 - 1, 0), ivec2(res.x - 1, res.y - 1));
+			else
+				last_pix = clamp(last_pix, ivec2(0.), ivec2(res.x / 2 - 1, res.y - 1));
+		}
+
 		vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
 
-		const int KERNEL_SIZE = 2;
+		const int KERNEL_SIZE_X = 2;
+		const int KERNEL_SIZE_Y = 2;
 		ivec2 better_pix = ivec2(0, 0);
 		float better_uv_offset = 1000.;
 		bool search_done = false;
 
 #define SEARCH_CYCLE(CENTER_PIX, KERNEL_OFFSET) \
-		for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {\
-			for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) { \
+		for (int x = -KERNEL_SIZE_X; x <= KERNEL_SIZE_X; ++x) {\
+			for (int y = -KERNEL_SIZE_Y; y <= KERNEL_SIZE_Y; ++y) { \
 				const ivec2 p = CENTER_PIX + ivec2(x, y) * KERNEL_OFFSET; \
 				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) continue; \
 				const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, p); \
@@ -132,12 +162,12 @@ void main() {
 		// Moving platforms and weapon in hand need to searched in camera space
 
 		// low velocity, good precision
-		SEARCH_CYCLE(pix, 3);
+		SEARCH_CYCLE(current_pix, 3);
 		SEARCH_CYCLE(last_pix, 3);
 
 		// more velocity, low precision
 //		if (search_done == false) {
-//			SEARCH_CYCLE(pix, 8);
+//			SEARCH_CYCLE(current_pix, 8);
 //			SEARCH_CYCLE(last_pix, 8);
 //		}
 

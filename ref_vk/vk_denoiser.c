@@ -418,7 +418,7 @@ struct ray_pass_s* R_VkRayDenoiserSpecularSVGFPass3Create(void) {
 	// PASS 5. COMPOSE
 
 #define LIST_OUTPUTS_COMP(X) \
-	X(0, final_image) \
+	X(0, composed_image) \
 
 #define LIST_INPUTS_COMP(X) \
 	X(1, base_color_a) \
@@ -436,7 +436,21 @@ struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 	PASS_CREATE_FUNC("denoiser compose", "denoiser_compose.comp.spv", COMP, 11)
 }
 
-// PASS 6. FXAA
+
+	// PASS 6. CHECKERBOARD TRANSPARENT MIX
+
+#define LIST_OUTPUTS_CHECKER(X) \
+	X(0, final_image) \
+
+#define LIST_INPUTS_CHECKER(X) \
+	X(1, composed_image) \
+	X(2, base_color_a) \
+
+struct ray_pass_s* R_VkRayDenoiserCheckerMixCreate(void) {
+	PASS_CREATE_FUNC("denoiser checker mix", "denoiser_checker_mix.comp.spv", CHECKER, 3)
+}
+
+// PASS 7. FXAA
 
 #define LIST_OUTPUTS_FXAA(X) \
 	X(0, denoised) \
