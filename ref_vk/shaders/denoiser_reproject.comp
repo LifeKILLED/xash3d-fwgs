@@ -65,6 +65,17 @@ void readLastNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 	shading_normal = normalize(normalDecode(n.zw));
 }
 
+	
+vec4 sampleLastSpecular(ivec2 pix, ivec2 res) {
+	const ivec2 pix_clamped = clamp(pix, ivec2(0), res - ivec2(1));
+	return imageLoad(src_last_specular, pix_clamped);
+}
+
+vec4 sampleSpecular(ivec2 pix, ivec2 res) {
+	const ivec2 pix_clamped = clamp(pix, ivec2(0), res - ivec2(1));
+	return imageLoad(out_specular_accum, pix_clamped);
+}
+
 void main() {
 	ivec2 res = ivec2(imageSize(out_diffuse_accum));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -101,59 +112,37 @@ void main() {
 	const vec4 gi_sh1_src = imageLoad(out_gi_sh1_accum, pix); 
 	const vec3 gi_sh2_src = vec3(imageLoad(out_gi_sh2_accum, pix).xy, min_samples); 
 
-
-	float parallaxFactor = 0.;
-	float last_parallaxFactor = 0.;
-	float fallbackFactor = 0.;
-	float samples_count = 0;
-	float overlap_factor = 0.;
-	vec4 variance = vec4(.2); // default is maximal variance
-
-	vec4 last_diffuse = diffuse_src;
-	vec4 last_specular = specular_src;
-	vec4 last_gi_sh1 = gi_sh1_src;
-	vec3 last_gi_sh2 = gi_sh2_src;
+	vec4 variance = vec4(1.); // default is maximal variance
 
 	vec4 diffuse_mixed = diffuse_src;
 	vec4 specular_mixed = specular_src;
 	vec4 gi_sh1_mixed = gi_sh1_src;
 	vec3 gi_sh2_mixed = gi_sh2_src;
-	vec4 last_forward_spec = specular_src;
-	vec4 last_parallax_spec = specular_src;
 
 	// Get color from simple motion vector for duffuse component
 	if (THERE_IS(forward_offset)) {
 		const ivec2 last_pix = UVToPix(forward_offset, res);
 
-		last_diffuse = imageLoad(src_last_diffuse, last_pix);
-		last_diffuse.w += 1.; // increase sample count
+		diffuse_mixed = imageLoad(src_last_diffuse, last_pix);
+		diffuse_mixed.w += 1.; // increase sample count
 
-		last_forward_spec = imageLoad(src_last_specular, last_pix);
-		last_forward_spec.w += 1.; // increase sample count
-
-		last_gi_sh1 = imageLoad(src_last_gi_sh1, last_pix);
-		last_gi_sh2 = imageLoad(src_last_gi_sh2, last_pix).xyz;
-		last_gi_sh2.z += 1.; // increase sample count
-
-		//const float last_depth = imageLoad(src_last_position_t, last_pix).w;
-		overlap_factor = 0.; // we don't need to check depth here
-
-		diffuse_mixed = mix(last_diffuse, diffuse_src, overlap_factor);
-		gi_sh1_mixed = mix(last_gi_sh1, gi_sh1_src, overlap_factor);
-		gi_sh2_mixed = mix(last_gi_sh2, gi_sh2_src, overlap_factor);
+		if (metalness <= .5 || THERE_IS(parallax_offset) == false) {
+			gi_sh1_mixed = imageLoad(src_last_gi_sh1, last_pix);
+			gi_sh2_mixed = imageLoad(src_last_gi_sh2, last_pix).xyz;
+			gi_sh2_mixed.z += 1.; // increase sample count
+		}
 	}
 
 	if (THERE_IS(parallax_offset)) {
-
 		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
 		specular_mixed = imageLoad(src_last_specular, parallax_pix);
 		specular_mixed.w += 1.; // increase sample count
 
 		// for metal surfaces try to reproject gi from second bounce
 		if (metalness > .5) {
-			last_gi_sh1 = imageLoad(src_last_gi_sh1, parallax_pix);
-			last_gi_sh2 = imageLoad(src_last_gi_sh2, parallax_pix).xyz;
-			last_gi_sh2.z += 1.; // increase sample count
+			gi_sh1_mixed = imageLoad(src_last_gi_sh1, parallax_pix);
+			gi_sh2_mixed = imageLoad(src_last_gi_sh2, parallax_pix).xyz;
+			gi_sh2_mixed.z += 1.; // increase sample count
 		}
 	}
 
@@ -181,13 +170,17 @@ void main() {
 		prev_moments.g    = prev_moments.r * prev_moments.r;
 
 		moments = mix(prev_moments, moments, specular_frames_blend);
-		variance = vec4(max(0.0f, moments.g - moments.r * moments.r)) * 2.;
+		variance = vec4(max(0.0f, moments.g - moments.r * moments.r));
 	}
+	variance *= 1.; // agressive blur for specular
 
 	diffuse_mixed = mix(diffuse_src, diffuse_mixed, diffuse_frames_blend);
 	specular_mixed = mix(specular_src, specular_mixed, specular_frames_blend);
 	gi_sh1_mixed = mix(gi_sh1_src, gi_sh1_mixed, gi_frames_blend);
 	gi_sh2_mixed = mix(gi_sh2_src, gi_sh2_mixed, gi_frames_blend);
+
+//	diffuse_mixed.rgb = min(diffuse_mixed.rgb, vec3(1.5));
+//	specular_mixed.rgb = min(specular_mixed.rgb, vec3(3.5));
 
 //	vec3 motion_reprojection_debug = vec3(0., 0., 1.);
 //	if (motion_offsets_uvs.x > -99.) {

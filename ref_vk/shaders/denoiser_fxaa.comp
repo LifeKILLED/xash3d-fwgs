@@ -87,7 +87,7 @@ void main() {
     else
         color = vec4(rgbB, texColor.a);
 
-	imageStore(dest, pix, imageLoad(src_final_image, pix)); // debug disable fxaa
+	//imageStore(dest, pix, imageLoad(src_final_image, pix)); // debug disable fxaa
 
-	//imageStore(dest, pix, color);
+	imageStore(dest, pix, color);
 }

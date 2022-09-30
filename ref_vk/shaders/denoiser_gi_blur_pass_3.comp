@@ -2,6 +2,6 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define KERNEL_SIZE 1
-#define OFFSET 8
+#define OFFSET 4
 
 #include "denoiser_gi_blur.glsl"

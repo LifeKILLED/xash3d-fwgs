@@ -207,7 +207,17 @@ void main() {
 		PAYLOAD_LOCATION_PRIMARY);
 
 	float depth = length(origin - payload.hit_t.xyz);
+	const vec3 geometry_normal = normalize(normalDecode(payload.normals_gs.xy));
+	const vec3 shading_normal = normalize(normalDecode(payload.normals_gs.zw));
 
+	// correct roughness by frehnel
+	const float NdotS = max(0., dot(normalize(direction.xyz), normalize(-shading_normal)));
+	const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
+	const float roughness_source = payload.material_rmxx.r;
+	const float roughness_low = mix(roughness_source, 0., fresnel);
+	const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
+	const float roughness = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
+	payload.material_rmxx.r = roughness;
 
 	const vec4 out_position_t = vec4(payload.hit_t.xyz, depth);
 	const vec4 out_base_color_a = payload.base_color_a;
@@ -222,17 +232,14 @@ void main() {
 
 
 		
-	const vec3 geometry_normal = normalize(normalDecode(out_normals_gs.xy));
-	const vec3 shading_normal = normalize(normalDecode(out_normals_gs.zw));
+
 
 	const vec3 bounce_origin = out_position_t.xyz + geometry_normal * 0.001;
 
-	const float roughness_src = out_material_rmxx.r * 0.7;
-	const float roughness = mix(roughness_src, 0.4, smoothstep(0.3, 0.4, roughness_src));
 	//const float roughness = 0.3; // DEBUG
 	vec3 refl_emissive = vec3(0.);
 
-	const float specPower = 1./ pow(roughness, 4.5);
+	const float specPower = 1./ pow(roughness, 3.5);
 
 #ifdef EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION
 	for (int n = 0; n < EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION; n++) {	

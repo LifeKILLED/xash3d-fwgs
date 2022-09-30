@@ -8,7 +8,7 @@
 #define REFLECTIONS 1
 
 // Randomize fixed count of maximum lights
-#define MAX_LIGHTS_PER_TEXEL 32
+#define MAX_LIGHTS_PER_TEXEL 16
 
 // Enable SSR
 #define REUSE_SCREEN_LIGHTING 1

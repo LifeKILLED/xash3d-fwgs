@@ -61,7 +61,6 @@ float luminanceWeight(float lum0, float lum1, float variance) {
 }
 
 
-
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(src_normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);

@@ -97,6 +97,8 @@
 	X(-1, gi_sh2_pass_1, rgba16f) \
 	X(-1, gi_sh1_pass_2, rgba16f) \
 	X(-1, gi_sh2_pass_2, rgba16f) \
+	X(-1, gi_sh1_pass_3, rgba16f) \
+	X(-1, gi_sh2_pass_3, rgba16f) \
 	X(-1, gi_sh1_denoised, rgba16f) \
 	X(-1, gi_sh2_denoised, rgba16f) \
 	X(-1, diffuse_variance, rgba16f) \

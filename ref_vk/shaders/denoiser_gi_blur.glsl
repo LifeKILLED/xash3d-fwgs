@@ -8,7 +8,7 @@
 #endif
 
 #ifndef DEPTH_THRESHOLD
-#define DEPTH_THRESHOLD 0.1
+#define DEPTH_THRESHOLD 1.
 #endif
 
 #include "noise.glsl"

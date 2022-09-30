@@ -225,14 +225,9 @@ void main() {
 
 			if (co_planar_difference < 5. &&
 				ray_length_difference < actual_difference_treshold &&
-				dot(texel_normal, normalize(parallax_shadingNormal)) > normal_treshold_low //&&
-				//ray_length_difference < actual_difference_treshold &&
-				//ray_length_difference > (1. / actual_difference_treshold)
-				) {
+				dot(texel_normal, normalize(parallax_shadingNormal)) > normal_treshold_low) {
 
 				parallax_offset = parallax_uv.xy;
-				//const float parallax_factor_last = smoothstep(dot(texel_normal, normalize(parallax_shadingNormal)), normal_treshold_low, normal_treshold_high);
-				//parallax_offset = mix(forward_offset, parallax_uv.xy, parallax_factor * parallax_factor_last);
 			}
 		}
 	}

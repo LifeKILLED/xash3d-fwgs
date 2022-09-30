@@ -1,7 +1,8 @@
 #ifndef DENOISER_TOOLS_LK_12231312
 #define DENOISER_TOOLS_LK_12231312 1
 
-#define ADD_SAMPLES_FOR_NOT_REPROJECTED 4
+// extra samples to lights calculating, deprecating
+#define ADD_SAMPLES_FOR_NOT_REPROJECTED 1
 
 // denoising of global illumination on mirrors now works bad
 //#define DONT_DENOISE_SPECULAR_GI
@@ -131,7 +132,14 @@ ivec2 UVToPix(vec2 uv, ivec2 res) {
 
 vec3 PBRMix(vec3 base_color, vec3 diffuse, vec3 specular, float metalness) {
 	vec3 metal_colour = specular * base_color;
-	vec3 dielectric_colour = mix(diffuse * base_color, specular, 0.2);
+	vec3 dielectric_colour = mix(diffuse * base_color, specular, 0.04); // like in Unreal
+	return mix(dielectric_colour, metal_colour, metalness);
+}
+
+vec3 PBRMixFresnel(vec3 base_color, vec3 diffuse, vec3 specular, float metalness, float fresnel) {
+	vec3 metal_colour = specular * base_color;
+	float diffuse_specular_factor = mix(0.2, 0.04, fresnel);
+	vec3 dielectric_colour = mix(diffuse * base_color, specular, diffuse_specular_factor);
 	return mix(dielectric_colour, metal_colour, metalness);
 }
 
