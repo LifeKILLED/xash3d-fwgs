@@ -3,7 +3,7 @@
 
 // Reflection of emissive surfaces make a lot of hight light noise
 // This trick make specular highlights a little bit more clean
-#define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 4
+#define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 2
 
 #include "ray_primary_common.glsl"
 #include "color_spaces.glsl"

@@ -7,7 +7,7 @@
 #include "spherical_harmonics.glsl"
 
 const float uv_treshold = 0.025;
-const float ray_length_difference_treshold = 1.5;
+const float ray_length_difference_treshold = 1.1;
 const float distance_treshold = 5.0;
 const float normal_treshold_low = 0.95;
 const float normal_treshold_high = 0.98;
@@ -49,8 +49,8 @@ void readNormalsLast(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal
 }
 
 void main() {
-	ivec2 res = ivec2(imageSize(src_position_t));
-	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const ivec2 res = ivec2(imageSize(src_position_t));
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
@@ -58,42 +58,43 @@ void main() {
 
 	//const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
 
-	int checker_alpha = pix.x > res.x / 2 ? 1 : 0;
-	int checker_addition = (pix.y % 2) == 0 ? checker_alpha : 1 - checker_alpha;
+	const int checker_alpha = pix.x > res.x / 2 ? 1 : 0;
+	const int checker_addition = (pix.y % 2) == 0 ? checker_alpha : 1 - checker_alpha;
 
-	ivec2 pix_opaque = ivec2(pix.x % (res.x / 2), pix.y);
-	ivec2 pix_alpha = ivec2(pix.x % (res.x / 2) + res.x / 2, pix.y);
+	const ivec2 pix_opaque = ivec2(pix.x % (res.x / 2), pix.y);
+	const ivec2 pix_alpha = ivec2(pix.x % (res.x / 2) + res.x / 2, pix.y);
 
-	ivec2 source_pix = ivec2((pix.x % (res.x / 2)) * 2 + checker_addition, pix.y);
-	ivec2 pair_pix = ivec2((pix.x % (res.x / 2)) * 2 + (1 - checker_addition), pix.y);
+	const ivec2 source_pix = ivec2((pix.x % (res.x / 2)) * 2 + checker_addition, pix.y);
+	const ivec2 pair_pix = ivec2((pix.x % (res.x / 2)) * 2 + (1 - checker_addition), pix.y);
 
 	//vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
 	//float aspect = float(res.x) / float(res.y);
 
 	const vec3 position = imageLoad(src_position_t, pix).xyz;
 	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
-	const float roughness = imageLoad(src_material_rmxx, pix).r;
+	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
+	const float roughness = material_rmxx.r;
+	const float metalness = material_rmxx.g;
 
 	const vec2 uv = WorldPositionToUV2(position, ubo.inv_proj, ubo.inv_view).xy;
 
 	vec3 shadingNormal, geometryNormal;
 	readNormals(pix, geometryNormal, shadingNormal);
 
-	vec3 origin = OriginWorldPosition(ubo.inv_view);
+	const vec3 origin = OriginWorldPosition(ubo.inv_view);
 	//vec3 direction = ScreenToWorldDirection(uv, ubo.inv_view, ubo.inv_proj);
-	vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
+	const vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
 
 	
-	vec3 lastCameraDirection = ScreenToWorldDirection(vec2(0.,0.), ubo.last_inv_view, ubo.last_inv_proj);
-	bool inBackOfCamera = dot(normalize(lastCameraDirection), position - last_origin) < 0.;
+	const vec3 lastCameraDirection = ScreenToWorldDirection(vec2(0.,0.), ubo.last_inv_view, ubo.last_inv_proj);
+	const bool inBackOfCamera = dot(normalize(lastCameraDirection), position - last_origin) < 0.;
 
-	vec3 last_uv_w = WorldPositionToUV2(position, ubo.last_inv_proj, ubo.last_inv_view);
+	const vec3 last_uv_w = WorldPositionToUV2(position, ubo.last_inv_proj, ubo.last_inv_view);
 	ivec2 last_pix = UVToPix(last_uv_w.xy, res);
 
 	if (false) { // checkerboard transparence
 		ivec2 last_pix_opaque = ivec2(last_pix.x % (res.x / 2), last_pix.y);
 		ivec2 last_pix_alpha = ivec2(last_pix.x % (res.x / 2) + res.x / 2, last_pix.y);
-
 
 		ivec2 current_pix = (checker_alpha == 1) ? pix_alpha : pix_opaque;	
 		last_pix = (checker_alpha == 1) ? last_pix_alpha : last_pix_opaque;
@@ -103,9 +104,10 @@ void main() {
 	const float depth = length(origin - position);
 
 	float last_depth = -1000.; // guaranted non-equal
-	float depth_need = length(last_origin - position);
-	vec4 debug_reprojection = vec4(1., 0., 0., 1.);
-	float reflection_ray_lenth = length(reflection_pos - position);
+	vec3 last_position = vec3(0.);
+	const float depth_need = length(last_origin - position);
+	//vec4 debug_reprojection = vec4(1., 0., 0., 1.);
+	const float reflection_ray_lenth = length(reflection_pos - position);
 
 	vec2 forward_offset = vec2(-100., 0.);
 	vec2 parallax_offset = vec2(-100., 0.);
@@ -115,7 +117,7 @@ void main() {
 	// if this is static geometry, check only this position by depth
 	if (search_info_ktuv.x < .5) {
 		if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix, ivec2(0))) && any(lessThan(last_pix, res))) {
-			vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
+			last_position = imageLoad(src_last_position_t, last_pix).xyz;
 			last_depth = length(last_origin - last_position);
 			const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); \
 			if ((length(last_position - position) < 5.) && // same depth
@@ -180,49 +182,53 @@ void main() {
 		}
 	}
 
-	if (length(origin - last_origin) < 0.1) {
+	if (length(origin - last_origin) < 0.001) {
 		parallax_offset = forward_offset;
 	} else {
 		// Parallax reprojection
-		vec3 texel_normal = normalize(geometryNormal.xyz);
-		vec3 reflection_destination = normalize(reflect(normalize(position - origin), texel_normal)) * length(reflection_pos.xyz - position) + position;
-		float reflection_distance_to_plane = dot(reflection_destination - position, texel_normal);
-		vec3 reflection_destination_on_plane = reflection_destination - texel_normal * reflection_distance_to_plane;
-		float last_distance_to_plane = dot(last_origin - position, texel_normal);
-		vec3 last_origin_on_plane = last_origin - texel_normal * last_distance_to_plane;
-		float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
-		vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_destination_on_plane, reflection_center);
+		const vec3 texel_normal = normalize(geometryNormal.xyz);
+		const vec3 reflection_destination = normalize(reflect(normalize(position - origin), texel_normal)) * length(reflection_pos.xyz - position) + position;
+		const float reflection_distance_to_plane = dot(reflection_destination - position, texel_normal);
+		const vec3 reflection_destination_on_plane = reflection_destination - texel_normal * reflection_distance_to_plane;
+		const float last_distance_to_plane = dot(last_origin - position, texel_normal);
+		const vec3 last_origin_on_plane = last_origin - texel_normal * last_distance_to_plane;
+		const float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
+		const vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_destination_on_plane, reflection_center);
+		const float nesessary_ray_lenth = max(0.001, length(reflection_parallax_position - reflection_destination));
+		//const float nesessary_ray_lenth = max(0.001, reflection_ray_lenth);
 
-		const float low_roughness_factor = 1. - smoothstep(roughness, 0.1, 0.4);
-		const float parallax_factor = smoothstep(dot(texel_normal, normalize(geometryNormal)), normal_treshold_low, normal_treshold_high)* // only co-planar normals
-									  low_roughness_factor; // avoid parallax on big roughness
+		//const float low_roughness_factor = 1. - smoothstep(roughness, 0.1, 0.4);
+		//const float parallax_factor = smoothstep(dot(texel_normal, normalize(geometryNormal)), normal_treshold_low, normal_treshold_high); //* // only co-planar normals
+		//							  low_roughness_factor; // avoid parallax on big roughness
 
-		const float actual_difference_treshold = mix(1000., ray_length_difference_treshold, low_roughness_factor);
+		const float actual_difference_treshold = mix(50., 1000., smoothstep(0., 0.3, roughness));
 
-		vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.last_inv_proj, ubo.last_inv_view);
+		const vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.last_inv_proj, ubo.last_inv_view);
 
-		if (forward_offset.x > -99.) {
-			parallax_uv.xy = mix(forward_offset, parallax_uv.xy, parallax_factor);
-		}
+		//if (forward_offset.x > -99.) {
+		//	parallax_uv.xy = mix(forward_offset, parallax_uv.xy, parallax_factor);
+		//}
 
-		ivec2 parallax_pix = UVToPix(parallax_uv.xy, res);
+		const ivec2 parallax_pix = UVToPix(parallax_uv.xy, res);
 
 		if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
 
 			const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_pix).xyz;
 			const float co_planar_difference = abs(dot(texel_normal, normalize(last_parallax_texel_pos - position)));
 
-	//		float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
-	//		float ray_length_difference = last_ray_length / reflection_ray_lenth;
-			float ray_length_difference = 1.; // DEBUG!
+			// last ray length stored in gi_sh2.w for metal surfaces, for diffuse it's don't a critic
+			const float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
+			const float ray_length_difference = abs(nesessary_ray_lenth - last_ray_length); //* nesessary_ray_lenth;
 
 			vec3 parallax_shadingNormal, parallax_geometryNormal;
 			readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
 
-			if (co_planar_difference < 1. &&
-				dot(texel_normal, normalize(parallax_shadingNormal)) > normal_treshold_high &&
+			if (co_planar_difference < 5. &&
 				ray_length_difference < actual_difference_treshold &&
-				ray_length_difference > (1. / actual_difference_treshold)) {
+				dot(texel_normal, normalize(parallax_shadingNormal)) > normal_treshold_low //&&
+				//ray_length_difference < actual_difference_treshold &&
+				//ray_length_difference > (1. / actual_difference_treshold)
+				) {
 
 				parallax_offset = parallax_uv.xy;
 				//const float parallax_factor_last = smoothstep(dot(texel_normal, normalize(parallax_shadingNormal)), normal_treshold_low, normal_treshold_high);

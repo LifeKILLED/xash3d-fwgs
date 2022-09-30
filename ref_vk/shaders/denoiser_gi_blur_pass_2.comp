@@ -3,6 +3,5 @@
 
 #define KERNEL_SIZE 1
 #define OFFSET 4
-#define DEPTH_THRESHOLD 15.0
 
 #include "denoiser_gi_blur.glsl"

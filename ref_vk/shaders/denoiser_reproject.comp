@@ -10,9 +10,9 @@
 #define NORMALS_DIFFERENCE_LOW 0.93
 #define NORMALS_DIFFERENCE_HIGH 0.97
 
-#define DIFFUSE_BLEND_LIMIT .95
-#define SPECULAR_BLEND_LIMIT .9
-#define GI_BLEND_LIMIT .95
+#define DIFFUSE_BLEND_LIMIT .98
+#define SPECULAR_BLEND_LIMIT .98
+#define GI_BLEND_LIMIT .98
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -107,7 +107,7 @@ void main() {
 	float fallbackFactor = 0.;
 	float samples_count = 0;
 	float overlap_factor = 0.;
-	vec4 variance = vec4(.1); // default is maximal variance
+	vec4 variance = vec4(.2); // default is maximal variance
 
 	vec4 last_diffuse = diffuse_src;
 	vec4 last_specular = specular_src;
@@ -143,7 +143,7 @@ void main() {
 		gi_sh2_mixed = mix(last_gi_sh2, gi_sh2_src, overlap_factor);
 	}
 
-	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
+	if (THERE_IS(parallax_offset)) {
 
 		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
 		specular_mixed = imageLoad(src_last_specular, parallax_pix);
@@ -173,7 +173,7 @@ void main() {
 	const float gi_frames_blend = clamp(1. - 1. / gi_samples_count, .5, GI_BLEND_LIMIT) /** gi_difference*/;
 
 	// calculate variance for specular if reprojecting is done
-	if (THERE_IS(parallax_offset) && THERE_IS(forward_offset)) {
+	if (THERE_IS(parallax_offset)) {
 		vec2 moments = vec2(luminance(specular_src.rgb), 0.);
 		moments.g    = moments.r * moments.r;
 
@@ -181,7 +181,7 @@ void main() {
 		prev_moments.g    = prev_moments.r * prev_moments.r;
 
 		moments = mix(prev_moments, moments, specular_frames_blend);
-		variance = vec4(max(0.0f, moments.g - moments.r * moments.r));
+		variance = vec4(max(0.0f, moments.g - moments.r * moments.r)) * 2.;
 	}
 
 	diffuse_mixed = mix(diffuse_src, diffuse_mixed, diffuse_frames_blend);

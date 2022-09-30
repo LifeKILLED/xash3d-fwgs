@@ -23,13 +23,13 @@ const float shadow_offset_fudge = .1;
 
 #ifdef LIGHT_POINT // Low count, not agressive rejection
 	#define LOWER_IRRADIANCE_THRESHOLD 0.05
-	#define HIGHT_IRRADIANCE_THRESHOLD 1.
+	#define HIGHT_IRRADIANCE_THRESHOLD 2.
 	#define LUMINANCE_MULTIPLIER 2.
 	//#define ACCUMULATED_THRESHOLD 0.1
 #else // Emissive kusochki - soft lighting, big count
 	#define LOWER_IRRADIANCE_THRESHOLD 0.05
 	#define HIGHT_IRRADIANCE_THRESHOLD 1.
-	#define LUMINANCE_MULTIPLIER 0.2
+	#define LUMINANCE_MULTIPLIER 1.
 	//#define ACCUMULATED_THRESHOLD 0.1
 #endif
 

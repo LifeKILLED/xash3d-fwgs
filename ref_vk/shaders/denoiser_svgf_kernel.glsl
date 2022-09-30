@@ -55,7 +55,7 @@ vec2 depthGradient(float src_depth, ivec2 pix, ivec2 res) {
 
 // Luminance-weighting function (4.4.3)
 float luminanceWeight(float lum0, float lum1, float variance) {
-  const float strictness = 10.0;
+  const float strictness = 30.0;
   const float eps = 0.05;
   return exp((-abs(lum0 - lum1)) / (strictness * variance + eps));
 }
@@ -101,8 +101,8 @@ void main() {
 		return;
 	}
 	
-	const vec3 center_irradiance = imageLoad(src_color_noisy, pix).rgb;
-	const float center_luminance = luminance(center_irradiance);
+	const vec4 center_irradiance = imageLoad(src_color_noisy, pix);
+	const float center_luminance = luminance(center_irradiance.rgb);
 	const float reproject_variance = imageLoad(src_variance, pix).r;
 	//const vec3 center_irradiance = imageLoad(src_color_noisy, pix).rgb;
 	const float depth = imageLoad(src_position_depth, pix).w;
@@ -208,7 +208,7 @@ void main() {
 		irradiance /= weight_sum;
 	}
 
-	imageStore(src_color_filtered, pix, vec4(irradiance, 0.));
+	imageStore(src_color_filtered, pix, vec4(irradiance, center_irradiance.w));
 }
 
 

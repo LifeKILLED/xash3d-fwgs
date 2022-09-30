@@ -163,9 +163,11 @@ struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
 	X(14, gi_emissive) \
 	X(15, gi_position_t) \
 	X(16, position_t) \
+	X(17, refl_position_t) \
+	X(18, material_rmxx) \
 
 struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
-	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 17)
+	PASS_CREATE_FUNC("denoiser accumulate", "denoiser_accumulate.comp.spv", ACCUM, 19)
 }
 
 
@@ -228,9 +230,10 @@ struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \
 	X(4, material_rmxx) \
+	X(5, position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserGIBlurPass1Create(void) {
-	PASS_CREATE_FUNC("denoiser gi blur pass 1", "denoiser_gi_blur_pass_1.comp.spv", GI_BLUR1, 5)
+	PASS_CREATE_FUNC("denoiser gi blur pass 1", "denoiser_gi_blur_pass_1.comp.spv", GI_BLUR1, 6)
 }
 
 	// GI BLUR PASS 2
@@ -243,9 +246,10 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass1Create(void) {
 	X(2, gi_sh1_pass_1) \
 	X(3, gi_sh2_pass_1) \
 	X(4, material_rmxx) \
+	X(5, position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserGIBlurPass2Create(void) {
-	PASS_CREATE_FUNC("denoiser gi blur pass 2", "denoiser_gi_blur_pass_2.comp.spv", GI_BLUR2, 5)
+	PASS_CREATE_FUNC("denoiser gi blur pass 2", "denoiser_gi_blur_pass_2.comp.spv", GI_BLUR2, 6)
 }
 
 	// GI BLUR PASS 3
@@ -258,9 +262,10 @@ struct ray_pass_s* R_VkRayDenoiserGIBlurPass2Create(void) {
 	X(2, gi_sh1_pass_2) \
 	X(3, gi_sh2_pass_2) \
 	X(4, material_rmxx) \
+	X(5, position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserGIBlurPass3Create(void) {
-	PASS_CREATE_FUNC("denoiser gi blur pass 3", "denoiser_gi_blur_pass_3.comp.spv", GI_BLUR3, 5)
+	PASS_CREATE_FUNC("denoiser gi blur pass 3", "denoiser_gi_blur_pass_3.comp.spv", GI_BLUR3, 6)
 }
 
 

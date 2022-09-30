@@ -33,6 +33,8 @@ layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_refl_emissiv
 layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_gi_emissive;
 layout(set = 0, binding = 15, rgba32f) uniform readonly image2D src_gi_position_t;
 layout(set = 0, binding = 16, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 17, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 18, rgba8) uniform readonly image2D src_material_rmxx;
 
 // Blatantly copypasted from https://www.shadertoy.com/view/XsGfWV
 vec3 aces_tonemap(vec3 color){
@@ -188,11 +190,12 @@ void main() {
 	vec4 gi_sh1 = vec4(0.);
 	vec2 gi_sh2 = vec2(0.);
 
+	const vec4 position = imageLoad(src_position_t, pix);
 
 	// store indirectional light in spherical harmonics
 	if (global_illumination.rgb != vec3(0., 0., 0.)) {
 		const vec3 indirect_color = global_illumination.rgb * STORAGE_SCALE_LF;
-		const vec3 gi_direction_src = imageLoad(src_gi_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
+		const vec3 gi_direction_src = imageLoad(src_gi_position_t, pix).xyz - position.xyz;
 		const vec3 gi_direction = length(gi_direction_src) > 0. ? normalize(gi_direction_src) : vec3(1., 0., 0.);
 
 		SH low_freq = irradiance_to_SH(indirect_color, gi_direction);
@@ -200,8 +203,12 @@ void main() {
 		gi_sh2 = low_freq.CoCg;
 	}
 
+	// store reflection ray length in last free component of gi_sh2
+	const vec3 refl_position = imageLoad(src_refl_position_t, pix).xyz;
+	const float reflection_ray_length = length(refl_position - position.xyz);
+
 	imageStore(out_specular_accum, pix, vec4(reflection, 0.));
 	imageStore(out_diffuse_accum, pix, vec4(diffuse, 0.));
 	imageStore(out_gi_sh1_accum, pix, gi_sh1);
-	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2, 0., 0.));
+	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2, 0., reflection_ray_length));
 }

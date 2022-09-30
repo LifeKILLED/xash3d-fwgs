@@ -8,7 +8,7 @@
 #endif
 
 #ifndef DEPTH_THRESHOLD
-#define DEPTH_THRESHOLD 25.0
+#define DEPTH_THRESHOLD 0.1
 #endif
 
 #include "noise.glsl"
@@ -24,6 +24,7 @@ layout(set = 0, binding = 1, rgba16f) uniform image2D out_gi_sh2;
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_gi_sh1;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_gi_sh2;
 layout(set = 0, binding = 4, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_position_t;
 
 
 void main() {
@@ -34,7 +35,8 @@ void main() {
 		return;
 	}
 
-	const float depth = imageLoad(src_gi_sh2, pix).z;
+	const vec4 gi_sh2_src = imageLoad(src_gi_sh2, pix);
+	const float depth = imageLoad(src_position_t, pix).w;
 	const float metalness_factor = imageLoad(src_material_rmxx, pix).y > .5 ? 1. : 0.;
 
 	vec4 gi_sh1 = vec4(0.);
@@ -56,11 +58,11 @@ void main() {
 			const vec4 current_gi_sh1 = imageLoad(src_gi_sh1, p);
 			const vec4 current_gi_sh2 = imageLoad(src_gi_sh2, p);
 
-			const float depth_current = current_gi_sh1.z;
-			const float depth_offset = abs(depth - depth_current);
+			const float depth_current = imageLoad(src_position_t, p).w;
+			const float depth_offset = abs(depth - depth_current) / max(0.001, depth);
 			const float gi_depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
 
-			float weight = 1.; // square blur for more efficient light spreading
+			float weight = gi_depth_factor; // square blur for more efficient light spreading
 
 			//const float sigma = KERNEL_SIZE / 2.;
 			//const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor;
@@ -77,5 +79,5 @@ void main() {
 	}
 
 	imageStore(out_gi_sh1, pix, gi_sh1);
-	imageStore(out_gi_sh2, pix, vec4(gi_sh2, depth, 0.));
+	imageStore(out_gi_sh2, pix, vec4(gi_sh2, gi_sh2_src.zw));
 }
