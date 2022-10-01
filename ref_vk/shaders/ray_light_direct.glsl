@@ -72,8 +72,17 @@ void main() {
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 
 
-	const vec4 material_data = imageLoad(src_material_rmxx, pix);
+	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);
+
+#ifdef REFLECTIONS
+#ifndef LIGHT_POINT
+	// in large roughness reflection swapped by gi, skip calculations for poly lights
+	if (material_rmxx.r > .6) {
+		imageStore(out_image_light_poly_reflection, pix_src, vec4(0.));
+	}
+#endif
+#endif
 
 	MaterialProperties material;
 	
@@ -86,8 +95,8 @@ void main() {
 	material.metalness = 0.;
 	material.roughness = 1.;
 #else
-	material.metalness = material_data.g;
-	material.roughness = material_data.r;
+	material.metalness = material_rmxx.g;
+	material.roughness = material_rmxx.r;
 #endif
 	material.emissive = vec3(0.f);	
 

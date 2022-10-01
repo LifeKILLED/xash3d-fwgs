@@ -25,21 +25,21 @@ const float shadow_offset_fudge = .1;
 	#define LOWER_IRRADIANCE_THRESHOLD 0.05
 	#define HIGHT_IRRADIANCE_THRESHOLD 2.
 	#define LUMINANCE_MULTIPLIER 2.
-	//#define ACCUMULATED_THRESHOLD 0.1
+	#define ACCUMULATED_THRESHOLD 0.1
 #else // Emissive kusochki - soft lighting, big count
 	#define LOWER_IRRADIANCE_THRESHOLD 0.05
 	#define HIGHT_IRRADIANCE_THRESHOLD 1.
 	#define LUMINANCE_MULTIPLIER 1.
-	//#define ACCUMULATED_THRESHOLD 0.1
+	#define ACCUMULATED_THRESHOLD 0.1
 #endif
 
 // If we already enlight texel, put up lower threshold
-//#define REJECT_LIGHTS_LOWER_THAN_ACCUMULATION 1
-//#ifdef REJECT_LIGHTS_LOWER_THAN_ACCUMULATION
-//#define LOWER_IRRADIANCE_THRESHOLD_GET() mix(LOWER_IRRADIANCE_THRESHOLD, accumulated_irradiance, ACCUMULATED_THRESHOLD)
-//#else
+#define REJECT_LIGHTS_LOWER_THAN_ACCUMULATION 1
+#ifdef REJECT_LIGHTS_LOWER_THAN_ACCUMULATION
+#define LOWER_IRRADIANCE_THRESHOLD_GET() mix(LOWER_IRRADIANCE_THRESHOLD, accumulated_irradiance, ACCUMULATED_THRESHOLD)
+#else
 #define LOWER_IRRADIANCE_THRESHOLD_GET() LOWER_IRRADIANCE_THRESHOLD
-//#endif
+#endif
 
 // Put this macros in sample cycle and make random reject lighing by illuminance
 #ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE

@@ -11,7 +11,7 @@
 #define MAX_LIGHTS_PER_TEXEL 16
 
 // Enable SSGI
-#define REUSE_SCREEN_LIGHTING
+#define REUSE_SCREEN_LIGHTING 1
 
 #define OUTPUTS RAY_LIGHT_INDIRECT_POLY_OUTPUTS
 #include "ray_light_direct.glsl"

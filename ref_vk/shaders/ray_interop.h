@@ -90,15 +90,12 @@
 	X(-1, motion_offsets_uvs, rgba16f) \
 	X(-1, diffuse_accum, rgba16f) \
 	X(-1, specular_accum, rgba16f) \
-	X(-1, specular_pre_spread, rgba16f) \
 	X(-1, gi_sh1_accum, rgba16f) \
 	X(-1, gi_sh2_accum, rgba16f) \
 	X(-1, gi_sh1_pass_1, rgba16f) \
 	X(-1, gi_sh2_pass_1, rgba16f) \
 	X(-1, gi_sh1_pass_2, rgba16f) \
 	X(-1, gi_sh2_pass_2, rgba16f) \
-	X(-1, gi_sh1_pass_3, rgba16f) \
-	X(-1, gi_sh2_pass_3, rgba16f) \
 	X(-1, gi_sh1_denoised, rgba16f) \
 	X(-1, gi_sh2_denoised, rgba16f) \
 	X(-1, diffuse_variance, rgba16f) \

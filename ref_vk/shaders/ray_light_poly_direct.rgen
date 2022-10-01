@@ -11,7 +11,7 @@
 #define GRAY_MATERIAL 1
 
 // Randomize fixed count of maximum lights
-#define MAX_LIGHTS_PER_TEXEL 24
+//#define MAX_LIGHTS_PER_TEXEL 24
 
 #define OUTPUTS RAY_LIGHT_DIRECT_POLY_OUTPUTS
 #include "ray_light_direct.glsl"

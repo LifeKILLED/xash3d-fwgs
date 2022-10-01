@@ -2,18 +2,7 @@
 #define DENOISER_TOOLS_LK_12231312 1
 
 // extra samples to lights calculating, deprecating
-#define ADD_SAMPLES_FOR_NOT_REPROJECTED 1
-
-// denoising of global illumination on mirrors now works bad
-//#define DONT_DENOISE_SPECULAR_GI
-
-// Choose just single option to increacing perfomance:
-
-// Balance perfomance and visual
-//#define LIGHTS_QUARTER_REDUCION
-
-// More perfomance, but not so beautiful
-//#define LIGHTS_NINEFOLD_REDUCION
+//#define ADD_SAMPLES_FOR_NOT_REPROJECTED 1
 
 #define IMPORTANCE_SAMPLING_4X_SIMPLE 1
 
