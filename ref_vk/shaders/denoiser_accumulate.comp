@@ -6,8 +6,6 @@
 #include "denoiser_tools.glsl"
 #include "color_spaces.glsl"
 
-//#define LIGHTS_REJECTION_X4 1
-
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 
@@ -100,38 +98,11 @@ void main() {
 		return;
 	}
 
-	
-
-	//vec3 irradiance1 = 
-
-#ifndef LIGHTS_REJECTION_X4 // full resolution
 
 	const vec3 diffuse = imageLoad(src_light_direct_point_diffuse, pix).rgb +
 						 imageLoad(src_light_direct_poly_diffuse, pix).rgb;
+
 	const vec3 reflection_poly = imageLoad(src_light_poly_reflection, pix).rgb;
-
-#else // LIGHTS_REJECTION_X4
-
-	// gray material diffuse component
-	const vec3 diffuse = imageLoad(src_light_direct_point_diffuse, pix).rgb +
-						 imageLoad(src_light_direct_poly_diffuse, pix).rgb +
-						 (samplePolyDirectOpposite(pix+ivec2(-1, -1), pix+ivec2(1, 1), res) +
-						 samplePolyDirectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
-						 samplePolyDirectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
-						 samplePolyDirectOpposite(pix+ivec2(0, -1), pix+ivec2(0, 1), res);
-	
-
-	//const vec3 diffuse = imageLoad(src_light_direct_poly_diffuse, pix).rgb +
-	//					 imageLoad(src_light_direct_point_diffuse, pix).rgb;
-
-	// reflection and reuse info stored in texture with light data
-	const vec3 reflection_poly = imageLoad(src_light_poly_reflection, pix).rgb +
-								(samplePolyReflectOpposite(pix+ivec2(-1, -1), pix+ivec2(1, 1), res) +
-								 samplePolyReflectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
-								 samplePolyReflectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
-								 samplePolyReflectOpposite(pix+ivec2(0, -1), pix+ivec2(0, 1), res);
-
-#endif // LIGHTS_REJECTION_X4
 
 	vec3 reflection = vec3(0.);
 

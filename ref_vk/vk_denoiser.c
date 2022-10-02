@@ -453,9 +453,11 @@ struct ray_pass_s* R_VkRayDenoiserComposeCreate(void) {
 #define LIST_INPUTS_CHECKER(X) \
 	X(1, composed_image) \
 	X(2, base_color_a) \
+	X(3, normals_gs) \
+	X(4, position_t) \
 
 struct ray_pass_s* R_VkRayDenoiserCheckerMixCreate(void) {
-	PASS_CREATE_FUNC("denoiser checker mix", "denoiser_checker_mix.comp.spv", CHECKER, 3)
+	PASS_CREATE_FUNC("denoiser checker mix", "denoiser_checker_mix.comp.spv", CHECKER, 5)
 }
 
 // PASS 7. FXAA

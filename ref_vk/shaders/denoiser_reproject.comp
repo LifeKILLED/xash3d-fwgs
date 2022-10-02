@@ -101,11 +101,7 @@ void main() {
 
 	const float metalness = imageLoad(src_material_rmxx, pix).y;
 
-#ifdef ADD_SAMPLES_FOR_NOT_REPROJECTED
-	const float min_samples = 1 + ADD_SAMPLES_FOR_NOT_REPROJECTED;
-#else
 	const float min_samples = 1.;
-#endif
 
 	const vec4 diffuse_src = vec4(imageLoad(out_diffuse_accum, pix).rgb, min_samples); 
 	const vec4 specular_src = vec4(imageLoad(out_specular_accum, pix).rgb, min_samples); 
@@ -118,7 +114,7 @@ void main() {
 	vec4 specular_mixed = specular_src;
 	vec4 gi_sh1_mixed = gi_sh1_src;
 	vec3 gi_sh2_mixed = gi_sh2_src;
-
+	
 	// Get color from simple motion vector for duffuse component
 	if (THERE_IS(forward_offset)) {
 		const ivec2 last_pix = UVToPix(forward_offset, res);
@@ -146,9 +142,6 @@ void main() {
 		}
 	}
 
-//	const float diffuse_difference = smoothstep(0.5, 1.5, length(diffuse_mixed.rgb - diffuse_src.rgb));
-//	const float specular_difference = smoothstep(0.5, 1.5, length(specular_mixed.rgb - specular_src.rgb));
-
 	const float diffuse_difference = 0.;
 	const float specular_difference = 0.;
 	const float gi_difference = 0.;
@@ -157,9 +150,9 @@ void main() {
 	const float specular_samples_count = mix(specular_mixed.w, min_samples, specular_difference);
 	const float gi_samples_count = mix(gi_sh2_mixed.z, min_samples, gi_difference);
 
-	const float diffuse_frames_blend = clamp(1. - 1. / duffuse_samples_count, .5, DIFFUSE_BLEND_LIMIT) /** diffuse_difference*/;
-	const float specular_frames_blend = clamp(1. - 1. / specular_samples_count, .5, SPECULAR_BLEND_LIMIT) /** specular_difference*/;
-	const float gi_frames_blend = clamp(1. - 1. / gi_samples_count, .5, GI_BLEND_LIMIT) /** gi_difference*/;
+	const float diffuse_frames_blend = clamp(1. - 1. / duffuse_samples_count, .5, DIFFUSE_BLEND_LIMIT);
+	const float specular_frames_blend = clamp(1. - 1. / specular_samples_count, .5, SPECULAR_BLEND_LIMIT);
+	const float gi_frames_blend = clamp(1. - 1. / gi_samples_count, .5, GI_BLEND_LIMIT);
 
 	// calculate variance for specular if reprojecting is done
 	if (THERE_IS(parallax_offset)) {
@@ -172,16 +165,12 @@ void main() {
 		moments = mix(prev_moments, moments, specular_frames_blend);
 		variance = vec4(max(0.0f, moments.g - moments.r * moments.r));
 	}
-	variance *= 1.; // agressive blur for specular
 
 	diffuse_mixed = mix(diffuse_src, diffuse_mixed, diffuse_frames_blend);
 	specular_mixed = mix(specular_src, specular_mixed, specular_frames_blend);
 	gi_sh1_mixed = mix(gi_sh1_src, gi_sh1_mixed, gi_frames_blend);
 	gi_sh2_mixed = mix(gi_sh2_src, gi_sh2_mixed, gi_frames_blend);
-
-//	diffuse_mixed.rgb = min(diffuse_mixed.rgb, vec3(1.5));
-//	specular_mixed.rgb = min(specular_mixed.rgb, vec3(3.5));
-
+	
 //	vec3 motion_reprojection_debug = vec3(0., 0., 1.);
 //	if (motion_offsets_uvs.x > -99.) {
 //		float debug_offset_scaler = 10.;

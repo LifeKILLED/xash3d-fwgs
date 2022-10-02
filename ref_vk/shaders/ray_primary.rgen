@@ -5,6 +5,9 @@
 // This trick make specular highlights a little bit more clean
 #define EXTRA_SAMPLES_FOR_EMISSIVE_REFLECTION 2
 
+// But it's not plane, it's sphere
+#define NEAR_PLANE_OFFSET 5.
+
 #include "ray_primary_common.glsl"
 #include "color_spaces.glsl"
 #include "utils.glsl"
@@ -163,29 +166,14 @@ void main() {
 	const vec2 uv = (vec2(pix) + .5) / vec2(res) * 2. - 1.;
 	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
 
-	// checkerboard transparence
-	if (false) {
-		int checker_alpha = (pix.x + pix.y) % 2;
-		ivec2 out_pix = ivec2(pix.x / 2 + checker_alpha * (res.x / 2), pix.y);
-	}
 
-	const int checker_alpha = 1;
-	const ivec2 out_pix = pix;
+	const ivec3 checker_pix = PixToCheckerboard(pix, res);
+	const ivec2 out_pix = checker_pix.xy;
+	const int checker_alpha = checker_pix.b;
 
-//	const vec2 uv_src = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
-//	const ivec2 pix_src = ivec2(gl_LaunchIDEXT.xy);
-//	const ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
-//	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
-//
-//	const ivec2 pattern_4x_res = ivec2(gl_LaunchSizeEXT.xy) / 2;
-//	const ivec2 pix_segment_id = ivec2(step(pattern_4x_res.x, pix_src.x), step(pattern_4x_res.y, pix_src.y));
-//	const ivec2 pix = pix_src * 2 - pix_segment_id * res;
-//	const vec2 uv = (vec2(pix) + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
-
-	// FIXME start on a near plane
-	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
+	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz + direction * NEAR_PLANE_OFFSET;
 
 		// ----------- //
 		// FROM CAMERA //
@@ -230,13 +218,8 @@ void main() {
 		// REFLECTION / SPECULAR BOUNCE //
 		// ---------------------------- //
 
-
-		
-
-
 	const vec3 bounce_origin = out_position_t.xyz + geometry_normal * 0.001;
 
-	//const float roughness = 0.3; // DEBUG
 	vec3 refl_emissive = vec3(0.);
 
 	const float specPower = 1./ pow(roughness, 3.5);
@@ -277,7 +260,7 @@ void main() {
 	const float refl_ray_length = length(out_position_t.xyz - payload.hit_t.xyz);
 
 	const vec4 out_refl_position_t = vec4(payload.hit_t.xyz, refl_ray_length);
-	const vec4 out_refl_base_color_a = vec4(payload.base_color_a.rgb, payload.material_rmxx.y);
+	const vec4 out_refl_base_color_a = payload.base_color_a;
 	const vec4 out_refl_normals_gs = payload.normals_gs;
 	const vec4 out_refl_material_rmxx = payload.material_rmxx;
 	const vec4 out_refl_emissive = vec4(refl_emissive, 0.);

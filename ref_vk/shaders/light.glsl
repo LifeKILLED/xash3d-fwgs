@@ -23,12 +23,12 @@ const float shadow_offset_fudge = .1;
 
 #ifdef LIGHT_POINT // Low count, not agressive rejection
 	#define LOWER_IRRADIANCE_THRESHOLD 0.05
-	#define HIGHT_IRRADIANCE_THRESHOLD 2.
+	#define HIGHT_IRRADIANCE_THRESHOLD 0.5
 	#define LUMINANCE_MULTIPLIER 2.
 	#define ACCUMULATED_THRESHOLD 0.1
 #else // Emissive kusochki - soft lighting, big count
 	#define LOWER_IRRADIANCE_THRESHOLD 0.05
-	#define HIGHT_IRRADIANCE_THRESHOLD 1.
+	#define HIGHT_IRRADIANCE_THRESHOLD 0.5
 	#define LUMINANCE_MULTIPLIER 1.
 	#define ACCUMULATED_THRESHOLD 0.1
 #endif
@@ -58,7 +58,7 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #if LIGHT_POINT
-void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, uint pattern_texel_id, out vec3 diffuse, out vec3 specular) {
+void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 	const vec3 shadow_sample_offset = normalize(vec3(rand01(), rand01(), rand01()) - vec3(.5));
 
@@ -184,7 +184,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 throughput, vec
 }
 #endif
 
-void computeLighting(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint pattern_texel_id, out vec3 diffuse, out vec3 specular) {
+void computeLighting(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 
 	const ivec3 light_cell = ivec3(floor(P / LIGHT_GRID_CELL_SIZE)) - light_grid.grid_min;
@@ -208,13 +208,13 @@ void computeLighting(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialPro
 	//C += .3 * fract(vec3(light_cell) / 4.);
 
 #if LIGHT_POLYGON
-	sampleEmissiveSurfaces(P, N, throughput, view_dir, material, cluster_index, pattern_texel_id, diffuse, specular);
+	sampleEmissiveSurfaces(P, N, throughput, view_dir, material, cluster_index, diffuse, specular);
 #endif
 
 
 #if LIGHT_POINT
 	vec3 ldiffuse = vec3(0.), lspecular = vec3(0.);
-	computePointLights(P, N, cluster_index, throughput, view_dir, material, pattern_texel_id, ldiffuse, lspecular);
+	computePointLights(P, N, cluster_index, throughput, view_dir, material, ldiffuse, lspecular);
 	diffuse += ldiffuse;
 	specular += lspecular;
 #endif

@@ -172,7 +172,7 @@ vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const 
 #define DO_ALL_IN_CLUSTER 1
 //#define PROJECTED
 //#define SOLID
-#define SIMPLE_SOLID
+//#define SIMPLE_SOLID
 
 void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleContext ctx, in MaterialProperties material, in PolygonLight poly, inout vec3 diffuse, inout vec3 specular) {
 	// TODO cull by poly plane
@@ -222,7 +222,7 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 //#else
 
 
-void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, uint pattern_texel_id, inout vec3 diffuse, inout vec3 specular) {
+void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
 //#if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 
@@ -242,12 +242,6 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 	const uint num_lights = lights.num_polygons;
 #ifdef ONE_LIGHT_PER_TEXEL
 	const uint index = rand() % num_lights;
-#elif LIGHTS_REJECTION_X4
-	// stable pattern-based rejection optimization, need to accurate mixing in compose
-	const uint startIndex = num_lights < 4 || pattern_texel_id == 0 ? 0 : (num_lights / 4) * pattern_texel_id;
-	const uint endIndex =   num_lights < 4 || pattern_texel_id == 3 ? num_lights :
-					        (num_lights / 4) * (pattern_texel_id + 1);
-	for (uint index = startIndex; index < endIndex; ++index) {
 #elif MAX_LIGHTS_PER_TEXEL
 	const uint rejected_lights = num_lights - MAX_LIGHTS_PER_TEXEL;
 	const uint startIndex = num_lights <= MAX_LIGHTS_PER_TEXEL ? 0 : rand() % rejected_lights;

@@ -56,19 +56,9 @@ void main() {
 		return;
 	}
 
-	//const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
-
-	const int checker_alpha = pix.x > res.x / 2 ? 1 : 0;
-	const int checker_addition = (pix.y % 2) == 0 ? checker_alpha : 1 - checker_alpha;
-
-	const ivec2 pix_opaque = ivec2(pix.x % (res.x / 2), pix.y);
-	const ivec2 pix_alpha = ivec2(pix.x % (res.x / 2) + res.x / 2, pix.y);
-
-	const ivec2 source_pix = ivec2((pix.x % (res.x / 2)) * 2 + checker_addition, pix.y);
-	const ivec2 pair_pix = ivec2((pix.x % (res.x / 2)) * 2 + (1 - checker_addition), pix.y);
-
-	//vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
-	//float aspect = float(res.x) / float(res.y);
+	ivec3 pix_src = CheckerboardToPix(pix, res);
+	int is_transparent_texel = pix_src.b;
+	const vec2 uv = PixToUV(pix_src.xy, res);
 
 	const vec3 position = imageLoad(src_position_t, pix).xyz;
 	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
@@ -76,37 +66,22 @@ void main() {
 	const float roughness = material_rmxx.r;
 	const float metalness = material_rmxx.g;
 
-	const vec2 uv = WorldPositionToUV2(position, ubo.inv_proj, ubo.inv_view).xy;
-
 	vec3 shadingNormal, geometryNormal;
 	readNormals(pix, geometryNormal, shadingNormal);
 
 	const vec3 origin = OriginWorldPosition(ubo.inv_view);
-	//vec3 direction = ScreenToWorldDirection(uv, ubo.inv_view, ubo.inv_proj);
 	const vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
 
-	
-	const vec3 lastCameraDirection = ScreenToWorldDirection(vec2(0.,0.), ubo.last_inv_view, ubo.last_inv_proj);
-	const bool inBackOfCamera = dot(normalize(lastCameraDirection), position - last_origin) < 0.;
-
 	const vec3 last_uv_w = WorldPositionToUV2(position, ubo.last_inv_proj, ubo.last_inv_view);
-	ivec2 last_pix = UVToPix(last_uv_w.xy, res);
+	const ivec2 last_pix_src = UVToPix(last_uv_w.xy, res);
+	ivec2 last_pix = PixToCheckerboard(last_pix_src, res, is_transparent_texel).xy;
 
-	if (false) { // checkerboard transparence
-		ivec2 last_pix_opaque = ivec2(last_pix.x % (res.x / 2), last_pix.y);
-		ivec2 last_pix_alpha = ivec2(last_pix.x % (res.x / 2) + res.x / 2, last_pix.y);
-
-		ivec2 current_pix = (checker_alpha == 1) ? pix_alpha : pix_opaque;	
-		last_pix = (checker_alpha == 1) ? last_pix_alpha : last_pix_opaque;
-	}
 	const ivec2 current_pix = pix;
 
 	const float depth = length(origin - position);
 
 	float last_depth = -1000.; // guaranted non-equal
-	vec3 last_position = vec3(0.);
 	const float depth_need = length(last_origin - position);
-	//vec4 debug_reprojection = vec4(1., 0., 0., 1.);
 	const float reflection_ray_lenth = length(reflection_pos - position);
 
 	vec2 forward_offset = vec2(-100., 0.);
@@ -116,27 +91,17 @@ void main() {
 
 	// if this is static geometry, check only this position by depth
 	if (search_info_ktuv.x < .5) {
-		if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix, ivec2(0))) && any(lessThan(last_pix, res))) {
-			last_position = imageLoad(src_last_position_t, last_pix).xyz;
+		if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix_src, ivec2(0))) && any(lessThan(last_pix_src, res))) {
+			const vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
 			last_depth = length(last_origin - last_position);
 			const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); \
 			if ((length(last_position - position) < 5.) && // same depth
 				(search_info_ktuv.y == current_info_ktuv.y)) { // same material
-				forward_offset = (vec2(last_pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+
+				forward_offset = PixToUV(last_pix, res);
 			}
 		}
 	} else { // dynamic geometry, search closest offsets by UV and material 
-
-		// Uncomment thisbefore checkerboard transparence debugging
-		if (false) {
-			// TODO: sorry!!! need to rewrite more pretty
-			if (last_pix.x >= (res.x / 2))
-				last_pix = clamp(last_pix, ivec2(res.x / 2 - 1, 0), ivec2(res.x - 1, res.y - 1));
-			else
-				last_pix = clamp(last_pix, ivec2(0.), ivec2(res.x / 2 - 1, res.y - 1));
-		}
-
-		vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
 
 		const int KERNEL_SIZE_X = 2;
 		const int KERNEL_SIZE_Y = 2;
@@ -168,7 +133,7 @@ void main() {
 		SEARCH_CYCLE(current_pix, 3);
 		SEARCH_CYCLE(last_pix, 3);
 
-		// more velocity, low precision
+		// more velocity, low precision, this can be skipped for more performance
 //		if (search_done == false) {
 //			SEARCH_CYCLE(current_pix, 8);
 //			SEARCH_CYCLE(last_pix, 8);
@@ -178,7 +143,7 @@ void main() {
 		if (search_done) {
 			const ivec2 refinement_pix = better_pix;
 			SEARCH_CYCLE(refinement_pix, 1);
-			forward_offset = (vec2(better_pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+			forward_offset = PixToUV(better_pix, res);
 		}
 	}
 
@@ -195,24 +160,17 @@ void main() {
 		const float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
 		const vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_destination_on_plane, reflection_center);
 		const float nesessary_ray_lenth = max(0.001, length(reflection_parallax_position - reflection_destination));
-		//const float nesessary_ray_lenth = max(0.001, reflection_ray_lenth);
 
-		//const float low_roughness_factor = 1. - smoothstep(roughness, 0.1, 0.4);
-		//const float parallax_factor = smoothstep(dot(texel_normal, normalize(geometryNormal)), normal_treshold_low, normal_treshold_high); //* // only co-planar normals
-		//							  low_roughness_factor; // avoid parallax on big roughness
-
+		// we need to check ray lengths harder in low-roughness mirrors
 		const float actual_difference_treshold = mix(50., 1000., smoothstep(0., 0.3, roughness));
 
 		const vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.last_inv_proj, ubo.last_inv_view);
+		const ivec2 parallax_pix_src = UVToPix(parallax_uv.xy, res);
 
-		//if (forward_offset.x > -99.) {
-		//	parallax_uv.xy = mix(forward_offset, parallax_uv.xy, parallax_factor);
-		//}
-
-		const ivec2 parallax_pix = UVToPix(parallax_uv.xy, res);
-
-		if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
-
+		// in front of camera and in bounds of frame
+		if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix_src, ivec2(0))) && any(lessThan(parallax_pix_src, res))) {
+		
+			const ivec2 parallax_pix = PixToCheckerboard(parallax_pix_src, res, is_transparent_texel).xy;
 			const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_pix).xyz;
 			const float co_planar_difference = abs(dot(texel_normal, normalize(last_parallax_texel_pos - position)));
 
@@ -227,7 +185,7 @@ void main() {
 				ray_length_difference < actual_difference_treshold &&
 				dot(texel_normal, normalize(parallax_shadingNormal)) > normal_treshold_low) {
 
-				parallax_offset = parallax_uv.xy;
+				parallax_offset = PixToUV(parallax_pix, res);
 			}
 		}
 	}

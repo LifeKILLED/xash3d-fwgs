@@ -49,28 +49,29 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 }
 
 void main() {
-	const vec2 uv_src = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
-	const ivec2 pix_src = ivec2(gl_LaunchIDEXT.xy);
+	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
 	const ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
 	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
 
-//#ifdef LIGHTS_REJECTION_X4
-//	const ivec2 pattern_4x_res = ivec2(gl_LaunchSizeEXT.xy) / 2;
-//	const ivec2 pix_segment_id = ivec2(step(pattern_4x_res.x, pix_src.x), step(pattern_4x_res.y, pix_src.y));
-//	const uint pattern_texel_id = ((pix_segment_id.x + pix_segment_id.y * 2) /*+ rand01_state*/) % 4;
-//#elif
-	const ivec2 pix = pix_src;
-	const uint pattern_texel_id = ((pix.x % 2 + (pix.y % 2) * 2)) % 4;
-	const vec2 uv = uv_src;
-//#endif
+	vec3 geometry_normal, shading_normal;
+	readNormals(pix, geometry_normal, shading_normal);
 
+	const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+	const vec3 position = imageLoad(src_position_t, pix).xyz + geometry_normal * 0.1;
+	const vec3 primary_position = imageLoad(src_first_position_t, pix).xyz;
+	const vec3 direction = normalize(primary_position - origin);
 
-	// FIXME incorrect for reflection/refraction
-	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
-	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
+#if PRIMARY_VIEW
+	const vec3 V = normalize(origin - primary_position);
+#else
+	const vec3 V = normalize(primary_position - position);
+#endif
+
+	ivec3 pix_src = CheckerboardToPix(pix, res);
+	int is_transparent_texel = pix_src.b;
+	const vec2 uv = PixToUV(pix_src.xy, res);
 
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
-
 
 	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);
@@ -79,7 +80,7 @@ void main() {
 #ifndef LIGHT_POINT
 	// in large roughness reflection swapped by gi, skip calculations for poly lights
 	if (material_rmxx.r > .6) {
-		imageStore(out_image_light_poly_reflection, pix_src, vec4(0.));
+		imageStore(out_image_light_poly_reflection, pix, vec4(0.));
 	}
 #endif
 #endif
@@ -100,35 +101,29 @@ void main() {
 #endif
 	material.emissive = vec3(0.f);	
 
-	vec3 geometry_normal, shading_normal;
-	readNormals(pix, geometry_normal, shading_normal);
-
-	const vec3 pos = imageLoad(src_position_t, pix).xyz + geometry_normal * 0.1;
-
-
 
 #ifdef REUSE_SCREEN_LIGHTING
 
 	// Try to use SSR and put this UV to output texture if all is OK
 	uint lighting_is_reused = 0;
-	const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+	const float nessesary_depth = length(origin - position);
 
 	// can we see it in reflection?
-	if (dot(direction, pos - origin) > .0) {
-		const ivec2 res = ivec2(imageSize(src_first_position_t));
-		const vec2 first_uv = WorldPositionToUV(pos, inverse(ubo.inv_proj), inverse(ubo.inv_view));
-		const ivec2 first_pix = UVToPix(first_uv, res);
+	if (dot(direction, position - origin) > .0) {
+		const vec2 reuse_uv_src = WorldPositionToUV(position, inverse(ubo.inv_proj), inverse(ubo.inv_view));
+		const ivec2 reuse_pix_src = UVToPix(reuse_uv_src, res);
 
-		if (any(greaterThanEqual(first_pix, ivec2(0))) && any(lessThan(first_pix, res))) {
-	
-			const vec3 first_pos = imageLoad(src_first_position_t, first_pix).xyz;
+		if (any(greaterThanEqual(reuse_pix_src, ivec2(0))) && any(lessThan(reuse_pix_src, res))) {
 
-			const float nessesary_depth = length(origin - pos);
-			const float current_depth = length(origin - first_pos);
+			ivec3 reuse_pix = PixToCheckerboard(reuse_pix_src, res, is_transparent_texel);
+			
+			const vec3 first_position = imageLoad(src_first_position_t, reuse_pix.xy).xyz;
+			const float current_depth = length(origin - first_position);
 
 			if (abs(nessesary_depth - current_depth) < 2.) {
 				lighting_is_reused = 1;
-				diffuse = vec3(first_uv, -100.); // -100 it's SSR marker
+				vec2 reuse_uv = PixToUV(reuse_pix.xy, res);
+				diffuse = vec3(reuse_uv, -100.); // -100 it's SSR marker
 			}
 		}
 	}
@@ -142,16 +137,8 @@ void main() {
 	{
 #endif // REUSE_SCREEN_LIGHTING
 
-#if PRIMARY_VIEW
-		const vec3 V = -direction;
-#else
-		const vec3 primary_pos = imageLoad(src_first_position_t, pix).xyz;
-		const vec3 V = normalize(primary_pos - pos);
-#endif
-
-
 		const vec3 throughput = vec3(1.);
-		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, pattern_texel_id, diffuse, specular);
+		computeLighting(position + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
 
 
 		// add more samples where we are not found correct reprojecting
@@ -168,7 +155,7 @@ void main() {
 				rand01_state += 1; // we need a new random seed for sampling more lights
 				diffuse_additional = vec3(.0);
 				specular_additional = vec3(.0);
-				computeLighting(pos + geometry_normal * .001, shading_normal, throughput, V, material, pattern_texel_id, diffuse_additional, specular_additional);
+				computeLighting(position + geometry_normal * .001, shading_normal, throughput, V, material, diffuse_additional, specular_additional);
 				diffuse += diffuse_additional;
 				specular += specular_additional;
 			}
@@ -204,15 +191,15 @@ void main() {
 	#if LIGHT_POINT
 		imageStore(out_image_light_point_reflection, pix, vec4(diffuse + specular, 0.));
 	#else
-		imageStore(out_image_light_poly_reflection, pix_src, vec4(diffuse + specular, 0.));
+		imageStore(out_image_light_poly_reflection, pix, vec4(diffuse + specular, 0.));
 	#endif
 #else // direct lighting
 	#if LIGHT_POINT
 		imageStore(out_image_light_point_diffuse, pix, vec4(diffuse, 0.));
 		imageStore(out_image_light_point_specular, pix, vec4(specular, 0.));
 	#else
-		imageStore(out_image_light_poly_diffuse, pix_src, vec4(diffuse, 0.));
-		imageStore(out_image_light_poly_specular, pix_src, vec4(specular, 0.));
+		imageStore(out_image_light_poly_diffuse, pix, vec4(diffuse, 0.));
+		imageStore(out_image_light_poly_specular, pix, vec4(specular, 0.));
 	#endif
 #endif
 }
