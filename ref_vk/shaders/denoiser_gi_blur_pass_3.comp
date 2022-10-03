@@ -1,6 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 
-#define OFFSET 7
+#define OFFSET ivec2(7, 14)
 
 #include "denoiser_gi_blur.glsl"

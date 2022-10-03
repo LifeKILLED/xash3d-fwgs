@@ -1,7 +1,10 @@
 
+#ifndef KERNEL
+#define KERNEL 2
+#endif
 
 #ifndef OFFSET
-#define OFFSET
+#define OFFSET ivec(1, 2)
 #endif
 
 #ifndef DEPTH_THRESHOLD
@@ -40,8 +43,8 @@ void main() {
 	vec2 gi_sh2 = vec2(0.);
 
 	float weight_sum = 0.;
-	for (int x = -2; x <= 2; ++x) {
-		for (int y = -4; y <= 4; ++y) {
+	for (int x = -KERNEL; x <= KERNEL; ++x) {
+		for (int y = -KERNEL; y <= KERNEL; ++y) {
 			const ivec2 p = pix + ivec2(x, y) * OFFSET;
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;

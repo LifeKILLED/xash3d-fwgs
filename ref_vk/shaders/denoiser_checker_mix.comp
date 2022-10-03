@@ -94,16 +94,13 @@ void main() {
 		const vec3 transparent_normal = center_is_transparent == 0 ? neighboors_normal : center_geometry_normal;
 		const float result_alpha = center_is_transparent == 0 ? neighboors_color_a.a : center_alpha;
 
-//		// TODO: fix frehnel transparency limit
-//		const float NdotS = max(0., dot(direction, -transparent_normal));
-//		const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
-//		const float fresnel_transparency = mix(result_alpha, 1., fresnel);
-
-		const float fresnel_transparency = result_alpha;
+		// TODO: fix frehnel transparency limit
+		const float tangent_limit = smoothstep(0.45, 1., max(0., dot(direction, -transparent_normal)));
+		const float fresnel_transparency = mix(1., result_alpha, tangent_limit);
 
 		const float blend_alpha = center_is_transparent == 0 ? fresnel_transparency : 1. - fresnel_transparency;
 		const vec4 result_color = mix(center_color, neighboors_color_a, blend_alpha);
-	
+
 		imageStore(dest, pix_source, result_color);
 	
 	} else { 

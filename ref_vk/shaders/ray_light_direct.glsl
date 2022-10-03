@@ -19,6 +19,7 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D src_base_color_a;
 layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
+layout(set = 0, binding = 16, rgba8) uniform readonly image2D src_first_material_rmxx;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -75,11 +76,12 @@ void main() {
 
 	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(src_base_color_a, pix).rgb);
+	const vec4 first_material_rmxx = imageLoad(src_first_material_rmxx, pix);
 
 #ifdef REFLECTIONS
 #ifndef LIGHT_POINT
 	// in large roughness reflection swapped by gi, skip calculations for poly lights
-	if (material_rmxx.r > .6) {
+	if (first_material_rmxx.r > .6) {
 		imageStore(out_image_light_poly_reflection, pix, vec4(0.));
 	}
 #endif
@@ -108,8 +110,8 @@ void main() {
 	uint lighting_is_reused = 0;
 	const float nessesary_depth = length(origin - position);
 
-	// can we see it in reflection?
-	if (dot(direction, position - origin) > .0) {
+	// can we see it in reflection? and we don't need to reuse lighting in mirrors
+	if (dot(direction, position - origin) > .0 && first_material_rmxx.r > 0.1) {
 		const vec2 reuse_uv_src = WorldPositionToUV(position, inverse(ubo.inv_proj), inverse(ubo.inv_view));
 		const ivec2 reuse_pix_src = UVToPix(reuse_uv_src, res);
 
