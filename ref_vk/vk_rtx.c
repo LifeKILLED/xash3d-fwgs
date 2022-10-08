@@ -113,7 +113,7 @@ static struct {
 #define PASSES_LIST(X) \
 	X(primary_ray, R_VkRayPrimaryPassCreate) \
 	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersCreate) \
-	X(denoiser_fake_motion_vectors, R_VkRayDenoiserFakeMotionVectorsCreate) \
+	X(denoiser_temporal_reprojecting, R_VkRayDenoiserTemporalReprojectingCreate) \
 	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
 	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
 	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
@@ -121,7 +121,7 @@ static struct {
 	X(light_indirect_poly, R_VkRayLightIndirectPolyPassCreate) \
 	X(light_indirect_point, R_VkRayLightIndirectPointPassCreate) \
 	X(denoiser_accumulate, R_VkRayDenoiserAccumulateCreate) \
-	X(denoiser_reproject, R_VkRayDenoiserReprojectCreate) \
+	X(denoiser_temporal_accumulation, R_VkRayDenoiserTemporalAccumulationCreate) \
 	X(denoiser_gi_blur_1, R_VkRayDenoiserGIBlurPass1Create) \
 	X(denoiser_gi_blur_2, R_VkRayDenoiserGIBlurPass2Create) \
 	X(denoiser_gi_blur_3, R_VkRayDenoiserGIBlurPass3Create) \
@@ -709,7 +709,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.primary_ray, &res );
 
 	//if (g_rtx.denoiser_enabled) { // used in lighting, need to execute anyway
-		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_fake_motion_vectors, &res);
+		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_temporal_reprojecting, &res);
 	//}
 
 	{
@@ -738,7 +738,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 	
 	if (g_rtx.denoiser_enabled) {
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
-		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_reproject, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_temporal_accumulation, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
 		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);

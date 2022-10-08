@@ -14,17 +14,23 @@ const float normal_treshold_high = 0.98;
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform image2D out_image_motion_offsets_uvs;
+layout(set = 0, binding = 0, rgba16f)  uniform image2D out_history_diffuse;
+layout(set = 0, binding = 1, rgba16f)  uniform image2D out_history_specular;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_history_gi_sh1;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_history_gi_sh2;
 
-layout(set = 0, binding = 1, rgba32f) uniform readonly image2D src_position_t;
-layout(set = 0, binding = 2, rgba32f) uniform readonly image2D src_refl_position_t;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_search_info_ktuv;
-layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_last_position_t;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_last_normals_gs;
-layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_last_gi_sh2;
-layout(set = 0, binding = 9, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_search_info_ktuv;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_last_position_t;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_last_normals_gs;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
+layout(set = 0, binding = 11, rgba16f)  uniform readonly image2D src_last_diffuse;
+layout(set = 0, binding = 12, rgba16f)  uniform readonly image2D src_last_specular;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_last_gi_sh1;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_last_gi_sh2;
+layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_material_rmxx;
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
@@ -33,7 +39,7 @@ struct UniformBuffer {
 	uint random_seed;
 };
 
-layout(set = 0, binding = 10) uniform UBO { UniformBuffer ubo; };
+layout(set = 0, binding = 16) uniform UBO { UniformBuffer ubo; };
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
@@ -89,8 +95,8 @@ void main() {
 	const float depth_need = length(last_origin - position);
 	const float reflection_ray_lenth = length(reflection_pos - position);
 
-	vec2 out_forward_coord = vec2(-100., 0.);
-	vec2 out_parallax_coord = vec2(-100., 0.);
+	ivec2 out_forward_coord = ivec2(-100, 0);
+	ivec2 out_parallax_coord = ivec2(-100, 0);
 
 			// ------------------------------------------ //
 			// Searching moving objects in previous frame //
@@ -107,7 +113,7 @@ void main() {
 			if ((length(last_position - position) < 5.) && // same depth
 				(search_info_ktuv.y == current_info_ktuv.y)) { // same material
 
-				out_forward_coord = last_pix + vec2(0.1);
+				out_forward_coord = last_pix;
 			}
 		}
 	} else { // dynamic geometry, search closest offsets by UV and material 
@@ -153,8 +159,7 @@ void main() {
 			const ivec2 refinement_pix = better_pix;
 			SEARCH_CYCLE(refinement_pix, 1);
 
-			
-			out_forward_coord = vec2(better_pix) + vec2(0.1);
+			out_forward_coord = better_pix;
 		}
 	}
 
@@ -206,7 +211,7 @@ void main() {
 				//&& dot(last_normal, normalize(parallax_shadingNormal)) > normal_treshold_low
 				) {
 
-				out_parallax_coord = vec2(parallax_pix) + vec2(0.1);
+				out_parallax_coord = parallax_pix;
 			}
 		}
 
@@ -234,6 +239,32 @@ void main() {
 		}
 	}
 
-	imageStore(out_image_motion_offsets_uvs, pix, vec4(out_forward_coord, out_parallax_coord));
+	vec4 out_diffuse = vec4(0.);
+	vec4 out_specular = vec4(0.);
+	vec4 out_gi_sh1 = vec4(0.);
+	vec4 out_gi_sh2 = vec4(0.);
 
+	// for metal surfaces try to reproject gi from second bounce
+	const ivec2 gi_coord = (metalness > .5 || out_parallax_coord.x > -99) ? out_parallax_coord : out_forward_coord;
+
+	if (out_forward_coord.x > -99) {
+		out_diffuse = imageLoad(src_last_diffuse, out_forward_coord);
+		out_diffuse.w += 1.; // add to reprojected samples counter
+	}
+
+	if (out_parallax_coord.x > -99) {
+		out_specular = imageLoad(src_last_specular, out_parallax_coord);
+		out_specular.w += 1.; // add to reprojected samples counter
+	}
+
+	if (gi_coord.x > -99) {
+		out_gi_sh1 = imageLoad(src_last_gi_sh1, gi_coord);
+		out_gi_sh2 = imageLoad(src_last_gi_sh2, gi_coord);
+		out_gi_sh2.z += 1.; // add to reprojected samples counter
+	}
+
+	imageStore(out_history_diffuse, pix, out_diffuse);
+	imageStore(out_history_specular, pix, out_specular);
+	imageStore(out_history_gi_sh1, pix, out_gi_sh1);
+	imageStore(out_history_gi_sh2, pix, out_gi_sh2);
 }

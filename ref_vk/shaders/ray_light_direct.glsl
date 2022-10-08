@@ -18,8 +18,7 @@ layout(set = 0, binding = 11, rgba32f) uniform readonly image2D src_position_t;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D src_base_color_a;
-layout(set = 0, binding = 15, rgba16f) uniform readonly image2D src_motion_offsets_uvs;
-layout(set = 0, binding = 16, rgba8) uniform readonly image2D src_first_material_rmxx;
+layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_first_material_rmxx;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -141,30 +140,6 @@ void main() {
 
 		const vec3 throughput = vec3(1.);
 		computeLighting(position + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
-
-
-		// add more samples where we are not found correct reprojecting
-#ifdef ADD_SAMPLES_FOR_NOT_REPROJECTED
-		const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
-#ifdef REFLECTIONS
-		if (motion_offsets_uvs.z < -99.) { // parallax reprojection for reflections
-#else
-		if (motion_offsets_uvs.x < -99.) { // simple reprojecting for diffuse and gi
-#endif
-			const float min_samples = 1 + ADD_SAMPLES_FOR_NOT_REPROJECTED;
-			vec3 diffuse_additional, specular_additional;
-			for(int i = 0; i < ADD_SAMPLES_FOR_NOT_REPROJECTED; ++i) {
-				rand01_state += 1; // we need a new random seed for sampling more lights
-				diffuse_additional = vec3(.0);
-				specular_additional = vec3(.0);
-				computeLighting(position + geometry_normal * .001, shading_normal, throughput, V, material, diffuse_additional, specular_additional);
-				diffuse += diffuse_additional;
-				specular += specular_additional;
-			}
-			diffuse /= min_samples;
-			specular /= min_samples;
-		}
-#endif
 
 		// correction for avoiding difference in sampling algorythms
 #if LIGHT_POINT

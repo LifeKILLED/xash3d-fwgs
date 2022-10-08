@@ -119,24 +119,30 @@ struct ray_pass_s* R_VkRayDenoiserLastFrameBuffersCreate(void) {
 }
 
 
-	// FAKE RECONSTRUCTION OF MOTION VECTORS
+	// MOTION VECTORS RECONSTRUCTION AND TEMPORAL REPROJECTING
 
-#define LIST_OUTPUTS_MOTION_INIT(X) \
-	X(0, motion_offsets_uvs) \
+#define LIST_OUTPUTS_REPROJ(X) \
+	X(0, history_diffuse) \
+	X(1, history_specular) \
+	X(2, history_gi_sh1) \
+	X(3, history_gi_sh2) \
 
-#define LIST_INPUTS_MOTION_INIT(X) \
-	X(1, position_t) \
-	X(2, refl_position_t) \
-	X(3, normals_gs) \
-	X(4, search_info_ktuv) \
-	X(5, last_position_t) \
-	X(6, last_normals_gs) \
-	X(7, last_search_info_ktuv) \
-	X(8, last_gi_sh2) \
-	X(9, material_rmxx) \
+#define LIST_INPUTS_REPROJ(X) \
+	X(4, position_t) \
+	X(5, refl_position_t) \
+	X(6, normals_gs) \
+	X(7, search_info_ktuv) \
+	X(8, last_position_t) \
+	X(9, last_normals_gs) \
+	X(10, last_search_info_ktuv) \
+	X(11, last_diffuse) \
+	X(12, last_specular) \
+	X(13, last_gi_sh1) \
+	X(14, last_gi_sh2) \
+	X(15, material_rmxx) \
 
-struct ray_pass_s* R_VkRayDenoiserFakeMotionVectorsCreate(void) {
-	PASS_CREATE_FUNC("denoiser fake reconstruction of motion vectors", "denoiser_fake_motion_vectors.comp.spv", MOTION_INIT, 10)
+struct ray_pass_s* R_VkRayDenoiserTemporalReprojectingCreate(void) {
+	PASS_CREATE_FUNC("denoiser fake reconstruction of motion vectors", "denoiser_temporal_reprojecting.comp.spv", REPROJ, 16)
 }
 
 
@@ -172,33 +178,24 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 
 
 
-// PASS 3. REPROJECT
+// PASS 3. TEMPORAL ACCUMULATION
 
-#define LIST_OUTPUTS_REPROJ(X) \
+#define LIST_OUTPUTS_TEMP(X) \
 	X(0, diffuse_accum) \
 	X(1, specular_accum) \
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \
 	X(4, specular_variance) \
 
-#define LIST_INPUTS_REPROJ(X) \
-	X(5, last_diffuse) \
-	X(6, last_specular) \
-	X(7, last_gi_sh1) \
-	X(8, last_gi_sh2) \
-	X(9, position_t) \
-	X(10, normals_gs) \
-	X(11, material_rmxx) \
-	X(12, motion_offsets_uvs) \
-	X(13, refl_normals_gs) \
-	X(14, refl_position_t) \
-	X(15, last_position_t) \
-	X(16, search_info_ktuv) \
-	X(17, last_search_info_ktuv) \
+#define LIST_INPUTS_TEMP(X) \
+	X(5, history_diffuse) \
+	X(6, history_specular) \
+	X(7, history_gi_sh1) \
+	X(8, history_gi_sh2) \
 
 
-struct ray_pass_s* R_VkRayDenoiserReprojectCreate(void) {
-	PASS_CREATE_FUNC("denoiser reproject", "denoiser_reproject.comp.spv", REPROJ, 18)
+struct ray_pass_s* R_VkRayDenoiserTemporalAccumulationCreate(void) {
+	PASS_CREATE_FUNC("denoiser temporal accumulation", "denoiser_temporal_accumulation.comp.spv", TEMP, 9)
 }
 
 
