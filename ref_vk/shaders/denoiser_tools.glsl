@@ -68,30 +68,26 @@ vec3 clamp_color(vec3 color, float clamp_value) {
 
 // 3-th component is transparent texel status 0 or 1
 ivec3 PixToCheckerboard(ivec2 pix, ivec2 res) {
-	int checker_alpha = (pix.x + pix.y) % 2;
-	ivec2 out_pix = ivec2(pix.x / 2 + checker_alpha * (res.x / 2), pix.y);
-	return ivec3(out_pix, checker_alpha);
+	int is_transparent_texel = (pix.x + pix.y) % 2;
+	ivec2 out_pix = ivec2(pix.x / 2 + is_transparent_texel * (res.x / 2), pix.y);
+	return ivec3(out_pix, is_transparent_texel);
 }
 
 // 3-th component is transparent texel status 0 or 1, targeted to nesessary texel status
 ivec3 PixToCheckerboard(ivec2 pix, ivec2 res, int is_transparent_texel) {
-	int checker_alpha = (pix.x + pix.y) % 2;
-	int x_addition = is_transparent_texel != checker_alpha ? 1 : 0;
-	ivec2 out_pix = ivec2(pix.x / 2 + x_addition + checker_alpha * (res.x / 2), pix.y);
-	if (out_pix.x >= res.x) out_pix.x -= 2;
-	return ivec3(out_pix, checker_alpha);
+	ivec2 out_pix = ivec2(pix.x / 2 + is_transparent_texel * (res.x / 2), pix.y);
+	return ivec3(out_pix, is_transparent_texel);
 }
 
 // 3-th component is transparent texel status 0 or 1
 ivec3 CheckerboardToPix(ivec2 pix, ivec2 res) {
 	int half_res = res.x / 2;
-	int checker_alpha = pix.x / half_res;
+	int is_transparent_texel = pix.x / half_res;
 	int out_pix_x = (pix.x % half_res) * 2;
 	int row_index = pix.y % 2;
-	//int checker_addition = (1 - row_index) * checker_alpha + row_index * (1 - checker_alpha);
-	int checker_addition = checker_alpha + row_index - row_index * checker_alpha * 2; // little more pretty
+	int checker_addition = is_transparent_texel + row_index - row_index*is_transparent_texel*2;
 	ivec2 out_pix = ivec2(out_pix_x + checker_addition, pix.y);
-	return ivec3(out_pix, checker_alpha);
+	return ivec3(out_pix, is_transparent_texel);
 }
 
 
@@ -149,7 +145,7 @@ ivec2 UVToPix(vec2 uv, ivec2 res) {
 }
 
 vec2 PixToUV(ivec2 pix, ivec2 res) {
-	return (vec2(pix) + vec2(0.5)) / vec2(res) * 2. - vec2(1.);
+	return (vec2(pix) /*+ vec2(0.5)*/) / vec2(res) * 2. - vec2(1.);
 }
 
 vec3 PBRMix(vec3 base_color, vec3 diffuse, vec3 specular, float metalness) {

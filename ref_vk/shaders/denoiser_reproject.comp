@@ -85,7 +85,7 @@ void main() {
 		return;
 	}
 	
-#define THERE_IS(uv_offset) (uv_offset.x > -99.)
+#define THERE_IS(reproject_coord) (reproject_coord.x > -99)
 
 
 	vec3 geometry_normal, shading_normal;
@@ -95,8 +95,8 @@ void main() {
 	const float reflLength = length(imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz);
 
 	const vec4 motion_offsets_uvs = imageLoad(src_motion_offsets_uvs, pix);
-	vec2 forward_offset = motion_offsets_uvs.xy;
-	vec2 parallax_offset = motion_offsets_uvs.zw;
+	ivec2 forward_pix = ivec2(motion_offsets_uvs.xy);
+	ivec2 parallax_pix = ivec2(motion_offsets_uvs.zw);
 	const float depthTreshold = 30.;
 
 	const float metalness = imageLoad(src_material_rmxx, pix).y;
@@ -116,21 +116,18 @@ void main() {
 	vec3 gi_sh2_mixed = gi_sh2_src;
 	
 	// Get color from simple motion vector for duffuse component
-	if (THERE_IS(forward_offset)) {
-		const ivec2 last_pix = UVToPix(forward_offset, res);
-
-		diffuse_mixed = imageLoad(src_last_diffuse, last_pix);
+	if (THERE_IS(forward_pix)) {
+		diffuse_mixed = imageLoad(src_last_diffuse, forward_pix);
 		diffuse_mixed.w += 1.; // increase sample count
 
-		if (metalness <= .5 || THERE_IS(parallax_offset) == false) {
-			gi_sh1_mixed = imageLoad(src_last_gi_sh1, last_pix);
-			gi_sh2_mixed = imageLoad(src_last_gi_sh2, last_pix).xyz;
+		if (metalness <= .5 || THERE_IS(parallax_pix) == false) {
+			gi_sh1_mixed = imageLoad(src_last_gi_sh1, forward_pix);
+			gi_sh2_mixed = imageLoad(src_last_gi_sh2, forward_pix).xyz;
 			gi_sh2_mixed.z += 1.; // increase sample count
 		}
 	}
 
-	if (THERE_IS(parallax_offset)) {
-		const ivec2 parallax_pix = UVToPix(parallax_offset, res);
+	if (THERE_IS(parallax_pix)) {
 		specular_mixed = imageLoad(src_last_specular, parallax_pix);
 		specular_mixed.w += 1.; // increase sample count
 
@@ -155,7 +152,7 @@ void main() {
 	const float gi_frames_blend = clamp(1. - 1. / gi_samples_count, .5, GI_BLEND_LIMIT);
 
 	// calculate variance for specular if reprojecting is done
-	if (THERE_IS(parallax_offset)) {
+	if (THERE_IS(parallax_pix)) {
 		vec2 moments = vec2(luminance(specular_src.rgb), 0.);
 		moments.g    = moments.r * moments.r;
 
