@@ -59,7 +59,7 @@ Geometry readHitGeometry() {
 	const int instance_kusochki_offset = gl_InstanceCustomIndexEXT;
 	geom.kusok_index = instance_kusochki_offset + gl_GeometryIndexEXT;
 	const Kusok kusok = kusochki[geom.kusok_index];
-	const mat4x3 last_ObjectToWorld = mat4x3(kusok.last_transform);
+	const mat4 last_ObjectToWorld = kusok.last_transform;
 
 	const uint first_index_offset = kusok.index_offset + gl_PrimitiveID * 3;
 	const uint vi1 = uint(indices[first_index_offset+0]) + kusok.vertex_offset;
@@ -73,9 +73,9 @@ Geometry readHitGeometry() {
 	};
 
 	const vec3 last_pos[3] = {
-		last_ObjectToWorld * vec4(vertices[vi1].last_pos, 1.f),
-		last_ObjectToWorld * vec4(vertices[vi2].last_pos, 1.f),
-		last_ObjectToWorld * vec4(vertices[vi3].last_pos, 1.f),
+		(last_ObjectToWorld * vec4(vertices[vi1].last_pos, 1.f)).xyz,
+		(last_ObjectToWorld * vec4(vertices[vi2].last_pos, 1.f)).xyz,
+		(last_ObjectToWorld * vec4(vertices[vi3].last_pos, 1.f)).xyz,
 	};
 
 	const vec2 uvs[3] = {

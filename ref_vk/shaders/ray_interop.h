@@ -28,6 +28,7 @@
 	X(22, gi_position_t, rgba32f) \
 	X(23, gi_normals_gs, rgba16f) \
 	X(24, gi_emissive, rgba16f) \
+	X(25, previous_position_t, rgba32f) \
 
 
 #define RAY_LIGHT_DIRECT_INPUTS(X) \

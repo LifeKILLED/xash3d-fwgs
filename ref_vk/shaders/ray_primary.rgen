@@ -213,6 +213,7 @@ void main() {
 	const vec4 out_material_rmxx = payload.material_rmxx;
 	const vec4 out_emissive = payload.emissive;
 	const vec4 out_search_info_ktuv = payload.search_info_ktuv;
+	const vec4 out_previous_position_t = payload.last_position_t;
 
 		// ---------------------------- //
 		// REFLECTION / SPECULAR BOUNCE //
@@ -306,4 +307,6 @@ void main() {
 	imageStore(out_image_gi_position_t, out_pix, payload.hit_t);
 	imageStore(out_image_gi_normals_gs, out_pix, payload.normals_gs);
 	imageStore(out_image_gi_emissive, out_pix, payload.emissive);
+
+	imageStore(out_image_previous_position_t, out_pix, out_previous_position_t);
 }

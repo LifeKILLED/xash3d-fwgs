@@ -31,6 +31,7 @@ layout(set = 0, binding = 12, rgba16f)  uniform readonly image2D src_last_specul
 layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_last_gi_sh1;
 layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_last_gi_sh2;
 layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D src_previous_position_t;
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
@@ -39,7 +40,7 @@ struct UniformBuffer {
 	uint random_seed;
 };
 
-layout(set = 0, binding = 16) uniform UBO { UniformBuffer ubo; };
+layout(set = 0, binding = 17) uniform UBO { UniformBuffer ubo; };
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
@@ -67,6 +68,7 @@ void main() {
 	const vec2 uv = PixToUV(pix_src.xy, res);
 
 	const vec3 position = imageLoad(src_position_t, pix).xyz;
+	const vec3 previous_position = imageLoad(src_previous_position_t, pix).xyz;
 	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
 	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
 	const float roughness = material_rmxx.r;
@@ -83,85 +85,94 @@ void main() {
 
 	const vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
 
-	const vec3 last_uv_w = WorldPositionToUV2(position, ubo.last_inv_proj, ubo.last_inv_view);
+	const vec3 last_uv_w = WorldPositionToUV2(previous_position, ubo.last_inv_proj, ubo.last_inv_view);
 	const ivec2 last_pix_src = UVToPix(last_uv_w.xy, res);
 	ivec2 last_pix = PixToCheckerboard(last_pix_src, res, is_transparent_texel).xy;
 
 	const ivec2 current_pix = pix;
 
-	const float depth = length(origin - position);
+	//const float depth = length(origin - position);
 
-	float last_depth = -1000.; // guaranted non-equal
-	const float depth_need = length(last_origin - position);
+	//float last_depth = -1000.; // guaranted non-equal
+	//const float depth_need = length(last_origin - previous_position);
 	const float reflection_ray_lenth = length(reflection_pos - position);
 
 	ivec2 out_forward_coord = ivec2(-100, 0);
 	ivec2 out_parallax_coord = ivec2(-100, 0);
 
+	if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix_src, ivec2(0))) && any(lessThan(last_pix_src, res))) {
+		const vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
+		//last_depth = length(last_origin - last_position);
+		//const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); 
+		if (length(last_position - previous_position) < 10.) { // same depth
+			out_forward_coord = last_pix;
+		}
+	}
+
 			// ------------------------------------------ //
 			// Searching moving objects in previous frame //
 			// ------------------------------------------ //
 
-	const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
+	//const vec4 search_info_ktuv = imageLoad(src_search_info_ktuv, pix);
 
 	// if this is static geometry, check only this position by depth
-	if (search_info_ktuv.x < .5) {
-		if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix_src, ivec2(0))) && any(lessThan(last_pix_src, res))) {
-			const vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
-			last_depth = length(last_origin - last_position);
-			const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); \
-			if ((length(last_position - position) < 5.) && // same depth
-				(search_info_ktuv.y == current_info_ktuv.y)) { // same material
-
-				out_forward_coord = last_pix;
-			}
-		}
-	} else { // dynamic geometry, search closest offsets by UV and material 
-
-		const int KERNEL_SIZE_X = 2;
-		const int KERNEL_SIZE_Y = 2;
-		ivec2 better_pix = ivec2(0, 0);
-		float better_uv_offset = 1000.;
-		bool search_done = false;
-
-#define SEARCH_CYCLE(CENTER_PIX, KERNEL_OFFSET) \
-		for (int x = -KERNEL_SIZE_X; x <= KERNEL_SIZE_X; ++x) {\
-			for (int y = -KERNEL_SIZE_Y; y <= KERNEL_SIZE_Y; ++y) { \
-				const ivec2 p = CENTER_PIX + ivec2(x, y) * KERNEL_OFFSET; \
-				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) continue; \
-				const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, p); \
-				if (current_info_ktuv.x > .5 && search_info_ktuv.y == current_info_ktuv.y) { \
-					const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw); \
-					if (current_uv_offset < better_uv_offset) { \
-						better_pix = p; \
-						better_uv_offset = current_uv_offset; \
-						search_done = true; \
-					} \
-				} \
-			} \
-		} 
-	
-		// We need to search texels relative to camera (pix) and to world (last_pix)
-		// Moving platforms and weapon in hand need to searched in camera space
-
-		// low velocity, good precision
-		SEARCH_CYCLE(current_pix, 3);
-		SEARCH_CYCLE(last_pix, 3);
-
-		// more velocity, low precision, this can be skipped for more performance
-//		if (search_done == false) {
-//			SEARCH_CYCLE(current_pix, 8);
-//			SEARCH_CYCLE(last_pix, 8);
+	//if (search_info_ktuv.x < .5) {
+//		if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix_src, ivec2(0))) && any(lessThan(last_pix_src, res))) {
+//			const vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
+//			last_depth = length(last_origin - last_position);
+//			const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); \
+//			if ((length(last_position - position) < 5.) && // same depth
+//				(search_info_ktuv.y == current_info_ktuv.y)) { // same material
+//
+//				out_forward_coord = last_pix;
+//			}
 //		}
-
-		// refine by searching in little area
-		if (search_done) {
-			const ivec2 refinement_pix = better_pix;
-			SEARCH_CYCLE(refinement_pix, 1);
-
-			out_forward_coord = better_pix;
-		}
-	}
+//	} else { // dynamic geometry, search closest offsets by UV and material 
+//
+//		const int KERNEL_SIZE_X = 2;
+//		const int KERNEL_SIZE_Y = 2;
+//		ivec2 better_pix = ivec2(0, 0);
+//		float better_uv_offset = 1000.;
+//		bool search_done = false;
+//
+//#define SEARCH_CYCLE(CENTER_PIX, KERNEL_OFFSET) \
+//		for (int x = -KERNEL_SIZE_X; x <= KERNEL_SIZE_X; ++x) {\
+//			for (int y = -KERNEL_SIZE_Y; y <= KERNEL_SIZE_Y; ++y) { \
+//				const ivec2 p = CENTER_PIX + ivec2(x, y) * KERNEL_OFFSET; \
+//				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) continue; \
+//				const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, p); \
+//				if (current_info_ktuv.x > .5 && search_info_ktuv.y == current_info_ktuv.y) { \
+//					const float current_uv_offset = length(search_info_ktuv.zw - current_info_ktuv.zw); \
+//					if (current_uv_offset < better_uv_offset) { \
+//						better_pix = p; \
+//						better_uv_offset = current_uv_offset; \
+//						search_done = true; \
+//					} \
+//				} \
+//			} \
+//		} 
+//	
+//		// We need to search texels relative to camera (pix) and to world (last_pix)
+//		// Moving platforms and weapon in hand need to searched in camera space
+//
+//		// low velocity, good precision
+//		SEARCH_CYCLE(current_pix, 3);
+//		SEARCH_CYCLE(last_pix, 3);
+//
+//		// more velocity, low precision, this can be skipped for more performance
+////		if (search_done == false) {
+////			SEARCH_CYCLE(current_pix, 8);
+////			SEARCH_CYCLE(last_pix, 8);
+////		}
+//
+//		// refine by searching in little area
+//		if (search_done) {
+//			const ivec2 refinement_pix = better_pix;
+//			SEARCH_CYCLE(refinement_pix, 1);
+//
+//			out_forward_coord = better_pix;
+//		}
+//	}
 
 			// ------------------------------------- //
 			// Parallax reprojecting for reflections //

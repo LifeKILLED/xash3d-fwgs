@@ -700,6 +700,9 @@ void VK_RenderModelDraw( const cl_entity_t *ent, vk_render_model_t* model ) {
 
 	if (g_render_state.current_frame_is_ray_traced) {
 		VK_RayFrameAddModel(model->ray_model, model, (const matrix3x4*)g_render_state.model, g_render_state.dirty_uniform_data.color, ent ? ent->curstate.rendercolor : (color24){255,255,255});
+
+		// store current transform here before it puts to entity history
+		Matrix4x4_Copy( model->last_transform, g_render_state.model );
 		return;
 	}
 
@@ -764,6 +767,10 @@ static struct {
 	vk_render_model_t model;
 	vk_render_geometry_t geometries[MAX_DYNAMIC_GEOMETRY];
 } g_dynamic_model = {0};
+
+matrix4x4 *VK_RenderGetLastFrameTransform() {
+	return &g_dynamic_model.model.last_transform;
+}
 
 void VK_RenderModelDynamicBegin( int render_mode, const char *debug_name_fmt, ... ) {
 	va_list argptr;

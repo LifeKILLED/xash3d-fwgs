@@ -278,8 +278,16 @@ void XVK_DrawWaterSurfaces( const cl_entity_t *ent )
 		EmitWaterPolys( ent, surf, false );
 	}
 
+	int entity_id = ent->index;
+
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( *VK_RenderGetLastFrameTransform(), g_brush_last_states[entity_id].last_model_transform );
+
 	// submit as dynamic model
 	VK_RenderModelDynamicCommit();
+
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, *VK_RenderGetLastFrameTransform() );
 
 	// TODO:
 	// - upload water geometry only once, animate in compute/vertex shader
@@ -338,28 +346,6 @@ const texture_t *R_TextureAnimation( const cl_entity_t *ent, const msurface_t *s
 }
 
 
-static void applyLastTransform(int entity_id, vk_brush_model_t *bmodel, const matrix4x4 model)
-{
-	// It's world
-	if (model == NULL) {
-		Matrix4x4_LoadIdentity( bmodel->render_model.last_transform );
-	}
-
-	if (entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
-		Matrix4x4_Copy( bmodel->render_model.last_transform,
-								g_brush_last_states[entity_id].last_model_transform );
-	} else {
-		// No enouth memory, fallback to original matrix
-		Matrix4x4_Copy( bmodel->render_model.last_transform, model );
-	}
-}
-
-static void saveTransformForNextFrame(int entity_id, vk_brush_model_t *bmodel, const matrix4x4 model)
-{
-	if (model != NULL && entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
-		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, model ) ;
-	}
-}
 
 
 void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4 model )
@@ -406,12 +392,17 @@ void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4
 		bmodel->render_model.dynamic = false;
 	//}
 
-	applyLastTransform(ent->index, bmodel, model);
+
+	int entity_id = ent->index;
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( bmodel->render_model.last_transform,
+								g_brush_last_states[entity_id].last_model_transform );
 
 	bmodel->render_model.render_mode = render_mode;
 	VK_RenderModelDraw(ent, &bmodel->render_model);
 
-	saveTransformForNextFrame(ent->index, bmodel, model);
+	if (entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, bmodel->render_model.last_transform ) ;
 }
 
 static qboolean renderableSurface( const msurface_t *surf, int i ) {

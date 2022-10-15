@@ -50,6 +50,7 @@ typedef struct sortedmesh_s
 typedef struct {
 	matrix3x4		bonestransform[MAXSTUDIOBONES];
 	matrix3x4		worldtransform[MAXSTUDIOBONES];
+	matrix4x4		last_transform;
 } studio_entity_last_state_t;
 
 typedef struct
@@ -2510,7 +2511,15 @@ static void R_StudioDrawPoints( void )
 		*/
 	}
 
+	int entity_id = RI.currententity->index;
+
+	if (entity_id < MAX_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( *VK_RenderGetLastFrameTransform(), g_entity_last_states[entity_id].last_transform );
+
 	VK_RenderModelDynamicCommit();
+
+	if (entity_id < MAX_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( g_entity_last_states[entity_id].last_transform, *VK_RenderGetLastFrameTransform() );
 }
 
 static void R_StudioSetRemapColors( int newTop, int newBottom )
