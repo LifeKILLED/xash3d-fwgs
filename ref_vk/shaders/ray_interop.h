@@ -189,7 +189,10 @@ struct Kusok {
 	float roughness;
 	float metalness;
 	uint flags;
+
 	PAD(1)
+
+	mat4 last_transform;
 };
 
 struct PointLight {

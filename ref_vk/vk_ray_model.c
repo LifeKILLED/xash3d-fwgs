@@ -225,6 +225,8 @@ vk_ray_model_t* VK_RayModelCreate( VkCommandBuffer cmdbuf, vk_ray_model_init_t a
 			kusochki[i].tex_base_color &= (~KUSOK_MATERIAL_FLAG_SKYBOX);
 		}
 
+		Matrix4x4_LoadIdentity( kusochki[i].last_transform );
+
 		//kusochki[i].texture = mg->texture;
 		//kusochki[i].roughness = mg->material == kXVkMaterialWater ? 0. : 1.; // FIXME
 		VectorSet(kusochki[i].emissive, 0, 0, 0 );
@@ -419,6 +421,8 @@ void VK_RayFrameAddModel( vk_ray_model_t *model, const vk_render_model_t *render
 		}
 
 		kusok->flags = render_model->dynamic ? KUSOK_FLAG_DINAMIC_MODEL : 0;
+
+		Matrix4x4_Copy( kusok->last_transform, render_model->last_transform );
 	}
 
 	for (int i = 0; i < render_model->polylights_count; ++i) {

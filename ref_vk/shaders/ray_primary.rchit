@@ -62,4 +62,6 @@ void main() {
 
 	float is_dynamic_geometry = (kusok.flags & KUSOK_FLAG_DINAMIC_MODEL) > 0 ? 1. : 0.;
 	payload.search_info_ktuv = vec4(is_dynamic_geometry, float(tex_base_color), geom.uv - floor(geom.uv * 0.1) * 10.);
+
+	payload.last_position_t = vec4(geom.last_pos.xyz, 1.);
 }

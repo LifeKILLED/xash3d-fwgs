@@ -87,6 +87,7 @@ static qboolean createPipelines( void )
 			{.binding = 0, .location = 3, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(vk_vertex_t, lm_tc)},
 			{.binding = 0, .location = 4, .format = VK_FORMAT_R8G8B8A8_UNORM, .offset = offsetof(vk_vertex_t, color)},
 			{.binding = 0, .location = 5, .format = VK_FORMAT_R32_UINT, .offset = offsetof(vk_vertex_t, flags)},
+			{.binding = 0, .location = 6, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(vk_vertex_t, last_pos)},
 		};
 
 		const vk_shader_stage_t shader_stages[] = {

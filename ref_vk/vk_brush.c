@@ -33,6 +33,15 @@ static struct {
 	int rtable[MOD_FRAMES][MOD_FRAMES];
 } g_brush;
 
+
+#define MAX_BRUSH_ENTITIES_LAST_STATES 256
+
+typedef struct {
+	matrix4x4 last_model_transform;
+} brush_entity_last_state_t;
+
+static brush_entity_last_state_t g_brush_last_states[MAX_BRUSH_ENTITIES_LAST_STATES];
+
 void VK_InitRandomTable( void )
 {
 	int	tu, tv;
@@ -150,6 +159,10 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 			poly_vertices[i].pos[0] = v[0];
 			poly_vertices[i].pos[1] = v[1];
 			poly_vertices[i].pos[2] = nv;
+
+			poly_vertices[i].last_pos[0] = v[0];
+			poly_vertices[i].last_pos[1] = v[1];
+			poly_vertices[i].last_pos[2] = nv;
 
 			poly_vertices[i].gl_tc[0] = s;
 			poly_vertices[i].gl_tc[1] = t;
@@ -271,7 +284,6 @@ void XVK_DrawWaterSurfaces( const cl_entity_t *ent )
 	// TODO:
 	// - upload water geometry only once, animate in compute/vertex shader
 }
-
 /*
 ===============
 R_TextureAnimation
@@ -325,7 +337,30 @@ const texture_t *R_TextureAnimation( const cl_entity_t *ent, const msurface_t *s
 	return base;
 }
 
-float brush_entities_offsets_hash[4096] = { 0.0 };
+
+static void applyLastTransform(int entity_id, vk_brush_model_t *bmodel, const matrix4x4 model)
+{
+	// It's world
+	if (model == NULL) {
+		Matrix4x4_LoadIdentity( bmodel->render_model.last_transform );
+	}
+
+	if (entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( bmodel->render_model.last_transform,
+								g_brush_last_states[entity_id].last_model_transform );
+	} else {
+		// No enouth memory, fallback to original matrix
+		Matrix4x4_Copy( bmodel->render_model.last_transform, model );
+	}
+}
+
+static void saveTransformForNextFrame(int entity_id, vk_brush_model_t *bmodel, const matrix4x4 model)
+{
+	if (model != NULL && entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, model ) ;
+	}
+}
+
 
 void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4 model )
 {
@@ -363,16 +398,20 @@ void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4
 	}
 
 	// detect dinamic geometry by sum of angle and position offsets
-	float current_offsets_hash = ent->origin[0] + ent->origin[1] + ent->origin[2] + ent->angles[0] + ent->angles[1] + ent->angles[2];
-	if (brush_entities_offsets_hash[ent->index] != current_offsets_hash) {
-		brush_entities_offsets_hash[ent->index] = current_offsets_hash;
-		bmodel->render_model.dynamic = true;
-	} else {
+	//float current_offsets_hash = ent->origin[0] + ent->origin[1] + ent->origin[2] + ent->angles[0] + ent->angles[1] + ent->angles[2];
+	//if (brush_entities_offsets_hash[ent->index] != current_offsets_hash) {
+	//	brush_entities_offsets_hash[ent->index] = current_offsets_hash;
+	//	bmodel->render_model.dynamic = true;
+	//} else {
 		bmodel->render_model.dynamic = false;
-	}
+	//}
+
+	applyLastTransform(ent->index, bmodel, model);
 
 	bmodel->render_model.render_mode = render_mode;
 	VK_RenderModelDraw(ent, &bmodel->render_model);
+
+	saveTransformForNextFrame(ent->index, bmodel, model);
 }
 
 static qboolean renderableSurface( const msurface_t *surf, int i ) {
@@ -586,6 +625,10 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 				vk_vertex_t vertex = {
 					{in_vertex->position[0], in_vertex->position[1], in_vertex->position[2]},
 				};
+
+				vertex.last_pos[0] = in_vertex->position[0];
+				vertex.last_pos[1] = in_vertex->position[1];
+				vertex.last_pos[2] = in_vertex->position[2];
 
 				float s = DotProduct( in_vertex->position, surf->texinfo->vecs[0] ) + surf->texinfo->vecs[0][3];
 				float t = DotProduct( in_vertex->position, surf->texinfo->vecs[1] ) + surf->texinfo->vecs[1][3];
