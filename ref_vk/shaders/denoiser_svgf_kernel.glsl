@@ -25,9 +25,10 @@ layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_color_noisy;
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_variance;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_depth; // for depth
-#ifdef DRIVEN_BY_RAY_LENGTH
-	layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_refl_position_t; // for reflection ray length
-#endif
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
+//#ifdef DRIVEN_BY_RAY_LENGTH
+//	layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_refl_position_t; // for reflection ray length
+//#endif
 
 // Normal-weighting function (4.4.1)
 float normalWeight(vec3 normal0, vec3 normal1) {
@@ -103,6 +104,7 @@ void main() {
 	const vec4 center_irradiance = imageLoad(src_color_noisy, pix);
 	const float center_luminance = luminance(center_irradiance.rgb);
 	const float reproject_variance = imageLoad(src_variance, pix).r;
+	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
 	//const vec3 center_irradiance = imageLoad(src_color_noisy, pix).rgb;
 	const float depth = imageLoad(src_position_depth, pix).w;
 	const vec2 depth_offset = vec2(1.);
@@ -111,6 +113,10 @@ void main() {
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
+
+	int texel_flags = int(material_rmxx.b + 0.01);
+	ivec3 pix_no_checker = CheckerboardToPix(pix, res);
+	int is_transparent_texel = pix_no_checker.z;
 
 	// depth-gradient estimation from screen-space derivatives
 //	const vec2 depth_gradient = depthGradient(depth, pix, res);
@@ -154,7 +160,9 @@ void main() {
 	const float sigma = KERNEL_SIZE / 2.;
 	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
 		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
-			const ivec2 p = pix + ivec2(x, y) * SVGF_STEP_SIZE;
+			const ivec2 offset = ivec2(x, y) * SVGF_STEP_SIZE;
+			const ivec2 p = texel_flags > 0 ? (pix + offset) : // transparent or refract, use checkerboard coords
+							PixToCheckerboard(pix_no_checker.xy + offset, res, is_transparent_texel).xy;
 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
 				continue;
 			}

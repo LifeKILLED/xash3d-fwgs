@@ -169,7 +169,7 @@ void main() {
 
 	const ivec3 checker_pix = PixToCheckerboard(pix, res);
 	const ivec2 out_pix = checker_pix.xy;
-	const int checker_alpha = checker_pix.b;
+	const int checker_transparent = checker_pix.b;
 
 	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
@@ -189,16 +189,66 @@ void main() {
 	const uint sbt_offset = 0;
 	const uint sbt_stride = 0;
 	const float L = 10000.; // TODO Why 10k?
-	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE | (checker_alpha == 1 ? GEOMETRY_BIT_REFRACTIVE : 0),
+
+	// opaque or transparent
+	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_REFRACTIVE,
 		sbt_offset, sbt_stride, SHADER_OFFSET_MISS_REGULAR,
 		origin, 0., direction, L,
 		PAYLOAD_LOCATION_PRIMARY);
 
-	float depth = length(origin - payload.hit_t.xyz);
-	const vec3 geometry_normal = normalize(normalDecode(payload.normals_gs.xy));
-	const vec3 shading_normal = normalize(normalDecode(payload.normals_gs.zw));
+	const vec4 reflect_position_t = payload.hit_t;
+	const vec4 reflect_base_color_a = payload.base_color_a;
+	const vec4 reflect_normals_gs = payload.normals_gs;
+	const vec4 reflect_material_rmxx = payload.material_rmxx;
+	const vec4 reflect_emissive = payload.emissive;
+	const vec4 reflect_search_info_ktuv = payload.search_info_ktuv;
+	const vec4 reflect_previous_position_t = payload.last_position_t;
 
-	// correct roughness by frehnel
+	vec4 out_position_t;
+	vec4 out_base_color_a;
+	vec4 out_normals_gs;
+	vec4 out_material_rmxx;
+	vec4 out_emissive;
+	vec4 out_search_info_ktuv;
+	vec4 out_previous_position_t;
+
+	// opaque and refraction check
+	traceRayEXT(tlas, flags, GEOMETRY_BIT_OPAQUE,
+		sbt_offset, sbt_stride, SHADER_OFFSET_MISS_REGULAR,
+		origin, 0., direction, L,
+		PAYLOAD_LOCATION_PRIMARY);
+
+	bool not_overlapped = length(reflect_position_t.xyz - payload.hit_t.xyz) > 0.01;
+
+	if (checker_transparent == 1 && not_overlapped) {
+		out_position_t = reflect_position_t;
+		out_base_color_a = reflect_base_color_a;
+		out_normals_gs = reflect_normals_gs;
+		out_material_rmxx = reflect_material_rmxx;
+		out_emissive = reflect_emissive;
+		out_search_info_ktuv = reflect_search_info_ktuv;
+		out_previous_position_t = reflect_previous_position_t;
+	} else {
+		out_position_t = payload.hit_t;
+		out_base_color_a = payload.base_color_a;
+		out_normals_gs = payload.normals_gs;
+		out_material_rmxx = payload.material_rmxx;
+		out_emissive = payload.emissive;
+		out_search_info_ktuv = payload.search_info_ktuv;
+		out_previous_position_t = payload.last_position_t;
+	}
+
+	if (not_overlapped) {
+		out_material_rmxx.b = checker_transparent == 1 ? float(TEXEL_FLAG_TRANSPARENT) : float(TEXEL_FLAG_REFRACTION) + 0.01;
+	}
+
+	float depth = length(origin - payload.hit_t.xyz);
+	out_position_t.w = depth;
+
+	const vec3 geometry_normal = normalize(normalDecode(out_normals_gs.xy));
+	const vec3 shading_normal = normalize(normalDecode(out_normals_gs.zw));
+
+	// correct roughness by fresnel
 	const float NdotS = max(0., dot(normalize(direction.xyz), normalize(-shading_normal)));
 	const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
 	const float roughness_source = payload.material_rmxx.r;
@@ -206,14 +256,6 @@ void main() {
 	const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
 	const float roughness = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
 	payload.material_rmxx.r = roughness;
-
-	const vec4 out_position_t = vec4(payload.hit_t.xyz, depth);
-	const vec4 out_base_color_a = payload.base_color_a;
-	const vec4 out_normals_gs = payload.normals_gs;
-	const vec4 out_material_rmxx = payload.material_rmxx;
-	const vec4 out_emissive = payload.emissive;
-	const vec4 out_search_info_ktuv = payload.search_info_ktuv;
-	const vec4 out_previous_position_t = payload.last_position_t;
 
 		// ---------------------------- //
 		// REFLECTION / SPECULAR BOUNCE //
