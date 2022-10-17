@@ -127,7 +127,7 @@ static cvar_t			*cl_himodels;
 static r_studio_interface_t	*pStudioDraw;
 static studio_draw_state_t	g_studio;		// global studio state
 
-#define MAX_ENTITIES_LAST_STATES 4096
+#define MAX_ENTITIES_LAST_STATES 1024
 static studio_entity_last_state_t g_entity_last_states[MAX_ENTITIES_LAST_STATES];
 
 // global variables
@@ -2513,13 +2513,15 @@ static void R_StudioDrawPoints( void )
 
 	int entity_id = RI.currententity->index;
 
-	if (entity_id < MAX_ENTITIES_LAST_STATES)
+	if (entity_id < MAX_ENTITIES_LAST_STATES) {
 		Matrix4x4_Copy( *VK_RenderGetLastFrameTransform(), g_entity_last_states[entity_id].last_transform );
+	} else gEngine.Con_Printf(S_ERROR "Studio entities last states pool is overflow, increase it. Index is %s\n", entity_id );
 
 	VK_RenderModelDynamicCommit();
 
-	if (entity_id < MAX_ENTITIES_LAST_STATES)
+	if (entity_id < MAX_ENTITIES_LAST_STATES) {
 		Matrix4x4_Copy( g_entity_last_states[entity_id].last_transform, *VK_RenderGetLastFrameTransform() );
+	}
 }
 
 static void R_StudioSetRemapColors( int newTop, int newBottom )

@@ -34,10 +34,11 @@ static struct {
 } g_brush;
 
 
-#define MAX_BRUSH_ENTITIES_LAST_STATES 256
+#define MAX_BRUSH_ENTITIES_LAST_STATES 1024
 
 typedef struct {
 	matrix4x4 last_model_transform;
+	float last_time;
 } brush_entity_last_state_t;
 
 static brush_entity_last_state_t g_brush_last_states[MAX_BRUSH_ENTITIES_LAST_STATES];
@@ -90,7 +91,7 @@ Does a water warp on the pre-fragmented glpoly_t chain
 static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboolean reverse )
 {
 	const float time = gpGlobals->time;
-	float	*v, nv, waveHeight;
+	float	*v, nv, last_nv, waveHeight, last_time;
 	float	s, t, os, ot;
 	glpoly_t	*p;
 	int	i;
@@ -98,6 +99,11 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 	int vertex_offset = 0;
 	uint16_t *indices;
 	r_geometry_buffer_lock_t buffer;
+
+	if (ent->index < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		last_time = g_brush_last_states[ent->index].last_time;
+		g_brush_last_states[ent->index].last_time = time;
+	} else gEngine.Con_Printf(S_ERROR "Brush entities last states pool is overflow, increase it. Index is %s\n", ent->index );
 
 #define MAX_WATER_VERTICES 16
 	vk_vertex_t poly_vertices[MAX_WATER_VERTICES];
@@ -144,6 +150,10 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 				nv = r_turbsin[(int)(time * 160.0f + v[1] + v[0]) & 255] + 8.0f;
 				nv = (r_turbsin[(int)(v[0] * 5.0f + time * 171.0f - v[1]) & 255] + 8.0f ) * 0.8f + nv;
 				nv = nv * waveHeight + v[2];
+
+				last_nv = r_turbsin[(int)(last_time * 160.0f + v[1] + v[0]) & 255] + 8.0f;
+				last_nv = (r_turbsin[(int)(v[0] * 5.0f + last_time * 171.0f - v[1]) & 255] + 8.0f ) * 0.8f + last_nv;
+				last_nv = last_nv * waveHeight + v[2];
 			}
 			else nv = v[2];
 
@@ -162,7 +172,7 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 
 			poly_vertices[i].last_pos[0] = v[0];
 			poly_vertices[i].last_pos[1] = v[1];
-			poly_vertices[i].last_pos[2] = nv;
+			poly_vertices[i].last_pos[2] = last_nv;
 
 			poly_vertices[i].gl_tc[0] = s;
 			poly_vertices[i].gl_tc[1] = t;
@@ -394,15 +404,17 @@ void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4
 
 
 	int entity_id = ent->index;
-	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
 		Matrix4x4_Copy( bmodel->render_model.last_transform,
 								g_brush_last_states[entity_id].last_model_transform );
+	} else gEngine.Con_Printf(S_ERROR "Brush entities last states pool is overflow, increase it. Index is %s\n", ent->index );
 
 	bmodel->render_model.render_mode = render_mode;
 	VK_RenderModelDraw(ent, &bmodel->render_model);
 
-	if (entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
-		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, bmodel->render_model.last_transform ) ;
+	if (entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, bmodel->render_model.last_transform );
+	}
 }
 
 static qboolean renderableSurface( const msurface_t *surf, int i ) {
