@@ -79,6 +79,8 @@ void main() {
 
 	const vec3 origin = OriginWorldPosition(ubo.inv_view);
 
+	const int texel_flags = int(material_rmxx.b + 0.01);
+
 			// ---------------------------------------- //
 			// Simple reprojecting for diffuse lighting //
 			// ---------------------------------------- //
@@ -87,9 +89,9 @@ void main() {
 
 	const vec3 last_uv_w = WorldPositionToUV2(previous_position, ubo.last_inv_proj, ubo.last_inv_view);
 	const ivec2 last_pix_src = UVToPix(last_uv_w.xy, res);
-	ivec2 last_pix = PixToCheckerboard(last_pix_src, res, is_transparent_texel).xy;
+	const ivec2 last_pix = PixToCheckerboard(last_pix_src, res, is_transparent_texel, texel_flags).xy;	
 
-	const ivec2 current_pix = pix;
+	//const ivec2 current_pix = pix;
 
 	//const float depth = length(origin - position);
 
@@ -207,19 +209,18 @@ void main() {
 
 		// in front of camera and in bounds of frame
 		if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix_src, ivec2(0))) && any(lessThan(parallax_pix_src, res))) {
-		
-			const ivec2 parallax_pix = PixToCheckerboard(parallax_pix_src, res, is_transparent_texel).xy;
+			const ivec2 parallax_pix = PixToCheckerboard(parallax_pix_src, res, is_transparent_texel, texel_flags).xy;
 			
 			// last ray length stored in gi_sh2.w for metal surfaces, for diffuse materials it's don't a critic
 			const float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
 			const float ray_length_difference = abs(nesessary_ray_lenth - last_ray_length);
 
 			// Better fitting by normals we searched in next block
-			//vec3 parallax_shadingNormal, parallax_geometryNormal;
-			//readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
+			vec3 parallax_shadingNormal, parallax_geometryNormal;
+			readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
 
 			if (ray_length_difference < actual_difference_treshold
-				//&& dot(last_normal, normalize(parallax_shadingNormal)) > normal_treshold_low
+				&& dot(last_normal, normalize(parallax_shadingNormal)) > normal_treshold_low
 				) {
 
 				out_parallax_coord = parallax_pix;
@@ -229,9 +230,16 @@ void main() {
 		// Search better fitting by normals for reflection destination comparation
 		float best_destination_difference = -1.;
 		if (out_parallax_coord.x > -99) {
-			for (float n = 1.; n >= 0.5; n -= 0.05) {
-				ivec2 parallax_search_pix = ivec2(mix(vec2(out_forward_coord), vec2(out_parallax_coord), n));
+			for (float n = 1.; n >= 0.; n -= 0.05) {
+				const ivec2 parallax_search_pix_src = ivec2(mix(vec2(last_pix_src), vec2(parallax_pix_src), n));
+				const ivec2 parallax_search_pix = PixToCheckerboard(parallax_search_pix_src, res, is_transparent_texel, texel_flags).xy;
 				if (any(greaterThanEqual(parallax_search_pix, ivec2(0))) && any(lessThan(parallax_search_pix, res))) {
+
+					const vec4 last_material_rmxx = imageLoad(src_material_rmxx, parallax_search_pix);
+					const int last_texel_flags = int(last_material_rmxx.z + 0.01);
+
+					if (last_texel_flags != texel_flags)
+						continue;
 
 					const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_search_pix).xyz;
 				

@@ -1,6 +1,9 @@
 #ifndef DENOISER_TOOLS_LK_12231312
 #define DENOISER_TOOLS_LK_12231312 1
 
+#define TEXEL_FLAG_TRANSPARENT 1
+#define TEXEL_FLAG_REFRACTION 2
+
 // clamp light exposition without loosing of color
 vec3 clamp_color(vec3 color, float clamp_value) {
 	float max_color = max(max(color.r, color.g), color.b);
@@ -19,6 +22,15 @@ ivec3 PixToCheckerboard(ivec2 pix, ivec2 res, int is_transparent_texel) {
 	ivec2 out_pix = ivec2(pix.x / 2 + is_transparent_texel * (res.x / 2), pix.y);
 	return ivec3(out_pix, is_transparent_texel);
 }
+
+// optional choose checkerboard conversion if there is real transparence or not
+ivec3 PixToCheckerboard(ivec2 pix, ivec2 res, int is_transparent_texel, int texel_flags) {
+	if (texel_flags == TEXEL_FLAG_TRANSPARENT || texel_flags == TEXEL_FLAG_REFRACTION) {
+		return PixToCheckerboard(pix, res, is_transparent_texel);
+	}
+	return PixToCheckerboard(pix, res);
+}
+
 
 // 3-th component is transparent texel status 0 or 1
 ivec3 CheckerboardToPix(ivec2 pix, ivec2 res) {
