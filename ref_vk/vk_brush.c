@@ -13,6 +13,7 @@
 #include "vk_geometry.h"
 #include "vk_light.h"
 #include "vk_mapents.h"
+#include "vk_mesh_utils.h"
 
 #include "ref_params.h"
 #include "eiface.h"
@@ -543,6 +544,8 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 	// TODO this does not make that much sense in vulkan (can sort later)
 	for (int t = 0; t <= sizes.max_texture_id; ++t)
 	{
+		VK_NormalsSmooth_Start(0.66, false);
+
 		for( int i = 0; i < mod->nummodelsurfaces; ++i)
 		{
 			const int surface_index = mod->firstmodelsurface + i;
@@ -664,6 +667,8 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 				vertex.lm_tc[0] = s;
 				vertex.lm_tc[1] = t;
 
+				VK_NormalsSmooth_AddVertex(bvert);
+
 				*(bvert++) = vertex;
 
 				// Ray tracing apparently expects triangle list only (although spec is not very clear about this kekw)
@@ -679,6 +684,8 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 			model_geometry->element_count = index_count;
 			vertex_offset += surf->numedges;
 		}
+
+		VK_NormalsSmooth_Apply();
 	}
 
 	R_GeometryBufferUnlock( &buffer );
