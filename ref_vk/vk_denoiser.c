@@ -186,17 +186,18 @@ struct ray_pass_s* R_VkRayDenoiserAccumulateCreate(void) {
 	X(1, specular_accum) \
 	X(2, gi_sh1_accum) \
 	X(3, gi_sh2_accum) \
-	X(4, specular_variance) \
+	X(4, diffuse_variance) \
+	X(5, specular_variance) \
 
 #define LIST_INPUTS_TEMP(X) \
-	X(5, history_diffuse) \
-	X(6, history_specular) \
-	X(7, history_gi_sh1) \
-	X(8, history_gi_sh2) \
+	X(6, history_diffuse) \
+	X(7, history_specular) \
+	X(8, history_gi_sh1) \
+	X(9, history_gi_sh2) \
 
 
 struct ray_pass_s* R_VkRayDenoiserTemporalAccumulationCreate(void) {
-	PASS_CREATE_FUNC("denoiser temporal accumulation", "denoiser_temporal_accumulation.comp.spv", TEMP, 9)
+	PASS_CREATE_FUNC("denoiser temporal accumulation", "denoiser_temporal_accumulation.comp.spv", TEMP, 10)
 }
 
 

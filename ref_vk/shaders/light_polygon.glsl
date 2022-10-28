@@ -172,7 +172,7 @@ vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const 
 #define DO_ALL_IN_CLUSTER 1
 //#define PROJECTED
 //#define SOLID
-//#define SIMPLE_SOLID
+#define SIMPLE_SOLID
 
 void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleContext ctx, in MaterialProperties material, in PolygonLight poly, inout vec3 diffuse, inout vec3 specular) {
 	// TODO cull by poly plane
@@ -181,6 +181,8 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 
 #ifdef PROJECTED
 	const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rand_values.zw);
+#elif defined(SIMPLE_SOLID)
+	const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly, rand_values.xyz);
 #else
 	const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly, rand_values.zw);
 #endif
@@ -189,13 +191,13 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 
 	const float dist = - dot(vec4(P, 1.f), poly.plane) / dot(light_sample_dir.xyz, poly.plane.xyz);
 
-	if (shadowed(P, light_sample_dir.xyz, dist))
-		return;
-
 	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
 	evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
+
+	const float shading = shadowed(P, light_sample_dir.xyz, dist) ? 0. : 1.;
+
 	const float estimate = light_sample_dir.w;
-	const vec3 emissive = poly.emissive * estimate;
+	const vec3 emissive = poly.emissive * estimate * shading;
 	diffuse += emissive * poly_diffuse;
 	specular += emissive * poly_specular;
 }

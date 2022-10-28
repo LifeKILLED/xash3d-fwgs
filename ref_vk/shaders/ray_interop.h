@@ -80,7 +80,90 @@
 
 
 
+
+#define RAY_LIGHT_POLY_DIRECT_CHOOSE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, normals_gs, rgba16f) \
+
+#define RAY_LIGHT_POLY_DIRECT_CHOOSE_OUTPUTS(X) \
+	X(20, chosen_lights_poly_direct, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_DIRECT_SAMPLE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, position_t, rgba32f) \
+	X(12, normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+	X(16, chosen_lights_poly_direct, rgba16f) \
+
+#define RAY_LIGHT_POLY_DIRECT_SAMPLE_OUTPUTS(X) \
+	X(20, light_poly_diffuse, rgba16f) \
+	X(21, light_poly_specular, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_REFLECT_CHOOSE_INPUTS(X) \
+	X(10, refl_position_t, rgba32f) \
+	X(11, refl_normals_gs, rgba16f) \
+
+#define RAY_LIGHT_POLY_REFLECT_CHOOSE_OUTPUTS(X) \
+	X(20, chosen_lights_poly_reflect, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_REFLECT_SAMPLE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, refl_position_t, rgba32f) \
+	X(12, refl_normals_gs, rgba16f) \
+	X(13, refl_material_rmxx, rgba8) \
+	X(14, refl_base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+	X(16, chosen_lights_poly_reflect, rgba16f) \
+
+#define RAY_LIGHT_POLY_REFLECT_SAMPLE_OUTPUTS(X) \
+	X(20, light_poly_reflection, rgba16f) \
+
+
+
+
+
+#define RAY_LIGHT_POLY_GI_CHOOSE_INPUTS(X) \
+	X(10, gi_position_t, rgba32f) \
+	X(11, gi_normals_gs, rgba16f) \
+
+#define RAY_LIGHT_POLY_GI_CHOOSE_OUTPUTS(X) \
+	X(20, chosen_lights_poly_gi, rgba16f) \
+
+
+
+#define RAY_LIGHT_POLY_GI_SAMPLE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, gi_position_t, rgba32f) \
+	X(12, gi_normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, gi_base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+	X(16, chosen_lights_poly_reflect, rgba16f) \
+
+#define RAY_LIGHT_POLY_GI_SAMPLE_OUTPUTS(X) \
+	X(20, light_poly_indirect, rgba16f) \
+
+
+
+
+
+
+
 #define RAY_DENOISER_TEXTURES(X) \
+	X(-1, chosen_lights_poly_direct, rgba16f) \
+	X(-1, chosen_lights_poly_reflect, rgba16f) \
+	X(-1, chosen_lights_poly_gi, rgba16f) \
 	X(-1, last_position_t, rgba32f) \
 	X(-1, last_normals_gs, rgba16f) \
 	X(-1, last_search_info_ktuv, rgba32f) \

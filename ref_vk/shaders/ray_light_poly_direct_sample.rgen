@@ -1,0 +1,14 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+// It's emission polygons lightings
+#define LIGHT_POLYGON 1
+
+// Use camera matrices for view direction
+#define PRIMARY_VIEW 1
+
+// Base color will be added in composing pass
+#define GRAY_MATERIAL 1
+
+#define OUTPUTS RAY_LIGHT_DIRECT_POLY_OUTPUTS
+#include "ray_light_sample.glsl"

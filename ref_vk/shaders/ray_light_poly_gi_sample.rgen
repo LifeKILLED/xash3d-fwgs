@@ -1,0 +1,17 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+// It's emission polygons lightings
+#define LIGHT_POLYGON 1
+
+// It's global illumination diffuse bounces lighting pass
+#define GLOBAL_ILLUMINATION 1
+
+// Randomize fixed count of maximum lights
+//#define MAX_LIGHTS_PER_TEXEL 1
+
+// Enable SSGI
+//#define REUSE_SCREEN_LIGHTING 1
+
+#define OUTPUTS RAY_LIGHT_INDIRECT_POLY_OUTPUTS
+#include "ray_light_sample.glsl"

@@ -1,0 +1,130 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_ray_tracing: require
+
+// More value is less memory bottleneck for polygon lights array,
+// but huge chache overhead for positions and normals.
+// Two vec3 and vec4 arrays size is (TILE_SIZE * TILE_SIZE)
+#define TILE_SIZE 4
+
+// way to sample lights, this works better
+#define FOUR_SAMPLES_PER_TEXEL 1
+
+// search weights in lower resolution (but sampling works in true resolution)
+#define LIGHTS_WEIGHTS_DOWNSAMPLE_RES 2
+
+// texture coordinate from index in tile
+#define TILE_PIX_OFFSET(TEXEL_INDEX) ivec2((TEXEL_INDEX%TILE_SIZE)*LIGHTS_WEIGHTS_DOWNSAMPLE_RES,(TEXEL_INDEX/TILE_SIZE)*LIGHTS_WEIGHTS_DOWNSAMPLE_RES)
+
+// index + weight stored in x, y, z and w components of vec4
+#define LIGHTS_PER_TEXEL_COUNT 4.
+
+// minimal random weight of light
+#define PROBABILITY_EPS 0.02
+
+#include "utils.glsl"
+#include "noise.glsl"
+#include "denoiser_tools.glsl"
+#include "color_spaces.glsl"
+#include "denoiser_tools.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_normals_gs;
+
+layout(set = 0, binding = 20, rgba16f) uniform image2D out_image_poly_light_chosen;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
+
+#include "ray_kusochki.glsl"
+
+#define RAY_TRACE
+#define RAY_TRACE2
+#undef SHADER_OFFSET_HIT_SHADOW_BASE
+#define SHADER_OFFSET_HIT_SHADOW_BASE 0
+#undef SHADER_OFFSET_MISS_SHADOW
+#define SHADER_OFFSET_MISS_SHADOW 0
+#undef PAYLOAD_LOCATION_SHADOW
+#define PAYLOAD_LOCATION_SHADOW 0
+
+#define BINDING_LIGHTS 7
+#define BINDING_LIGHT_CLUSTERS 8
+#include "light.glsl"
+
+float polyWeight(const PolygonLight poly, const vec3 P, const vec3 N) {
+	const vec3 dir = poly.center - P;
+	const float coplanar = 1. - clamp(dot(normalize(poly.plane.xyz), -normalize(dir)), 0., 1.);
+	const float coplanar_pow = 1. - coplanar * coplanar;
+	const float dist = 1. / dot(dir, dir);
+	const float shading = dot(N, normalize(dir));
+	return clamp(dist * shading * coplanar_pow * luminance(poly.emissive), 0.0, 3.0);
+}
+
+void main() {
+	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
+	const ivec2 res = ivec2(gl_LaunchSizeEXT.xy);
+	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
+
+	//const ivec2 tile_pix = pix;
+	const ivec2 tile_pix = pix * TILE_SIZE * LIGHTS_WEIGHTS_DOWNSAMPLE_RES;
+	if (any(greaterThanEqual(tile_pix, res))) {
+		return;
+	}
+
+	// chache of all texels in tile
+	vec4 positions_weights_total[TILE_SIZE * TILE_SIZE];
+	vec4 results[TILE_SIZE * TILE_SIZE];
+	vec3 normals[TILE_SIZE * TILE_SIZE];
+
+	// chache all texels data and fill random values
+	for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
+		const ivec2 in_pix = tile_pix + TILE_PIX_OFFSET(t);
+		if (any(greaterThanEqual(in_pix, res)))
+		{
+			positions_weights_total[t] = vec4(0., 0., 0., -100.); // skip marker
+			continue;
+		}
+		positions_weights_total[t] = vec4( imageLoad(src_position_t, in_pix).xyz, 0.);
+		normals[t] = normalDecode( imageLoad(src_normals_gs, in_pix).zw );
+		results[t] = vec4(.0);
+	}
+
+	// calculate total radiance for all texels by simple lights shading
+	const uint num_lights = lights.num_polygons;
+	for (int index = 0; index < num_lights; ++index) {
+		const PolygonLight poly = lights.polygons[index];
+		for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
+			if (positions_weights_total[t].w >= 0.) {
+				positions_weights_total[t].w += polyWeight(poly, positions_weights_total[t].xyz, normals[t].xyz);
+			}
+		}
+	}
+
+	// random sample lights by weights
+	for (int index = 0; index < num_lights; ++index) {
+		const PolygonLight poly = lights.polygons[index];
+		for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
+			if (positions_weights_total[t].w > .0) {
+				const float probability = polyWeight(poly, positions_weights_total[t].xyz, normals[t].xyz) / positions_weights_total[t].w;
+				if (results[t].w < PROBABILITY_EPS && (probability * LIGHTS_PER_TEXEL_COUNT > rand01())) {
+					results[t] = results[t].wxyz;
+					results[t].x = float(index) + clamp(probability, PROBABILITY_EPS, .98);
+				}
+			}
+		}
+	}
+
+	// save indices to buffer
+	for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
+		if (positions_weights_total[t].w >= .0) {
+			const ivec2 out_pix = tile_pix + TILE_PIX_OFFSET(t);
+			imageStore(out_image_poly_light_chosen, out_pix, results[t]);
+		}
+	}
+
+}

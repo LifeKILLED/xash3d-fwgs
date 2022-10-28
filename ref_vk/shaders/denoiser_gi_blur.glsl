@@ -1,6 +1,6 @@
 
 #ifndef KERNEL
-#define KERNEL 2
+#define KERNEL 1
 #endif
 
 #ifndef OFFSET
