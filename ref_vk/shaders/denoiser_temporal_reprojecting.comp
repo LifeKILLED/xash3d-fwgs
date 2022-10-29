@@ -191,6 +191,20 @@ void main() {
 		const vec3 current_normal = normalize(geometryNormal.xyz);
 		const vec4 last_position_t = imageLoad(src_last_position_t, forward_pix.xy);
 
+		//		
+		//	origin (camera)
+		//	       []<          reflection destination
+		//		 	| \        (UwU) (reflected in
+		//			|   \     /  |    surface texel)
+		//			|     \ /    |
+		//	--------x------x-----x------------
+		//	origin on      ^   reflection on plane
+		//	   plane	   |
+		//				reflection center
+		//		(surface texel in current frame)
+		//		(need to find it in last frame)
+		//		
+
 		// Parallax reprojection
 		const vec3 reflection_destination = reflect(normalize(position - origin), current_normal) * length(reflection_pos.xyz - position) + position;
 		const float reflection_distance_to_plane = dot(last_normal, reflection_destination - last_position_t.xyz);
