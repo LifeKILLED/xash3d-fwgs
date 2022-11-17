@@ -18,6 +18,11 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
+	X(15, prev_lighting, rgba16f) \
+	X(16, prev_position_t, rgba32f) \
+	X(17, reproj_lighting, rgba16f) \
+
+// FIXME: 15-17 in primary pass is lazy abuse of creating reprojecting buffers, remove them from here
 
 #define RAY_LIGHT_DIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
@@ -153,6 +158,7 @@ struct PushConstants {
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
 	float ray_cone_width;
 	uint random_seed;
 	PAD(2)

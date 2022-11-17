@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "ray_primary_common.glsl"
+#include "noise.glsl"
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform image2D out_image_##name;
 RAY_PRIMARY_OUTPUTS(X)
@@ -14,6 +15,8 @@ layout(location = PAYLOAD_LOCATION_PRIMARY) rayPayloadEXT RayPayloadPrimary payl
 
 void main() {
 	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+
+	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
 
 	// FIXME start on a near plane
 	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
@@ -36,9 +39,17 @@ void main() {
 		origin, 0., direction, L,
 		PAYLOAD_LOCATION_PRIMARY);
 
+
+	//payload.base_color_a *= rand01(); // fast denoiser test
+
 	imageStore(out_image_position_t, ivec2(gl_LaunchIDEXT.xy), payload.hit_t);
 	imageStore(out_image_base_color_a, ivec2(gl_LaunchIDEXT.xy), payload.base_color_a);
 	imageStore(out_image_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_image_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_image_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+
+	// FIXME: it's only for lazy abuse barriers, init reprojecting buffers by other way
+	imageStore(out_image_prev_lighting, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	imageStore(out_image_prev_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	imageStore(out_image_reproj_lighting, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 }

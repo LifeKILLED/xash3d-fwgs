@@ -6,19 +6,31 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform image2D dest;
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
+	float ray_cone_width;
+	uint random_seed;
+};
 
-layout(set = 0, binding = 1, rgba8) uniform readonly image2D src_base_color;
+layout(set = 0, binding = 0) uniform UBO { UniformBuffer ubo; };
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_light_direct_poly_specular;
+layout(set = 0, binding = 1, rgba16f) uniform image2D dest;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_reproj_lighting;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_light_direct_point_diffuse;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_light_direct_point_specular;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_emissive;
+layout(set = 0, binding = 3, rgba8) uniform readonly image2D src_base_color;
 
-layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_position_t;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_light_direct_poly_specular;
+
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_light_direct_point_diffuse;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_light_direct_point_specular;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_emissive;
+
+layout(set = 0, binding = 9, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_prev_lighting;
+layout(set = 0, binding = 12, rgba32f) uniform readonly image2D src_prev_position_t;
 
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
@@ -177,6 +189,38 @@ void main() {
 	colour += imageLoad(src_emissive, pix).rgb;
 	//colour += imageLoad(src_additive, pix).rgb;
 
+	// TODO: extract reprojecting in separately shader because reprojected stuff need svgf denoising pass
+	const vec3 position = imageLoad(src_position_t, pix).rgb;
+	const vec4 clip_space = inverse(ubo.last_inv_proj) * vec4((inverse(ubo.last_inv_view) * vec4(position, 1.)).xyz, 1.);
+	const vec2 reproj_uv = clip_space.xy / clip_space.w;
+	const ivec2 reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
+//	vec4 history_lighting = vec4(0.);
+//	float reproj_weigts_sum = 0.;
+//	const vec3 reproj_center_pos = imageLoad(src_prev_position_t, reproj_pix).xyz;
+//	for (int y = -1; y <=1; y++) {
+//		for (int x = -1; x <=1; x++) {
+//			const ivec2 p = reproj_pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//			const vec4 history_position = imageLoad(src_prev_position_t, p);
+//			const 
+//			const float weight = reproj_neighboor_weights[x + y * 2];
+//			//if (weight < 0.01) continue;
+//			history_lighting += imageLoad(src_prev_lighting, p) * weight;
+//			reproj_weigts_sum += weight;
+//		}
+//	}
+//	history_lighting /= reproj_weigts_sum;
+
+	
+	const vec4 history_lighting = imageLoad(src_prev_lighting, reproj_pix );
+	const float reproj_samples_count = history_lighting.w + 1.;
+	const float reproj_weight = clamp(1. - 1. / reproj_samples_count, .0, .99);
+	vec3 reprojected_lighting = mix(colour, history_lighting.xyz, reproj_weight);
+
+	//colour = reprojected_lighting;
+
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
 #if 0
@@ -201,5 +245,6 @@ void main() {
 #endif
 
 	imageStore(dest, pix, vec4(colour, 0.));
+	imageStore(out_reproj_lighting, pix, vec4(reprojected_lighting, reproj_samples_count));
 	//imageStore(dest, pix, imageLoad(src_light_direct_poly, pix));
 }
