@@ -5,19 +5,22 @@
 
 #define LIST_OUTPUTS(X) \
 	X(1, denoised) \
-	X(2, reproj_lighting) \
+	X(2, reproj_diffuse) \
+	X(3, reproj_specular) \
 
 #define LIST_INPUTS(X) \
-	X(3, base_color_a) \
-	X(4, light_poly_diffuse) \
-	X(5, light_poly_specular) \
-	X(6, light_point_diffuse) \
-	X(7, light_point_specular) \
-	X(8, emissive) \
-	X(9, position_t) \
-	X(10, normals_gs) \
-	X(11, prev_lighting) \
-	X(12, prev_position_t) \
+	X(4, base_color_a) \
+	X(5, material_rmxx) \
+	X(6, light_poly_diffuse) \
+	X(7, light_poly_specular) \
+	X(8, light_point_diffuse) \
+	X(9, light_point_specular) \
+	X(10, emissive) \
+	X(11, position_t) \
+	X(12, normals_gs) \
+	X(13, prev_diffuse) \
+	X(14, prev_specular) \
+	X(15, prev_position_t) \
 
 static const VkDescriptorSetLayoutBinding bindings[] = {
 #define BIND_IMAGE(index, name) \

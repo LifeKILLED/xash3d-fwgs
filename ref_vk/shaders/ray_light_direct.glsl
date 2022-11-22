@@ -54,7 +54,8 @@ void main() {
 	MaterialProperties material;
 	material.baseColor = vec3(1.);
 	material.emissive = vec3(0.f);
-	material.metalness = material_data.g;
+	material.metalness = 0.;
+	//material.metalness = material_data.g; // mix diffuse and specular by pbr with base color in composing
 	material.roughness = material_data.r;
 
 	const vec3 pos = imageLoad(position_t, pix).xyz;
@@ -68,9 +69,9 @@ void main() {
 
 #if LIGHT_POINT
 	imageStore(out_image_light_point_diffuse, pix, vec4(diffuse / 4.0, 0.f));
-	imageStore(out_image_light_point_specular, pix, vec4(specular / 4.0, 0.f));
+	imageStore(out_image_light_point_specular, pix, vec4(specular / 4.0 / 0.04, 0.f));
 #else
 	imageStore(out_image_light_poly_diffuse, pix, vec4(diffuse / 25.0, 0.f));
-	imageStore(out_image_light_poly_specular, pix, vec4(specular/ 25.0, 0.f));
+	imageStore(out_image_light_poly_specular, pix, vec4(specular / 25.0 / 0.04, 0.f));
 #endif
 }

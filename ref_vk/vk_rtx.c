@@ -294,7 +294,8 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 
 	// TODO: read directly from previous frame or keep this way?
 	if ( g_rtx.last_frame_buffers_inited ) {
-		BLIT_IMAGES( args->current_frame->prev_lighting.image,   args->last_frame->reproj_lighting.image, FRAME_WIDTH, FRAME_HEIGHT )
+		BLIT_IMAGES(args->current_frame->prev_diffuse.image, args->last_frame->reproj_diffuse.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES( args->current_frame->prev_specular.image,   args->last_frame->reproj_specular.image, FRAME_WIDTH, FRAME_HEIGHT )
 		BLIT_IMAGES( args->current_frame->prev_position_t.image, args->last_frame->position_t.image,      FRAME_WIDTH, FRAME_HEIGHT )
 	} else {
 		g_rtx.last_frame_buffers_inited = true; // after first frame all buffers are inited

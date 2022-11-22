@@ -18,11 +18,13 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
-	X(15, prev_lighting, rgba16f) \
-	X(16, prev_position_t, rgba32f) \
-	X(17, reproj_lighting, rgba16f) \
+	X(15, prev_diffuse, rgba16f) \
+	X(16, prev_specular, rgba16f) \
+	X(17, prev_position_t, rgba32f) \
+	X(18, reproj_diffuse, rgba16f) \
+	X(19, reproj_specular, rgba16f) \
 
-// FIXME: 15-17 in primary pass is lazy abuse of creating reprojecting buffers, remove them from here
+// FIXME: 15-19 in primary pass is lazy abuse of creating reprojecting buffers, remove them from here
 
 #define RAY_LIGHT_DIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \

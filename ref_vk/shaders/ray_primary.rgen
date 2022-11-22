@@ -19,10 +19,10 @@ void main() {
 	rand01_state = ubo.random_seed + gl_LaunchIDEXT.x * 1833 +  gl_LaunchIDEXT.y * 31337;
 
 	// FIXME start on a near plane
-	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	//vec3 direction = (ubo.inv_view * vec4(normalize(target.xyz), 0)).xyz;
 	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
+	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz + normalize(direction) * 5.;
 
 	payload.hit_t = vec4(0.);
 	payload.base_color_a = vec4(0.);
@@ -49,7 +49,9 @@ void main() {
 	imageStore(out_image_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
 
 	// FIXME: it's only for lazy abuse barriers, init reprojecting buffers by other way
-	imageStore(out_image_prev_lighting, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	imageStore(out_image_prev_diffuse, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	imageStore(out_image_prev_specular, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 	imageStore(out_image_prev_position_t, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
-	imageStore(out_image_reproj_lighting, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	imageStore(out_image_reproj_diffuse, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
+	imageStore(out_image_reproj_specular, ivec2(gl_LaunchIDEXT.xy), vec4(0.));
 }

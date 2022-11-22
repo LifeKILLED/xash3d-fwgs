@@ -3,6 +3,10 @@
 #include "noise.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
+#include "brdf.h"
+
+#define DIFFUSE_REPROJECTION_RESPONSIVITY 0.1
+#define SPECULAR_REPROJECTION_RESPONSIVITY 0.1
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -16,21 +20,24 @@ struct UniformBuffer {
 layout(set = 0, binding = 0) uniform UBO { UniformBuffer ubo; };
 
 layout(set = 0, binding = 1, rgba16f) uniform image2D dest;
-layout(set = 0, binding = 2, rgba16f) uniform image2D out_reproj_lighting;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_reproj_diffuse;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_reproj_specular;
 
-layout(set = 0, binding = 3, rgba8) uniform readonly image2D src_base_color;
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D src_base_color;
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_light_direct_poly_specular;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_light_direct_poly_specular;
 
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_light_direct_point_diffuse;
-layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_light_direct_point_specular;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_emissive;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_light_direct_point_diffuse;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_light_direct_point_specular;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_emissive;
 
-layout(set = 0, binding = 9, rgba32f) uniform readonly image2D src_position_t;
-layout(set = 0, binding = 10, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D src_prev_lighting;
-layout(set = 0, binding = 12, rgba32f) uniform readonly image2D src_prev_position_t;
+layout(set = 0, binding = 11, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_prev_diffuse;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_prev_specular;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D src_prev_position_t;
 
 //layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
 /* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
@@ -77,6 +84,7 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 void main() {
 	ivec2 res = ivec2(imageSize(src_base_color));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const vec2 uv = (pix.xy + .5) / res.xy * 2. - 1.;
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
@@ -111,13 +119,14 @@ void main() {
 	/* imageStore(dest, pix, vec4(rand3_f01(uvec3(mi,mi+1,mi+2)), 0.)); */
 	/* return; */
 
-#if 1
-	vec3 colour = vec3(0.);
-	colour += imageLoad(src_light_direct_poly_diffuse, pix).rgb;
-	colour += imageLoad(src_light_direct_poly_specular, pix).rgb;
-	colour += imageLoad(src_light_direct_point_diffuse, pix).rgb;
-	colour += imageLoad(src_light_direct_point_specular, pix).rgb;
-#else
+	vec3 colour = vec3(0.), diffuse = vec3(0.), speculour = vec3(0.);
+	diffuse = imageLoad(src_light_direct_poly_diffuse, pix).rgb +
+			  imageLoad(src_light_direct_point_diffuse, pix).rgb;
+	speculour = imageLoad(src_light_direct_poly_specular, pix).rgb +
+				imageLoad(src_light_direct_point_specular, pix).rgb;
+
+
+#if 0
 	float total_scale = 0.;
 	vec3 colour = vec3(0.);
 	const int KERNEL_SIZE = 8;
@@ -184,42 +193,99 @@ void main() {
 	}
 #endif
 
-	const vec4 base_color = imageLoad(src_base_color, pix);
-	colour *= SRGBtoLINEAR(base_color.rgb);
+
+	// TODO: need to extract reprojecting from this shader because reprojected stuff need svgf denoising pass after this
+	const vec3 prev_position = imageLoad(src_position_t, pix).rgb;
+	const vec4 clip_space = inverse(ubo.last_inv_proj) * vec4((inverse(ubo.last_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
+	const vec2 reproj_uv = clip_space.xy / clip_space.w;
+	const ivec2 reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
+	const vec3 prev_origin = (ubo.last_inv_view * vec4(0., 0., 0., 1.)).xyz;
+	vec3 reprojected_lighting = vec3(0.);
+	float diffuse_samples_count = 0.;
+	float specular_samples_count = 0.;
+	const float reproj_offset_treshold = 0.01 * clip_space.w;
+	float better_prev_pos_distance = reproj_offset_treshold;
+	vec4 history_diffuse = vec4( diffuse, 0. );
+	vec4 history_specular = vec4( speculour, 0. );
+	float difference_diffuse = 0.;
+	float difference_specular = 0.;
+	ivec2 reproj_pix_better = reproj_pix;
+	for(int x = -1; x <=1; x++) {
+		for(int y = -1; y <=1; y++) {
+			const ivec2 p = reproj_pix + ivec2(x, y);
+			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+				continue;
+			}
+			const vec3 history_position = imageLoad(src_prev_position_t, p).rgb;
+			const float current_prev_pos_distance = length(history_position - prev_position);
+			if ( current_prev_pos_distance < better_prev_pos_distance ) {
+				better_prev_pos_distance = current_prev_pos_distance;
+				history_diffuse = imageLoad(src_prev_diffuse, p );
+				history_specular = imageLoad(src_prev_specular, p );
+				reproj_pix_better = p;
+			}
+		}
+	}
+	if (better_prev_pos_distance < reproj_offset_treshold) {
+		float curr_weight = 0.;
+		float reproj_weight = 0.;
+		float curr_diffuse_luminance = 0.;
+		float curr_specular_luminance = 0.;
+		float reproj_diffuse_luminance = 0.;
+		float reproj_specular_luminance = 0.;
+		const int difference_kernel = 2;
+		for(int x = -difference_kernel; x <=difference_kernel; x++) {
+			for(int y = -difference_kernel; y <=difference_kernel; y++) {
+				const ivec2 curr_p = pix + ivec2(x, y);
+				const ivec2 reproj_p = reproj_pix + ivec2(x, y);
+				if (any(greaterThanEqual(curr_p, ivec2(0))) || any(lessThan(curr_p, res))) {
+					curr_diffuse_luminance += luminance( imageLoad(src_light_direct_point_diffuse, curr_p).rgb +
+														imageLoad(src_light_direct_poly_diffuse, curr_p).rgb );
+					curr_specular_luminance += luminance( imageLoad(src_light_direct_point_specular, curr_p).rgb +
+														 imageLoad(src_light_direct_poly_specular, curr_p).rgb );
+					curr_weight += 1.;
+				}
+				if (any(greaterThanEqual(reproj_p, ivec2(0))) || any(lessThan(reproj_p, res))) {
+					reproj_diffuse_luminance += luminance( imageLoad(src_prev_diffuse, reproj_p ).rgb );
+					reproj_specular_luminance += luminance( imageLoad(src_prev_specular, reproj_p ).rgb );
+					reproj_weight += 1.;
+				}
+			}
+		}
+		curr_diffuse_luminance /= curr_weight;
+		curr_specular_luminance /= curr_weight;
+		reproj_diffuse_luminance /= reproj_weight;
+		reproj_specular_luminance /= reproj_weight;
+		difference_diffuse = abs(curr_diffuse_luminance - reproj_diffuse_luminance) / (curr_diffuse_luminance + 0.0001);
+		difference_specular = abs(curr_specular_luminance - reproj_specular_luminance) / (curr_specular_luminance + 0.0001);
+	}
+	diffuse_samples_count = history_diffuse.w + 1.;
+	specular_samples_count = history_specular.w + 1.;
+	const float diffuse_weight = clamp(1. - 1. / diffuse_samples_count, .0, .98);
+	const float specular_weight = clamp(1. - 1. / diffuse_samples_count, .0, .98);
+	const vec3 mixed_diffuse = mix(diffuse, history_diffuse.rgb, diffuse_weight);
+	const vec3 mixed_specular = mix(speculour, history_specular.rgb, specular_weight);
+	diffuse = mix(mixed_diffuse, diffuse, min( 1., difference_diffuse * DIFFUSE_REPROJECTION_RESPONSIVITY ) );
+	speculour = mix(mixed_specular, speculour, min( 1., difference_specular * SPECULAR_REPROJECTION_RESPONSIVITY ) );
+	diffuse_samples_count = mix(diffuse_samples_count, 0.01, min( 1., difference_diffuse * DIFFUSE_REPROJECTION_RESPONSIVITY ) );
+	specular_samples_count = mix(specular_samples_count, 0.01, min( 1., difference_specular * SPECULAR_REPROJECTION_RESPONSIVITY) );
+
+	// pbr mix
+	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
+	const vec4 base_color = SRGBtoLINEAR(imageLoad(src_base_color, pix));
+	const vec4 material_data = imageLoad(src_material_rmxx, pix);
+	const float metalness = material_data.y;
+	const float NdotS = max(0., dot(normalize(direction.xyz), normalize(-shading_normal)));
+	const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
+	const vec3 metal_colour = speculour * base_color.rgb;
+	const float diffuse_specular_factor = mix(0.04, 0.04, fresnel);
+	const vec3 dielectric_colour = mix(diffuse * base_color.rgb, speculour, diffuse_specular_factor);
+	colour = mix(dielectric_colour, metal_colour, metalness);
+
 	colour += imageLoad(src_emissive, pix).rgb;
 	//colour += imageLoad(src_additive, pix).rgb;
 
-	// TODO: extract reprojecting in separately shader because reprojected stuff need svgf denoising pass
-	const vec3 position = imageLoad(src_position_t, pix).rgb;
-	const vec4 clip_space = inverse(ubo.last_inv_proj) * vec4((inverse(ubo.last_inv_view) * vec4(position, 1.)).xyz, 1.);
-	const vec2 reproj_uv = clip_space.xy / clip_space.w;
-	const ivec2 reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
-//	vec4 history_lighting = vec4(0.);
-//	float reproj_weigts_sum = 0.;
-//	const vec3 reproj_center_pos = imageLoad(src_prev_position_t, reproj_pix).xyz;
-//	for (int y = -1; y <=1; y++) {
-//		for (int x = -1; x <=1; x++) {
-//			const ivec2 p = reproj_pix + ivec2(x, y);
-//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
-//				continue;
-//			}
-//			const vec4 history_position = imageLoad(src_prev_position_t, p);
-//			const 
-//			const float weight = reproj_neighboor_weights[x + y * 2];
-//			//if (weight < 0.01) continue;
-//			history_lighting += imageLoad(src_prev_lighting, p) * weight;
-//			reproj_weigts_sum += weight;
-//		}
-//	}
-//	history_lighting /= reproj_weigts_sum;
-
-	
-	const vec4 history_lighting = imageLoad(src_prev_lighting, reproj_pix );
-	const float reproj_samples_count = history_lighting.w + 1.;
-	const float reproj_weight = clamp(1. - 1. / reproj_samples_count, .0, .99);
-	vec3 reprojected_lighting = mix(colour, history_lighting.xyz, reproj_weight);
-
-	//colour = reprojected_lighting;
 
 	// HACK: exposure
 	// TODO: should be dynamic based on previous frames brightness
@@ -245,6 +311,7 @@ void main() {
 #endif
 
 	imageStore(dest, pix, vec4(colour, 0.));
-	imageStore(out_reproj_lighting, pix, vec4(reprojected_lighting, reproj_samples_count));
+	imageStore(out_reproj_diffuse, pix, vec4(diffuse, diffuse_samples_count));
+	imageStore(out_reproj_specular, pix, vec4(speculour, specular_samples_count));
 	//imageStore(dest, pix, imageLoad(src_light_direct_poly, pix));
 }
