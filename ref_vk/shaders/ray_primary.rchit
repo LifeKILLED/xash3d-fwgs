@@ -42,9 +42,16 @@ void main() {
 		if (tex_normal > 0 && dot(T,T) > .5) {
 			T = normalize(T - dot(T, geom.normal_shading) * geom.normal_shading);
 			const vec3 B = normalize(cross(geom.normal_shading, T));
+			//T = normalize(geom.tangent);
+			//const vec3 B = normalize(geom.binormal);
 			const mat3 TBN = mat3(T, B, geom.normal_shading);
 			const vec3 tnorm = sampleTexture(tex_normal, geom.uv, geom.uv_lods).xyz * 2. - 1.; // TODO is this sampling correct for normal data?
 			geom.normal_shading = normalize(TBN * tnorm);
+//			t = normalize(t - dot(t, geom.normal_shading) * geom.normal_shading);
+//			const vec3 b = normalize(cross(geom.normal_shading, t));
+//			const mat3 tbn = mat3(t, b, geom.normal_shading);
+//			const vec3 tnorm = sampletexture(tex_normal, geom.uv, geom.uv_lods).xyz * 2. - 1.; // todo is this sampling correct for normal data?
+//			geom.normal_shading = normalize(tbn * tnorm);
 		}
 	}
 

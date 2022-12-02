@@ -14,14 +14,12 @@
 // search weights in lower resolution (but sampling works in true resolution)
 #define LIGHTS_WEIGHTS_DOWNSAMPLE_RES 2
 
-// texture coordinate from index in tile
-#define TILE_PIX_OFFSET(TEXEL_INDEX) ivec2((TEXEL_INDEX%TILE_SIZE)*LIGHTS_WEIGHTS_DOWNSAMPLE_RES,(TEXEL_INDEX/TILE_SIZE)*LIGHTS_WEIGHTS_DOWNSAMPLE_RES)
-
-// index + weight stored in x, y, z and w components of vec4
-#define LIGHTS_PER_TEXEL_COUNT 4.
-
 // minimal random weight of light
 #define PROBABILITY_EPS 0.02
+
+// texture coordinate from index in tile
+#define TILE_PIX_OFFSET(TEXEL_INDEX) ivec2( ( TEXEL_INDEX % TILE_SIZE ) * LIGHTS_WEIGHTS_DOWNSAMPLE_RES , \
+										    ( TEXEL_INDEX / TILE_SIZE ) * LIGHTS_WEIGHTS_DOWNSAMPLE_RES )
 
 #include "utils.glsl"
 #include "noise.glsl"
@@ -79,7 +77,7 @@ void main() {
 	// chache of all texels in tile
 	vec4 positions_weights_total[TILE_SIZE * TILE_SIZE];
 	vec4 results[TILE_SIZE * TILE_SIZE];
-	vec3 normals[TILE_SIZE * TILE_SIZE];
+	vec4 normals_random[TILE_SIZE * TILE_SIZE];
 
 	// chache all texels data and fill random values
 	for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
@@ -90,7 +88,7 @@ void main() {
 			continue;
 		}
 		positions_weights_total[t] = vec4( imageLoad(src_position_t, in_pix).xyz, 0.);
-		normals[t] = normalDecode( imageLoad(src_normals_gs, in_pix).zw );
+		normals_random[t] = vec4( normalDecode( imageLoad(src_normals_gs, in_pix).zw ), rand01() );
 		results[t] = vec4(.0);
 	}
 
@@ -100,7 +98,7 @@ void main() {
 		const PolygonLight poly = lights.polygons[index];
 		for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
 			if (positions_weights_total[t].w >= 0.) {
-				positions_weights_total[t].w += polyWeight(poly, positions_weights_total[t].xyz, normals[t].xyz);
+				positions_weights_total[t].w += polyWeight(poly, positions_weights_total[t].xyz, normals_random[t].xyz);
 			}
 		}
 	}
@@ -110,8 +108,9 @@ void main() {
 		const PolygonLight poly = lights.polygons[index];
 		for (int t = 0; t < TILE_SIZE * TILE_SIZE; t++) {
 			if (positions_weights_total[t].w > .0) {
-				const float probability = polyWeight(poly, positions_weights_total[t].xyz, normals[t].xyz) / positions_weights_total[t].w;
-				if (results[t].w < PROBABILITY_EPS && (probability * LIGHTS_PER_TEXEL_COUNT > rand01())) {
+				const float probability = polyWeight(poly, positions_weights_total[t].xyz, normals_random[t].xyz) / positions_weights_total[t].w;
+				normals_random[t].w -= probability;
+				if (results[t].w < PROBABILITY_EPS && normals_random[t].w <= 0.) {
 					results[t] = results[t].wxyz;
 					results[t].x = float(index) + clamp(probability, PROBABILITY_EPS, .98);
 				}

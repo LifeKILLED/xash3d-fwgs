@@ -47,6 +47,7 @@ struct Geometry {
 	vec3 normal_geometry;
 	vec3 normal_shading;
 	vec3 tangent;
+	vec3 binormal;
 
 	int kusok_index;
 
@@ -99,11 +100,14 @@ Geometry readHitGeometry() {
 		vertices[vi2].normal,
 		vertices[vi3].normal,
 		bary));
+
 	geom.tangent = normalize(normalTransform * baryMix(
-		vertices[vi1].tangent,
-		vertices[vi2].tangent,
-		vertices[vi3].tangent,
+		vertices[vi1].tangent.xyz,
+		vertices[vi2].tangent.xyz,
+		vertices[vi3].tangent.xyz,
 		bary));
+
+	geom.binormal = normalize( cross( geom.normal_shading, geom.tangent) * vertices[vi1].tangent.w );
 
 	geom.uv_lods = computeAnisotropicEllipseAxes(geom.pos, geom.normal_geometry, gl_WorldRayDirectionEXT, ubo.ray_cone_width * gl_HitTEXT, pos, uvs, geom.uv);
 

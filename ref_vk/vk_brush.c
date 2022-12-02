@@ -544,7 +544,7 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 	// TODO this does not make that much sense in vulkan (can sort later)
 	for (int t = 0; t <= sizes.max_texture_id; ++t)
 	{
-		VK_NormalsSmooth_Start(0.66, false);
+		VK_NormalsSmooth_Start(0.5, false);
 
 		for( int i = 0; i < mod->nummodelsurfaces; ++i)
 		{
@@ -554,7 +554,7 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 			vk_render_geometry_t *model_geometry = bmodel->render_model.geometries + num_geometries;
 			const float sample_size = gEngine.Mod_SampleSizeForFace( surf );
 			int index_count = 0;
-			vec3_t tangent;
+			vec4_t tangent;
 			int tex_id = surf->texinfo->texture->gl_texturenum;
 			const xvk_patch_surface_t *const psurf = g_map_entities.patch.surfaces ? g_map_entities.patch.surfaces + surface_index : NULL;
 
@@ -620,8 +620,13 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 				model_geometry->material = kXVkMaterialConveyor;
 			}
 
+			//vec3_t binormal_calculated;
 			VectorCopy(surf->texinfo->vecs[0], tangent);
-			VectorNormalize(tangent);
+			VectorNormalize( tangent );
+			tangent[3] = 1.0;
+			//VectorNormalize( tangent );
+			//CrossProduct(surf->plane->normal, tangent, binormal_calculated);
+			//tangent[3] = -DotProduct( binormal_calculated, surf->texinfo->vecs[1] );
 
 			for( int k = 0; k < surf->numedges; k++ )
 			{
@@ -679,6 +684,46 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 					index_count += 3;
 					index_offset += 3;
 				}
+
+				//if (k == 2)
+				//{
+				//	vec3_t dir, binormal;
+				//	vec_t *a = (bvert - 3)->pos;
+				//	vec_t *b = (bvert - 2)->pos;
+				//	vec_t *a_uv = (bvert - 3)->lm_tc;
+				//	vec_t *b_uv = (bvert - 2)->lm_tc;
+				//	VectorSubtract( b, a, dir);
+				//	qboolean uv_positive = b_uv[1] > a_uv[1];
+				//	qboolean dot_positive = DotProduct( tangent, dir ) > 0.0;
+				//	if ( !(uv_positive && dot_positive) && !(!uv_positive && !dot_positive) )
+				//	{
+				//		VectorScale(tangent, -1.0, tangent);
+				//	}
+				//	CrossProduct( vertex.normal, tangent, binormal );
+				//	uv_positive = b_uv[0] > a_uv[0];
+				//	dot_positive = DotProduct( binormal, dir ) > 0.0;
+				//	//if ( !(uv_positive && dot_positive) && !(!uv_positive && !dot_positive) )
+				//	//{
+				//	//	tangent[3] = -1.0;
+				//	//}
+				//	//else
+				//	//{
+				//		tangent[3] = -1.0;
+				//	//}
+				//		//vec3_t binormal_calculated;
+				//	//VectorCopy(surf->texinfo->vecs[0], tangent);
+				//	//VectorNormalize( tangent );
+				//	//CrossProduct(surf->plane->normal, tangent, binormal_calculated);
+				//	//tangent[3] = -DotProduct( binormal_calculated, surf->texinfo->vecs[1] );
+				//	vk_vertex_t *vert;
+				//	//VK_CalculateTangent(&tangent, (bvert - 3), (bvert - 2), (bvert - 1));
+				//	vert = (bvert - 3); Vector4Copy(tangent, vert->tangent);
+				//	vert = (bvert - 2); Vector4Copy(tangent, vert->tangent);
+				//	vert = (bvert - 1); Vector4Copy(tangent, vert->tangent);
+				//}
+				//else if (k < 2) {
+				//	Vector4Copy(tangent, (bvert - 1)->tangent);
+				//}
 			}
 
 			model_geometry->element_count = index_count;
