@@ -18,11 +18,26 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
+	X(15, search_info_ktuv, rgba32f) \
+	X(16, refl_base_color_a, rgba8) \
+	X(17, refl_position_t, rgba32f) \
+	X(18, refl_normals_gs, rgba16f) \
+	X(19, refl_material_rmxx, rgba8) \
+	X(20, refl_emissive, rgba16f) \
+	X(21, gi_base_color_a, rgba8) \
+	X(22, gi_position_t, rgba32f) \
+	X(23, gi_normals_gs, rgba16f) \
+	X(24, gi_emissive, rgba16f) \
+	X(25, previous_position_t, rgba32f) \
+
 
 #define RAY_LIGHT_DIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
-	X(11, normals_gs, rgba16f) \
-	X(12, material_rmxx, rgba8) \
+	X(11, position_t, rgba32f) \
+	X(12, normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
 
 #define RAY_LIGHT_DIRECT_POLY_OUTPUTS(X) \
 	X(20, light_poly_diffuse, rgba16f) \
@@ -31,6 +46,159 @@
 #define RAY_LIGHT_DIRECT_POINT_OUTPUTS(X) \
 	X(20, light_point_diffuse, rgba16f) \
 	X(21, light_point_specular, rgba16f) \
+
+
+#define RAY_LIGHT_REFLECT_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, refl_position_t, rgba32f) \
+	X(12, refl_normals_gs, rgba16f) \
+	X(13, refl_material_rmxx, rgba8) \
+	X(14, refl_base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+
+#define RAY_LIGHT_REFLECT_POLY_OUTPUTS(X) \
+	X(20, light_poly_reflection, rgba16f) \
+	
+#define RAY_LIGHT_REFLECT_POINT_OUTPUTS(X) \
+	X(20, light_point_reflection, rgba16f) \
+
+
+
+#define RAY_LIGHT_INDIRECT_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, gi_position_t, rgba32f) \
+	X(12, gi_normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, gi_base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+
+#define RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X) \
+	X(20, light_poly_indirect, rgba16f) \
+	
+#define RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X) \
+	X(20, light_point_indirect, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_DIRECT_CHOOSE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, normals_gs, rgba16f) \
+
+#define RAY_LIGHT_POLY_DIRECT_CHOOSE_OUTPUTS(X) \
+	X(20, chosen_lights_poly_direct, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_DIRECT_SAMPLE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, position_t, rgba32f) \
+	X(12, normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+	X(16, chosen_lights_poly_direct, rgba16f) \
+
+#define RAY_LIGHT_POLY_DIRECT_SAMPLE_OUTPUTS(X) \
+	X(20, light_poly_diffuse, rgba16f) \
+	X(21, light_poly_specular, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_REFLECT_CHOOSE_INPUTS(X) \
+	X(10, refl_position_t, rgba32f) \
+	X(11, refl_normals_gs, rgba16f) \
+
+#define RAY_LIGHT_POLY_REFLECT_CHOOSE_OUTPUTS(X) \
+	X(20, chosen_lights_poly_reflect, rgba16f) \
+
+
+
+
+#define RAY_LIGHT_POLY_REFLECT_SAMPLE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, refl_position_t, rgba32f) \
+	X(12, refl_normals_gs, rgba16f) \
+	X(13, refl_material_rmxx, rgba8) \
+	X(14, refl_base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+	X(16, chosen_lights_poly_reflect, rgba16f) \
+
+#define RAY_LIGHT_POLY_REFLECT_SAMPLE_OUTPUTS(X) \
+	X(20, light_poly_reflection, rgba16f) \
+
+
+
+
+
+#define RAY_LIGHT_POLY_GI_CHOOSE_INPUTS(X) \
+	X(10, gi_position_t, rgba32f) \
+	X(11, gi_normals_gs, rgba16f) \
+
+#define RAY_LIGHT_POLY_GI_CHOOSE_OUTPUTS(X) \
+	X(20, chosen_lights_poly_gi, rgba16f) \
+
+
+
+#define RAY_LIGHT_POLY_GI_SAMPLE_INPUTS(X) \
+	X(10, position_t, rgba32f) \
+	X(11, gi_position_t, rgba32f) \
+	X(12, gi_normals_gs, rgba16f) \
+	X(13, material_rmxx, rgba8) \
+	X(14, gi_base_color_a, rgba8) \
+	X(15, material_rmxx, rgba8) \
+	X(16, chosen_lights_poly_reflect, rgba16f) \
+
+#define RAY_LIGHT_POLY_GI_SAMPLE_OUTPUTS(X) \
+	X(20, light_poly_indirect, rgba16f) \
+
+
+
+
+
+
+
+#define RAY_DENOISER_TEXTURES(X) \
+	X(-1, chosen_lights_poly_direct, rgba16f) \
+	X(-1, chosen_lights_poly_reflect, rgba16f) \
+	X(-1, chosen_lights_poly_gi, rgba16f) \
+	X(-1, last_position_t, rgba32f) \
+	X(-1, last_normals_gs, rgba16f) \
+	X(-1, last_search_info_ktuv, rgba32f) \
+	X(-1, last_diffuse, rgba16f) \
+	X(-1, last_specular, rgba16f) \
+	X(-1, last_gi_sh1, rgba16f) \
+	X(-1, last_gi_sh2, rgba16f) \
+	X(-1, history_diffuse, rgba16f) \
+	X(-1, history_specular, rgba16f) \
+	X(-1, history_gi_sh1, rgba16f) \
+	X(-1, history_gi_sh2, rgba16f) \
+	X(-1, diffuse_accum, rgba16f) \
+	X(-1, specular_accum, rgba16f) \
+	X(-1, gi_sh1_accum, rgba16f) \
+	X(-1, gi_sh2_accum, rgba16f) \
+	X(-1, gi_sh1_pass_1, rgba16f) \
+	X(-1, gi_sh2_pass_1, rgba16f) \
+	X(-1, gi_sh1_pass_2, rgba16f) \
+	X(-1, gi_sh2_pass_2, rgba16f) \
+	X(-1, gi_sh1_denoised, rgba16f) \
+	X(-1, gi_sh2_denoised, rgba16f) \
+	X(-1, diffuse_variance, rgba16f) \
+	X(-1, diffuse_svgf1, rgba16f) \
+	X(-1, diffuse_svgf2, rgba16f) \
+	X(-1, diffuse_svgf3, rgba16f) \
+	X(-1, diffuse_denoised, rgba16f) \
+	X(-1, specular_variance, rgba16f) \
+	X(-1, specular_svgf1, rgba16f) \
+	X(-1, specular_svgf2, rgba16f) \
+	X(-1, specular_svgf3, rgba16f) \
+	X(-1, specular_svgf4, rgba16f) \
+	X(-1, specular_denoised, rgba16f) \
+	X(-1, composed_image, rgba16f) \
+	X(-1, final_image, rgba16f) \
+
 
 #ifndef GLSL
 #include "xash3d_types.h"
@@ -82,6 +250,8 @@ LIST_SPECIALIZATION_CONSTANTS(DECLARE_SPECIALIZATION_CONSTANT)
 
 #define KUSOK_MATERIAL_FLAG_SKYBOX 0x80000000
 
+#define KUSOK_FLAG_DINAMIC_MODEL 1
+
 struct Kusok {
 	uint index_offset;
 	uint vertex_offset;
@@ -102,7 +272,11 @@ struct Kusok {
 
 	float roughness;
 	float metalness;
-	PAD(2)
+	uint flags;
+
+	PAD(1)
+
+	mat4 last_transform;
 };
 
 struct PointLight {
@@ -153,10 +327,12 @@ struct PushConstants {
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
 	float ray_cone_width;
 	uint random_seed;
 	PAD(2)
 };
+
 
 #undef PAD
 #undef STRUCT

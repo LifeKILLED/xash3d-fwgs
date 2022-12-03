@@ -10,12 +10,8 @@
 	X(4, indices, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1) \
 	X(5, vertices, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1) \
 	X(6, all_textures, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_TEXTURES) \
-	X(7, lights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1) \
+	X(7, lights, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1) \
 	X(8, light_clusters, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1) \
-
-#define LIST_COMMON_BINDINGS(X) \
-	LIST_SCENE_BINDINGS(X) \
-	RAY_LIGHT_DIRECT_INPUTS(X)
 
 // FIXME more conservative shader stages
 #define INIT_BINDING(index, name, type, count) \
@@ -36,115 +32,218 @@ static const VkDescriptorSetLayoutBinding bindings[] = {
 	RAY_LIGHT_DIRECT_POLY_OUTPUTS(INIT_IMAGE)
 };
 
+static const VkDescriptorSetLayoutBinding bindings_1x[] = {
+	LIST_SCENE_BINDINGS(INIT_BINDING)
+	RAY_LIGHT_DIRECT_INPUTS(INIT_IMAGE)
+	RAY_LIGHT_INDIRECT_POLY_OUTPUTS(INIT_IMAGE)
+};
+
+static const VkDescriptorSetLayoutBinding bindings_choose[] = {
+	LIST_SCENE_BINDINGS(INIT_BINDING)
+	RAY_LIGHT_POLY_DIRECT_CHOOSE_INPUTS(INIT_IMAGE)
+	RAY_LIGHT_POLY_DIRECT_CHOOSE_OUTPUTS(INIT_IMAGE)
+};
+
+static const VkDescriptorSetLayoutBinding bindings_sample_2x[] = {
+	LIST_SCENE_BINDINGS(INIT_BINDING)
+	RAY_LIGHT_POLY_DIRECT_SAMPLE_INPUTS(INIT_IMAGE)
+	RAY_LIGHT_POLY_DIRECT_SAMPLE_OUTPUTS(INIT_IMAGE)
+};
+
+static const VkDescriptorSetLayoutBinding bindings_sample_1x[] = {
+	LIST_SCENE_BINDINGS(INIT_BINDING)
+	RAY_LIGHT_POLY_REFLECT_SAMPLE_INPUTS(INIT_IMAGE)
+	RAY_LIGHT_POLY_REFLECT_SAMPLE_OUTPUTS(INIT_IMAGE)
+};
+
+#define POLY_PASS NULL
+#define POINT_PASS "ray_shadow.rchit.spv"
+
+#define LIGHT_RAY_PASS_INIT(SEMANTIC, SHADER, CLOSEST_SHADER, BINDINGS) \
+	const struct SpecializationData { \
+		uint32_t sbt_record_size; \
+	} spec_data = { \
+		.sbt_record_size = vk_core.physical_device.sbt_record_size, \
+	}; \
+	const VkSpecializationMapEntry spec_map[] = { \
+		{.constantID = SPEC_SBT_RECORD_SIZE_INDEX, .offset = offsetof(struct SpecializationData, sbt_record_size), .size = sizeof(uint32_t) }, \
+	}; \
+	VkSpecializationInfo spec = { \
+		.mapEntryCount = COUNTOF(spec_map), \
+		.pMapEntries = spec_map, \
+		.dataSize = sizeof(spec_data), \
+		.pData = &spec_data, \
+	}; \
+	 \
+	const ray_pass_shader_t miss[] = { \
+		"ray_shadow.rmiss.spv" \
+	}; \
+	 \
+	const ray_pass_hit_group_t hit[] = { { \
+		 .closest = CLOSEST_SHADER, \
+		 .any = "ray_common_alphatest.rahit.spv", \
+		}, \
+	}; \
+	 \
+	const ray_pass_create_tracing_t rpc = { \
+		.debug_name = "light indirect poly", \
+		.layout = { \
+			.bindings = BINDINGS, \
+			.bindings_semantics = SEMANTIC, \
+			.bindings_count = COUNTOF(BINDINGS), \
+			.push_constants = {0}, \
+		}, \
+		.raygen = SHADER, \
+		.miss = miss, \
+		.miss_count = COUNTOF(miss), \
+		.hit = hit, \
+		.hit_count = COUNTOF(hit), \
+		.specialization = &spec, \
+	} \
+
 #undef INIT_IMAGE
 #undef INIT_BINDING
 
-static const int semantics_poly[] = {
 #define IN(index, name, ...) (RayResource_##name + 1),
 #define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_COMMON_BINDINGS(IN)
+
+static const int semantics_poly[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_DIRECT_INPUTS(IN)
 	RAY_LIGHT_DIRECT_POLY_OUTPUTS(OUT)
-#undef IN
-#undef OUT
 };
 
 static const int semantics_point[] = {
-#define IN(index, name, ...) (RayResource_##name + 1),
-#define OUT(index, name, ...) -(RayResource_##name + 1),
-	LIST_COMMON_BINDINGS(IN)
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_DIRECT_INPUTS(IN)
 	RAY_LIGHT_DIRECT_POINT_OUTPUTS(OUT)
-#undef IN
-#undef OUT
+};
+
+static const int semantics_poly_refl[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_REFLECT_INPUTS(IN)
+	RAY_LIGHT_REFLECT_POLY_OUTPUTS(OUT)
+};
+
+static const int semantics_point_refl[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_REFLECT_INPUTS(IN)
+	RAY_LIGHT_REFLECT_POINT_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_gi[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_INDIRECT_INPUTS(IN)
+	RAY_LIGHT_INDIRECT_POLY_OUTPUTS(OUT)
+};
+
+static const int semantics_point_gi[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_INDIRECT_INPUTS(IN)
+	RAY_LIGHT_INDIRECT_POINT_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_direct_choose[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_POLY_DIRECT_CHOOSE_INPUTS(IN)
+	RAY_LIGHT_POLY_DIRECT_CHOOSE_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_direct_sample[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_POLY_DIRECT_SAMPLE_INPUTS(IN)
+	RAY_LIGHT_POLY_DIRECT_SAMPLE_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_reflect_choose[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_POLY_REFLECT_CHOOSE_INPUTS(IN)
+	RAY_LIGHT_POLY_REFLECT_CHOOSE_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_reflect_sample[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_POLY_REFLECT_SAMPLE_INPUTS(IN)
+	RAY_LIGHT_POLY_REFLECT_SAMPLE_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_gi_choose[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_POLY_GI_CHOOSE_INPUTS(IN)
+	RAY_LIGHT_POLY_GI_CHOOSE_OUTPUTS(OUT)
+};
+
+static const int semantics_poly_gi_sample[] = {
+	LIST_SCENE_BINDINGS(IN)
+	RAY_LIGHT_POLY_GI_SAMPLE_INPUTS(IN)
+	RAY_LIGHT_POLY_GI_SAMPLE_OUTPUTS(OUT)
 };
 
 struct ray_pass_s *R_VkRayLightDirectPolyPassCreate( void ) {
-	// FIXME move this into vk_pipeline
-	const struct SpecializationData {
-		uint32_t sbt_record_size;
-	} spec_data = {
-		.sbt_record_size = vk_core.physical_device.sbt_record_size,
-	};
-	const VkSpecializationMapEntry spec_map[] = {
-		{.constantID = SPEC_SBT_RECORD_SIZE_INDEX, .offset = offsetof(struct SpecializationData, sbt_record_size), .size = sizeof(uint32_t) },
-	};
-	VkSpecializationInfo spec = {
-		.mapEntryCount = COUNTOF(spec_map),
-		.pMapEntries = spec_map,
-		.dataSize = sizeof(spec_data),
-		.pData = &spec_data,
-	};
-
-	const ray_pass_shader_t miss[] = {
-		"ray_shadow.rmiss.spv"
-	};
-
-	const ray_pass_hit_group_t hit[] = { {
-		 .closest = NULL,
-		 .any = "ray_common_alphatest.rahit.spv",
-		},
-	};
-
-	const ray_pass_create_tracing_t rpc = {
-		.debug_name = "light direct poly",
-		.layout = {
-			.bindings = bindings,
-			.bindings_semantics = semantics_poly,
-			.bindings_count = COUNTOF(bindings),
-			.push_constants = {0},
-		},
-		.raygen = "ray_light_poly_direct.rgen.spv",
-		.miss = miss,
-		.miss_count = COUNTOF(miss),
-		.hit = hit,
-		.hit_count = COUNTOF(hit),
-		.specialization = &spec,
-	};
-
+	LIGHT_RAY_PASS_INIT(semantics_poly, "ray_light_poly_direct.rgen.spv", POLY_PASS, bindings);
 	return RayPassCreateTracing( &rpc );
 }
 
 struct ray_pass_s *R_VkRayLightDirectPointPassCreate( void ) {
-	// FIXME move this into vk_pipeline
-	const struct SpecializationData {
-		uint32_t sbt_record_size;
-	} spec_data = {
-		.sbt_record_size = vk_core.physical_device.sbt_record_size,
-	};
-	const VkSpecializationMapEntry spec_map[] = {
-		{.constantID = SPEC_SBT_RECORD_SIZE_INDEX, .offset = offsetof(struct SpecializationData, sbt_record_size), .size = sizeof(uint32_t) },
-	};
-	VkSpecializationInfo spec = {
-		.mapEntryCount = COUNTOF(spec_map),
-		.pMapEntries = spec_map,
-		.dataSize = sizeof(spec_data),
-		.pData = &spec_data,
-	};
-
-	const ray_pass_shader_t miss[] = {
-		"ray_shadow.rmiss.spv"
-	};
-
-	const ray_pass_hit_group_t hit[] = { {
-		 .closest = "ray_shadow.rchit.spv",
-		 .any = "ray_common_alphatest.rahit.spv",
-		},
-	};
-
-	const ray_pass_create_tracing_t rpc = {
-		.debug_name = "light direct point",
-		.layout = {
-			.bindings = bindings,
-			.bindings_semantics = semantics_point,
-			.bindings_count = COUNTOF(bindings),
-			.push_constants = {0},
-		},
-		.raygen = "ray_light_direct_point.rgen.spv",
-		.miss = miss,
-		.miss_count = COUNTOF(miss),
-		.hit = hit,
-		.hit_count = COUNTOF(hit),
-		.specialization = &spec,
-	};
-
+	LIGHT_RAY_PASS_INIT(semantics_point, "ray_light_direct_point.rgen.spv", POINT_PASS, bindings);
 	return RayPassCreateTracing( &rpc );
 }
+
+struct ray_pass_s* R_VkRayLightIndirectPolyPassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_gi, "ray_light_poly_gi.rgen.spv", POLY_PASS, bindings_1x);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightIndirectPointPassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_point_gi, "ray_light_gi_point.rgen.spv", POINT_PASS, bindings_1x);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightReflectPolyPassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_refl, "ray_light_poly_reflection.rgen.spv", POLY_PASS, bindings_1x);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightReflectPointPassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_point_refl, "ray_light_reflection_point.rgen.spv", POINT_PASS, bindings_1x);
+	return RayPassCreateTracing(&rpc);
+}
+
+
+struct ray_pass_s* R_VkRayLightDirectPolyChoosePassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_direct_choose, "ray_light_choose.rgen.spv", POLY_PASS, bindings_choose);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightDirectPolySamplePassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_direct_sample, "ray_light_poly_direct_sample.rgen.spv", POLY_PASS, bindings_sample_2x);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightReflectPolyChoosePassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_reflect_choose, "ray_light_choose.rgen.spv", POLY_PASS, bindings_choose);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightReflectPolySamplePassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_reflect_sample, "ray_light_poly_reflect_sample.rgen.spv", POLY_PASS, bindings_sample_1x);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightGIPolyChoosePassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_gi_choose, "ray_light_choose.rgen.spv", POLY_PASS, bindings_choose);
+	return RayPassCreateTracing(&rpc);
+}
+
+struct ray_pass_s* R_VkRayLightGIPolySamplePassCreate(void) {
+	LIGHT_RAY_PASS_INIT(semantics_poly_gi_sample, "ray_light_poly_gi_sample.rgen.spv", POLY_PASS, bindings_sample_1x);
+	return RayPassCreateTracing(&rpc);
+}
+
+
+#undef IN
+#undef OUT
+
+#undef POLY_PASS
+#undef POINT_PASS
+#undef LIGHT_RAY_PASS_INIT

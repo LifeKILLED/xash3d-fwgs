@@ -13,6 +13,7 @@
 #include "vk_geometry.h"
 #include "vk_light.h"
 #include "vk_mapents.h"
+#include "vk_mesh_utils.h"
 
 #include "ref_params.h"
 #include "eiface.h"
@@ -32,6 +33,16 @@ static struct {
 
 	int rtable[MOD_FRAMES][MOD_FRAMES];
 } g_brush;
+
+
+#define MAX_BRUSH_ENTITIES_LAST_STATES 1024
+
+typedef struct {
+	matrix4x4 last_model_transform;
+	float last_time;
+} brush_entity_last_state_t;
+
+static brush_entity_last_state_t g_brush_last_states[MAX_BRUSH_ENTITIES_LAST_STATES];
 
 void VK_InitRandomTable( void )
 {
@@ -81,7 +92,7 @@ Does a water warp on the pre-fragmented glpoly_t chain
 static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboolean reverse )
 {
 	const float time = gpGlobals->time;
-	float	*v, nv, waveHeight;
+	float	*v, nv, last_nv, waveHeight, last_time;
 	float	s, t, os, ot;
 	glpoly_t	*p;
 	int	i;
@@ -89,6 +100,11 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 	int vertex_offset = 0;
 	uint16_t *indices;
 	r_geometry_buffer_lock_t buffer;
+
+	if (ent->index < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		last_time = g_brush_last_states[ent->index].last_time;
+		g_brush_last_states[ent->index].last_time = time;
+	} else gEngine.Con_Printf(S_ERROR "Brush entities last states pool is overflow, increase it. Index is %s\n", ent->index );
 
 #define MAX_WATER_VERTICES 16
 	vk_vertex_t poly_vertices[MAX_WATER_VERTICES];
@@ -135,6 +151,10 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 				nv = r_turbsin[(int)(time * 160.0f + v[1] + v[0]) & 255] + 8.0f;
 				nv = (r_turbsin[(int)(v[0] * 5.0f + time * 171.0f - v[1]) & 255] + 8.0f ) * 0.8f + nv;
 				nv = nv * waveHeight + v[2];
+
+				last_nv = r_turbsin[(int)(last_time * 160.0f + v[1] + v[0]) & 255] + 8.0f;
+				last_nv = (r_turbsin[(int)(v[0] * 5.0f + last_time * 171.0f - v[1]) & 255] + 8.0f ) * 0.8f + last_nv;
+				last_nv = last_nv * waveHeight + v[2];
 			}
 			else nv = v[2];
 
@@ -150,6 +170,10 @@ static void EmitWaterPolys( const cl_entity_t *ent, const msurface_t *warp, qboo
 			poly_vertices[i].pos[0] = v[0];
 			poly_vertices[i].pos[1] = v[1];
 			poly_vertices[i].pos[2] = nv;
+
+			poly_vertices[i].last_pos[0] = v[0];
+			poly_vertices[i].last_pos[1] = v[1];
+			poly_vertices[i].last_pos[2] = last_nv;
 
 			poly_vertices[i].gl_tc[0] = s;
 			poly_vertices[i].gl_tc[1] = t;
@@ -265,13 +289,20 @@ void XVK_DrawWaterSurfaces( const cl_entity_t *ent )
 		EmitWaterPolys( ent, surf, false );
 	}
 
+	int entity_id = ent->index;
+
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( *VK_RenderGetLastFrameTransform(), g_brush_last_states[entity_id].last_model_transform );
+
 	// submit as dynamic model
 	VK_RenderModelDynamicCommit();
+
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES)
+		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, *VK_RenderGetLastFrameTransform() );
 
 	// TODO:
 	// - upload water geometry only once, animate in compute/vertex shader
 }
-
 /*
 ===============
 R_TextureAnimation
@@ -325,6 +356,9 @@ const texture_t *R_TextureAnimation( const cl_entity_t *ent, const msurface_t *s
 	return base;
 }
 
+
+
+
 void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4 model )
 {
 	// Expect all buffers to be bound
@@ -360,8 +394,28 @@ void VK_BrushModelDraw( const cl_entity_t *ent, int render_mode, const matrix4x4
 		}
 	}
 
+	// detect dinamic geometry by sum of angle and position offsets
+	//float current_offsets_hash = ent->origin[0] + ent->origin[1] + ent->origin[2] + ent->angles[0] + ent->angles[1] + ent->angles[2];
+	//if (brush_entities_offsets_hash[ent->index] != current_offsets_hash) {
+	//	brush_entities_offsets_hash[ent->index] = current_offsets_hash;
+	//	bmodel->render_model.dynamic = true;
+	//} else {
+		bmodel->render_model.dynamic = false;
+	//}
+
+
+	int entity_id = ent->index;
+	if (entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( bmodel->render_model.last_transform,
+								g_brush_last_states[entity_id].last_model_transform );
+	} else gEngine.Con_Printf(S_ERROR "Brush entities last states pool is overflow, increase it. Index is %s\n", ent->index );
+
 	bmodel->render_model.render_mode = render_mode;
 	VK_RenderModelDraw(ent, &bmodel->render_model);
+
+	if (entity_id >= 0 && entity_id < MAX_BRUSH_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( g_brush_last_states[entity_id].last_model_transform, bmodel->render_model.last_transform );
+	}
 }
 
 static qboolean renderableSurface( const msurface_t *surf, int i ) {
@@ -490,6 +544,8 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 	// TODO this does not make that much sense in vulkan (can sort later)
 	for (int t = 0; t <= sizes.max_texture_id; ++t)
 	{
+		VK_NormalsSmooth_Start(0.66, false);
+
 		for( int i = 0; i < mod->nummodelsurfaces; ++i)
 		{
 			const int surface_index = mod->firstmodelsurface + i;
@@ -576,6 +632,10 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 					{in_vertex->position[0], in_vertex->position[1], in_vertex->position[2]},
 				};
 
+				vertex.last_pos[0] = in_vertex->position[0];
+				vertex.last_pos[1] = in_vertex->position[1];
+				vertex.last_pos[2] = in_vertex->position[2];
+
 				float s = DotProduct( in_vertex->position, surf->texinfo->vecs[0] ) + surf->texinfo->vecs[0][3];
 				float t = DotProduct( in_vertex->position, surf->texinfo->vecs[1] ) + surf->texinfo->vecs[1][3];
 
@@ -607,6 +667,8 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 				vertex.lm_tc[0] = s;
 				vertex.lm_tc[1] = t;
 
+				VK_NormalsSmooth_AddVertex(bvert);
+
 				*(bvert++) = vertex;
 
 				// Ray tracing apparently expects triangle list only (although spec is not very clear about this kekw)
@@ -622,6 +684,8 @@ static qboolean loadBrushSurfaces( model_sizes_t sizes, const model_t *mod ) {
 			model_geometry->element_count = index_count;
 			vertex_offset += surf->numedges;
 		}
+
+		VK_NormalsSmooth_Apply();
 	}
 
 	R_GeometryBufferUnlock( &buffer );

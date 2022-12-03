@@ -10,8 +10,5 @@
 // Base color will be added in composing pass
 #define GRAY_MATERIAL 1
 
-// Randomize fixed count of maximum lights
-//#define MAX_LIGHTS_PER_TEXEL 64
-
 #define OUTPUTS RAY_LIGHT_DIRECT_POLY_OUTPUTS
-#include "ray_light_direct.glsl"
+#include "ray_light_sample.glsl"

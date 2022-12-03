@@ -14,6 +14,7 @@ struct Vertex {
 
 	//float padding;
 	//uint8_t color[4];
+	vec3 last_pos;
 	uint _unused_color_u8_4;
 };
 

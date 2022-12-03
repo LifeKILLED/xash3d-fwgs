@@ -60,14 +60,16 @@ typedef struct {
 	xvk_image_t denoised;
 
 #define X(index, name, ...) xvk_image_t name;
-RAY_PRIMARY_OUTPUTS(X)
-RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
-RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+	RAY_PRIMARY_OUTPUTS(X)
+	RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
+	RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+	RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
+	RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
+	RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
+	RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+	RAY_DENOISER_TEXTURES(X)
 #undef X
 
-	xvk_image_t diffuse_gi;
-	xvk_image_t specular;
-	xvk_image_t additive;
 } xvk_ray_frame_images_t;
 
 static struct {
@@ -79,21 +81,68 @@ static struct {
 	unsigned frame_number;
 	xvk_ray_frame_images_t frames[MAX_FRAMES_IN_FLIGHT];
 
+#define X(name, init_func)
+#define PASSES_LIST(X) \
+	X(primary_ray, R_VkRayPrimaryPassCreate) \
+	X(denoiser_last_frame_buffers_init, R_VkRayDenoiserLastFrameBuffersCreate) \
+	X(denoiser_temporal_reprojecting, R_VkRayDenoiserTemporalReprojectingCreate) \
+	X(light_direct_poly, R_VkRayLightDirectPolyPassCreate) \
+	X(light_direct_point, R_VkRayLightDirectPointPassCreate) \
+	X(light_reflect_poly, R_VkRayLightReflectPolyPassCreate) \
+	X(light_reflect_point, R_VkRayLightReflectPointPassCreate) \
+	X(light_indirect_poly, R_VkRayLightIndirectPolyPassCreate) \
+	X(light_indirect_point, R_VkRayLightIndirectPointPassCreate) \
+	X(light_direct_poly_choose, R_VkRayLightDirectPolyChoosePassCreate) \
+	X(light_direct_poly_sample, R_VkRayLightDirectPolySamplePassCreate) \
+	X(light_reflect_poly_choose, R_VkRayLightReflectPolyChoosePassCreate) \
+	X(light_reflect_poly_sample, R_VkRayLightReflectPolySamplePassCreate) \
+	X(light_gi_poly_choose, R_VkRayLightGIPolyChoosePassCreate) \
+	X(light_gi_poly_sample, R_VkRayLightGIPolySamplePassCreate) \
+	X(denoiser_accumulate, R_VkRayDenoiserAccumulateCreate) \
+	X(denoiser_temporal_accumulation, R_VkRayDenoiserTemporalAccumulationCreate) \
+	X(denoiser_gi_blur_1, R_VkRayDenoiserGIBlurPass1Create) \
+	X(denoiser_gi_blur_2, R_VkRayDenoiserGIBlurPass2Create) \
+	X(denoiser_gi_blur_3, R_VkRayDenoiserGIBlurPass3Create) \
+	X(denoiser_add_gi_to_specular, R_VkRayDenoiserAddGIToSpecularCreate) \
+	X(denoiser_diffuse_variance, R_VkRayDenoiserDiffuseSVGFVarianceCreate ) \
+	X(denoiser_diffuse_svgf_1, R_VkRayDenoiserDiffuseSVGFPass1Create ) \
+	X(denoiser_diffuse_svgf_2, R_VkRayDenoiserDiffuseSVGFPass2Create ) \
+	X(denoiser_diffuse_svgf_3, R_VkRayDenoiserDiffuseSVGFPass3Create ) \
+	X(denoiser_specular_variance, R_VkRayDenoiserSpecularSVGFVarianceCreate ) \
+	X(denoiser_specular_svgf_1, R_VkRayDenoiserSpecularSVGFPass1Create ) \
+	X(denoiser_specular_svgf_2, R_VkRayDenoiserSpecularSVGFPass2Create ) \
+	X(denoiser_specular_svgf_3, R_VkRayDenoiserSpecularSVGFPass3Create ) \
+	X(denoiser_specular_svgf_4, R_VkRayDenoiserSpecularSVGFPass4Create ) \
+	X(denoiser_compose, R_VkRayDenoiserComposeCreate) \
+	X(denoiser_checker_mix, R_VkRayDenoiserCheckerMixCreate) \
+	X(denoiser_fxaa, R_VkRayDenoiserFXAACreate) \
+	X(denoiser_no_denoise, R_VkRayDenoiserNoDenoiseCreate) \
+
+#undef X
+
 	struct {
-		struct ray_pass_s *primary_ray;
-		struct ray_pass_s *light_direct_poly;
-		struct ray_pass_s *light_direct_point;
-		struct ray_pass_s *denoiser;
+#define PASSES_DEFINE(name, init_func) \
+		struct ray_pass_s* name;
+		PASSES_LIST(PASSES_DEFINE)
 	} pass;
+#undef PASSES_DEFINE
 
 	qboolean reload_pipeline;
 	qboolean reload_lighting;
+	qboolean denoiser_enabled;
+	qboolean last_frame_buffers_inited;
 } g_rtx = {0};
 
 
 void VK_RayNewMap( void ) {
 	RT_VkAccelNewMap();
 	RT_RayModel_Clear();
+
+	// mark to recreate temporal reprojection buffers
+	g_rtx.last_frame_buffers_inited = false;
+
+	// enable denoising for default
+	g_rtx.denoiser_enabled = true;
 }
 
 void VK_RayFrameBegin( void )
@@ -129,6 +178,13 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 	Matrix4x4_Invert_Full(view_inv, *args->view);
 	Matrix4x4_ToArrayFloatGL(view_inv, (float*)ubo->inv_view);
 
+	// last frame matrices
+	static matrix4x4 last_inv_proj, last_inv_view;
+	Matrix4x4_ToArrayFloatGL(last_inv_proj, (float*)ubo->last_inv_proj);
+	Matrix4x4_ToArrayFloatGL(last_inv_view, (float*)ubo->last_inv_view);
+	Matrix4x4_Copy(last_inv_view, view_inv);
+	Matrix4x4_Copy(last_inv_proj, proj_inv);
+
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);
 }
@@ -137,6 +193,7 @@ typedef struct {
 	const vk_ray_frame_render_args_t* render_args;
 	int frame_index;
 	const xvk_ray_frame_images_t *current_frame;
+	const xvk_ray_frame_images_t *last_frame;
 	float fov_angle_y;
 	const vk_lights_bindings_t *light_bindings;
 } perform_tracing_args_t;
@@ -200,6 +257,11 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 			RAY_PRIMARY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
 			RAY_LIGHT_DIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_REFLECT_POLY_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_REFLECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_INDIRECT_POLY_OUTPUTS(RES_SET_IMAGE)
+			RAY_LIGHT_INDIRECT_POINT_OUTPUTS(RES_SET_IMAGE)
+			RAY_DENOISER_TEXTURES(RES_SET_IMAGE)
 			RES_SET_IMAGE(-1, denoised)
 #undef RES_SET_IMAGE
 		},
@@ -242,7 +304,49 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 			0, 0, NULL, ARRAYSIZE(bmb), bmb, 0, NULL);
 	}
 
+
+#define BLIT_IMAGES(destination_name, source_name, width_dest, height_dest)\
+	{\
+		const r_vkimage_blit_args blit_args = {\
+			.in_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,\
+			.src = {\
+				.image = source_name,\
+				.width = FRAME_WIDTH,\
+				.height = FRAME_HEIGHT,\
+				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,\
+				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,\
+			},\
+			.dst = {\
+				.image = destination_name,\
+				.width = width_dest,\
+				.height = height_dest,\
+				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,\
+				.srcAccessMask = 0,\
+			},\
+		};\
+		R_VkImageBlit( cmdbuf, &blit_args );\
+	}
+	// Abuse passes system for init images with automatic barriers
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_last_frame_buffers_init, &res);
+
+	// TODO: Need to read images directly from last frame or keep this way?
+	if (g_rtx.last_frame_buffers_inited == true) {
+		BLIT_IMAGES(args->current_frame->last_position_t.image,		  args->last_frame->position_t.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_normals_gs.image,		  args->last_frame->normals_gs.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_search_info_ktuv.image, args->last_frame->search_info_ktuv.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_diffuse.image,		  args->last_frame->diffuse_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_specular.image,		  args->last_frame->specular_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh1.image,			  args->last_frame->gi_sh1_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+		BLIT_IMAGES(args->current_frame->last_gi_sh2.image,			  args->last_frame->gi_sh2_accum.image, FRAME_WIDTH, FRAME_HEIGHT)
+	} else {
+		g_rtx.last_frame_buffers_inited = true; // after first frame all buffers are inited
+	}
+
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.primary_ray, &res );
+
+	//if (g_rtx.denoiser_enabled) { // used in lighting, need to execute anyway
+		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_temporal_reprojecting, &res);
+	//}
 
 	{
 		//const uint32_t size = sizeof(struct Lights);
@@ -261,31 +365,43 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 			0, 0, NULL, ARRAYSIZE(bmb), bmb, 0, NULL);
 	}
 
-	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_poly, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_poly_choose, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_poly_sample, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_poly_choose, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_poly_sample, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_gi_poly_choose, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_gi_poly_sample, &res );
+	//RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_poly, &res );
 	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_direct_point, &res );
-	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser, &res );
-
-	{
-		const r_vkimage_blit_args blit_args = {
-			.in_stage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			.src = {
-				.image = args->current_frame->denoised.image,
-				.width = FRAME_WIDTH,
-				.height = FRAME_HEIGHT,
-				.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-				.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-			},
-			.dst = {
-				.image = args->render_args->dst.image,
-				.width = args->render_args->dst.width,
-				.height = args->render_args->dst.height,
-				.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-				.srcAccessMask = 0,
-			},
-		};
-
-		R_VkImageBlit( cmdbuf, &blit_args );
+	//RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_poly, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_reflect_point, &res );
+	//RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_poly, &res );
+	RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.light_indirect_point, &res );
+	
+	if (g_rtx.denoiser_enabled) {
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_accumulate, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_temporal_accumulation, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_1, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_2, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_gi_blur_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_add_gi_to_specular, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_1, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_2, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_diffuse_svgf_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_1, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_2, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_3, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_specular_svgf_4, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_compose, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_checker_mix, &res);
+		RayPassPerform(cmdbuf, args->frame_index, g_rtx.pass.denoiser_fxaa, &res);
 	}
+	else {
+		RayPassPerform( cmdbuf, args->frame_index, g_rtx.pass.denoiser_no_denoise, &res );
+	}
+
+	BLIT_IMAGES(args->render_args->dst.image, args->current_frame->denoised.image, args->render_args->dst.width, args->render_args->dst.height)
+
 	DEBUG_END(cmdbuf);
 }
 
@@ -300,7 +416,9 @@ static void reloadPass( struct ray_pass_s **slot, struct ray_pass_s *new_pass ) 
 void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 {
 	const VkCommandBuffer cmdbuf = args->cmdbuf;
-	const xvk_ray_frame_images_t* current_frame = g_rtx.frames + (g_rtx.frame_number % 2);
+	const xvk_ray_frame_images_t* current_frame = g_rtx.frames + (g_rtx.frame_number % MAX_FRAMES_IN_FLIGHT);
+	const xvk_ray_frame_images_t* last_frame = g_rtx.frames + ((g_rtx.frame_number + 1) % MAX_FRAMES_IN_FLIGHT);
+	//const xvk_ray_frame_images_t* last_frame = g_rtx.frames + ((g_rtx.frame_number + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT);
 
 	ASSERT(vk_core.rtx);
 	// ubo should contain two matrices
@@ -318,12 +436,14 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 		gEngine.Con_Printf(S_WARN "Reloading RTX shaders/pipelines\n");
 		XVK_CHECK(vkDeviceWaitIdle(vk_core.device));
 
-		reloadPass( &g_rtx.pass.primary_ray, R_VkRayPrimaryPassCreate());
-		reloadPass( &g_rtx.pass.light_direct_poly, R_VkRayLightDirectPolyPassCreate());
-		reloadPass( &g_rtx.pass.light_direct_point, R_VkRayLightDirectPointPassCreate());
-		reloadPass( &g_rtx.pass.denoiser, R_VkRayDenoiserCreate());
+
+#define PASSES_RELOAD(name, init_func) \
+		reloadPass( &g_rtx.pass.name, init_func());
+		PASSES_LIST(PASSES_RELOAD)
+#undef PASSES_RELOAD
 
 		g_rtx.reload_pipeline = false;
+		g_rtx.last_frame_buffers_inited = false;
 	}
 
 	if (g_ray_model_state.frame.num_models == 0) {
@@ -350,13 +470,18 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 	} else {
 		const perform_tracing_args_t trace_args = {
 			.render_args = args,
-			.frame_index = (g_rtx.frame_number % 2),
+			.frame_index = (g_rtx.frame_number % MAX_FRAMES_IN_FLIGHT),
 			.current_frame = current_frame,
+			.last_frame = last_frame,
 			.fov_angle_y = args->fov_angle_y,
 			.light_bindings = &light_bindings,
 		};
 		performTracing( cmdbuf, &trace_args );
 	}
+}
+
+static void denoiserSwitch(void) {
+	g_rtx.denoiser_enabled = !g_rtx.denoiser_enabled;
 }
 
 static void reloadPipeline( void ) {
@@ -379,17 +504,11 @@ qboolean VK_RayInit( void )
 	if (!RT_VkAccelInit())
 		return false;
 
-	g_rtx.pass.primary_ray = R_VkRayPrimaryPassCreate();
-	ASSERT(g_rtx.pass.primary_ray);
-
-	g_rtx.pass.light_direct_poly = R_VkRayLightDirectPolyPassCreate();
-	ASSERT(g_rtx.pass.light_direct_poly);
-
-	g_rtx.pass.light_direct_point = R_VkRayLightDirectPointPassCreate();
-	ASSERT(g_rtx.pass.light_direct_point);
-
-	g_rtx.pass.denoiser = R_VkRayDenoiserCreate();
-	ASSERT(g_rtx.pass.denoiser);
+#define PASSES_ASSERT(name, init_func) \
+	g_rtx.pass.name = init_func(); \
+	ASSERT(g_rtx.pass.name);
+	PASSES_LIST(PASSES_ASSERT)
+#undef PASSES_ASSERT
 
 	g_rtx.uniform_unit_size = ALIGN_UP(sizeof(struct UniformBuffer), vk_core.physical_device.properties.limits.minUniformBufferOffsetAlignment);
 
@@ -439,19 +558,22 @@ qboolean VK_RayInit( void )
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+		RAY_DENOISER_TEXTURES(X)
 #undef X
 #undef rgba8
 #undef rgba32f
 #undef rgba16f
-		CREATE_GBUFFER_IMAGE(diffuse_gi, VK_FORMAT_R16G16B16A16_SFLOAT, 0);
-		CREATE_GBUFFER_IMAGE(specular, VK_FORMAT_R16G16B16A16_SFLOAT, 0);
-		CREATE_GBUFFER_IMAGE(additive, VK_FORMAT_R16G16B16A16_SFLOAT, 0);
 #undef CREATE_GBUFFER_IMAGE
 	}
 
 	gEngine.Cmd_AddCommand("vk_rtx_reload", reloadPipeline, "Reload RTX shader");
 	gEngine.Cmd_AddCommand("vk_rtx_reload_rad", reloadLighting, "Reload RAD files for static lights");
 	gEngine.Cmd_AddCommand("vk_rtx_freeze", freezeModels, "Freeze models, do not update/add/delete models from to-draw list");
+	gEngine.Cmd_AddCommand("vk_rtx_denoiser", denoiserSwitch, "Enable or disable denoiser");
 
 	return true;
 }
@@ -459,10 +581,10 @@ qboolean VK_RayInit( void )
 void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
-	RayPassDestroy(g_rtx.pass.denoiser);
-	RayPassDestroy(g_rtx.pass.light_direct_poly);
-	RayPassDestroy(g_rtx.pass.light_direct_point);
-	RayPassDestroy(g_rtx.pass.primary_ray);
+#define PASSES_DESTROY(name, init_func) \
+		RayPassDestroy(g_rtx.pass.name);
+	PASSES_LIST(PASSES_DESTROY)
+#undef PASSES_DESTROY
 
 	for (int i = 0; i < ARRAYSIZE(g_rtx.frames); ++i) {
 		XVK_ImageDestroy(&g_rtx.frames[i].denoised);
@@ -470,10 +592,12 @@ void VK_RayShutdown( void ) {
 		RAY_PRIMARY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POLY_OUTPUTS(X)
 		RAY_LIGHT_DIRECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_REFLECT_POINT_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POLY_OUTPUTS(X)
+		RAY_LIGHT_INDIRECT_POINT_OUTPUTS(X)
+		RAY_DENOISER_TEXTURES(X)
 #undef X
-		XVK_ImageDestroy(&g_rtx.frames[i].diffuse_gi);
-		XVK_ImageDestroy(&g_rtx.frames[i].specular);
-		XVK_ImageDestroy(&g_rtx.frames[i].additive);
 	}
 
 	VK_BufferDestroy(&g_ray_model_state.kusochki_buffer);

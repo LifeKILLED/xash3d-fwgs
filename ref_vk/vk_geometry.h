@@ -20,8 +20,10 @@ typedef struct vk_vertex_s {
 	vec2_t gl_tc; //float p2_[2];
 	vec2_t lm_tc; //float p3_[2];
 
+	vec3_t last_pos;
 	rgba_t color; // per-vertex (non-rt lighting) color, color[3] == 1(255) => use color, discard lightmap; color[3] == 0 => use lightmap, discard color
-	float _padding[3];
+
+	//float _padding[3]; 
 } vk_vertex_t;
 
 typedef struct {

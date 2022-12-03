@@ -9,6 +9,19 @@
 
 #define EMISSIVE_TRESHOLD 0.1
 
+#define FOUR_SAMPLES_PER_TEXEL 1
+
+//#define REMOVE_SPECULAR 1
+
+// minimal random weight of light
+#define PROBABILITY_EPS 0.02
+
+// same to LIGHTS_WEIGHTS_DOWNSAMPLE_RES in lights choose shader
+#define LIGHTS_WEIGHTS_DOWNSAMPLE_RES 2
+
+// 1.5 * 1.5
+#define MAGNITUDE_SQR_TRESHOLD 2.25
+
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
@@ -19,6 +32,7 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D src_normals_gs;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D src_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D src_base_color_a;
 layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_first_material_rmxx;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D src_poly_light_chosen;
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_image_##name;
 OUTPUTS(X)
@@ -103,80 +117,108 @@ void main() {
 	material.emissive = vec3(0.f);	
 
 
-#ifdef REUSE_SCREEN_LIGHTING
+#ifdef LIGHTS_WEIGHTS_DOWNSAMPLE_RES
+	const ivec2 downsampled_pix = (pix / LIGHTS_WEIGHTS_DOWNSAMPLE_RES) * LIGHTS_WEIGHTS_DOWNSAMPLE_RES;
+	ivec2 choose_pix = downsampled_pix;
 
-	// Try to use SSR and put this UV to output texture if all is OK
-	uint lighting_is_reused = 0;
-	const float nessesary_depth = length(origin - position);
+	{
+		float better_normal_dot = -1.;
+		vec4 better_position_magnitude_sqr = vec4(1000.);
+		vec4 choose_positions_magnitudes[4];
+		const ivec2 choose_pix_neighboors[4] = {	downsampled_pix,
+													downsampled_pix + ivec2(1, 0) * LIGHTS_WEIGHTS_DOWNSAMPLE_RES,
+													downsampled_pix + ivec2(1, 1) * LIGHTS_WEIGHTS_DOWNSAMPLE_RES,
+													downsampled_pix + ivec2(0, 1) * LIGHTS_WEIGHTS_DOWNSAMPLE_RES	};
 
-	// can we see it in reflection? and we don't need to reuse lighting in mirrors
-	if (dot(direction, position - origin) > .0 && first_material_rmxx.r > 0.1) {
-		const vec2 reuse_uv_src = WorldPositionToUV(position, inverse(ubo.inv_proj), inverse(ubo.inv_view));
-		const ivec2 reuse_pix_src = UVToPix(reuse_uv_src, res);
+		for(int i = 0; i < 4; i++) {
+			const ivec2 p = choose_pix_neighboors[i];
 
-		if (any(greaterThanEqual(reuse_pix_src, ivec2(0))) && any(lessThan(reuse_pix_src, res))) {
+			if (any(greaterThanEqual(p, res)))
+				continue;
 
-			ivec3 reuse_pix = PixToCheckerboard(reuse_pix_src, res, is_transparent_texel);
-			
-			const vec3 first_position = imageLoad(src_first_position_t, reuse_pix.xy).xyz;
-			const float current_depth = length(origin - first_position);
+			choose_positions_magnitudes[i] = imageLoad(src_position_t, p);
 
-			if (abs(nessesary_depth - current_depth) < 2.) {
-				lighting_is_reused = 1;
-				vec2 reuse_uv = PixToUV(reuse_pix.xy, res);
-				diffuse = vec3(reuse_uv, -100.); // -100 it's SSR marker
-			}
+			const vec3 offset = choose_positions_magnitudes[i].xyz - position;
+			const float magnitude_sqr = dot(offset, offset);
+			choose_positions_magnitudes[i].w = magnitude_sqr;
+
+			if (magnitude_sqr < better_position_magnitude_sqr.w)
+				better_position_magnitude_sqr = choose_positions_magnitudes[i];
+		}
+
+		const float magnitude_sqr_treshold = better_position_magnitude_sqr.w * MAGNITUDE_SQR_TRESHOLD;
+
+		for(int i = 0; i < 4; i++) {
+			const ivec2 p = choose_pix_neighboors[i];
+
+			if (any(greaterThanEqual(p, res)))
+				continue;
+
+			if (choose_positions_magnitudes[i].w > magnitude_sqr_treshold)
+				continue;
+
+			const vec3 current_normal = normalDecode(imageLoad(src_normals_gs, p).zw);
+			const float current_normal_dot = dot(shading_normal, current_normal);
+
+			if (current_normal_dot < better_normal_dot)
+				continue;
+
+			better_normal_dot = current_normal_dot;
+			choose_pix = p;
 		}
 	}
+#else // ifndef LIGHTS_WEIGHTS_DOWNSAMPLE_RES
+	const ivec2 choose_pix = pix;
+#endif // ifndef LIGHTS_WEIGHTS_DOWNSAMPLE_RES
 
-	if (lighting_is_reused != 1) {
+	const vec4 indices_vec = imageLoad(src_poly_light_chosen, choose_pix);
+	float indices_probability[4] = { indices_vec.x, indices_vec.y, indices_vec.z, indices_vec.w };
 
-	#if REFLECTIONS
-		material.baseColor = base_color; // mix lighting with base color if it's not SSR
-	#endif
-#else
-	{
-#endif // REUSE_SCREEN_LIGHTING
+	const SampleContext ctx = buildSampleContext( position + geometry_normal*.001, shading_normal, V );
 
-		const vec3 throughput = vec3(1.);
-		computeLighting(position + geometry_normal * .001, shading_normal, throughput, V, material, diffuse, specular);
+	float samples_count = 0.;
+	for (int i = 0; i < 4; i++) {
+		const int index = int(indices_probability[i]);
+		const float probability = indices_probability[i] - float(index);
 
-		// correction for avoiding difference in sampling algorythms
-#if LIGHT_POINT
-		diffuse *= 0.25;
-		specular *= 0.25;
-#else
-		diffuse *= 0.04;
+		if (index < 0 || index >= lights.num_polygons || probability < PROBABILITY_EPS) continue;
 
-		specular *= 0.04;
-#endif
+		const PolygonLight poly = lights.polygons[index];
 
-#ifdef IRRADIANCE_MULTIPLIER
-	diffuse *= IRRADIANCE_MULTIPLIER;
-	specular *= IRRADIANCE_MULTIPLIER;
-#endif
+		vec3 current_diffuse, current_specular;
+		sampleSinglePolygonLight( position + geometry_normal * .001,
+									shading_normal, V, ctx, material, poly, current_diffuse, current_specular);
 
+		const float probability_weight = 1. / probability;
+		diffuse += current_diffuse;
+		specular += current_specular;
+		samples_count += 1.;
+	}
+
+	if (samples_count > 0.) {
+		diffuse *= 0.04 / samples_count;
+		specular *= 0.04 / samples_count;
 	}
 
 #if GLOBAL_ILLUMINATION
-	#if LIGHT_POINT
-		imageStore(out_image_light_point_indirect, pix, vec4(specular + diffuse, 0.));
-	#else
+//	#if LIGHT_POINT
+//		imageStore(out_image_light_point_indirect, pix, vec4(specular + diffuse, 0.));
+//	#else
 		imageStore(out_image_light_poly_indirect, pix, vec4(specular + diffuse, 0.));
-	#endif
+//	#endif
 #elif REFLECTIONS
-	#if LIGHT_POINT
-		imageStore(out_image_light_point_reflection, pix, vec4(diffuse + specular, 0.));
-	#else
+//	#if LIGHT_POINT
+//		imageStore(out_image_light_point_reflection, pix, vec4(diffuse + specular, 0.));
+//	#else
 		imageStore(out_image_light_poly_reflection, pix, vec4(diffuse + specular, 0.));
-	#endif
+//	#endif
 #else // direct lighting
-	#if LIGHT_POINT
-		imageStore(out_image_light_point_diffuse, pix, vec4(diffuse, 0.));
-		imageStore(out_image_light_point_specular, pix, vec4(specular, 0.));
-	#else
+//	#if LIGHT_POINT
+//		imageStore(out_image_light_point_diffuse, pix, vec4(diffuse, 0.));
+//		imageStore(out_image_light_point_specular, pix, vec4(specular, 0.));
+//	#else
 		imageStore(out_image_light_poly_diffuse, pix, vec4(diffuse, 0.));
 		imageStore(out_image_light_poly_specular, pix, vec4(specular, 0.));
-	#endif
+//	#endif
 #endif
 }

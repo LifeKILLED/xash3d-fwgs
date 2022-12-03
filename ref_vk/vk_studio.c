@@ -3,6 +3,7 @@
 #include "vk_textures.h"
 #include "vk_render.h"
 #include "vk_geometry.h"
+#include "vk_mesh_utils.h"
 #include "camera.h"
 
 #include "xash3d_mathlib.h"
@@ -47,6 +48,12 @@ typedef struct sortedmesh_s
 	int		flags;			// face flags
 } sortedmesh_t;
 
+typedef struct {
+	matrix3x4		bonestransform[MAXSTUDIOBONES];
+	matrix3x4		worldtransform[MAXSTUDIOBONES];
+	matrix4x4		last_transform;
+} studio_entity_last_state_t;
+
 typedef struct
 {
 	double		time;
@@ -63,6 +70,7 @@ typedef struct
 
 	// boneweighting stuff
 	matrix3x4		worldtransform[MAXSTUDIOBONES];
+	matrix3x4		chached_worldtransform[MAXSTUDIOBONES];
 
 	// cached bones
 	matrix3x4		cached_bonestransform[MAXSTUDIOBONES];
@@ -73,6 +81,8 @@ typedef struct
 	sortedmesh_t	meshes[MAXSTUDIOMESHES];	// sorted meshes
 	vec3_t		verts[MAXSTUDIOVERTS];
 	vec3_t		norms[MAXSTUDIOVERTS];
+
+	vec3_t		last_verts[MAXSTUDIOVERTS]; // last frame state for motion vectors
 
 	// lighting state
 	float		ambientlight;
@@ -117,6 +127,9 @@ static cvar_t			*cl_himodels;
 
 static r_studio_interface_t	*pStudioDraw;
 static studio_draw_state_t	g_studio;		// global studio state
+
+#define MAX_ENTITIES_LAST_STATES 1024
+static studio_entity_last_state_t g_entity_last_states[MAX_ENTITIES_LAST_STATES];
 
 // global variables
 static qboolean		m_fDoRemap;
@@ -1062,6 +1075,64 @@ static void R_StudioSaveBones( void )
 	}
 }
 
+
+/*
+====================
+GetWorldtransformsFromLastFrame
+
+====================
+*/
+
+
+static void R_StudioGetWorldtransformsFromLastFrame( void )
+{
+	if (RI.currententity->index >= MAX_ENTITIES_LAST_STATES)
+		return;
+
+	studio_entity_last_state_t *last_state = &g_entity_last_states[RI.currententity->index];
+	
+	for( int i = 0; i < m_pStudioHeader->numbones; i++ )
+	{
+		Matrix3x4_Copy( g_studio.chached_worldtransform[i], g_studio.worldtransform[i] );
+		Matrix3x4_Copy( g_studio.worldtransform[i], last_state->worldtransform[i] );
+	}
+}
+
+/*
+====================
+RestoreWorldtransforms
+
+====================
+*/
+static void R_StudioRestoreWorldtramsforms( void )
+{
+	for( int i = 0; i < m_pStudioHeader->numbones; i++ )
+	{
+		Matrix3x4_Copy( g_studio.worldtransform[i], g_studio.chached_worldtransform[i] );
+	}
+}
+
+/*
+====================
+SaveTransformsForNextFrame
+
+====================
+*/
+
+static void R_StudioSaveTransformsForNextFrame( void )
+{
+	if (RI.currententity->index >= MAX_ENTITIES_LAST_STATES)
+		return;
+
+	studio_entity_last_state_t *last_state = &g_entity_last_states[RI.currententity->index];
+
+	for( int i = 0; i < m_pStudioHeader->numbones; i++ )
+	{
+		Matrix3x4_Copy( last_state->bonestransform[i], g_studio.bonestransform[i] );
+		Matrix3x4_Copy( last_state->worldtransform[i], g_studio.worldtransform[i] );
+	}
+}
+
 /*
 ====================
 StudioBuildNormalTable
@@ -1122,6 +1193,9 @@ g_studio.verts must be computed
 */
 void R_StudioGenerateNormals( void )
 {
+	// For chrome models normals smoothed by other algorythm
+	if (FBitSet( g_nFaceFlags, STUDIO_NF_CHROME )) return;
+
 	int		v0, v1, v2;
 	vec3_t		e0, e1, norm;
 	mstudiomesh_t	*pmesh;
@@ -1898,6 +1972,8 @@ static int R_StudioMeshCompare( const void *a, const void *b )
 	return 0;
 }
 
+
+
 static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float s, float t, int texture )
 {
 	float	*lv;
@@ -1908,6 +1984,11 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 	uint32_t vertex_offset = 0, index_offset = 0;
 	short* const ptricmds_initial = ptricmds;
 	r_geometry_buffer_lock_t buffer;
+
+	//qboolean regenerate_normals = true;
+	qboolean regenerate_normals = FBitSet( g_nFaceFlags, STUDIO_NF_CHROME );
+
+	VK_NormalsSmooth_Start(0.1, true);
 
 	// Compute counts of vertices and indices
 	while(( i = *( ptricmds++ )))
@@ -1932,6 +2013,9 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 	dst_vtx = buffer.vertices.ptr;
 	dst_idx = buffer.indices.ptr;
 
+	vk_vertex_t* vertices_buf = dst_vtx;
+	uint16_t* indices_buf = dst_idx;
+
 	// Restore ptricmds and upload vertices
 	ptricmds = ptricmds_initial;
 	while(( i = *( ptricmds++ )))
@@ -1946,6 +2030,7 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 			*dst_vtx = (vk_vertex_t){0};
 
 			VectorCopy(g_studio.verts[ptricmds[0]], dst_vtx->pos);
+			VectorCopy(g_studio.last_verts[ptricmds[0]], dst_vtx->last_pos);
 			VectorCopy(g_studio.norms[ptricmds[0]], dst_vtx->normal);
 			dst_vtx->lm_tc[0] = dst_vtx->lm_tc[1] = 0.f;
 
@@ -1989,12 +2074,38 @@ static void R_StudioDrawNormalMesh( short *ptricmds, vec3_t *pstudionorms, float
 						break;
 				}
 			}
+			
+			// remember data for smoothing normals
+			if (regenerate_normals) {
+				VK_NormalsSmooth_AddVertex(dst_vtx);
+			}
 		}
 
 		ASSERT(elements == (vertices-2)*3);
 		index_offset += elements;
 		vertex_offset += vertices;
 		dst_idx += elements;
+	}
+
+	if (regenerate_normals) {
+		// recalculate hard-edged normals for every triangle
+		vec3_t norm, e0, e1;
+		for (int i = 0; i < num_indices; i += 3) {
+			vk_vertex_t* v0 = vertices_buf + indices_buf[i];
+			vk_vertex_t* v1 = vertices_buf + indices_buf[i + 1];
+			vk_vertex_t* v2 = vertices_buf + indices_buf[i + 2];
+			VectorSubtract( v1->pos, v0->pos, e0 );
+			VectorSubtract( v2->pos, v0->pos, e1 );
+			CrossProduct( e1, e0, norm );
+			//VectorCopy(norm, v0->normal);
+			//VectorCopy(norm, v1->normal);
+			//VectorCopy(norm, v2->normal);
+			VectorAdd(v0->normal, norm, v0->normal);
+			VectorAdd(v0->normal, norm, v1->normal);
+			VectorAdd(v0->normal, norm, v2->normal);
+		}
+
+		VK_NormalsSmooth_Apply();
 	}
 
 	ASSERT(vertex_offset < UINT16_MAX);
@@ -2127,6 +2238,8 @@ static void R_StudioDrawPoints( void )
 	pskinref = (short *)((byte *)m_pStudioHeader + m_pStudioHeader->skinindex);
 	if( m_skinnum != 0 ) pskinref += (m_skinnum * m_pStudioHeader->numskinref);
 
+	studio_entity_last_state_t *last_frame_state = &g_entity_last_states[RI.currententity->index];
+
 	if( FBitSet( m_pStudioHeader->flags, STUDIO_HAS_BONEWEIGHTS ) && m_pSubModel->blendvertinfoindex != 0 && m_pSubModel->blendnorminfoindex != 0 )
 	{
 		mstudioboneweight_t	*pvertweight = (mstudioboneweight_t *)((byte *)m_pStudioHeader + m_pSubModel->blendvertinfoindex);
@@ -2140,6 +2253,14 @@ static void R_StudioDrawPoints( void )
 			R_LightStrength( pvertbone[i], pstudioverts[i], g_studio.lightpos[i] );
 		}
 
+		R_StudioGetWorldtransformsFromLastFrame();
+		for( i = 0; i < m_pSubModel->numverts; i++ )
+		{
+			R_StudioComputeSkinMatrix( &pvertweight[i], skinMat );
+			Matrix3x4_VectorTransform( skinMat, pstudioverts[i], g_studio.last_verts[i] );
+		}
+		R_StudioRestoreWorldtramsforms();
+
 		for( i = 0; i < m_pSubModel->numnorms; i++ )
 		{
 			R_StudioComputeSkinMatrix( &pnormweight[i], skinMat );
@@ -2151,9 +2272,12 @@ static void R_StudioDrawPoints( void )
 		for( i = 0; i < m_pSubModel->numverts; i++ )
 		{
 			Matrix3x4_VectorTransform( g_studio.bonestransform[pvertbone[i]], pstudioverts[i], g_studio.verts[i] );
+			Matrix3x4_VectorTransform( last_frame_state->bonestransform[pvertbone[i]], pstudioverts[i], g_studio.last_verts[i] );
 			R_LightStrength( pvertbone[i], pstudioverts[i], g_studio.lightpos[i] );
 		}
 	}
+
+	R_StudioSaveTransformsForNextFrame();
 
 	// generate shared normals for properly scaling glowing shell
 	if( RI.currententity->curstate.renderfx == kRenderFxGlowShell )
@@ -2278,7 +2402,17 @@ static void R_StudioDrawPoints( void )
 		*/
 	}
 
+	int entity_id = RI.currententity->index;
+
+	if (entity_id < MAX_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( *VK_RenderGetLastFrameTransform(), g_entity_last_states[entity_id].last_transform );
+	} else gEngine.Con_Printf(S_ERROR "Studio entities last states pool is overflow, increase it. Index is %s\n", entity_id );
+
 	VK_RenderModelDynamicCommit();
+
+	if (entity_id < MAX_ENTITIES_LAST_STATES) {
+		Matrix4x4_Copy( g_entity_last_states[entity_id].last_transform, *VK_RenderGetLastFrameTransform() );
+	}
 }
 
 static void R_StudioSetRemapColors( int newTop, int newBottom )

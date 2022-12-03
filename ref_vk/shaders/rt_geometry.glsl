@@ -49,6 +49,8 @@ struct Geometry {
 	vec3 tangent;
 
 	int kusok_index;
+
+	vec3 last_pos;
 };
 
 Geometry readHitGeometry() {
@@ -57,6 +59,7 @@ Geometry readHitGeometry() {
 	const int instance_kusochki_offset = gl_InstanceCustomIndexEXT;
 	geom.kusok_index = instance_kusochki_offset + gl_GeometryIndexEXT;
 	const Kusok kusok = kusochki[geom.kusok_index];
+	const mat4 last_ObjectToWorld = kusok.last_transform;
 
 	const uint first_index_offset = kusok.index_offset + gl_PrimitiveID * 3;
 	const uint vi1 = uint(indices[first_index_offset+0]) + kusok.vertex_offset;
@@ -69,6 +72,12 @@ Geometry readHitGeometry() {
 		gl_ObjectToWorldEXT * vec4(vertices[vi3].pos, 1.f),
 	};
 
+	const vec3 last_pos[3] = {
+		(last_ObjectToWorld * vec4(vertices[vi1].last_pos, 1.f)).xyz,
+		(last_ObjectToWorld * vec4(vertices[vi2].last_pos, 1.f)).xyz,
+		(last_ObjectToWorld * vec4(vertices[vi3].last_pos, 1.f)).xyz,
+	};
+
 	const vec2 uvs[3] = {
 		vertices[vi1].gl_tc,
 		vertices[vi2].gl_tc,
@@ -76,6 +85,7 @@ Geometry readHitGeometry() {
 	};
 
 	geom.pos = baryMix(pos[0], pos[1], pos[2], bary);
+	geom.last_pos = baryMix(last_pos[0], last_pos[1], last_pos[2], bary);
 	geom.uv = baryMix(uvs[0], uvs[1], uvs[2], bary);
 	//TODO or not TODO? const vec2 texture_uv = texture_uv_stationary + push_constants.time * kusok.uv_speed;
 

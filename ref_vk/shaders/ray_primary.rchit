@@ -8,8 +8,6 @@
 
 #include "ray_kusochki.glsl"
 
-#include "color_spaces.glsl"
-
 layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; };
 layout(set = 0, binding = 7) uniform samplerCube skybox;
@@ -32,7 +30,7 @@ void main() {
 	const uint tex_base_color = kusok.tex_base_color;
 
 	if ((tex_base_color & KUSOK_MATERIAL_FLAG_SKYBOX) != 0) {
-		payload.emissive.rgb = SRGBtoLINEAR(texture(skybox, gl_WorldRayDirectionEXT).rgb);
+		payload.emissive.rgb = pow(texture(skybox, gl_WorldRayDirectionEXT).rgb, vec3(2.2));
 		return;
 	} else {
 		payload.base_color_a = sampleTexture(tex_base_color, geom.uv, geom.uv_lods) * kusok.color;
@@ -55,11 +53,15 @@ void main() {
 
 #if 1
 	// Real correct emissive color
-	//payload.emissive.rgb = kusok.emissive;
-	payload.emissive.rgb = clamp(kusok.emissive / (1.0/3.0) / 25, 0, 1.5) * SRGBtoLINEAR(payload.base_color_a.rgb);
+	payload.emissive.rgb = clamp(kusok.emissive / (1.0/3.0) / 25., 0, 1.5) * payload.base_color_a.rgb;
 #else
 	// Fake texture color
 	if (any(greaterThan(kusok.emissive, vec3(0.))))
 		payload.emissive.rgb = payload.base_color_a.rgb;
 #endif
+
+	float is_dynamic_geometry = (kusok.flags & KUSOK_FLAG_DINAMIC_MODEL) > 0 ? 1. : 0.;
+	payload.search_info_ktuv = vec4(is_dynamic_geometry, float(tex_base_color), geom.uv - floor(geom.uv * 0.1) * 10.);
+
+	payload.last_position_t = vec4(geom.last_pos.xyz, 1.);
 }

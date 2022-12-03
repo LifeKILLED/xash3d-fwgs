@@ -17,7 +17,6 @@ void VK_RenderStateSetMatrixProjection(const matrix4x4 proj, float fov_angle_y);
 void VK_RenderStateSetMatrixView(const matrix4x4 view);
 void VK_RenderStateSetMatrixModel(const matrix4x4 model);
 
-
 // Quirk for passing surface type to the renderer
 // xash3d does not really have a notion of materials. Instead there are custom code paths
 // for different things. There's also render_mode for entities which determine blending mode
@@ -82,6 +81,9 @@ typedef struct vk_render_model_s {
 	struct vk_ray_model_s *ray_model;
 	struct rt_light_add_polygon_s *polylights;
 	int polylights_count;
+
+	// previous frame ObjectToWorld (model) matrix
+	matrix4x4 last_transform; 
 } vk_render_model_t;
 
 qboolean VK_RenderModelInit( vk_render_model_t* model );
@@ -100,3 +102,5 @@ void VK_RenderEnd( VkCommandBuffer cmdbuf );
 void VK_RenderEndRTX( VkCommandBuffer cmdbuf, VkImageView img_dst_view, VkImage img_dst, uint32_t w, uint32_t h );
 
 void VK_Render_FIXME_Barrier( VkCommandBuffer cmdbuf );
+
+matrix4x4 *VK_RenderGetLastFrameTransform();

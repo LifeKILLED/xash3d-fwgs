@@ -20,7 +20,16 @@ SampleContext buildSampleContext(vec3 position, vec3 normal, vec3 view_dir) {
 	return ctx;
 }
 
-vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly) {
+
+vec4 getRandValuesForSimpleSolid() {
+	vec2 rnd = vec2(sqrt(rand01()), rand01());
+	rnd.y *= rnd.x;
+	rnd.x = 1.f - rnd.x;
+
+	return vec4(rnd, rand01(), rand01());
+}
+
+vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly, vec2 rand_values_solid_xy) {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
@@ -31,23 +40,23 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly)
 		v[i] = lights.polygon_vertices[vertices_offset + i].xyz;
 	}
 
-	vec2 rnd = vec2(sqrt(rand01()), rand01());
-	rnd.y *= rnd.x;
-	rnd.x = 1.f - rnd.x;
+//	vec2 rnd = vec2(sqrt(rand01()), rand01());
+//	rnd.y *= rnd.x;
+//	rnd.x = 1.f - rnd.x;
 
-	const vec3 light_dir = baryMix(v[0], v[1], v[2], rnd) - P;
+	const vec3 light_dir = baryMix(v[0], v[1], v[2], rand_values_solid_xy) - P;
 	const vec3 light_dir_n = normalize(light_dir);
 	const float contrib = - poly.area * dot(light_dir_n, poly.plane.xyz ) / dot(light_dir, light_dir);
 	return vec4(light_dir_n, contrib);
 }
 
-vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly) {
+vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rand_values_solid_xyz) {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
 	uint selected = 0;
 	float total_contrib = 0.;
-	float eps1 = rand01();
+	float eps1 = rand_values_solid_xyz.z;
 	vec3 v[3];
 	v[0] = normalize(lights.polygon_vertices[vertices_offset + 0].xyz - P);
 	v[1] = normalize(lights.polygon_vertices[vertices_offset + 1].xyz - P);
@@ -77,7 +86,7 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 
 		const float tau = total_contrib / (total_contrib + contrib);
 		total_contrib += contrib;
-
+		
 		if (eps1 < tau) {
 			eps1 /= tau;
 		} else {
@@ -93,20 +102,21 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 	if (selected == 0)
 		return vec4(0.);
 
-	vec2 rnd = vec2(sqrt(rand01()), rand01());
-	rnd.y *= rnd.x;
-	rnd.x = 1.f - rnd.x;
+	//vec3 rnd = vec2(sqrt(rand01()), rand01());
+	//rnd.y *= rnd.x;
+	//rnd.x = 1.f - rnd.x;
 
 	const vec3 light_dir = baryMix(
 		lights.polygon_vertices[vertices_offset + 0].xyz,
 		lights.polygon_vertices[vertices_offset + selected - 1].xyz,
 		lights.polygon_vertices[vertices_offset + selected].xyz,
-		rnd) - P;
+		rand_values_solid_xyz.xy) - P;
 	const vec3 light_dir_n = normalize(light_dir);
+
 	return vec4(light_dir_n, total_contrib);
 }
 
-vec4 getPolygonLightSampleProjected(vec3 view_dir, SampleContext ctx, const PolygonLight poly) {
+vec4 getPolygonLightSampleProjected(vec3 view_dir, SampleContext ctx, const PolygonLight poly, vec2 rnd01) {
 	vec3 clipped[MAX_POLYGON_VERTEX_COUNT];
 
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
@@ -125,13 +135,13 @@ vec4 getPolygonLightSampleProjected(vec3 view_dir, SampleContext ctx, const Poly
 	if (contrib <= 0.f)
 		return vec4(0.f);
 
-	vec2 rnd = vec2(rand01(), rand01());
-	const vec3 light_dir = (transpose(ctx.world_to_shading) * sample_projected_solid_angle_polygon(sap, rnd)).xyz;
+	//vec2 rnd = vec2(rand01(), rand01());
+	const vec3 light_dir = (transpose(ctx.world_to_shading) * sample_projected_solid_angle_polygon(sap, rnd01)).xyz;
 
 	return vec4(light_dir, contrib);
 }
 
-vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const PolygonLight poly) {
+vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const PolygonLight poly, vec2 rnd01) {
 	vec3 clipped[MAX_POLYGON_VERTEX_COUNT];
 
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
@@ -153,8 +163,8 @@ vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const 
 	if (contrib <= 0.f)
 		return vec4(0.f);
 
-	vec2 rnd = vec2(rand01(), rand01());
-	const vec3 light_dir = sample_solid_angle_polygon(sap, rnd).xyz;
+	//vec2 rnd = vec2(rand01(), rand01());
+	const vec3 light_dir = sample_solid_angle_polygon(sap, rnd01).xyz;
 
 	return vec4(light_dir, contrib);
 }
@@ -167,83 +177,124 @@ vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const 
 void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleContext ctx, in MaterialProperties material, in PolygonLight poly, inout vec3 diffuse, inout vec3 specular) {
 	// TODO cull by poly plane
 
+	const vec4 rand_values = getRandValuesForSimpleSolid();
+
 #ifdef PROJECTED
-	const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
+	const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rand_values.zw);
+#elif defined(SIMPLE_SOLID)
+	const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly, rand_values.xyz);
 #else
-	const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
+	const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly, rand_values.zw);
 #endif
 	if (light_sample_dir.w <= 0.)
 		return;
 
 	const float dist = - dot(vec4(P, 1.f), poly.plane) / dot(light_sample_dir.xyz, poly.plane.xyz);
 
-	if (shadowed(P, light_sample_dir.xyz, dist))
-		return;
-
 	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
 	evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
+
+	const float shading = shadowed(P, light_sample_dir.xyz, dist) ? 0. : 1.;
+
 	const float estimate = light_sample_dir.w;
-	const vec3 emissive = poly.emissive * estimate;
+	const vec3 emissive = poly.emissive * estimate * shading;
 	diffuse += emissive * poly_diffuse;
 	specular += emissive * poly_specular;
 }
 
-#if 0
-// Sample random one
+//#if 0
+//// Sample random one
+//void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
+//	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
+//
+//	if (num_polygons == 0)
+//		return;
+//
+//	const uint selected = uint(light_grid.clusters[cluster_index].polygons[rand_range(num_polygons)]);
+//
+//	const PolygonLight poly = lights.polygons[selected];
+//	const SampleContext ctx = buildSampleContext(P, N, view_dir);
+//	sampleSinglePolygonLight(P, N, view_dir, ctx, material, poly, diffuse, specular);
+//
+//	const float sampling_factor = float(num_polygons);
+//	diffuse *= sampling_factor;
+//	specular *= sampling_factor;
+//}
+//
+//#else
+
+
 void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
-	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
-
-	if (num_polygons == 0)
-		return;
-
-	const uint selected = uint(light_grid.clusters[cluster_index].polygons[rand_range(num_polygons)]);
-
-	const PolygonLight poly = lights.polygons[selected];
+//#if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
-	sampleSinglePolygonLight(P, N, view_dir, ctx, material, poly, diffuse, specular);
 
-	const float sampling_factor = float(num_polygons);
-	diffuse *= sampling_factor;
-	specular *= sampling_factor;
-}
+	const vec4 rand_values = getRandValuesForSimpleSolid();
 
-#elif 1
-void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
-#if DO_ALL_IN_CLUSTER
-	const SampleContext ctx = buildSampleContext(P, N, view_dir);
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
+	SETUP_IMPORTANCE_SKIP_BY_IRRADIANCE()
+#endif
 
 //#define USE_CLUSTERS
-#ifdef USE_CLUSTERS
-	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
-	for (uint i = 0; i < num_polygons; ++i) {
-		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
+//#ifdef USE_CLUSTERS
+//	const uint num_lights = uint(light_grid.clusters[cluster_index].num_polygons);
+//	for (uint i = 0; i < num_lights; ++i) {
+//		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
+//#else
+
+	const uint num_lights = lights.num_polygons;
+#ifdef ONE_LIGHT_PER_TEXEL
+	const uint index = rand() % num_lights;
+#elif MAX_LIGHTS_PER_TEXEL
+	const uint rejected_lights = num_lights - MAX_LIGHTS_PER_TEXEL;
+	const uint startIndex = num_lights <= MAX_LIGHTS_PER_TEXEL ? 0 : rand() % rejected_lights;
+	const uint endIndex =   num_lights <= MAX_LIGHTS_PER_TEXEL ? num_lights : startIndex + MAX_LIGHTS_PER_TEXEL;
+	const float irradiance_multiplier = num_lights <= MAX_LIGHTS_PER_TEXEL ? 1. : num_lights / MAX_LIGHTS_PER_TEXEL;
+	for (uint index = startIndex; index < endIndex; ++index) {
 #else
-	for (uint index = 0; index < lights.num_polygons; ++index) {
+	for (uint index = 0; index < num_lights; ++index) {
 #endif
+
+//#endif // USE_CLUSTERS
+
 
 		const PolygonLight poly = lights.polygons[index];
 
 		const float plane_dist = dot(poly.plane, vec4(P, 1.f));
 
 		if (plane_dist < 0.)
-			continue;
-
+			SKIP_LIGHT()
+			
 #ifdef PROJECTED
-		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rand_values.zw );
 #elif defined(SOLID)
-		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly, rand_values.zw );
 #elif defined(SIMPLE_SOLID)
-		const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly, rand_values.xyz);
 #else
-		const vec4 light_sample_dir = getPolygonLightSampleSimple(P, view_dir, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSimple(P, view_dir, poly, rand_values.xy ) * vec4(1., 1., 1., 0.5);
 #endif
 
 		if (light_sample_dir.w <= 0.)
-			continue;
+			SKIP_LIGHT()
 
 		const float dist = - plane_dist / dot(light_sample_dir.xyz, poly.plane.xyz);
 		const vec3 emissive = poly.emissive;
+		
+#ifdef LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
+		const float estimate = light_sample_dir.w;
+		vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
+		evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
 
+		poly_diffuse *= throughput * emissive * estimate;
+		poly_specular *= throughput * emissive * estimate;
+
+		IMPORTANCE_SKIP_BY_IRRADIANCE(poly_diffuse, poly_specular)
+
+		if (!shadowed(P, light_sample_dir.xyz, dist)) {
+			diffuse += poly_diffuse;
+			specular += poly_specular;
+		}
+#else // LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 		if (!shadowed(P, light_sample_dir.xyz, dist)) {
 			//const float estimate = total_contrib;
 			const float estimate = light_sample_dir.w;
@@ -252,83 +303,104 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 throughput, vec3 view_dir, Mate
 			diffuse += throughput * emissive * estimate * poly_diffuse;
 			specular += throughput * emissive * estimate * poly_specular;
 		}
-	}
-#else // DO_ALL_IN_CLUSTERS
+#endif // LIGHTS_REJECTION_BY_IRRADIANCE_ENABLE
 
-#ifdef USE_CLUSTERS
-	// TODO move this to pickPolygonLight function
-	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
+//#ifdef REJECT_ANYWHERE_THRESHOLD
+//	diffuse /= REJECT_ANYWHERE_THRESHOLD;
+//	specular /= REJECT_ANYWHERE_THRESHOLD;
+//#endif
+
+#ifdef ONE_LIGHT_PER_TEXEL
+		diffuse *= float(num_lights);
+		specular *= float(num_lights);
 #else
-	const uint num_polygons = lights.num_polygons;
-#endif
-
-	uint selected = 0;
-	float total_contrib = 0.;
-	float eps1 = rand01();
-	for (uint i = 0; i < num_polygons; ++i) {
-#ifdef USE_CLUSTERS
-		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
-#else
-		const uint index = i;
-#endif
-
-		const PolygonLight poly = lights.polygons[index];
-
-		const vec3 dir = poly.center - P;
-		const vec3 light_dir = normalize(dir);
-		float contrib_estimate = poly.area * dot(-light_dir, poly.plane.xyz) / (1e-3 + dot(dir, dir));
-
-		if (contrib_estimate < 1e-6)
-		 	continue;
-
-		contrib_estimate = 1.f;
-		const float tau = total_contrib / (total_contrib + contrib_estimate);
-		total_contrib += contrib_estimate;
-
-		if (eps1 < tau) {
-			eps1 /= tau;
-		} else {
-			selected = index + 1;
-			eps1 = (eps1 - tau) / (1. - tau);
-		}
 	}
 
-	if (selected == 0) {
-		//diffuse = vec3(1., 0., 0.);
-		return;
-	}
-
-#if 0
-	const PolygonLight poly = lights.polygons[selected - 1];
-	const vec3 emissive = poly.emissive;
-	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-	evalSplitBRDF(N, normalize(poly.center-P), view_dir, material, poly_diffuse, poly_specular);
-	diffuse += throughput * emissive * total_contrib;
-	specular += throughput * emissive * total_contrib;
-#else
-	const SampleContext ctx = buildSampleContext(P, N, view_dir);
-	const PolygonLight poly = lights.polygons[selected - 1];
-#ifdef PROJECTED
-		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
-#else
-		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
 #endif
-	if (light_sample_dir.w <= 0.)
-		return;
 
-	const float dist = - dot(vec4(P, 1.f), poly.plane) / dot(light_sample_dir.xyz, poly.plane.xyz);
-	const vec3 emissive = poly.emissive;
+#ifdef MAX_LIGHTS_PER_TEXEL
+	diffuse *= irradiance_multiplier;
+	specular *= irradiance_multiplier;
+#endif
 
-	//if (true) {//!shadowed(P, light_sample_dir.xyz, dist)) {
-	if (!shadowed(P, light_sample_dir.xyz, dist)) {
-		//const float estimate = total_contrib;
-		const float estimate = light_sample_dir.w;
-		vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-		evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
-		diffuse += throughput * emissive * estimate;
-		specular += throughput * emissive * estimate;
-	}
-#endif
-#endif
+
+//#else // DO_ALL_IN_CLUSTERS
+
+//#ifdef USE_CLUSTERS
+//	// TODO move this to pickPolygonLight function
+//	const uint num_polygons = uint(light_grid.clusters[cluster_index].num_polygons);
+//#else
+//	const uint num_polygons = lights.num_polygons;
+//#endif
+//
+//	uint selected = 0;
+//	float total_contrib = 0.;
+//	float eps1 = rand01();
+//	for (uint i = 0; i < num_polygons; ++i) {
+//#ifdef USE_CLUSTERS
+//		const uint index = uint(light_grid.clusters[cluster_index].polygons[i]);
+//#else
+//		const uint index = i;
+//#endif
+//
+//		const PolygonLight poly = lights.polygons[index];
+//
+//		const vec3 dir = poly.center - P;
+//		const vec3 light_dir = normalize(dir);
+//		float contrib_estimate = poly.area * dot(-light_dir, poly.plane.xyz) / (1e-3 + dot(dir, dir));
+//
+//		if (contrib_estimate < 1e-6)
+//		 	continue;
+//
+//		contrib_estimate = 1.f;
+//		const float tau = total_contrib / (total_contrib + contrib_estimate);
+//		total_contrib += contrib_estimate;
+//
+//		if (eps1 < tau) {
+//			eps1 /= tau;
+//		} else {
+//			selected = index + 1;
+//			eps1 = (eps1 - tau) / (1. - tau);
+//		}
+//	}
+//
+//	if (selected == 0) {
+//		//diffuse = vec3(1., 0., 0.);
+//		return;
+//	}
+//
+//#if 0
+//	const PolygonLight poly = lights.polygons[selected - 1];
+//	const vec3 emissive = poly.emissive;
+//	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
+//	evalSplitBRDF(N, normalize(poly.center-P), view_dir, material, poly_diffuse, poly_specular);
+//	diffuse += throughput * emissive * total_contrib;
+//	specular += throughput * emissive * total_contrib;
+//#else
+//	const SampleContext ctx = buildSampleContext(P, N, view_dir);
+//	const PolygonLight poly = lights.polygons[selected - 1];
+//#ifdef PROJECTED
+//		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
+//#else
+//		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
+//#endif
+//	if (light_sample_dir.w <= 0.)
+//		return;
+//
+//	const float dist = - dot(vec4(P, 1.f), poly.plane) / dot(light_sample_dir.xyz, poly.plane.xyz);
+//	const vec3 emissive = poly.emissive;
+//
+//	//if (true) {//!shadowed(P, light_sample_dir.xyz, dist)) {
+//	if (!shadowed(P, light_sample_dir.xyz, dist)) {
+//		//const float estimate = total_contrib;
+//		const float estimate = light_sample_dir.w;
+//		vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
+//		evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
+//		diffuse += throughput * emissive * estimate;
+//		specular += throughput * emissive * estimate;
+//	}
+//
+//#endif
+//#endif
 }
-#endif
+//#endif
