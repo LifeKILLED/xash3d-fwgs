@@ -14,7 +14,7 @@
 //#define REMOVE_SPECULAR 1
 
 // minimal random weight of light
-#define PROBABILITY_EPS 0.02
+#define PROBABILITY_EPS 0.00001
 
 // same to LIGHTS_WEIGHTS_DOWNSAMPLE_RES in lights choose shader
 #define LIGHTS_WEIGHTS_DOWNSAMPLE_RES 2
