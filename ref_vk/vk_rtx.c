@@ -361,7 +361,7 @@ static void performTracing(VkCommandBuffer cmdbuf, const perform_tracing_args_t*
 		}};
 		vkCmdPipelineBarrier(cmdbuf,
 			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
 			0, 0, NULL, ARRAYSIZE(bmb), bmb, 0, NULL);
 	}
 
