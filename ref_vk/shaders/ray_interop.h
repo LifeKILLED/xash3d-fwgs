@@ -18,6 +18,7 @@
 	X(12, normals_gs, rgba16f) \
 	X(13, material_rmxx, rgba8) \
 	X(14, emissive, rgba16f) \
+	X(15, prev_geom_position_t, rgba32f) \
 
 #define RAY_LIGHT_DIRECT_INPUTS(X) \
 	X(10, position_t, rgba32f) \
@@ -82,6 +83,8 @@ LIST_SPECIALIZATION_CONSTANTS(DECLARE_SPECIALIZATION_CONSTANT)
 
 #define KUSOK_MATERIAL_FLAG_SKYBOX 0x80000000
 
+#define KUSOK_FLAG_DINAMIC_MODEL 1
+
 struct Kusok {
 	uint index_offset;
 	uint vertex_offset;
@@ -102,7 +105,10 @@ struct Kusok {
 
 	float roughness;
 	float metalness;
-	PAD(2)
+	uint flags;
+	PAD(1)
+
+	mat4 prev_transform;
 };
 
 struct PointLight {
@@ -153,6 +159,7 @@ struct PushConstants {
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
+	mat4 prev_inv_proj, prev_inv_view;
 	float ray_cone_width;
 	uint random_seed;
 	PAD(2)

@@ -17,6 +17,19 @@ layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffu
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D emissive;
 
+
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D prev_geom_position_t;
+
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 prev_inv_proj, prev_inv_view;
+	float ray_cone_width;
+	uint random_seed;
+};
+
+layout(set = 0, binding = 9) uniform UBO { UniformBuffer ubo; };
+
 //layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
 //layout(set = 0, binding = 8, rgba16f) uniform readonly image2D normals_gs;
 

@@ -18,7 +18,7 @@ void main() {
 	// FIXME start on a near plane
 	const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
-	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
+	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);	
 
 	payload.hit_t = vec4(0.);
 	payload.base_color_a = vec4(0.);
@@ -40,4 +40,5 @@ void main() {
 	imageStore(out_normals_gs, ivec2(gl_LaunchIDEXT.xy), payload.normals_gs);
 	imageStore(out_material_rmxx, ivec2(gl_LaunchIDEXT.xy), payload.material_rmxx);
 	imageStore(out_emissive, ivec2(gl_LaunchIDEXT.xy), payload.emissive);
+	imageStore(out_prev_geom_position_t, ivec2(gl_LaunchIDEXT.xy), payload.prev_pos_t);
 }
