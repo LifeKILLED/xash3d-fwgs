@@ -204,6 +204,8 @@ void main() {
 	}
 #endif
 
+	vec3 dest_color_src = imageLoad(out_dest, pix).rgb;
+	colour = mix(dest_color_src, colour, 0.2);
 	imageStore(out_dest, pix, vec4(colour, 0.));
 	//imageStore(out_dest, pix, imageLoad(light_poly, pix));
 }

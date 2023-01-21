@@ -327,6 +327,33 @@ void VK_RayFrameEnd(const vk_ray_frame_render_args_t* args)
 
 		R_VkImageClear( cmdbuf, current_frame->denoised.image );
 		R_VkImageBlit( cmdbuf, &blit_args );
+
+		// FIXME: only for debug, remove this after adding native frame management
+		static xvk_ray_frame_images_t* second_frame = NULL;
+		if (second_frame != NULL && g_ray_model_state.frame.num_models == 0) {
+			const r_vkimage_blit_args blit_args = {
+				.in_stage = VK_PIPELINE_STAGE_TRANSFER_BIT,
+				.src = {
+					.image = current_frame->denoised.image,
+					.width = FRAME_WIDTH,
+					.height = FRAME_HEIGHT,
+					.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+					.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+				},
+				.dst = {
+					.image = second_frame->denoised.image,
+					.width = FRAME_WIDTH,
+					.height = FRAME_HEIGHT,
+					.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+					.srcAccessMask = 0,
+				},
+			};
+			R_VkImageClear(cmdbuf, current_frame->denoised.image);
+			R_VkImageBlit(cmdbuf, &blit_args);
+		}
+		second_frame = (xvk_ray_frame_images_t*)current_frame;
+		// FIXME: end of debug code
+
 	} else {
 		const perform_tracing_args_t trace_args = {
 			.render_args = args,
