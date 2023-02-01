@@ -102,6 +102,9 @@ struct PolygonLight {
 
 	vec3 emissive;
 	uint vertices_count_offset;
+
+	vec3 normal;
+	PAD(1)
 };
 
 struct LightsMetadata {

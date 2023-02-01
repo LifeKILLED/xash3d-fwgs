@@ -25,6 +25,8 @@ typedef struct {
 
 	vec3_t emissive;
 
+	vec3_t normal;
+
 	struct {
 		int offset, count; // reference g_light.polygon_vertices
 	} vertices;

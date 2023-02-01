@@ -41,7 +41,24 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly)
 	return vec4(light_dir_n, contrib);
 }
 
+vec4 getPolygonLightSamplePointApproximation(vec3 P, vec3 view_dir, const PolygonLight poly) {
+
+
+	float coplanar = dot(poly.normal, normalize(P - poly.center));
+	float dist = length(poly.center - P);
+	float is_far = 1.0 - step(200., dist);
+	float distCorr = dist / 100.;
+	float distFactor = distCorr == 0.0 ? 1.0 :  1.0 / (distCorr * distCorr);
+
+	return vec4(poly.center - P, coplanar * distFactor * is_far* 0.5);
+}
+
 vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly) {
+
+	if (length(poly.center - P) > 100.) {
+		return getPolygonLightSamplePointApproximation(P, view_dir, poly);
+	}
+	
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 

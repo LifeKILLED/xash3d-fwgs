@@ -1089,6 +1089,9 @@ int RT_LightAddPolygon(const rt_light_add_polygon_t *addpoly) {
 		VectorM(1.f / poly->area, normal, poly->plane);
 		poly->plane[3] = -DotProduct(vertices[0], poly->plane);
 
+		VectorNormalize(normal)
+		VectorCopy(normal, poly->normal);
+
 		VectorM(1.f / poly->vertices.count, poly->center, poly->center);
 
 		if (!addpoly->dynamic || debug_dump_lights.enabled) {
@@ -1152,6 +1155,7 @@ static void uploadPolygonLights( struct LightsMetadata *metadata ) {
 		VectorCopy(src_poly->center, dst_poly->center);
 		dst_poly->area = src_poly->area;
 		VectorCopy(src_poly->emissive, dst_poly->emissive);
+		VectorCopy(src_poly->normal, dst_poly->normal);
 
 		// TODO DEBUG_ASSERT
 		ASSERT(src_poly->vertices.count > 2);
