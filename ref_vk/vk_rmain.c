@@ -11,6 +11,7 @@
 #include "vk_studio.h"
 #include "vk_beams.h"
 #include "vk_brush.h"
+#include "vk_decals.h"
 
 #include "xash3d_types.h"
 #include "com_strings.h"
@@ -80,26 +81,6 @@ static colorVec R_LightPoint( const float *p )
 {
 	PRINT_NOT_IMPLEMENTED();
 	return (colorVec){0};
-}
-
-// decals
-// Shoots a decal onto the surface of the BSP.  position is the center of the decal in world coords
-static void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos, int flags, float scale )
-{
-	PRINT_NOT_IMPLEMENTED();
-}
-static void R_DecalRemoveAll( int texture )
-{
-	PRINT_NOT_IMPLEMENTED();
-}
-static int R_CreateDecalList( struct decallist_s *pList )
-{
-	PRINT_NOT_IMPLEMENTED();
-	return 0;
-}
-static void R_ClearAllDecals( void )
-{
-	PRINT_NOT_IMPLEMENTED();
 }
 
 // studio interface
@@ -285,22 +266,6 @@ static void		R_SetCurrentModel( struct model_s *mod )
 	PRINT_NOT_IMPLEMENTED();
 }
 
-
-// Decals manipulating (draw & remove)
-static void		DrawSingleDecal( struct decal_s *pDecal, struct msurface_s *fa )
-{
-	PRINT_NOT_IMPLEMENTED();
-}
-static float		*R_DecalSetupVerts( struct decal_s *pDecal, struct msurface_s *surf, int texture, int *outCount )
-{
-	PRINT_NOT_IMPLEMENTED();
-	return NULL;
-}
-
-static void		R_EntityRemoveDecals( struct model_s *mod )
-{
-	PRINT_NOT_IMPLEMENTED();
-}
 
 // AVI
 static void		AVI_UploadRawFrame( int texture, int cols, int rows, int width, int height, const byte *data )
