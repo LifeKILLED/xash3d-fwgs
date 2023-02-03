@@ -109,7 +109,7 @@ void main() {
 	/* imageStore(out_dest, pix, vec4(rand3_f01(uvec3(mi,mi+1,mi+2)), 0.)); */
 	/* return; */
 
-#if 0
+#if 1
 	vec3 colour = vec3(0.);
 	colour += imageLoad(light_poly_diffuse, pix).rgb;
 	colour += imageLoad(light_poly_specular, pix).rgb;

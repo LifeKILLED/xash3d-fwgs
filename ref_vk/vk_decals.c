@@ -49,8 +49,6 @@ GNU General Public License for more details.
 #define TOP_EDGE			2
 #define BOTTOM_EDGE			3
 
-#define MAX_DECAL_POLYS 16
-
 #define WORLDMODEL (gEngine.pfnGetModelByIndex( 1 ))
 
 // This structure contains the information used to create new decals
@@ -66,35 +64,78 @@ typedef struct
 	int		m_decalWidth;
 	int		m_decalHeight;
 	vec3_t		m_Basis[3];
+	vk_decal_t* vk_decal;
 } decalinfo_t;
 
-static float	g_DecalClipVerts[MAX_DECALCLIPVERT][VERTEXSIZE];
-static float	g_DecalClipVerts2[MAX_DECALCLIPVERT][VERTEXSIZE];
+#define VK_DECALS_MAX 256
+#define VK_DECAL_POLYS_MAX 32
 
-decal_t	gDecalPool[MAX_RENDER_DECALS];
-static int	gDecalCount;
-
-//#define POLYS_POOL_SIZE 10000
+typedef struct 
+{
+	decal_t decal; // source decal_t
+	decalinfo_t info; // decal info
+	glpoly_t polys[VK_DECAL_POLYS_MAX]; // precomputed decal polys
+	vk_render_geometry_t geometry; // upload in render
+} vk_decal_t;
 
 static struct {
-	poolhandle_t* mempool;
+	float	g_DecalClipVerts[MAX_DECALCLIPVERT][VERTEXSIZE];
+	float	g_DecalClipVerts2[MAX_DECALCLIPVERT][VERTEXSIZE];
 
-	//glpoly_t polysPool[POLYS_POOL_SIZE];
-	//uint polyPoolIndex;
+	decal_t	gDecalPool[MAX_RENDER_DECALS]; // legacy decals pool from GL renderer
+	static int	gDecalCount;
+
+	vk_decal_t decals_ring[VK_DECALS_MAX]; // static decals in start and dynamic in end as ring buffer
+	uint dynamic_decals_start; // first index of ring buffer of dynamic decals
+	uint dynamic_decal_last; // current index for adding new dynamic decal
+
 } g_decals = { 0 };
 
-//glpoly_t* getPolyFromPool( void )
-//{
-//	if ( ++g_decals.polyPoolIndex >= (POLYS_POOL_SIZE - 8))
-//		g_decals.polyPoolIndex = 0;
-//
-//	return &g_decals.polysPool[ g_decals.polyPoolIndex ];
-//}
+void vkClearDecals( void )
+{
+	// just set counters to 0 and reuse decals
+	g_decals.dynamic_decals_start = g_decals.dynamic_decal_last = 0;
+}
+
+vk_decal_t* initDecal( vk_decal_t* d )
+{
+	// for reusing decals from ring
+	for (int i = 0; i < VK_DECAL_POLYS_MAX; i++)
+		d->polys[i].numverts = 0;
+
+	// "allocate" polys in decal_t struct from decal's polys pool
+	d->decal.polys = d->polys;
+
+	d->decal.pnext = NULL;
+	d->decal.psurface = NULL;
+
+	return d;
+}
+
+vk_decal_t* newStaticDecal( void )
+{
+	if ( ++g_decals.dynamic_decals_start >= VK_DECALS_MAX)
+		g_decals.dynamic_decals_start = VK_DECALS_MAX - 1;
+
+	return initDecal( &g_decals[ g_decals.dynamic_decals_start - 1 ]);
+}
+
+vk_decal_t* newDynamicDecal( void )
+{
+	if ( ++g_decals.dynamic_decal_last >= VK_DECALS_MAX )
+		g_decals.dynamic_decal_last = g_decals.dynamic_decals_start;
+
+	return initDecal( &g_decals[ g_decals.dynamic_decal_last ]);
+}
+
+vk_decal_t* newDecal( int flags )
+{
+	return FBitSet(flags, FDECAL_PERMANENT) ? newStaticDecal() : newDynamicDecal();
+}
 
 void R_ClearDecals( void )
 {
-	memset( gDecalPool, 0, sizeof( gDecalPool ));
-	gDecalCount = 0;
+	vkClearDecals();
 }
 
 // unlink pdecal from any surface it's attached to
@@ -128,47 +169,47 @@ static void R_DecalUnlink( decal_t *pdecal )
 		}
 	}
 
-	if( pdecal->polys )
-		Mem_Free( pdecal->polys );
+	//if( pdecal->polys )
+	//	Mem_Free( pdecal->polys );
 
 	pdecal->psurface = NULL;
-	pdecal->polys = NULL;
+	//pdecal->polys = NULL;
 }
 
 // Just reuse next decal in list
 // A decal that spans multiple surfaces will use multiple decal_t pool entries,
 // as each surface needs it's own.
-static decal_t *R_DecalAlloc( decal_t *pdecal )
-{
-	int	limit = MAX_RENDER_DECALS;
-
-	// TODO: VULKAN: return this cvar using
-	//if( r_decals->value < limit )
-	//	limit = r_decals->value;
-
-	if( !limit ) return NULL;
-
-	if( !pdecal )
-	{
-		int	count = 0;
-
-		// check for the odd possiblity of infinte loop
-		do
-		{
-			if( gDecalCount >= limit )
-				gDecalCount = 0;
-
-			pdecal = &gDecalPool[gDecalCount]; // reuse next decal
-			gDecalCount++;
-			count++;
-		} while( FBitSet( pdecal->flags, FDECAL_PERMANENT ) && count < limit );
-	}
-
-	// if decal is already linked to a surface, unlink it.
-	R_DecalUnlink( pdecal );
-
-	return pdecal;
-}
+//static decal_t *R_DecalAlloc( decal_t *pdecal )
+//{
+//	int	limit = MAX_RENDER_DECALS;
+//
+//	// TODO: VULKAN: return this cvar using
+//	//if( r_decals->value < limit )
+//	//	limit = r_decals->value;
+//
+//	if( !limit ) return NULL;
+//
+//	if( !pdecal )
+//	{
+//		int	count = 0;
+//
+//		// check for the odd possiblity of infinte loop
+//		do
+//		{
+//			if( gDecalCount >= limit )
+//				gDecalCount = 0;
+//
+//			pdecal = &gDecalPool[gDecalCount]; // reuse next decal
+//			gDecalCount++;
+//			count++;
+//		} while( FBitSet( pdecal->flags, FDECAL_PERMANENT ) && count < limit );
+//	}
+//
+//	// if decal is already linked to a surface, unlink it.
+//	R_DecalUnlink( pdecal );
+//
+//	return pdecal;
+//}
 
 //-----------------------------------------------------------------------------
 // find decal image and grab size from it
@@ -180,7 +221,7 @@ static void R_GetDecalDimensions( int texture, int *width, int *height )
 
 	// TODO: VULKAN: need to use scale of vanilla texture, not from hi rez pack?
 	vk_texture_t* tex = findTexture(texture);
-	if (tex != NULL) {
+	if ( tex != NULL && width && height ) {
 		*width = tex->width;
 		*height = tex->height;
 	}
@@ -404,14 +445,14 @@ static int SHClip( float *vert, int vertCount, float *out, int edge )
 
 float *R_DoDecalSHClip( float *pInVerts, decal_t *pDecal, int nStartVerts, int *pVertCount )
 {
-	float	*pOutVerts = g_DecalClipVerts[0];
+	float	*pOutVerts = g_decals.g_DecalClipVerts[0];
 	int	outCount;
 
 	// clip the polygon to the decal texture space
-	outCount = SHClip( pInVerts, nStartVerts, g_DecalClipVerts2[0], LEFT_EDGE );
-	outCount = SHClip( g_DecalClipVerts2[0], outCount, g_DecalClipVerts[0], RIGHT_EDGE );
-	outCount = SHClip( g_DecalClipVerts[0], outCount, g_DecalClipVerts2[0], TOP_EDGE );
-	outCount = SHClip( g_DecalClipVerts2[0], outCount, pOutVerts, BOTTOM_EDGE );
+	outCount = SHClip( pInVerts, nStartVerts, g_decals.g_DecalClipVerts2[0], LEFT_EDGE );
+	outCount = SHClip( g_decals.g_DecalClipVerts2[0], outCount, g_decals.g_DecalClipVerts[0], RIGHT_EDGE );
+	outCount = SHClip( g_decals.g_DecalClipVerts[0], outCount,  g_decals.g_DecalClipVerts2[0], TOP_EDGE );
+	outCount = SHClip( g_decals.g_DecalClipVerts2[0], outCount, pOutVerts, BOTTOM_EDGE );
 
 	if( pVertCount )
 		*pVertCount = outCount;
@@ -431,9 +472,9 @@ float *R_DecalVertsClip( decal_t *pDecal, msurface_t *surf, int texture, int *pV
 	R_SetupDecalClip( pDecal, surf, texture, textureSpaceBasis, decalWorldScale );
 
 	// build the initial list of vertices from the surface verts.
-	//R_SetupDecalVertsForMSurface( pDecal, surf, textureSpaceBasis, g_DecalClipVerts[0] );
+	//R_SetupDecalVertsForMSurface( pDecal, surf, textureSpaceBasis, g_decals.g_DecalClipVerts[0] );
 
-	//return R_DoDecalSHClip( g_DecalClipVerts[0], pDecal, surf->polys->numverts, pVertCount );
+	//return R_DoDecalSHClip( g_decals.g_DecalClipVerts[0], pDecal, surf->polys->numverts, pVertCount );
 }
 
 // Generate lighting coordinates at each vertex for decal vertices v[] on surface psurf
@@ -571,10 +612,10 @@ glpoly_t *R_DecalCreatePoly( decalinfo_t *decalinfo, decal_t *pdecal, msurface_t
 
 	// allocate glpoly
 	// REFTODO: com_studiocache pool!
-	poly = Mem_Calloc( *(g_decals.mempool), sizeof( glpoly_t ) + ( lnumverts - 4 ) * VERTEXSIZE * sizeof( float ));
-	// FIXME: VULKAN: return native memory management
-	//poly = getPolyFromPool();
-	poly->next = pdecal->polys;
+	//poly = Mem_Calloc( *(g_decals.mempool), sizeof( glpoly_t ) + ( lnumverts - 4 ) * VERTEXSIZE * sizeof( float ));
+
+	poly->next = decalinfo->vk_decal->polys[ decalinfo->vk_decal->polys_count++ ];
+	//poly->next = pdecal->polys;
 	poly->flags = surf->flags;
 	pdecal->polys = poly;
 	poly->numverts = lnumverts;
@@ -626,6 +667,7 @@ static void R_AddDecalToSurface( decal_t *pdecal, msurface_t *surf, decalinfo_t 
 
 static void R_DecalCreate( decalinfo_t *decalinfo, msurface_t *surf, float x, float y )
 {
+	vk_decal_t* vk_decal;
 	decal_t	*pdecal, *pold;
 	int	count, vertCount = 0;
 
@@ -634,8 +676,11 @@ static void R_DecalCreate( decalinfo_t *decalinfo, msurface_t *surf, float x, fl
 	pold = R_DecalIntersect( decalinfo, surf, &count );
 	if( count < MAX_OVERLAP_DECALS ) pold = NULL;
 
-	pdecal = R_DecalAlloc( pold );
-	if( !pdecal ) return; // r_decals == 0 ???
+	vk_decal = newDecal( decalinfo->m_Flags );
+	pdecal = &vk_decal.decal;
+
+	//pdecal = R_DecalAlloc( pold );
+	//if( !pdecal ) return; // r_decals == 0 ???
 
 	pdecal->flags = decalinfo->m_Flags;
 
@@ -667,7 +712,7 @@ void R_DecalSurface( msurface_t *surf, decalinfo_t *decalinfo )
 {
 	// get the texture associated with this surface
 	mtexinfo_t	*tex = surf->texinfo;
-	decal_t		*decal = surf->pdecals;
+	//decal_t		*decal = surf->pdecals;
 	vec4_t		textureU, textureV;
 	float		s, t, w, h;
 
@@ -679,12 +724,12 @@ void R_DecalSurface( msurface_t *surf, decalinfo_t *decalinfo )
 	//{
 		// NOTE: we may have the decal on this surface that come from another level.
 		// check duplicate with same position and texture
-		while( decal != NULL )
-		{
-			if( VectorCompare( decal->position, decalinfo->m_Position ) && decal->texture == decalinfo->m_iTexture )
-				return; // decal already exists, don't place it again
-			decal = decal->pnext;
-		}
+		//while( decal != NULL )
+		//{
+		//	if( VectorCompare( decal->position, decalinfo->m_Position ) && decal->texture == decalinfo->m_iTexture )
+		//		return; // decal already exists, don't place it again
+		//	decal = decal->pnext;
+		//}
 	//}
 
 	Vector4Copy( tex->vecs[0], textureU );
@@ -839,10 +884,6 @@ void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos
 		return;
 	}
 
-	// FIXME: Get pool by any other way, not this, please
-	if ( g_decals.mempool == 0 )
-		g_decals.mempool = &( model->mempool );
-
 	decalInfo.m_pModel = model;
 	hull = &model->hulls[0];	// always use #0 hull
 
@@ -910,7 +951,7 @@ float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *o
 
 	if( p )
 	{
-		v = g_DecalClipVerts[0];
+		v = g_decals.g_DecalClipVerts[0];
 		count = p->numverts;
 		v2 = p->verts[0];
 
@@ -925,7 +966,7 @@ float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *o
 		}
 
 		// restore pointer
-		v = g_DecalClipVerts[0];
+		v = g_decals.g_DecalClipVerts[0];
 	}
 	else
 	{
