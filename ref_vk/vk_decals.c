@@ -74,7 +74,22 @@ static float	g_DecalClipVerts2[MAX_DECALCLIPVERT][VERTEXSIZE];
 decal_t	gDecalPool[MAX_RENDER_DECALS];
 static int	gDecalCount;
 
-poolhandle_t decals_temppool;
+//#define POLYS_POOL_SIZE 10000
+
+static struct {
+	poolhandle_t* mempool;
+
+	//glpoly_t polysPool[POLYS_POOL_SIZE];
+	//uint polyPoolIndex;
+} g_decals = { 0 };
+
+//glpoly_t* getPolyFromPool( void )
+//{
+//	if ( ++g_decals.polyPoolIndex >= (POLYS_POOL_SIZE - 8))
+//		g_decals.polyPoolIndex = 0;
+//
+//	return &g_decals.polysPool[ g_decals.polyPoolIndex ];
+//}
 
 void R_ClearDecals( void )
 {
@@ -416,40 +431,39 @@ float *R_DecalVertsClip( decal_t *pDecal, msurface_t *surf, int texture, int *pV
 	R_SetupDecalClip( pDecal, surf, texture, textureSpaceBasis, decalWorldScale );
 
 	// build the initial list of vertices from the surface verts.
-	R_SetupDecalVertsForMSurface( pDecal, surf, textureSpaceBasis, g_DecalClipVerts[0] );
+	//R_SetupDecalVertsForMSurface( pDecal, surf, textureSpaceBasis, g_DecalClipVerts[0] );
 
-	return R_DoDecalSHClip( g_DecalClipVerts[0], pDecal, surf->polys->numverts, pVertCount );
+	//return R_DoDecalSHClip( g_DecalClipVerts[0], pDecal, surf->polys->numverts, pVertCount );
 }
 
 // Generate lighting coordinates at each vertex for decal vertices v[] on surface psurf
 static void R_DecalVertsLight( float *v, msurface_t *surf, int vertCount )
 {
-	// TODO: VULKAN : is this need for us?
-	//float		s, t;
-	//mtexinfo_t	*tex;
-	//mextrasurf_t	*info = surf->info;
-	//float		sample_size;
-	//int		j;
+	float		s, t;
+	mtexinfo_t	*tex;
+	mextrasurf_t	*info = surf->info;
+	float		sample_size;
+	int		j;
 
-	//sample_size = gEngine.Mod_SampleSizeForFace( surf );
-	//tex = surf->texinfo;
+	sample_size = gEngine.Mod_SampleSizeForFace( surf );
+	tex = surf->texinfo;
 
-	//for( j = 0; j < vertCount; j++, v += VERTEXSIZE )
-	//{
-	//	// lightmap texture coordinates
-	//	s = DotProduct( v, info->lmvecs[0] ) + info->lmvecs[0][3] - info->lightmapmins[0];
-	//	s += surf->light_s * sample_size;
-	//	s += sample_size * 0.5f;
-	//	s /= BLOCK_SIZE * sample_size; //fa->texinfo->texture->width;
+	for( j = 0; j < vertCount; j++, v += VERTEXSIZE )
+	{
+		// lightmap texture coordinates
+		s = DotProduct( v, info->lmvecs[0] ) + info->lmvecs[0][3] - info->lightmapmins[0];
+		s += surf->light_s * sample_size;
+		s += sample_size * 0.5f;
+		s /= BLOCK_SIZE * sample_size; //fa->texinfo->texture->width;
 
-	//	t = DotProduct( v, info->lmvecs[1] ) + info->lmvecs[1][3] - info->lightmapmins[1];
-	//	t += surf->light_t * sample_size;
-	//	t += sample_size * 0.5f;
-	//	t /= BLOCK_SIZE * sample_size; //fa->texinfo->texture->height;
+		t = DotProduct( v, info->lmvecs[1] ) + info->lmvecs[1][3] - info->lightmapmins[1];
+		t += surf->light_t * sample_size;
+		t += sample_size * 0.5f;
+		t /= BLOCK_SIZE * sample_size; //fa->texinfo->texture->height;
 
-	//	v[5] = s;
-	//	v[6] = t;
-	//}
+		v[5] = s;
+		v[6] = t;
+	}
 }
 
 // Check for intersecting decals on this surface
@@ -557,8 +571,9 @@ glpoly_t *R_DecalCreatePoly( decalinfo_t *decalinfo, decal_t *pdecal, msurface_t
 
 	// allocate glpoly
 	// REFTODO: com_studiocache pool!
-	// DOTO: VULKAN: changed to static array
-	poly = Mem_Calloc( decals_temppool, sizeof( glpoly_t ) + ( lnumverts - 4 ) * VERTEXSIZE * sizeof( float ));
+	poly = Mem_Calloc( *(g_decals.mempool), sizeof( glpoly_t ) + ( lnumverts - 4 ) * VERTEXSIZE * sizeof( float ));
+	// FIXME: VULKAN: return native memory management
+	//poly = getPolyFromPool();
 	poly->next = pdecal->polys;
 	poly->flags = surf->flags;
 	pdecal->polys = poly;
@@ -612,7 +627,7 @@ static void R_AddDecalToSurface( decal_t *pdecal, msurface_t *surf, decalinfo_t 
 static void R_DecalCreate( decalinfo_t *decalinfo, msurface_t *surf, float x, float y )
 {
 	decal_t	*pdecal, *pold;
-	int	count, vertCount;
+	int	count, vertCount = 0;
 
 	if( !surf ) return;	// ???
 
@@ -640,8 +655,7 @@ static void R_DecalCreate( decalinfo_t *decalinfo, msurface_t *surf, float x, fl
 
 	if( !vertCount )
 	{
-		// TODO: VULKAN: free this decal
-		//R_DecalUnlink( pdecal );
+		R_DecalUnlink( pdecal );
 		return;
 	}
 
@@ -754,7 +768,6 @@ static void R_DecalNode( model_t *model, mnode_t *node, decalinfo_t *decalinfo )
 	float	dist;
 
 	ASSERT( node != NULL );
-	//Assert( node != NULL );
 
 	if( node->contents < 0 )
 	{
@@ -800,11 +813,6 @@ void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos
 	int		width, height;
 	hull_t		*hull;
 
-	// FIXME: Dummy code only for debug building
-	gEngine.Con_Printf("DECALS SHOOT!!!\n");
-
-	return;
-
 	if( textureIndex <= 0 || textureIndex >= MAX_TEXTURES )
 	{
 		gEngine.Con_Printf( S_ERROR "Decal has invalid texture!\n" );
@@ -830,6 +838,10 @@ void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos
 		gEngine.Con_Printf( S_ERROR "Decals must hit mod_brush!\n" );
 		return;
 	}
+
+	// FIXME: Get pool by any other way, not this, please
+	if ( g_decals.mempool == 0 )
+		g_decals.mempool = &( model->mempool );
 
 	decalInfo.m_pModel = model;
 	hull = &model->hulls[0];	// always use #0 hull
