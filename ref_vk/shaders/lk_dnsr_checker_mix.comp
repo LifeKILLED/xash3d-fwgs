@@ -1,0 +1,110 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "lk_dnsr_spherical_harmonics.glsl"
+#include "brdf.h"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D dest;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_frame_color;
+layout(set = 0, binding = 2, rgba8) uniform readonly image2D src_base_color;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_t;
+
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
+	float ray_cone_width;
+	uint random_seed;
+};
+
+layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; };
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_base_color));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
+
+	if (any(greaterThanEqual(pix, res)))
+		return;
+
+	const ivec3 pix_source_a = CheckerboardToPix(pix, res);
+	const ivec2 pix_source = pix_source_a.xy;
+	const int center_is_transparent = pix_source_a.b;
+
+	const vec4 center_color = imageLoad(src_frame_color, pix);
+	const float center_alpha = imageLoad(src_base_color, pix).a;
+	const vec3 position = imageLoad(src_position_t, pix).xyz;
+
+	const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+	const vec3 direction = normalize(position - origin);
+
+	vec3 center_geometry_normal, center_shading_normal;
+	readNormals(pix, center_geometry_normal, center_shading_normal);
+
+	const ivec2 neighboors_offsets[4] = {
+		ivec2(1, 0),
+		ivec2(-1, 0),
+		ivec2(0, 1),
+		ivec2(0, -1),
+	};
+
+	float weight = 0.;
+	vec4 neighboors_color_a = vec4(0.);
+	vec3 neighboors_normal = vec3(0.);
+	for (int i = 0; i < 4; i++) {
+		ivec2 p = pix_source + neighboors_offsets[i];
+		if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0))))
+			continue;
+
+		const ivec2 p_checker = PixToCheckerboard(p, res).xy;
+
+		const float neighboor_alpha = imageLoad(src_base_color, p_checker).a;
+
+		// for opaque texel need to sample only neighboors with transparency
+		if (center_is_transparent == 0 && neighboor_alpha > 0.999)
+			continue;
+
+		const vec3 neighboor_color = imageLoad(src_frame_color, p_checker).rgb;
+
+		vec3 neigh_geometry_normal, neigh_shading_normal;
+		readNormals(p_checker, neigh_geometry_normal, neigh_shading_normal);
+
+		neighboors_color_a += vec4(neighboor_color, neighboor_alpha);
+		neighboors_normal += neigh_shading_normal;
+		weight += 1.;
+	}
+
+	if (weight > 0.1) {
+		neighboors_color_a /= weight;
+		neighboors_normal = normalize(neighboors_normal);
+
+		// correct roughness by frehnel
+		const vec3 transparent_normal = center_is_transparent == 0 ? neighboors_normal : center_geometry_normal;
+		const float result_alpha = center_is_transparent == 0 ? neighboors_color_a.a : center_alpha;
+
+		// TODO: fix frehnel transparency limit
+		const float tangent_limit = smoothstep(0.45, 1., max(0., dot(direction, -transparent_normal)));
+		const float fresnel_transparency = mix(1., result_alpha, tangent_limit);
+
+		const float blend_alpha = center_is_transparent == 0 ? fresnel_transparency : 1. - fresnel_transparency;
+		const vec4 result_color = mix(center_color, neighboors_color_a, blend_alpha);
+
+		imageStore(dest, pix_source, result_color);
+	
+	} else { 
+		// There is not find transparency texels
+		imageStore(dest, pix_source, center_color);
+	}
+}

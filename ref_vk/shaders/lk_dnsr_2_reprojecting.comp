@@ -1,0 +1,237 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "lk_dnsr_spherical_harmonics.glsl"
+
+const float uv_treshold = 0.025;
+const float ray_length_difference_treshold = 1.1;
+const float distance_treshold = 5.0;
+const float normal_treshold_low = 0.95;
+const float normal_treshold_high = 0.98;
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f)  uniform image2D out_history_diffuse;
+layout(set = 0, binding = 1, rgba16f)  uniform image2D out_history_specular;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_history_gi_sh1;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_history_gi_sh2;
+
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_refl_position_t;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_search_info_ktuv;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_last_position_t;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_last_normals_gs;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
+layout(set = 0, binding = 11, rgba16f)  uniform readonly image2D src_last_diffuse;
+layout(set = 0, binding = 12, rgba16f)  uniform readonly image2D src_last_specular;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_last_gi_sh1;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_last_gi_sh2;
+layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D src_previous_position_t;
+
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
+	float ray_cone_width;
+	uint random_seed;
+};
+
+layout(set = 0, binding = 17) uniform UBO { UniformBuffer ubo; };
+
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+void readNormalsLast(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_last_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+void main() {
+	const ivec2 res = ivec2(imageSize(src_position_t));
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	ivec3 pix_src = CheckerboardToPix(pix, res);
+	int is_transparent_texel = pix_src.b;
+	const vec2 uv = PixToUV(pix_src.xy, res);
+
+	const vec3 position = imageLoad(src_position_t, pix).xyz;
+	const vec3 previous_position = imageLoad(src_previous_position_t, pix).xyz;
+	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
+	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
+	const float roughness = material_rmxx.r;
+	const float metalness = material_rmxx.g;
+
+	vec3 shadingNormal, geometryNormal;
+	readNormals(pix, geometryNormal, shadingNormal);
+
+	const vec3 origin = OriginWorldPosition(ubo.inv_view);
+
+	const int texel_flags = int(material_rmxx.b + 0.01);
+
+			// ---------------------------------------- //
+			// Simple reprojecting for diffuse lighting //
+			// ---------------------------------------- //
+
+	const vec3 last_origin = OriginWorldPosition(ubo.last_inv_view);
+
+	const vec3 last_uv_w = WorldPositionToUV2(previous_position, ubo.last_inv_proj, ubo.last_inv_view);
+	const ivec2 last_pix_src = UVToPix(last_uv_w.xy, res);
+	const ivec2 last_pix = PixToCheckerboard(last_pix_src, res, is_transparent_texel, texel_flags).xy;	
+
+	//const ivec2 current_pix = pix;
+
+	//const float depth = length(origin - position);
+
+	//float last_depth = -1000.; // guaranted non-equal
+	//const float depth_need = length(last_origin - previous_position);
+	const float reflection_ray_lenth = length(reflection_pos - position);
+
+	ivec2 out_forward_coord = ivec2(-100, 0);
+	ivec2 out_parallax_coord = ivec2(-100, 0);
+
+	if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix_src, ivec2(0))) && any(lessThan(last_pix_src, res))) {
+		const vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
+		//last_depth = length(last_origin - last_position);
+		//const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); 
+		if (length(last_position - previous_position) < 10.) { // same depth
+			out_forward_coord = last_pix;
+		}
+	}
+
+			// ------------------------------------- //
+			// Parallax reprojecting for reflections //
+			// ------------------------------------- //
+
+	// If there is simple reprojection
+	if (out_forward_coord.x > -99.) {
+
+		// get surface normal from previous frame surface
+		const ivec2 forward_pix = ivec2(out_forward_coord);
+		vec3 forward_shadingNormal, forward_geometryNormal;
+		readNormalsLast(forward_pix.xy, forward_geometryNormal, forward_shadingNormal);
+		const vec3 last_normal = normalize(forward_geometryNormal.xyz);
+		const vec3 current_normal = normalize(geometryNormal.xyz);
+		const vec4 last_position_t = imageLoad(src_last_position_t, forward_pix.xy);
+
+		//		
+		//	origin (camera)
+		//	       []<          reflection destination
+		//		 	| \        (UwU) (reflected in
+		//			|   \     /  |    surface texel)
+		//			|     \ /    |
+		//	--------x------x-----x------------
+		//	origin on      ^   reflection on plane
+		//	   plane	   |
+		//				reflection center
+		//		(surface texel in current frame)
+		//		(need to find it in last frame)
+		//		
+
+		// Parallax reprojection
+		const vec3 reflection_destination = reflect(normalize(position - origin), current_normal) * length(reflection_pos.xyz - position) + position;
+		const float reflection_distance_to_plane = dot(last_normal, reflection_destination - last_position_t.xyz);
+		const vec3 reflection_on_plane = reflection_destination - last_normal * reflection_distance_to_plane;
+		const float last_distance_to_plane = dot(last_normal, last_origin - last_position_t.xyz);
+		const vec3 last_origin_on_plane = last_origin - last_normal * last_distance_to_plane;
+		const float reflection_center = last_distance_to_plane / (last_distance_to_plane + reflection_distance_to_plane);
+		const vec3 reflection_parallax_position = mix(last_origin_on_plane, reflection_on_plane, reflection_center);
+		const float nesessary_ray_lenth = max(0.001, length(reflection_parallax_position - reflection_destination));
+
+		// we need to check ray lengths harder in low-roughness mirrors
+		const float actual_difference_treshold = mix(50., 1000., smoothstep(0., 0.3, roughness));
+
+		const vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.last_inv_proj, ubo.last_inv_view);
+		const ivec2 parallax_pix_src = UVToPix(parallax_uv.xy, res);
+
+		// in front of camera and in bounds of frame
+		if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix_src, ivec2(0))) && any(lessThan(parallax_pix_src, res))) {
+			const ivec2 parallax_pix = PixToCheckerboard(parallax_pix_src, res, is_transparent_texel, texel_flags).xy;
+			
+			// last ray length stored in gi_sh2.w for metal surfaces, for diffuse materials it's don't a critic
+			const float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
+			const float ray_length_difference = abs(nesessary_ray_lenth - last_ray_length);
+
+			// Better fitting by normals we searched in next block
+			vec3 parallax_shadingNormal, parallax_geometryNormal;
+			readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
+
+			if (ray_length_difference < actual_difference_treshold
+				&& dot(last_normal, normalize(parallax_shadingNormal)) > normal_treshold_low) {
+
+				out_parallax_coord = parallax_pix;
+			}
+		}
+
+		// Search better fitting by normals for reflection destination comparation
+		float best_destination_difference = -1.;
+		if (out_parallax_coord.x > -99) {
+			for (float n = 1.; n >= 0.; n -= 0.05) {
+				const ivec2 parallax_search_pix_src = ivec2(mix(vec2(last_pix_src), vec2(parallax_pix_src), n));
+				const ivec2 parallax_search_pix = PixToCheckerboard(parallax_search_pix_src, res, is_transparent_texel, texel_flags).xy;
+				if (any(greaterThanEqual(parallax_search_pix, ivec2(0))) && any(lessThan(parallax_search_pix, res))) {
+
+					const vec4 last_material_rmxx = imageLoad(src_material_rmxx, parallax_search_pix);
+					const int last_texel_flags = int(last_material_rmxx.z + 0.01);
+
+					if (last_texel_flags != texel_flags)
+						continue;
+
+					const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_search_pix).xyz;
+				
+					vec3 parallax_shadingNormal, parallax_geometryNormal;
+					readNormals(parallax_search_pix, parallax_geometryNormal, parallax_shadingNormal);
+
+					const vec3 last_reflection_destination = normalize(reflect(normalize(last_parallax_texel_pos - last_origin), parallax_shadingNormal));
+					const float destination_difference = dot(normalize(reflection_destination - last_parallax_texel_pos), last_reflection_destination);
+
+					if (destination_difference > best_destination_difference) {
+						best_destination_difference = destination_difference;
+						out_parallax_coord = parallax_search_pix;
+					}
+				}
+			}
+		}
+	}
+
+	vec4 out_diffuse = vec4(0.);
+	vec4 out_specular = vec4(0.);
+	vec4 out_gi_sh1 = vec4(0.);
+	vec4 out_gi_sh2 = vec4(0.);
+
+	// for metal surfaces try to reproject gi from second bounce
+	const ivec2 gi_coord = (metalness > .5 || out_parallax_coord.x > -99) ? out_parallax_coord : out_forward_coord;
+
+	if (out_forward_coord.x > -99) {
+		out_diffuse = imageLoad(src_last_diffuse, out_forward_coord);
+		out_diffuse.w += 1.; // add to reprojected samples counter
+	}
+
+	if (out_parallax_coord.x > -99) {
+		out_specular = imageLoad(src_last_specular, out_parallax_coord);
+		out_specular.w += 1.; // add to reprojected samples counter
+	}
+
+	if (gi_coord.x > -99) {
+		out_gi_sh1 = imageLoad(src_last_gi_sh1, gi_coord);
+		out_gi_sh2 = imageLoad(src_last_gi_sh2, gi_coord);
+		out_gi_sh2.z += 1.; // add to reprojected samples counter
+	}
+
+	imageStore(out_history_diffuse, pix, out_diffuse);
+	imageStore(out_history_specular, pix, out_specular);
+	imageStore(out_history_gi_sh1, pix, out_gi_sh1);
+	imageStore(out_history_gi_sh2, pix, out_gi_sh2);
+}

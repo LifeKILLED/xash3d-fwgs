@@ -1,0 +1,6 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define OFFSET ivec2(7, 14)
+
+#include "lk_dnsr_gi_blur.glsl"

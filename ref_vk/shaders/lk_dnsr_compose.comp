@@ -1,0 +1,274 @@
+#version 460
+
+#include "brdf.h"
+#include "noise.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "lk_dnsr_spherical_harmonics.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D dest;
+
+layout(set = 0, binding = 1, rgba8) uniform readonly image2D src_base_color;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_emissive;
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_normals_gs;
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
+
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_diffuse;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D src_specular;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_gi_sh1;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_gi_sh2;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_refl_position_t;
+
+
+struct UniformBuffer {
+	mat4 inv_proj, inv_view;
+	mat4 last_inv_proj, last_inv_view;
+	float ray_cone_width;
+	uint random_seed;
+};
+
+layout(set = 0, binding = 11) uniform UBO { UniformBuffer ubo; };
+
+
+//layout(set = 0, binding = 2, rgba16f) uniform readonly image2D src_light_direct_poly_diffuse;
+/* layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_specular; */
+/* layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_additive; */
+/* layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_normals; */
+/* layout(set = 0, binding = 6, rgba32f) uniform readonly image2D src_position_t; */
+
+// Blatantly copypasted from https://www.shadertoy.com/view/XsGfWV
+vec3 aces_tonemap(vec3 color){
+	mat3 m1 = mat3(
+		0.59719, 0.07600, 0.02840,
+		0.35458, 0.90834, 0.13383,
+		0.04823, 0.01566, 0.83777
+	);
+	mat3 m2 = mat3(
+		1.60475, -0.10208, -0.00327,
+		-0.53108,  1.10813, -0.07276,
+		-0.07367, -0.00605,  1.07602
+	);
+	vec3 v = m1 * color;
+	vec3 a = v * (v + 0.0245786) - 0.000090537;
+	vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+	//return pow(clamp(m2 * (a / b), 0.0, 1.0), vec3(1.0 / 2.2));
+	return clamp(m2 * (a / b), 0.0, 1.0);
+}
+
+vec3 reinhard(vec3 color){
+	return color / (color + 1.0);
+}
+
+vec3 reinhard02(vec3 c, vec3 Cwhite2) {
+	return c * (1. + c / Cwhite2) / (1. + c);
+}
+
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(src_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_base_color));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const vec3 origin    = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+	const vec4 target    = ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+	const vec3 direction = normalize((ubo.inv_view * vec4(target.xyz, 0)).xyz);
+
+	/* if (pix.y < res.y / 3) { */
+	/* 	imageStore(dest, pix, vec4(pow(float(pix.x) / res.x, 2.2))); return; */
+	/* } else if (pix.y < res.y * 2 / 3) { */
+	/* 	imageStore(dest, pix, vec4(float(pix.x) / res.x)); return; */
+	/* } else { */
+	/* 	imageStore(dest, pix, vec4(sqrt(float(pix.x) / res.x))); return; */
+	/* } */
+
+	//const float material_index = imageLoad(src_light_direct_poly, pix).a;
+
+	//imageStore(dest, pix, vec4(aces_tonemap(base_color.rgb), 0.)); return;
+	//imageStore(dest, pix, vec4((base_color.rgb), 0.)); return;
+	//imageStore(dest, pix, vec4(fract(imageLoad(src_position_t, pix).rgb / 10.), 0.)); return;
+	//imageStore(dest, pix, vec4((imageLoad(src_light_direct_poly, pix).rgb), 0.)); return;
+	//imageStore(dest, pix, vec4((imageLoad(src_light_direct_poly, pix).rgb * base_color.rgb), 0.)); return;
+	//imageStore(dest, pix, vec4(imageLoad(src_normals, pix)*.5 + .5f)); return;
+	//imageStore(dest, pix, vec4(imageLoad(src_specular, pix)*.5 + .5f)); return;
+	//imageStore(dest, pix, vec4(aces_tonemap(imageLoad(src_light_direct_poly, pix).rgb), 0.)); return;
+	//imageStore(dest, pix, vec4(aces_tonemap(imageLoad(src_specular, pix).rgb), 0.)); return;
+
+	vec3 geometry_normal, shading_normal;
+	readNormals(pix, geometry_normal, shading_normal);
+
+	//imageStore(dest, pix, vec4(.5 + geometry_normal * .5, 0.)); return;
+
+	/* const uint mi = uint(material_index); */
+	/* imageStore(dest, pix, vec4(rand3_f01(uvec3(mi,mi+1,mi+2)), 0.)); */
+	/* return; */
+
+	vec3 colour = vec3(0.);
+	vec3 diffuse = vec3(0.);
+	vec3 specular = vec3(0.);
+//#if 1
+
+
+//#else
+	float total_scale = 0.;
+	const int KERNEL_SIZE = 4;
+	float specular_total_scale = 0.;
+	vec3 speculour = vec3(0.);
+
+//	const vec4 center_pos = imageLoad(src_position_t, pix);
+//	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x)
+//		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+//			const ivec2 p = pix + ivec2(x, y);
+//			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+//				continue;
+//			}
+//
+//			float scale = 1.f;
+//
+//			// const vec4 c = imageLoad(src_light_direct_poly, p);
+//			// if (c.a != material_index)
+//			// 	continue;
+//
+//			vec3 sample_geometry_normal, sample_shading_normal;
+//			readNormals(p, sample_geometry_normal, sample_shading_normal);
+//
+//			// FIXME also filter by depth, (kusok index?), etc
+//			//scale *= smoothstep(.9, 1., dot(sample_geometry_normal, geometry_normal));
+//
+//			const vec4 sample_pos = imageLoad(src_position_t, p);
+//			scale *= smoothstep(4. * center_pos.w / 100., 0., distance(center_pos.xyz, sample_pos.xyz));
+//
+//			if ( scale <= 0. )
+//				continue;
+//
+//			vec3 diffuse = vec3(0.);
+//			diffuse += imageLoad(src_diffuse, p).rgb;
+//
+//			vec3 specular = vec3(0.);
+//			specular += imageLoad(src_specular, p).rgb;
+//
+//			{
+//				const float sigma = KERNEL_SIZE / 2.;
+//				const float dscale = scale * normpdf(x, sigma) * normpdf(y, sigma);
+//				colour += dscale * diffuse;
+//				total_scale += dscale;
+//			}
+//
+//			const int SPECULAR_KERNEL_SIZE = 4;
+//			if (all(lessThan(abs(ivec2(x, y)), ivec2(SPECULAR_KERNEL_SIZE)))) {
+//				const float spigma = SPECULAR_KERNEL_SIZE / 2.;
+//				const float specuale = scale * normpdf(x, spigma) * normpdf(y, spigma);
+//				speculour += specuale * specular;
+//				specular_total_scale += specuale;
+//			}
+//		}
+//
+//	if (total_scale > 0.) {
+//		colour /= total_scale;
+//	}
+//
+//	if (specular_total_scale > 0.) {
+//		speculour /= specular_total_scale;
+//		colour += speculour;
+//	}
+//#endif
+
+	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
+	const float roughness = material_rmxx.r;
+	const float metalness = material_rmxx.g;
+
+	// emissive/sky
+	colour += imageLoad(src_emissive, pix).rgb;
+
+	// albedo
+	const vec4 base_color_a = imageLoad(src_base_color, pix);
+	const vec3 base_color = SRGBtoLINEAR(base_color_a.rgb);
+
+	// gray material diffuse component
+	diffuse = imageLoad(src_diffuse, pix).rgb;
+
+	// specular from point lights
+	specular = imageLoad(src_specular, pix).rgb;
+
+	//const vec3 refl_dir = imageLoad(src_refl_position_t, pix).xyz - imageLoad(src_position_t, pix).xyz;
+	const vec3 refl_dir = reflect(normalize(imageLoad(src_position_t, pix).xyz - origin), shading_normal);
+
+	// global illumination re-light
+	SH low_freq;
+	low_freq.shY = imageLoad(src_gi_sh1, pix);
+	low_freq.CoCg = imageLoad(src_gi_sh2, pix).xy;
+
+	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF;
+	const vec3 reflect_gi = project_SH_irradiance(low_freq, normalize(refl_dir)) / STORAGE_SCALE_LF;
+
+	specular = mix(specular, reflect_gi, smoothstep(.4,.6, roughness)); // high-roughness reflection so noisy, filter it like GI
+	//specular *= 4.; // TODO: ????
+
+	// try to reconstruct pbr-like picture from all components
+//	float grayscale = (base_color.r + base_color.g + base_color.b) * 0.33;
+//	float specular_level = pow(grayscale, 0.45); // fake specular map
+
+	// global illumination
+	//vec3 global_illumination =	vec3(0.);
+
+	// correct roughness by frehnel
+	const float NdotS = max(0., dot(normalize(direction.xyz), normalize(-shading_normal)));
+	const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
+
+	// pbr
+	colour += PBRMixFresnel(base_color, diffuse + diffuse_gi, specular, metalness, fresnel);
+
+	//colour *= imageLoad(src_gi_sh2, pix).w / 1000.;
+
+	//colour = specular;
+
+	//colour = diffuse_gi;
+
+	//colour = diffuse;
+
+	//colour = specular * 0.1 + base_color * 0.02;
+	//colour = vec3(1., 0., 0.);
+
+	// HACK: exposure
+	// TODO: should be dynamic based on previous frames brightness
+#if 0
+	if (pix.x >= res.x / 2) {
+		colour *= 8.;
+	}
+#else
+	//colour *= .25;
+#endif
+
+	//colour = aces_tonemap(colour);
+	//colour = reinhard02(colour, vec3(400.));
+	//colour = reinhard02(colour, vec3(1.));
+
+#if 0
+	if (pix.x < res.x / 2) {
+#endif
+		//colour *= .25;
+		//colour = pow(colour, vec3(1. / 2.2));
+		colour = LINEARtoSRGB(colour); // gamma-correction
+#if 0
+	}
+#endif
+
+	//colour = colour  * 0.2 + vec4(imageLoad(src_blue_noise, ivec2(pix.x % 64, pix.y % 64))).rgb;
+
+	imageStore(dest, pix, vec4(colour, 0.));
+	//imageStore(dest, pix, imageLoad(src_light_direct_poly, pix));
+}

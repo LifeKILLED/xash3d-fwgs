@@ -1,0 +1,56 @@
+#version 460
+
+#ifndef KERNEL_SIZE
+#define KERNEL_SIZE 2
+#endif
+
+#include "noise.glsl"
+#include "brdf.h"
+#include "utils.glsl"
+#include "lk_dnsr_utils.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_variance;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_color_noisy;
+
+
+void main() {
+	ivec2 res = ivec2(imageSize(src_color_noisy));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+
+
+	float variance = 0.; // default value
+	const float sigma = KERNEL_SIZE / 2.;
+	vec2 sigma_variance = vec2(0.0, 0.0);
+	float weight_sum = 0.;
+	for (int x = -KERNEL_SIZE; x <= KERNEL_SIZE; ++x) {
+		for (int y = -KERNEL_SIZE; y <= KERNEL_SIZE; ++y) {
+			const ivec2 p = pix + ivec2(x, y);
+			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+				continue;
+			}
+
+			const float weight = normpdf(x, sigma) * normpdf(y, sigma);
+			//const float weight = 1.;
+
+			const vec3 current_irradiance = imageLoad(src_color_noisy, p).rgb;
+			float current_luminance = luminance(current_irradiance);
+			sigma_variance += vec2(current_luminance, current_luminance * current_luminance ) * weight;
+			weight_sum += weight;
+		}
+	}
+
+	if (weight_sum > 0.) {
+		sigma_variance /= weight_sum;
+		variance = max(0.0, sigma_variance.y - sigma_variance.x * sigma_variance.x);
+	}
+
+	imageStore(out_variance, pix, vec4(variance, 0., 0., 0.));
+}
