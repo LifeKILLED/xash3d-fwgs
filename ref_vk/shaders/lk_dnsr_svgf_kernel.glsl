@@ -23,11 +23,11 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D OUTPUT_IMAGE;
 
 layout(set = 0, binding = 1, rgba16f) uniform readonly image2D INPUT_IMAGE;
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D VARIANCE_IMAGE;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_depth; // for depth
-layout(set = 0, binding = 5, rgba8) uniform readonly image2D src_material_rmxx;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D position_depth; // for depth
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D material_rmxx;
 //#ifdef DRIVEN_BY_RAY_LENGTH
-//	layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_refl_position_t; // for reflection ray length
+//	layout(set = 0, binding = 5, rgba32f) uniform readonly image2D refl_position_t; // for reflection ray length
 //#endif
 
 // Normal-weighting function (4.4.1)
@@ -45,12 +45,12 @@ float depthWeight(float depth0, float depth1, vec2 grad, vec2 offset) {
 }
 
 // Self-made depth gradient for compute shader (is it fine on edges?)
-vec2 depthGradient(float src_depth, ivec2 pix, ivec2 res) {
-	vec4 depth_samples = vec4(src_depth);
-	if ((pix.x + 1) < res.x) depth_samples.x = imageLoad(src_position_depth, pix + ivec2(1, 0)).w;
-	if ((pix.x - 1) >= 0) depth_samples.y = imageLoad(src_position_depth, pix - ivec2(1, 0)).w;
-	if ((pix.y + 1) < res.y) depth_samples.z = imageLoad(src_position_depth, pix + ivec2(0, 1)).w;
-	if ((pix.y - 1) >= 0) depth_samples.w = imageLoad(src_position_depth, pix - ivec2(0, 1)).w;
+vec2 depthGradient(float depth, ivec2 pix, ivec2 res) {
+	vec4 depth_samples = vec4(depth);
+	if ((pix.x + 1) < res.x) depth_samples.x = imageLoad(position_depth, pix + ivec2(1, 0)).w;
+	if ((pix.x - 1) >= 0) depth_samples.y = imageLoad(position_depth, pix - ivec2(1, 0)).w;
+	if ((pix.y + 1) < res.y) depth_samples.z = imageLoad(position_depth, pix + ivec2(0, 1)).w;
+	if ((pix.y - 1) >= 0) depth_samples.w = imageLoad(position_depth, pix - ivec2(0, 1)).w;
 	return (depth_samples.xz - depth_samples.yw) / 2.;
 }
 
@@ -63,7 +63,7 @@ float luminanceWeight(float lum0, float lum1, float variance) {
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(src_normals_gs, uv);
+	const vec4 n = imageLoad(normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -104,9 +104,9 @@ void main() {
 	const vec4 center_irradiance = imageLoad(INPUT_IMAGE, pix);
 	const float center_luminance = luminance(center_irradiance.rgb);
 	const float reproject_variance = imageLoad(VARIANCE_IMAGE, pix).r;
-	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
+	const vec4 material_rmxx = imageLoad(material_rmxx, pix);
 	//const vec3 center_irradiance = imageLoad(INPUT_IMAGE, pix).rgb;
-	const float depth = imageLoad(src_position_depth, pix).w;
+	const float depth = imageLoad(position_depth, pix).w;
 	const vec2 depth_offset = vec2(1.);
 	//const float reproject_variance = 1.0; // need to calculate in reprojection
 	//const float phi = PHI_COLOR * sqrt(max(0.0, 0.0001 + reproject_variance));
@@ -168,7 +168,7 @@ void main() {
 			}
 
 			const vec3 current_irradiance = imageLoad(INPUT_IMAGE, p).rgb;
-			const float depth_current = imageLoad(src_position_depth, p).w;
+			const float depth_current = imageLoad(position_depth, p).w;
 
 			//float weight = normpdf(x, sigma) * normpdf(y, sigma);
 			float weight = kernel[abs(x)][abs(y)];
@@ -193,7 +193,7 @@ void main() {
 //
 //		#ifdef DRIVEN_BY_RAY_LENGTH
 //			//// TODO: release this for specular
-//			//const vec4 current_refl_ray_length = depth_current + imageLoad(src_refl_position_t, p).w;
+//			//const vec4 current_refl_ray_length = depth_current + imageLoad(refl_position_t, p).w;
 //			//weight *= rayLengthWeight(current_refl_ray_length, refl_ray_length); // is not implemented now
 //		#endif
 

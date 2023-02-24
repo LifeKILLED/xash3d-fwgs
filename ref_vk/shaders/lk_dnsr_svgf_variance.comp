@@ -13,18 +13,16 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_variance;
 
-layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_color_noisy;
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D color_noisy;
 
 
 void main() {
-	ivec2 res = ivec2(imageSize(src_color_noisy));
+	ivec2 res = ivec2(imageSize(color_noisy));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}
-
-
 
 	float variance = 0.; // default value
 	const float sigma = KERNEL_SIZE / 2.;
@@ -40,7 +38,7 @@ void main() {
 			const float weight = normpdf(x, sigma) * normpdf(y, sigma);
 			//const float weight = 1.;
 
-			const vec3 current_irradiance = imageLoad(src_color_noisy, p).rgb;
+			const vec3 current_irradiance = imageLoad(color_noisy, p).rgb;
 			float current_luminance = luminance(current_irradiance);
 			sigma_variance += vec2(current_luminance, current_luminance * current_luminance ) * weight;
 			weight_sum += weight;

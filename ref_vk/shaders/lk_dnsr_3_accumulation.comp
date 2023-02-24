@@ -23,10 +23,10 @@ layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
 layout(set = 0, binding = 4, rgba16f) uniform image2D out_specular_variance;
 layout(set = 0, binding = 5, rgba16f) uniform image2D out_diffuse_variance;
 
-layout(set = 0, binding = 6, rgba16f)  uniform readonly image2D src_history_diffuse;
-layout(set = 0, binding = 7, rgba16f)  uniform readonly image2D src_history_specular;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D src_history_gi_sh1;
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_history_gi_sh2;
+layout(set = 0, binding = 6, rgba16f)  uniform readonly image2D history_diffuse;
+layout(set = 0, binding = 7, rgba16f)  uniform readonly image2D history_specular;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D history_gi_sh1;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D history_gi_sh2;
 
 vec4 calculateVariance(vec3 current_radiance, vec3 last_radiance, float frames_blend) {
 	vec2 moments = vec2(luminance(current_radiance), 0.);
@@ -53,13 +53,13 @@ void main() {
 	const vec4 diffuse_src = vec4(imageLoad(out_diffuse_accum, pix).rgb, min_samples); 
 	const vec4 specular_src = vec4(imageLoad(out_specular_accum, pix).rgb, min_samples); 
 	const vec4 gi_sh1_src = imageLoad(out_gi_sh1_accum, pix);
-	const vec4 gi_sh2_src_rayLength = imageLoad(out_gi_sh2_accum, pix);
-	const vec3 gi_sh2_src = vec3(gi_sh2_src_rayLength.xy, min_samples);
+	const vec4 gi_sh2_rayLength = imageLoad(out_gi_sh2_accum, pix);
+	const vec3 gi_sh2_src = vec3(gi_sh2_rayLength.xy, min_samples);
 
-	const vec4 diffuse_history = imageLoad(src_history_diffuse, pix); 
-	const vec4 specular_history = imageLoad(src_history_specular, pix); 
-	const vec4 gi_sh1_history = imageLoad(src_history_gi_sh1, pix); 
-	const vec3 gi_sh2_history = imageLoad(src_history_gi_sh2, pix).xyz; 
+	const vec4 diffuse_history = imageLoad(history_diffuse, pix); 
+	const vec4 specular_history = imageLoad(history_specular, pix); 
+	const vec4 gi_sh1_history = imageLoad(history_gi_sh1, pix); 
+	const vec3 gi_sh2_history = imageLoad(history_gi_sh2, pix).xyz; 
 
 	vec4 diffuse_variance = vec4(1.); // default is maximal variance
 	vec4 specular_variance = vec4(1.); // default is maximal variance
@@ -94,7 +94,7 @@ void main() {
 	imageStore(out_diffuse_accum, pix, diffuse_mixed);
 	imageStore(out_specular_accum, pix, specular_mixed);
 	imageStore(out_gi_sh1_accum, pix, gi_sh1_mixed);
-	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2_mixed, gi_sh2_src_rayLength.w));
+	imageStore(out_gi_sh2_accum, pix, vec4(gi_sh2_mixed, gi_sh2_rayLength.w));
 	imageStore(out_diffuse_variance, pix, diffuse_variance);
 	imageStore(out_specular_variance, pix, specular_variance);
 }

@@ -13,12 +13,12 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_specular;
 
-layout(set = 0, binding = 1, rgba8) uniform readonly image2D src_material_rmxx;
-layout(set = 0, binding = 2, rgba8) uniform readonly image2D src_refl_base_color_a;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D src_refl_normals_gs;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D src_gi_sh1;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_gi_sh2;
+layout(set = 0, binding = 1, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 2, rgba8) uniform readonly image2D refl_base_color_a;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D refl_normals_gs;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D gi_sh1;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D gi_sh2;
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
@@ -58,13 +58,13 @@ vec3 reinhard02(vec3 c, vec3 Cwhite2) {
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(src_normals_gs, uv);
+	const vec4 n = imageLoad(normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
 
 void readNormalsRefl(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(src_refl_normals_gs, uv);
+	const vec4 n = imageLoad(refl_normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -89,18 +89,18 @@ void main() {
 	vec3 refl_geometry_normal, refl_shading_normal;
 	readNormalsRefl(pix, refl_geometry_normal, refl_shading_normal);
 
-	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
+	const vec4 material_rmxx = imageLoad(material_rmxx, pix);
 	const float roughness = material_rmxx.r;
 	const float metalness = material_rmxx.g;
 
 	// albedo from reflection
-	const vec4 refl_base_color_a = imageLoad(src_refl_base_color_a, pix);
+	const vec4 refl_base_color_a = imageLoad(refl_base_color_a, pix);
 	const vec3 refl_base_color = SRGBtoLINEAR(refl_base_color_a.rgb);
 
 	// global illumination re-light
 	SH low_freq;
-	low_freq.shY = imageLoad(src_gi_sh1, pix);
-	low_freq.CoCg = imageLoad(src_gi_sh2, pix).xy;
+	low_freq.shY = imageLoad(gi_sh1, pix);
+	low_freq.CoCg = imageLoad(gi_sh2, pix).xy;
 
 	// global illumination
 	const vec3 global_illumination = project_SH_irradiance(low_freq, refl_shading_normal) / STORAGE_SCALE_LF * REFLECTION_MULTIPLIER;

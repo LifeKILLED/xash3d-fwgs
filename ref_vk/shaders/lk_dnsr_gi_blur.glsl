@@ -23,8 +23,8 @@ layout(set = 0, binding = 1, rgba16f) uniform image2D OUTPUT_GI_2;
 
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D INPUT_GI_1;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D INPUT_GI_2;
-layout(set = 0, binding = 4, rgba8) uniform readonly image2D src_material_rmxx;
-layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D position_t;
 
 
 void main() {
@@ -36,8 +36,8 @@ void main() {
 	}
 
 	const vec4 gi_sh2_src = imageLoad(INPUT_GI_2, pix);
-	const float depth = imageLoad(src_position_t, pix).w;
-	const float metalness_factor = imageLoad(src_material_rmxx, pix).y > .5 ? 1. : 0.;
+	const float depth = imageLoad(position_t, pix).w;
+	const float metalness_factor = imageLoad(material_rmxx, pix).y > .5 ? 1. : 0.;
 
 	vec4 gi_sh1 = vec4(0.);
 	vec2 gi_sh2 = vec2(0.);
@@ -51,14 +51,14 @@ void main() {
 			}
 
 			// metal surfaces have gi after 2 bounce, diffuse after 1, don't mix them
-			const float current_metalness = imageLoad(src_material_rmxx, p).y;
+			const float current_metalness = imageLoad(material_rmxx, p).y;
 			if (abs(metalness_factor - current_metalness) > .5)
 				continue;
 
 			const vec4 current_gi_sh1 = imageLoad(INPUT_GI_1, p);
 			const vec4 current_gi_sh2 = imageLoad(INPUT_GI_2, p);
 
-			const float depth_current = imageLoad(src_position_t, p).w;
+			const float depth_current = imageLoad(position_t, p).w;
 			const float depth_offset = abs(depth - depth_current) / max(0.001, depth);
 			const float gi_depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
 

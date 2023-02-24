@@ -11,10 +11,10 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D dest;
 
-layout(set = 0, binding = 1, rgba16f) uniform readonly image2D src_frame_color;
-layout(set = 0, binding = 2, rgba8) uniform readonly image2D src_base_color;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_t;
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D frame_color;
+layout(set = 0, binding = 2, rgba8) uniform readonly image2D base_color;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D position_t;
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
@@ -26,13 +26,13 @@ struct UniformBuffer {
 layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; };
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(src_normals_gs, uv);
+	const vec4 n = imageLoad(normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
 
 void main() {
-	ivec2 res = ivec2(imageSize(src_base_color));
+	ivec2 res = ivec2(imageSize(base_color));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
 	const vec2 uv = (vec2(pix) + .5) / res * 2. - 1.;
 
@@ -43,9 +43,9 @@ void main() {
 	const ivec2 pix_source = pix_source_a.xy;
 	const int center_is_transparent = pix_source_a.b;
 
-	const vec4 center_color = imageLoad(src_frame_color, pix);
-	const float center_alpha = imageLoad(src_base_color, pix).a;
-	const vec3 position = imageLoad(src_position_t, pix).xyz;
+	const vec4 center_color = imageLoad(frame_color, pix);
+	const float center_alpha = imageLoad(base_color, pix).a;
+	const vec3 position = imageLoad(position_t, pix).xyz;
 
 	const vec3 origin = (ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec3 direction = normalize(position - origin);
@@ -70,13 +70,13 @@ void main() {
 
 		const ivec2 p_checker = PixToCheckerboard(p, res).xy;
 
-		const float neighboor_alpha = imageLoad(src_base_color, p_checker).a;
+		const float neighboor_alpha = imageLoad(base_color, p_checker).a;
 
 		// for opaque texel need to sample only neighboors with transparency
 		if (center_is_transparent == 0 && neighboor_alpha > 0.999)
 			continue;
 
-		const vec3 neighboor_color = imageLoad(src_frame_color, p_checker).rgb;
+		const vec3 neighboor_color = imageLoad(frame_color, p_checker).rgb;
 
 		vec3 neigh_geometry_normal, neigh_shading_normal;
 		readNormals(p_checker, neigh_geometry_normal, neigh_shading_normal);

@@ -19,19 +19,19 @@ layout(set = 0, binding = 1, rgba16f)  uniform image2D out_history_specular;
 layout(set = 0, binding = 2, rgba16f) uniform image2D out_history_gi_sh1;
 layout(set = 0, binding = 3, rgba16f) uniform image2D out_history_gi_sh2;
 
-layout(set = 0, binding = 4, rgba32f) uniform readonly image2D src_position_t;
-layout(set = 0, binding = 5, rgba32f) uniform readonly image2D src_refl_position_t;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D src_normals_gs;
-layout(set = 0, binding = 7, rgba32f) uniform readonly image2D src_search_info_ktuv;
-layout(set = 0, binding = 8, rgba32f) uniform readonly image2D src_last_position_t;
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D src_last_normals_gs;
-layout(set = 0, binding = 10, rgba32f) uniform readonly image2D src_last_search_info_ktuv;
-layout(set = 0, binding = 11, rgba16f)  uniform readonly image2D src_last_diffuse;
-layout(set = 0, binding = 12, rgba16f)  uniform readonly image2D src_last_specular;
-layout(set = 0, binding = 13, rgba16f) uniform readonly image2D src_last_gi_sh1;
-layout(set = 0, binding = 14, rgba16f) uniform readonly image2D src_last_gi_sh2;
-layout(set = 0, binding = 15, rgba8) uniform readonly image2D src_material_rmxx;
-layout(set = 0, binding = 16, rgba16f) uniform readonly image2D src_previous_position_t;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D refl_position_t;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D search_info_ktuv;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D prev_position_t;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D prev_normals_gs;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D prev_search_info_ktuv;
+layout(set = 0, binding = 11, rgba16f)  uniform readonly image2D prev_diffuse;
+layout(set = 0, binding = 12, rgba16f)  uniform readonly image2D prev_specular;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D prev_gi_sh1;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D prev_gi_sh2;
+layout(set = 0, binding = 15, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D previous_position_t;
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
@@ -44,19 +44,19 @@ layout(set = 0, binding = 17) uniform UBO { UniformBuffer ubo; };
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(src_normals_gs, uv);
+	const vec4 n = imageLoad(normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
 
 void readNormalsLast(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(src_last_normals_gs, uv);
+	const vec4 n = imageLoad(prev_normals_gs, uv);
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
 
 void main() {
-	const ivec2 res = ivec2(imageSize(src_position_t));
+	const ivec2 res = ivec2(imageSize(position_t));
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {
@@ -67,19 +67,19 @@ void main() {
 	int is_transparent_texel = pix_src.b;
 	const vec2 uv = PixToUV(pix_src.xy, res);
 
-	const vec3 position = imageLoad(src_position_t, pix).xyz;
-	const vec3 previous_position = imageLoad(src_previous_position_t, pix).xyz;
-	const vec3 reflection_pos = imageLoad(src_refl_position_t, pix).xyz;
-	const vec4 material_rmxx = imageLoad(src_material_rmxx, pix);
-	const float roughness = material_rmxx.r;
-	const float metalness = material_rmxx.g;
+	const vec3 position = imageLoad(position_t, pix).xyz;
+	const vec3 previous_position = imageLoad(previous_position_t, pix).xyz;
+	const vec3 reflection_pos = imageLoad(refl_position_t, pix).xyz;
+	const vec4 center_material_rmxx = imageLoad(material_rmxx, pix);
+	const float roughness = center_material_rmxx.r;
+	const float metalness = center_material_rmxx.g;
 
 	vec3 shadingNormal, geometryNormal;
 	readNormals(pix, geometryNormal, shadingNormal);
 
 	const vec3 origin = OriginWorldPosition(ubo.inv_view);
 
-	const int texel_flags = int(material_rmxx.b + 0.01);
+	const int texel_flags = int(center_material_rmxx.b + 0.01);
 
 			// ---------------------------------------- //
 			// Simple reprojecting for diffuse lighting //
@@ -103,9 +103,9 @@ void main() {
 	ivec2 out_parallax_coord = ivec2(-100, 0);
 
 	if (last_uv_w.z > 0. && any(greaterThanEqual(last_pix_src, ivec2(0))) && any(lessThan(last_pix_src, res))) {
-		const vec3 last_position = imageLoad(src_last_position_t, last_pix).xyz;
+		const vec3 last_position = imageLoad(prev_position_t, last_pix).xyz;
 		//last_depth = length(last_origin - last_position);
-		//const vec4 current_info_ktuv = imageLoad(src_last_search_info_ktuv, last_pix); 
+		//const vec4 current_info_ktuv = imageLoad(prev_search_info_ktuv, last_pix); 
 		if (length(last_position - previous_position) < 10.) { // same depth
 			out_forward_coord = last_pix;
 		}
@@ -124,7 +124,7 @@ void main() {
 		readNormalsLast(forward_pix.xy, forward_geometryNormal, forward_shadingNormal);
 		const vec3 last_normal = normalize(forward_geometryNormal.xyz);
 		const vec3 current_normal = normalize(geometryNormal.xyz);
-		const vec4 last_position_t = imageLoad(src_last_position_t, forward_pix.xy);
+		const vec4 last_position_t = imageLoad(prev_position_t, forward_pix.xy);
 
 		//		
 		//	origin (camera)
@@ -161,7 +161,7 @@ void main() {
 			const ivec2 parallax_pix = PixToCheckerboard(parallax_pix_src, res, is_transparent_texel, texel_flags).xy;
 			
 			// last ray length stored in gi_sh2.w for metal surfaces, for diffuse materials it's don't a critic
-			const float last_ray_length = imageLoad(src_last_gi_sh2, parallax_pix).w;
+			const float last_ray_length = imageLoad(prev_gi_sh2, parallax_pix).w;
 			const float ray_length_difference = abs(nesessary_ray_lenth - last_ray_length);
 
 			// Better fitting by normals we searched in next block
@@ -183,13 +183,13 @@ void main() {
 				const ivec2 parallax_search_pix = PixToCheckerboard(parallax_search_pix_src, res, is_transparent_texel, texel_flags).xy;
 				if (any(greaterThanEqual(parallax_search_pix, ivec2(0))) && any(lessThan(parallax_search_pix, res))) {
 
-					const vec4 last_material_rmxx = imageLoad(src_material_rmxx, parallax_search_pix);
+					const vec4 last_material_rmxx = imageLoad(material_rmxx, parallax_search_pix);
 					const int last_texel_flags = int(last_material_rmxx.z + 0.01);
 
 					if (last_texel_flags != texel_flags)
 						continue;
 
-					const vec3 last_parallax_texel_pos = imageLoad(src_last_position_t, parallax_search_pix).xyz;
+					const vec3 last_parallax_texel_pos = imageLoad(prev_position_t, parallax_search_pix).xyz;
 				
 					vec3 parallax_shadingNormal, parallax_geometryNormal;
 					readNormals(parallax_search_pix, parallax_geometryNormal, parallax_shadingNormal);
@@ -215,18 +215,18 @@ void main() {
 	const ivec2 gi_coord = (metalness > .5 || out_parallax_coord.x > -99) ? out_parallax_coord : out_forward_coord;
 
 	if (out_forward_coord.x > -99) {
-		out_diffuse = imageLoad(src_last_diffuse, out_forward_coord);
+		out_diffuse = imageLoad(prev_diffuse, out_forward_coord);
 		out_diffuse.w += 1.; // add to reprojected samples counter
 	}
 
 	if (out_parallax_coord.x > -99) {
-		out_specular = imageLoad(src_last_specular, out_parallax_coord);
+		out_specular = imageLoad(prev_specular, out_parallax_coord);
 		out_specular.w += 1.; // add to reprojected samples counter
 	}
 
 	if (gi_coord.x > -99) {
-		out_gi_sh1 = imageLoad(src_last_gi_sh1, gi_coord);
-		out_gi_sh2 = imageLoad(src_last_gi_sh2, gi_coord);
+		out_gi_sh1 = imageLoad(prev_gi_sh1, gi_coord);
+		out_gi_sh2 = imageLoad(prev_gi_sh2, gi_coord);
 		out_gi_sh2.z += 1.; // add to reprojected samples counter
 	}
 
