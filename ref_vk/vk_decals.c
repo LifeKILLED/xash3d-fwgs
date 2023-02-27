@@ -14,22 +14,22 @@ GNU General Public License for more details.
 */
 
 #include "vk_decals.h"
-
 #include "vk_core.h"
-#include "vk_const.h"
-#include "vk_math.h"
-#include "vk_render.h"
-#include "vk_geometry.h"
-#include "vk_mapents.h"
+#include "vk_textures.h"
+#include "vk_renderstate.h"
+#include "vk_overlay.h"
+#include "vk_scene.h"
+#include "vk_framectl.h"
+#include "vk_lightmap.h"
+#include "vk_sprite.h"
+#include "vk_studio.h"
+#include "vk_beams.h"
+#include "vk_brush.h"
+#include "vk_rtx.h"
+#include "vk_ray_internal.h"
 
-#include "ref_params.h"
-#include "ref_common.h"
-#include "eiface.h"
-#include "com_model.h"
-#include "render_api.h"
-
-#include <math.h>
-#include <memory.h>
+#include "xash3d_mathlib.h"
+//#include "cl_tent.h"
 
 #define DECAL_OVERLAP_DISTANCE	2
 #define DECAL_DISTANCE		4	// too big values produce more clipped polygons
@@ -49,7 +49,17 @@ GNU General Public License for more details.
 #define TOP_EDGE			2
 #define BOTTOM_EDGE			3
 
-#define WORLDMODEL (gEngine.pfnGetModelByIndex( 1 ))
+#ifndef WORLDMODEL
+	#define WORLDMODEL (gEngine.pfnGetModelByIndex( 1 ))
+#endif
+
+#ifndef ENGINE_GET_PARM_
+	#define ENGINE_GET_PARM_ (*gEngine.EngineGetParm)
+	#define ENGINE_GET_PARM( parm ) ENGINE_GET_PARM_( ( parm ), 0 )
+#endif
+
+#define DECAL_VERTS_MAX 32
+#define DECAL_VERTS_CUT 8
 
 // This structure contains the information used to create new decals
 typedef struct
@@ -64,78 +74,18 @@ typedef struct
 	int		m_decalWidth;
 	int		m_decalHeight;
 	vec3_t		m_Basis[3];
-	vk_decal_t* vk_decal;
 } decalinfo_t;
 
-#define VK_DECALS_MAX 256
-#define VK_DECAL_POLYS_MAX 32
+static float	g_DecalClipVerts[MAX_DECALCLIPVERT][VERTEXSIZE];
+static float	g_DecalClipVerts2[MAX_DECALCLIPVERT][VERTEXSIZE];
 
-typedef struct 
-{
-	decal_t decal; // source decal_t
-	decalinfo_t info; // decal info
-	glpoly_t polys[VK_DECAL_POLYS_MAX]; // precomputed decal polys
-	vk_render_geometry_t geometry; // upload in render
-} vk_decal_t;
-
-static struct {
-	float	g_DecalClipVerts[MAX_DECALCLIPVERT][VERTEXSIZE];
-	float	g_DecalClipVerts2[MAX_DECALCLIPVERT][VERTEXSIZE];
-
-	decal_t	gDecalPool[MAX_RENDER_DECALS]; // legacy decals pool from GL renderer
-	static int	gDecalCount;
-
-	vk_decal_t decals_ring[VK_DECALS_MAX]; // static decals in start and dynamic in end as ring buffer
-	uint dynamic_decals_start; // first index of ring buffer of dynamic decals
-	uint dynamic_decal_last; // current index for adding new dynamic decal
-
-} g_decals = { 0 };
-
-void vkClearDecals( void )
-{
-	// just set counters to 0 and reuse decals
-	g_decals.dynamic_decals_start = g_decals.dynamic_decal_last = 0;
-}
-
-vk_decal_t* initDecal( vk_decal_t* d )
-{
-	// for reusing decals from ring
-	for (int i = 0; i < VK_DECAL_POLYS_MAX; i++)
-		d->polys[i].numverts = 0;
-
-	// "allocate" polys in decal_t struct from decal's polys pool
-	d->decal.polys = d->polys;
-
-	d->decal.pnext = NULL;
-	d->decal.psurface = NULL;
-
-	return d;
-}
-
-vk_decal_t* newStaticDecal( void )
-{
-	if ( ++g_decals.dynamic_decals_start >= VK_DECALS_MAX)
-		g_decals.dynamic_decals_start = VK_DECALS_MAX - 1;
-
-	return initDecal( &g_decals[ g_decals.dynamic_decals_start - 1 ]);
-}
-
-vk_decal_t* newDynamicDecal( void )
-{
-	if ( ++g_decals.dynamic_decal_last >= VK_DECALS_MAX )
-		g_decals.dynamic_decal_last = g_decals.dynamic_decals_start;
-
-	return initDecal( &g_decals[ g_decals.dynamic_decal_last ]);
-}
-
-vk_decal_t* newDecal( int flags )
-{
-	return FBitSet(flags, FDECAL_PERMANENT) ? newStaticDecal() : newDynamicDecal();
-}
+decal_t	gDecalPool[MAX_RENDER_DECALS];
+static int	gDecalCount;
 
 void R_ClearDecals( void )
 {
-	vkClearDecals();
+	memset( gDecalPool, 0, sizeof( gDecalPool ));
+	gDecalCount = 0;
 }
 
 // unlink pdecal from any surface it's attached to
@@ -152,10 +102,7 @@ static void R_DecalUnlink( decal_t *pdecal )
 		else
 		{
 			tmp = pdecal->psurface->pdecals;
-			if( !tmp )
-			{
-				gEngine.Host_Error( "R_DecalUnlink: bad decal list\n" );
-			}
+			if( !tmp ) gEngine.Host_Error( "D_DecalUnlink: bad decal list\n" );
 
 			while( tmp->pnext )
 			{
@@ -169,47 +116,47 @@ static void R_DecalUnlink( decal_t *pdecal )
 		}
 	}
 
-	//if( pdecal->polys )
-	//	Mem_Free( pdecal->polys );
+	if( pdecal->polys )
+		Mem_Free( pdecal->polys );
 
 	pdecal->psurface = NULL;
-	//pdecal->polys = NULL;
+	pdecal->polys = NULL;
 }
 
 // Just reuse next decal in list
 // A decal that spans multiple surfaces will use multiple decal_t pool entries,
 // as each surface needs it's own.
-//static decal_t *R_DecalAlloc( decal_t *pdecal )
-//{
-//	int	limit = MAX_RENDER_DECALS;
-//
-//	// TODO: VULKAN: return this cvar using
-//	//if( r_decals->value < limit )
-//	//	limit = r_decals->value;
-//
-//	if( !limit ) return NULL;
-//
-//	if( !pdecal )
-//	{
-//		int	count = 0;
-//
-//		// check for the odd possiblity of infinte loop
-//		do
-//		{
-//			if( gDecalCount >= limit )
-//				gDecalCount = 0;
-//
-//			pdecal = &gDecalPool[gDecalCount]; // reuse next decal
-//			gDecalCount++;
-//			count++;
-//		} while( FBitSet( pdecal->flags, FDECAL_PERMANENT ) && count < limit );
-//	}
-//
-//	// if decal is already linked to a surface, unlink it.
-//	R_DecalUnlink( pdecal );
-//
-//	return pdecal;
-//}
+static decal_t *R_DecalAlloc( decal_t *pdecal )
+{
+	int	limit = MAX_RENDER_DECALS;
+
+	// FIXME VK: use cvar r_decals
+	//if( r_decals->value < limit )
+	//	limit = r_decals->value;
+
+	if( !limit ) return NULL;
+
+	if( !pdecal )
+	{
+		int	count = 0;
+
+		// check for the odd possiblity of infinte loop
+		do
+		{
+			if( gDecalCount >= limit )
+				gDecalCount = 0;
+
+			pdecal = &gDecalPool[gDecalCount]; // reuse next decal
+			gDecalCount++;
+			count++;
+		} while( FBitSet( pdecal->flags, FDECAL_PERMANENT ) && count < limit );
+	}
+
+	// if decal is already linked to a surface, unlink it.
+	R_DecalUnlink( pdecal );
+
+	return pdecal;
+}
 
 //-----------------------------------------------------------------------------
 // find decal image and grab size from it
@@ -218,15 +165,11 @@ static void R_GetDecalDimensions( int texture, int *width, int *height )
 {
 	if( width ) *width = 1;	// to avoid divide by zero
 	if( height ) *height = 1;
-
-	// TODO: VULKAN: need to use scale of vanilla texture, not from hi rez pack?
-	vk_texture_t* tex = findTexture(texture);
-	if ( tex != NULL && width && height ) {
-		*width = tex->width;
-		*height = tex->height;
-	}
-
-	//R_GetTextureParms( width, height, texture );
+	
+	// FIXME VK: use analog for getting texture size!! but now used this placeholders
+	if( width ) *width = 64;	//FIXME VK: placeholders, not real values
+	if( height ) *height = 64;  //FIXME VK: placeholders, not real values
+	//R_GetTextureParms( width, height, texture ); 
 }
 
 //-----------------------------------------------------------------------------
@@ -293,6 +236,8 @@ void R_SetupDecalVertsForMSurface( decal_t *pDecal, msurface_t *surf,	vec3_t tex
 	float	*v;
 	int	i;
 
+	if( !surf->polys )
+		return;
 	for( i = 0, v = surf->polys->verts[0]; i < surf->polys->numverts; i++, v += VERTEXSIZE, verts += VERTEXSIZE )
 	{
 		VectorCopy( v, verts ); // copy model space coordinates
@@ -445,14 +390,14 @@ static int SHClip( float *vert, int vertCount, float *out, int edge )
 
 float *R_DoDecalSHClip( float *pInVerts, decal_t *pDecal, int nStartVerts, int *pVertCount )
 {
-	float	*pOutVerts = g_decals.g_DecalClipVerts[0];
+	float	*pOutVerts = g_DecalClipVerts[0];
 	int	outCount;
 
 	// clip the polygon to the decal texture space
-	outCount = SHClip( pInVerts, nStartVerts, g_decals.g_DecalClipVerts2[0], LEFT_EDGE );
-	outCount = SHClip( g_decals.g_DecalClipVerts2[0], outCount, g_decals.g_DecalClipVerts[0], RIGHT_EDGE );
-	outCount = SHClip( g_decals.g_DecalClipVerts[0], outCount,  g_decals.g_DecalClipVerts2[0], TOP_EDGE );
-	outCount = SHClip( g_decals.g_DecalClipVerts2[0], outCount, pOutVerts, BOTTOM_EDGE );
+	outCount = SHClip( pInVerts, nStartVerts, g_DecalClipVerts2[0], LEFT_EDGE );
+	outCount = SHClip( g_DecalClipVerts2[0], outCount, g_DecalClipVerts[0], RIGHT_EDGE );
+	outCount = SHClip( g_DecalClipVerts[0], outCount, g_DecalClipVerts2[0], TOP_EDGE );
+	outCount = SHClip( g_DecalClipVerts2[0], outCount, pOutVerts, BOTTOM_EDGE );
 
 	if( pVertCount )
 		*pVertCount = outCount;
@@ -472,9 +417,11 @@ float *R_DecalVertsClip( decal_t *pDecal, msurface_t *surf, int texture, int *pV
 	R_SetupDecalClip( pDecal, surf, texture, textureSpaceBasis, decalWorldScale );
 
 	// build the initial list of vertices from the surface verts.
-	//R_SetupDecalVertsForMSurface( pDecal, surf, textureSpaceBasis, g_decals.g_DecalClipVerts[0] );
+	R_SetupDecalVertsForMSurface( pDecal, surf, textureSpaceBasis, g_DecalClipVerts[0] );
 
-	//return R_DoDecalSHClip( g_decals.g_DecalClipVerts[0], pDecal, surf->polys->numverts, pVertCount );
+	if( !surf->polys )
+		return 0;
+	return R_DoDecalSHClip( g_DecalClipVerts[0], pDecal, surf->polys->numverts, pVertCount );
 }
 
 // Generate lighting coordinates at each vertex for decal vertices v[] on surface psurf
@@ -488,6 +435,9 @@ static void R_DecalVertsLight( float *v, msurface_t *surf, int vertCount )
 
 	sample_size = gEngine.Mod_SampleSizeForFace( surf );
 	tex = surf->texinfo;
+
+	if (v == NULL)
+		return; // FIXME VK: Why?
 
 	for( j = 0; j < vertCount; j++, v += VERTEXSIZE )
 	{
@@ -596,7 +546,6 @@ R_DecalCreatePoly
 creates mesh for decal on first rendering
 ====================
 */
-
 glpoly_t *R_DecalCreatePoly( decalinfo_t *decalinfo, decal_t *pdecal, msurface_t *surf )
 {
 	int		lnumverts;
@@ -604,6 +553,7 @@ glpoly_t *R_DecalCreatePoly( decalinfo_t *decalinfo, decal_t *pdecal, msurface_t
 	float		*v;
 	int		i;
 
+	return NULL;
 	if( pdecal->polys )	// already created?
 		return pdecal->polys;
 
@@ -612,10 +562,8 @@ glpoly_t *R_DecalCreatePoly( decalinfo_t *decalinfo, decal_t *pdecal, msurface_t
 
 	// allocate glpoly
 	// REFTODO: com_studiocache pool!
-	//poly = Mem_Calloc( *(g_decals.mempool), sizeof( glpoly_t ) + ( lnumverts - 4 ) * VERTEXSIZE * sizeof( float ));
-
-	poly->next = decalinfo->vk_decal->polys[ decalinfo->vk_decal->polys_count++ ];
-	//poly->next = pdecal->polys;
+	poly = Mem_Calloc( vk_core.pool, sizeof( glpoly_t ) + ( lnumverts - 4 ) * VERTEXSIZE * sizeof( float ));
+	poly->next = pdecal->polys;
 	poly->flags = surf->flags;
 	pdecal->polys = poly;
 	poly->numverts = lnumverts;
@@ -630,6 +578,18 @@ glpoly_t *R_DecalCreatePoly( decalinfo_t *decalinfo, decal_t *pdecal, msurface_t
 	}
 
 	return poly;
+}
+
+
+void R_AddDecalVBO( decal_t *pdecal, msurface_t *surf )
+{
+	int numVerts, i;
+	float *v;
+	int decalindex = pdecal - &gDecalPool[0];
+
+	v = R_DecalSetupVerts( pdecal, surf, pdecal->texture, &numVerts );
+
+	XVK_RayModel_AddDecalVertices( v, numVerts, pdecal->texture );
 }
 
 // Add the decal to the surface's list of decals.
@@ -651,6 +611,9 @@ static void R_AddDecalToSurface( decal_t *pdecal, msurface_t *surf, decalinfo_t 
 		surf->pdecals = pdecal;
 	}
 
+	// force surface cache rebuild
+	surf->dlightframe = VK_RayFrameNumber() + 1;
+
 	// tag surface
 	pdecal->psurface = surf;
 
@@ -660,27 +623,21 @@ static void R_AddDecalToSurface( decal_t *pdecal, msurface_t *surf, decalinfo_t 
 
 	// alloc clipped poly for decal
 	R_DecalCreatePoly( decalinfo, pdecal, surf );
-
-	// TODO: ADD DECAL TO VK HERE!
-	//R_AddDecalVBO( pdecal, surf );
+	R_AddDecalVBO( pdecal, surf );
 }
 
 static void R_DecalCreate( decalinfo_t *decalinfo, msurface_t *surf, float x, float y )
 {
-	vk_decal_t* vk_decal;
 	decal_t	*pdecal, *pold;
-	int	count, vertCount = 0;
+	int	count, vertCount;
 
 	if( !surf ) return;	// ???
 
 	pold = R_DecalIntersect( decalinfo, surf, &count );
 	if( count < MAX_OVERLAP_DECALS ) pold = NULL;
 
-	vk_decal = newDecal( decalinfo->m_Flags );
-	pdecal = &vk_decal.decal;
-
-	//pdecal = R_DecalAlloc( pold );
-	//if( !pdecal ) return; // r_decals == 0 ???
+	pdecal = R_DecalAlloc( pold );
+	if( !pdecal ) return; // r_decals == 0 ???
 
 	pdecal->flags = decalinfo->m_Flags;
 
@@ -712,25 +669,23 @@ void R_DecalSurface( msurface_t *surf, decalinfo_t *decalinfo )
 {
 	// get the texture associated with this surface
 	mtexinfo_t	*tex = surf->texinfo;
-	//decal_t		*decal = surf->pdecals;
+	decal_t		*decal = surf->pdecals;
 	vec4_t		textureU, textureV;
 	float		s, t, w, h;
+	connstate_t state = ENGINE_GET_PARM( PARM_CONNSTATE );
 
-	// TODO: VULKAN: need to return this check in future?
-	//connstate_t state = ENGINE_GET_PARM( PARM_CONNSTATE );
-
-	//// we in restore mode
-	//if( state == ca_connected || state == ca_validate )
-	//{
+	// we in restore mode
+	if( state == ca_connected || state == ca_validate )
+	{
 		// NOTE: we may have the decal on this surface that come from another level.
 		// check duplicate with same position and texture
-		//while( decal != NULL )
-		//{
-		//	if( VectorCompare( decal->position, decalinfo->m_Position ) && decal->texture == decalinfo->m_iTexture )
-		//		return; // decal already exists, don't place it again
-		//	decal = decal->pnext;
-		//}
-	//}
+		while( decal != NULL )
+		{
+			if( VectorCompare( decal->position, decalinfo->m_Position ) && decal->texture == decalinfo->m_iTexture )
+				return; // decal already exists, don't place it again
+			decal = decal->pnext;
+		}
+	}
 
 	Vector4Copy( tex->vecs[0], textureU );
 	Vector4Copy( tex->vecs[1], textureV );
@@ -794,9 +749,9 @@ static void R_DecalNodeSurfaces( model_t *model, mnode_t *node, decalinfo_t *dec
 		if( surf->flags & (SURF_DRAWTURB|SURF_DRAWSKY|SURF_CONVEYOR))
 			continue;
 
-		// TODO: VULKAN: is this need for vulkan renderer?
+		// we can implement alpha testing without stencil
 		//if( surf->flags & SURF_TRANSPARENT && !glState.stencilEnabled )
-		//	continue;
+			//continue;
 
 		R_DecalSurface( surf, decalinfo );
 	}
@@ -812,7 +767,7 @@ static void R_DecalNode( model_t *model, mnode_t *node, decalinfo_t *decalinfo )
 	mplane_t	*splitplane;
 	float	dist;
 
-	ASSERT( node != NULL );
+	//Assert( node != NULL ); // FIXME VK: use asssert from vk renderer
 
 	if( node->contents < 0 )
 	{
@@ -850,13 +805,16 @@ static void R_DecalNode( model_t *model, mnode_t *node, decalinfo_t *decalinfo )
 }
 
 // Shoots a decal onto the surface of the BSP.  position is the center of the decal in world coords
-void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos, int flags, float scale )
+void GAME_EXPORT R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos, int flags, float scale )
 {
 	decalinfo_t	decalInfo;
 	cl_entity_t	*ent = NULL;
 	model_t		*model = NULL;
 	int		width, height;
 	hull_t		*hull;
+
+	gEngine.Con_Printf("SHOOT DECAL!\n");
+
 
 	if( textureIndex <= 0 || textureIndex >= MAX_TEXTURES )
 	{
@@ -943,7 +901,7 @@ void R_DecalShoot( int textureIndex, int entityIndex, int modelIndex, vec3_t pos
 // Build the vertex list for a decal on a surface and clip it to the surface.
 // This is a template so it can work on world surfaces and dynamic displacement
 // triangles the same way.
-float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *outCount )
+float * GAME_EXPORT R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *outCount )
 {
 	glpoly_t	*p = pDecal->polys;
 	int	i, count;
@@ -951,7 +909,7 @@ float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *o
 
 	if( p )
 	{
-		v = g_decals.g_DecalClipVerts[0];
+		v = g_DecalClipVerts[0];
 		count = p->numverts;
 		v2 = p->verts[0];
 
@@ -966,7 +924,7 @@ float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *o
 		}
 
 		// restore pointer
-		v = g_decals.g_DecalClipVerts[0];
+		v = g_DecalClipVerts[0];
 	}
 	else
 	{
@@ -982,167 +940,181 @@ float *R_DecalSetupVerts( decal_t *pDecal, msurface_t *surf, int texture, int *o
 
 void DrawSingleDecal( decal_t *pDecal, msurface_t *fa )
 {
-	// TODO: VULKAN: legacy GL code
-	//float	*v;
-	//int	i, numVerts;
+	gEngine.Con_Printf("Draw Single Decal\n");
 
-	//v = R_DecalSetupVerts( pDecal, fa, pDecal->texture, &numVerts );
-	//if( !numVerts ) return;
+	float	*v;
+	int	i, numVerts;
 
-	//GL_Bind( XASH_TEXTURE0, pDecal->texture );
+	// v = R_DecalSetupVerts( pDecal, fa, pDecal->texture, &numVerts );
+	// if( !numVerts ) return;
 
-	//pglBegin( GL_POLYGON );
+	// FIXME VK: Release this
 
-	//for( i = 0; i < numVerts; i++, v += VERTEXSIZE )
-	//{
-	//	pglTexCoord2f( v[3], v[4] );
-	//	pglVertex3fv( v );
-	//}
+	/*GL_Bind( XASH_TEXTURE0, pDecal->texture );
 
-	//pglEnd();
+	pglBegin( GL_POLYGON );
+
+	for( i = 0; i < numVerts; i++, v += VERTEXSIZE )
+	{
+		pglTexCoord2f( v[3], v[4] );
+		pglVertex3fv( v );
+	}
+
+	pglEnd();*/
 }
 
 void DrawSurfaceDecals( msurface_t *fa, qboolean single, qboolean reverse )
 {
-	// TODO: VULKAN: legacy GL code
-//	decal_t		*p;
-//	cl_entity_t	*e;
-//
-//	if( !fa->pdecals ) return;
-//
-//	e = RI.currententity;
-//	Assert( e != NULL );
-//
-//	if( single )
-//	{
-//		if( e->curstate.rendermode == kRenderNormal || e->curstate.rendermode == kRenderTransAlpha )
-//		{
-//			pglDepthMask( GL_FALSE );
-//			pglEnable( GL_BLEND );
-//
-//			if( e->curstate.rendermode == kRenderTransAlpha )
-//				pglDisable( GL_ALPHA_TEST );
-//		}
-//
-//		if( e->curstate.rendermode == kRenderTransColor )
-//			pglEnable( GL_TEXTURE_2D );
-//
-//		if( e->curstate.rendermode == kRenderTransTexture || e->curstate.rendermode == kRenderTransAdd )
-//			GL_Cull( GL_NONE );
-//
-//		if( gl_polyoffset->value )
-//		{
-//			pglEnable( GL_POLYGON_OFFSET_FILL );
-//			pglPolygonOffset( -1.0f, -gl_polyoffset->value );
-//		}
-//	}
-//
-//	if( FBitSet( fa->flags, SURF_TRANSPARENT ) && glState.stencilEnabled )
-//	{
-//		mtexinfo_t	*tex = fa->texinfo;
-//
-//		for( p = fa->pdecals; p; p = p->pnext )
-//		{
-//			if( p->texture )
-//			{
-//				float *o, *v;
-//				int i, numVerts;
-//				o = R_DecalSetupVerts( p, fa, p->texture, &numVerts );
-//
-//				pglEnable( GL_STENCIL_TEST );
-//				pglStencilFunc( GL_ALWAYS, 1, 0xFFFFFFFF );
-//				pglColorMask( GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE );
-//
-//				pglStencilOp( GL_KEEP, GL_KEEP, GL_REPLACE );
-//				pglBegin( GL_POLYGON );
-//
-//				for( i = 0, v = o; i < numVerts; i++, v += VERTEXSIZE )
-//				{
-//					v[5] = ( DotProduct( v, tex->vecs[0] ) + tex->vecs[0][3] ) / tex->texture->width;
-//					v[6] = ( DotProduct( v, tex->vecs[1] ) + tex->vecs[1][3] ) / tex->texture->height;
-//
-//					pglTexCoord2f( v[5], v[6] );
-//					pglVertex3fv( v );
-//				}
-//
-//				pglEnd();
-//				pglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
-//
-//				pglEnable( GL_ALPHA_TEST );
-//				pglBegin( GL_POLYGON );
-//
-//				for( i = 0, v = o; i < numVerts; i++, v += VERTEXSIZE )
-//				{
-//					pglTexCoord2f( v[5], v[6] );
-//					pglVertex3fv( v );
-//				}
-//
-//				pglEnd();
-//				pglDisable( GL_ALPHA_TEST );
-//
-//				pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
-//				pglStencilFunc( GL_EQUAL, 0, 0xFFFFFFFF );
-//				pglStencilOp( GL_KEEP, GL_KEEP, GL_KEEP );
-//			}
-//		}
-//	}
-//
-//	pglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-//
-//	if( reverse && e->curstate.rendermode == kRenderTransTexture )
-//	{
-//		decal_t	*list[1024];
-//		int	i, count;
-//
-//		for( p = fa->pdecals, count = 0; p && count < 1024; p = p->pnext )
-//			if( p->texture ) list[count++] = p;
-//
-//		for( i = count - 1; i >= 0; i-- )
-//			DrawSingleDecal( list[i], fa );
-//	}
-//	else
-//	{
-//		for( p = fa->pdecals; p; p = p->pnext )
-//		{
-//			if( !p->texture ) continue;
-//			DrawSingleDecal( p, fa );
-//		}
-//	}
-//
-//	if( FBitSet( fa->flags, SURF_TRANSPARENT ) && glState.stencilEnabled )
-//		pglDisable( GL_STENCIL_TEST );
-//
-//	if( single )
-//	{
-//		if( e->curstate.rendermode == kRenderNormal || e->curstate.rendermode == kRenderTransAlpha )
-//		{
-//			pglDepthMask( GL_TRUE );
-//			pglDisable( GL_BLEND );
-//
-//			if( e->curstate.rendermode == kRenderTransAlpha )
-//				pglEnable( GL_ALPHA_TEST );
-//		}
-//
-//		if( gl_polyoffset->value )
-//			pglDisable( GL_POLYGON_OFFSET_FILL );
-//
-//		if( e->curstate.rendermode == kRenderTransTexture || e->curstate.rendermode == kRenderTransAdd )
-//			GL_Cull( GL_FRONT );
-//
-//		if( e->curstate.rendermode == kRenderTransColor )
-//			pglDisable( GL_TEXTURE_2D );
-//
-//		// restore blendfunc here
-//		if( e->curstate.rendermode == kRenderTransAdd || e->curstate.rendermode == kRenderGlow )
-//			pglBlendFunc( GL_SRC_ALPHA, GL_ONE );
-//
-//		pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
-//	}
+	gEngine.Con_Printf("Draw Surface Decals\n");
+
+	// FIXME VK: Release this func
+
+	return;
+	/*
+	decal_t		*p;
+	cl_entity_t	*e;
+
+	if( !fa->pdecals ) return;
+
+	e = RI.currententity;
+	Assert( e != NULL );
+
+	if( single )
+	{
+		if( e->curstate.rendermode == kRenderNormal || e->curstate.rendermode == kRenderTransAlpha )
+		{
+			pglDepthMask( GL_FALSE );
+			pglEnable( GL_BLEND );
+
+			if( e->curstate.rendermode == kRenderTransAlpha )
+				pglDisable( GL_ALPHA_TEST );
+		}
+
+		if( e->curstate.rendermode == kRenderTransColor )
+			pglEnable( GL_TEXTURE_2D );
+
+		if( e->curstate.rendermode == kRenderTransTexture || e->curstate.rendermode == kRenderTransAdd )
+			GL_Cull( GL_NONE );
+
+		if( gl_polyoffset->value )
+		{
+			pglEnable( GL_POLYGON_OFFSET_FILL );
+			pglPolygonOffset( -1.0f, -gl_polyoffset->value );
+		}
+	}
+
+	if( FBitSet( fa->flags, SURF_TRANSPARENT ) && glState.stencilEnabled )
+	{
+		mtexinfo_t	*tex = fa->texinfo;
+
+		for( p = fa->pdecals; p; p = p->pnext )
+		{
+			if( p->texture )
+			{
+				float *o, *v;
+				int i, numVerts;
+				o = R_DecalSetupVerts( p, fa, p->texture, &numVerts );
+
+				pglEnable( GL_STENCIL_TEST );
+				pglStencilFunc( GL_ALWAYS, 1, 0xFFFFFFFF );
+				pglColorMask( GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE );
+
+				pglStencilOp( GL_KEEP, GL_KEEP, GL_REPLACE );
+				pglBegin( GL_POLYGON );
+
+				for( i = 0, v = o; i < numVerts; i++, v += VERTEXSIZE )
+				{
+					v[5] = ( DotProduct( v, tex->vecs[0] ) + tex->vecs[0][3] ) / tex->texture->width;
+					v[6] = ( DotProduct( v, tex->vecs[1] ) + tex->vecs[1][3] ) / tex->texture->height;
+
+					pglTexCoord2f( v[5], v[6] );
+					pglVertex3fv( v );
+				}
+
+				pglEnd();
+				pglStencilOp( GL_KEEP, GL_KEEP, GL_DECR );
+
+				pglEnable( GL_ALPHA_TEST );
+				pglBegin( GL_POLYGON );
+
+				for( i = 0, v = o; i < numVerts; i++, v += VERTEXSIZE )
+				{
+					pglTexCoord2f( v[5], v[6] );
+					pglVertex3fv( v );
+				}
+
+				pglEnd();
+				pglDisable( GL_ALPHA_TEST );
+
+				pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
+				pglStencilFunc( GL_EQUAL, 0, 0xFFFFFFFF );
+				pglStencilOp( GL_KEEP, GL_KEEP, GL_KEEP );
+			}
+		}
+	}
+
+	pglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+
+	if( reverse && e->curstate.rendermode == kRenderTransTexture )
+	{
+		decal_t	*list[1024];
+		int	i, count;
+
+		for( p = fa->pdecals, count = 0; p && count < 1024; p = p->pnext )
+			if( p->texture ) list[count++] = p;
+
+		for( i = count - 1; i >= 0; i-- )
+			DrawSingleDecal( list[i], fa );
+	}
+	else
+	{
+		for( p = fa->pdecals; p; p = p->pnext )
+		{
+			if( !p->texture ) continue;
+			DrawSingleDecal( p, fa );
+		}
+	}
+
+	if( FBitSet( fa->flags, SURF_TRANSPARENT ) && glState.stencilEnabled )
+		pglDisable( GL_STENCIL_TEST );
+
+	if( single )
+	{
+		if( e->curstate.rendermode == kRenderNormal || e->curstate.rendermode == kRenderTransAlpha )
+		{
+			pglDepthMask( GL_TRUE );
+			pglDisable( GL_BLEND );
+
+			if( e->curstate.rendermode == kRenderTransAlpha )
+				pglEnable( GL_ALPHA_TEST );
+		}
+
+		if( gl_polyoffset->value )
+			pglDisable( GL_POLYGON_OFFSET_FILL );
+
+		if( e->curstate.rendermode == kRenderTransTexture || e->curstate.rendermode == kRenderTransAdd )
+			GL_Cull( GL_FRONT );
+
+		if( e->curstate.rendermode == kRenderTransColor )
+			pglDisable( GL_TEXTURE_2D );
+
+		// restore blendfunc here
+		if( e->curstate.rendermode == kRenderTransAdd || e->curstate.rendermode == kRenderGlow )
+			pglBlendFunc( GL_SRC_ALPHA, GL_ONE );
+
+		pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+	}*/
 }
 
 void DrawDecalsBatch( void )
 {
-	// TODO: VULKAN: legacy GL code
+
+	gEngine.Con_Printf("Draw Decals Batch\n");
+
+	// FIXME VK: release this
+
+	return;
+
 	//cl_entity_t	*e;
 	//int		i;
 
@@ -1261,10 +1233,12 @@ static int DecalDepthCompare( const void *a, const void *b )
 // Input  : *pList -
 // Output : int
 //-----------------------------------------------------------------------------
-int R_CreateDecalList( decallist_t *pList )
+int GAME_EXPORT R_CreateDecalList( decallist_t *pList )
 {
 	int	total = 0;
 	int	i, depth;
+
+//	return 0; // crash on changelevel. API bug?
 
 	if( WORLDMODEL )
 	{
@@ -1292,8 +1266,7 @@ int R_CreateDecalList( decallist_t *pList )
 			pList[total].scale = decal->scale;
 
 			R_DecalUnProject( decal, &pList[total] );
-
-			COM_FileBase( findTexture(decal->texture)->name, pList[total].name );
+			//COM_FileBase( R_GetTexture( decal->texture )->name, pList[total].name ); // FIXME VK: wtf is it? do you know?
 
 			// check to see if the decal should be added
 			total = DecalListAdd( pList, total );
@@ -1318,7 +1291,7 @@ R_DecalRemoveAll
 remove all decals with specified texture
 ===============
 */
-void R_DecalRemoveAll( int textureIndex )
+void GAME_EXPORT R_DecalRemoveAll( int textureIndex )
 {
 	decal_t	*pdecal;
 	int	i;
@@ -1346,7 +1319,7 @@ R_EntityRemoveDecals
 remove all decals from specified entity
 ===============
 */
-void R_EntityRemoveDecals( model_t *mod )
+void GAME_EXPORT R_EntityRemoveDecals( model_t *mod )
 {
 	msurface_t	*psurf;
 	decal_t		*p;
@@ -1371,7 +1344,7 @@ remove all decals from anything
 used for full decals restart
 ===============
 */
-void R_ClearAllDecals( void )
+void GAME_EXPORT R_ClearAllDecals( void )
 {
 	decal_t	*pdecal;
 	int	i;
@@ -1383,9 +1356,8 @@ void R_ClearAllDecals( void )
 		R_DecalUnlink( pdecal );
 	}
 
-	// TODO: VULKAN: legacy GL code
-	//if( gEngine.drawFuncs->R_ClearStudioDecals )
-	//{
-	//	gEngine.drawFuncs->R_ClearStudioDecals();
-	//}
+	if( gEngine.drawFuncs->R_ClearStudioDecals )
+	{
+		gEngine.drawFuncs->R_ClearStudioDecals();
+	}
 }

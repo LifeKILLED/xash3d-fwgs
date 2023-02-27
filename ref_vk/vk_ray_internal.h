@@ -80,3 +80,5 @@ void XVK_RayModel_ClearForNextFrame( void );
 void XVK_RayModel_Validate(void);
 
 void RT_RayModel_Clear(void);
+
+void XVK_RayModel_AddDecalVertices( float* verts_data, uint verts_count, int texture );

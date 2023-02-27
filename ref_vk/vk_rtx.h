@@ -52,3 +52,4 @@ void VK_RayMapLoadEnd( void );
 qboolean VK_RayInit( void );
 void VK_RayShutdown( void );
 
+unsigned VK_RayFrameNumber( void );

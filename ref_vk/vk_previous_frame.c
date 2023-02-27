@@ -63,7 +63,7 @@ void R_PrevFrame_StartFrame( void )
 {
 	g_prev.frame_index++;
 	g_prev.current_frame_id = g_prev.frame_index % PREV_FRAMES_COUNT;
-	g_prev.previous_frame_id = g_prev.frame_index - 1;
+	g_prev.previous_frame_id = (g_prev.frame_index - 1) % PREV_FRAMES_COUNT;
 }
 
 void R_PrevFrame_SaveCurrentBoneTransforms( int entity_id, matrix3x4* bones_transforms )

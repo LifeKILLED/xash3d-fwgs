@@ -16,6 +16,7 @@
 #include "vk_staging.h"
 #include "vk_textures.h"
 #include "vk_previous_frame.h"
+#include "vk_decals.h"
 
 #include "alolcator.h"
 
@@ -110,6 +111,10 @@ static int getResourceSlotForName(const char *name) {
 	}
 
 	return -1;
+}
+
+unsigned VK_RayFrameNumber( void ) {
+	return g_rtx.frame_number;
 }
 
 void VK_RayNewMap( void ) {

@@ -13,6 +13,8 @@
 
 #include <string.h>
 
+#define DECAL_VERTEX_SIZE 7 // same with vk_decals.c
+
 xvk_ray_model_state_t g_ray_model_state;
 
 static void returnModelToCache(vk_ray_model_t *model) {
@@ -550,4 +552,70 @@ void XVK_RayModel_ClearForNextFrame( void )
 	// VK_RingBuffer_ClearFrame(&g_rtx.accels_buffer_alloc);
 	//VK_RingBuffer_ClearFrame(&g_ray_model_state.kusochki_alloc);
 	R_DEBuffer_Flip(&g_ray_model_state.kusochki_alloc);
+}
+
+
+void XVK_RayModel_AddDecalVertices( float* verts_data, uint verts_count, int texture )
+{
+	uint16_t indices_temp[256];
+	uint indices_count = 0;
+
+	gEngine.Con_Printf("Draw decal of %d texture with %d vertices\n", texture, verts_count);
+
+	return;
+
+	// add indices for polys
+	for (uint p = 0; p < verts_count / 4; p++) {
+		uint first_index = p * 4;
+		indices_temp[indices_count++] = first_index + 0;
+		indices_temp[indices_count++] = first_index + 1;
+		indices_temp[indices_count++] = first_index + 2;
+		indices_temp[indices_count++] = first_index + 1;
+		indices_temp[indices_count++] = first_index + 2;
+		indices_temp[indices_count++] = first_index + 3;
+	}
+
+	vk_vertex_t* dst_vtx;
+	uint16_t* dst_idx;
+
+	// Get buffer region for vertices and indices
+	r_geometry_buffer_lock_t buffer;
+	if (!R_GeometryBufferAllocAndLock(&buffer, verts_count, indices_count, LifetimeSingleFrame)) {
+		gEngine.Con_Printf(S_ERROR "Cannot allocate geometry for decal quad\n");
+		return;
+	}
+
+	dst_vtx = buffer.vertices.ptr;
+	dst_idx = buffer.indices.ptr;
+
+	for (uint i = 0, d = 0; i < verts_count; i++, d += DECAL_VERTEX_SIZE) {
+		dst_vtx[i].pos[0] = verts_data[d + 0];
+		dst_vtx[i].pos[1] = verts_data[d + 1];
+		dst_vtx[i].pos[2] = verts_data[d + 2];
+		dst_vtx[i].gl_tc[0] = verts_data[d + 3];
+		dst_vtx[i].gl_tc[1] = verts_data[d + 4];
+	}
+
+	for (uint i = 0; i < indices_count; i++) {
+		dst_idx[i] = indices_temp[256];
+	}
+
+	R_GeometryBufferUnlock(&buffer);
+
+	{
+		const vk_render_geometry_t geometry = {
+			.texture = texture,
+			.material = kXVkMaterialRegular,
+
+			.max_vertex = verts_count,
+			.vertex_offset = buffer.vertices.unit_offset,
+
+			.element_count = indices_count,
+			.index_offset = buffer.indices.unit_offset,
+		};
+
+		VK_RenderModelDynamicBegin(kRenderNormal, "%s", "decal");
+		VK_RenderModelDynamicAddGeometry(&geometry);
+		VK_RenderModelDynamicCommit();
+	}
 }
