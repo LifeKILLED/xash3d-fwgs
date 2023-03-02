@@ -12,7 +12,7 @@
 #define SRC_MATERIAL refl_material_rmxx
 #define SRC_BASE_COLOR refl_base_color_a
 
-#define OUT_LIGHTING out_light_point_reflection
+#define OUT_LIGHTING out_light_point_refl
 
 #define LIGHT_POINT 1
 //#define MAX_LIGHTS_PER_TEXEL 32

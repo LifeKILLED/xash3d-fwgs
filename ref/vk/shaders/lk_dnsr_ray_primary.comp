@@ -210,7 +210,7 @@ void main() {
 	const float roughness_source = payload.material_rmxx.r;
 	const float roughness_low = mix(roughness_source, 0., fresnel);
 	const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
-	const float roughness = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
+	const float roughness = /*mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source))*/ 0.2; // TEST!!!
 	payload.material_rmxx.r = roughness;
 
 		// ---------------------------- //

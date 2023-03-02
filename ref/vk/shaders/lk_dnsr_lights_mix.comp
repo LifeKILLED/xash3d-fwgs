@@ -15,33 +15,26 @@ layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
 
 layout(set = 0, binding = 4, rgba8) uniform readonly image2D base_color_a;
 
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_direct_poly_diffuse;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D light_direct_poly_specular;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_poly_diffuse;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D light_poly_specular;
 
-layout(set = 0, binding = 7, rgba16f) uniform readonly image2D light_direct_point_diffuse;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D light_direct_point_specular;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D light_point_diffuse;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D light_point_specular;
 
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D light_poly_reflection;
-layout(set = 0, binding = 10, rgba16f) uniform readonly image2D light_point_reflection;
-// layout(set = 0, binding = 11, rgba16f) uniform readonly image2D light_poly_indirect;
-// layout(set = 0, binding = 12, rgba16f) uniform readonly image2D light_point_indirect;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D light_poly_refl;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D light_point_refl;
+ layout(set = 0, binding = 11, rgba16f) uniform readonly image2D light_poly_gi;
+ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D light_point_gi;
 
-// layout(set = 0, binding = 13, rgba16f) uniform readonly image2D refl_emissive;
-// layout(set = 0, binding = 14, rgba16f) uniform readonly image2D gi_emissive;
-// layout(set = 0, binding = 15, rgba32f) uniform readonly image2D gi_position_t;
-// layout(set = 0, binding = 16, rgba32f) uniform readonly image2D position_t;
-
-
-// test!!!!
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D refl_emissive;
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D gi_emissive;
-layout(set = 0, binding = 13, rgba32f) uniform readonly image2D gi_position_t;
-layout(set = 0, binding = 14, rgba32f) uniform readonly image2D position_t;
+ layout(set = 0, binding = 13, rgba16f) uniform readonly image2D refl_emissive;
+ layout(set = 0, binding = 14, rgba16f) uniform readonly image2D gi_emissive;
+ layout(set = 0, binding = 15, rgba32f) uniform readonly image2D gi_position_t;
+ layout(set = 0, binding = 16, rgba32f) uniform readonly image2D position_t;
 
 
 vec3 samplePolyDirect(ivec2 pix, ivec2 res) {
 	if (any(lessThan(pix, ivec2(0))) && any(greaterThanEqual(pix, res))) return vec3(-100.);
-	return imageLoad(light_direct_poly_diffuse, pix).rgb;
+	return imageLoad(light_poly_diffuse, pix).rgb;
 }
 
 vec3 samplePolyDirectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
@@ -55,7 +48,7 @@ vec3 samplePolyDirectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
 
 vec3 samplePolyReflect(ivec2 pix, ivec2 res) {
 	if (any(lessThan(pix, ivec2(0))) && any(greaterThanEqual(pix, res))) return vec3(-100.);
-	return imageLoad(light_poly_reflection, pix).rgb;
+	return imageLoad(light_poly_refl, pix).rgb;
 }
 
 vec3 samplePolyReflectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
@@ -79,19 +72,19 @@ void main() {
 	//vec3 irradiance1 = 
 
 	// gray material diffuse component
-	const vec3 diffuse = imageLoad(light_direct_point_diffuse, pix).rgb +
-						 imageLoad(light_direct_poly_diffuse, pix).rgb/* +
+	const vec3 diffuse = imageLoad(light_point_diffuse, pix).rgb +
+						 imageLoad(light_poly_diffuse, pix).rgb/* +
 						 (samplePolyDirectOpposite(pix+ivec2(-1, -1), pix+ivec2(1, 1), res) +
 						 samplePolyDirectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
 						 samplePolyDirectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
 						 samplePolyDirectOpposite(pix+ivec2(0, -1), pix+ivec2(0, 1), res)*/;
 	
 
-	//const vec3 diffuse = imageLoad(light_direct_poly_diffuse, pix).rgb +
-	//					 imageLoad(light_direct_point_diffuse, pix).rgb;
+	//const vec3 diffuse = imageLoad(light_poly_diffuse, pix).rgb +
+	//					 imageLoad(light_point_diffuse, pix).rgb;
 
 	// reflection and reuse info stored in texture with light data
-	const vec3 reflection_poly = imageLoad(light_poly_reflection, pix).rgb/* +
+	const vec3 reflection_poly = imageLoad(light_poly_refl, pix).rgb/* +
 								(samplePolyReflectOpposite(pix+ivec2(-1, -1), pix+ivec2(1, 1), res) +
 								 samplePolyReflectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
 								 samplePolyReflectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
@@ -105,22 +98,22 @@ void main() {
 			vec4 refl_base_color_a_src = imageLoad(base_color_a, screen_pix);
 			vec3 refl_base_color_a = SRGBtoLINEAR(refl_base_color_a_src.rgb);
 			float refl_metalness = refl_base_color_a_src.a;
-			vec3 refl_diffuse = imageLoad(light_direct_poly_diffuse, screen_pix).rgb +
-								imageLoad(light_direct_point_diffuse, screen_pix).rgb;
-			vec3 refl_specular = imageLoad(light_direct_poly_specular, screen_pix).rgb +
-								imageLoad(light_direct_point_specular, screen_pix).rgb;
+			vec3 refl_diffuse = imageLoad(light_poly_diffuse, screen_pix).rgb +
+								imageLoad(light_point_diffuse, screen_pix).rgb;
+			vec3 refl_specular = imageLoad(light_poly_specular, screen_pix).rgb +
+								imageLoad(light_point_specular, screen_pix).rgb;
 
 			reflection = PBRMix(refl_base_color_a.rgb, refl_diffuse, refl_specular, refl_metalness);
 
 			//reflection = vec3(100., 0., 0.); // TEST: visualize SSR texels
 		}
 	} else {*/
-		reflection = reflection_poly + imageLoad(light_point_reflection, pix).rgb;
+		reflection = reflection_poly + imageLoad(light_point_refl, pix).rgb;
 	//}
 
 //	// specular from lighting
-	reflection +=	imageLoad(light_direct_point_specular, pix).rgb /*+
-					imageLoad(light_direct_poly_specular, pix).rgb*/;
+	reflection +=	imageLoad(light_point_specular, pix).rgb /*+
+					imageLoad(light_poly_specular, pix).rgb*/;
 
 	//reflection = clamp_color(reflection, 1.);
 
@@ -128,8 +121,8 @@ void main() {
 
 
 	// global illumination
-	vec3 global_illumination =	/*imageLoad(light_poly_indirect, pix).rgb +
-								imageLoad(light_point_indirect, pix).rgb +*/
+	vec3 global_illumination =	imageLoad(light_poly_gi, pix).rgb +
+								imageLoad(light_point_gi, pix).rgb +
 								imageLoad(gi_emissive, pix).rgb;
 
 

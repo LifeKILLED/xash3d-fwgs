@@ -127,13 +127,13 @@ void main() {
 		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
 
 	// NightFox's corrections for compensation of difference between baked and realtime lightings
-#if LIGHT_POINT
-		diffuse *= 0.25;
-		specular *= 0.25;
-#else
-		diffuse *= 0.04;
-		specular *= 0.04;
-#endif
+//#if LIGHT_POINT
+//		diffuse *= 0.25;
+//		specular *= 0.25;
+//#else
+//		diffuse *= 0.04;
+//		specular *= 0.04;
+//#endif
 
 	}
 
