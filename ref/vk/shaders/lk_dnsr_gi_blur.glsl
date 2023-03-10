@@ -18,8 +18,8 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_GI_1;
-layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D OUTPUT_GI_2;
+layout(set = 0, binding = 0, rgba16f) uniform image2D OUTPUT_GI_1;
+layout(set = 0, binding = 1, rgba16f) uniform image2D OUTPUT_GI_2;
 
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D INPUT_GI_1;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D INPUT_GI_2;

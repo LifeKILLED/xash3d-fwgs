@@ -6,7 +6,7 @@
 #define INPUT_GI_1 gi_sh1_reprojected
 #define INPUT_GI_2 gi_sh2_reprojected
 
-#define OUTPUT_GI_1 gi_sh1_blur1
-#define OUTPUT_GI_2 gi_sh2_blur1
+#define OUTPUT_GI_1 out_gi_sh1_blur1
+#define OUTPUT_GI_2 out_gi_sh2_blur1
 
 #include "lk_dnsr_gi_blur.glsl"

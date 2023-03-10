@@ -91,7 +91,7 @@
 	},
 
 	"gi_blur_pass_1": {
-		"comp": "lk_dnsr_gi_blur_pass_1" // this is broken
+		"comp": "lk_dnsr_gi_blur_pass_1"
 	},
 	"gi_blur_pass_2": {
 		"comp": "lk_dnsr_gi_blur_pass_2"
