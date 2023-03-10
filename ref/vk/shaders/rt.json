@@ -90,15 +90,15 @@
 		"comp": "lk_dnsr_diffuse_svgf_3"
 	},
 
-	//"gi_blur_pass_1": {
-	//	"comp": "lk_dnsr_gi_blur_pass_1" // this is broken
-	//},
-	//"gi_blur_pass_2": {
-	//	"comp": "lk_dnsr_gi_blur_pass_2"
-	//},
-	//"gi_blur_pass_3": {
-	//	"comp": "lk_dnsr_gi_blur_pass_3"
-	//},
+	"gi_blur_pass_1": {
+		"comp": "lk_dnsr_gi_blur_pass_1" // this is broken
+	},
+	"gi_blur_pass_2": {
+		"comp": "lk_dnsr_gi_blur_pass_2"
+	},
+	"gi_blur_pass_3": {
+		"comp": "lk_dnsr_gi_blur_pass_3"
+	},
 
 	"specular_svgf_1": {
 		"comp": "lk_dnsr_specular_svgf_1"
@@ -113,9 +113,9 @@
 		"comp": "lk_dnsr_specular_svgf_4"
 	},
 
-	"skip denoising": {
-		"comp": "lk_dnsr_skip_denoising"
-	},
+	//"skip denoising": {
+	//	"comp": "lk_dnsr_skip_denoising"
+	//},
 
 	"denoiser": {
 		"comp": "lk_dnsr_compose"
