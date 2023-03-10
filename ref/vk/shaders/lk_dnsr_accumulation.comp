@@ -1,0 +1,151 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "brdf.h"
+
+#define PARALLAX_FACTOR_POW 2.
+
+#define NORMALS_DIFFERENCE_LOW 0.93
+#define NORMALS_DIFFERENCE_HIGH 0.97
+
+#define DIFFUSE_BLEND_LIMIT .98
+#define SPECULAR_BLEND_LIMIT .98
+#define GI_BLEND_LIMIT .98
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_reprojected;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_reprojected;
+
+layout(set = 0, binding = 4, rgba16f) uniform image2D out_specular_variance;
+layout(set = 0, binding = 5, rgba16f) uniform image2D out_diffuse_variance;
+
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D diffuse_accum;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D specular_accum;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D gi_sh1_accum;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D gi_sh2_accum;
+
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D reprojecting_coords;
+layout(set = 0, binding = 11, rgba8)   uniform readonly image2D material_rmxx;
+
+layout(set = 0, binding = 12, rgba32f) uniform image2D out_temporal_position_t;
+layout(set = 0, binding = 13, rgba32f) uniform image2D prev_temporal_position_t;
+
+layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_normals_gs;
+layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_normals_gs;
+
+layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_diffuse;
+layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_diffuse;
+
+layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_specular;
+layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_specular;
+
+layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_gi_sh1;
+layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_gi_sh1;
+
+layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_gi_sh2;
+layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_gi_sh2;
+
+
+vec4 calculateVariance(vec3 current_radiance, vec3 last_radiance, float frames_blend) {
+	vec2 moments = vec2(luminance(current_radiance), 0.);
+	moments.g    = moments.r * moments.r;
+
+	vec2 prev_moments = vec2(luminance(last_radiance), 0.);
+	prev_moments.g    = prev_moments.r * prev_moments.r;
+
+	moments = mix(prev_moments, moments, frames_blend);
+	return vec4(max(0.0f, moments.g - moments.r * moments.r));
+}
+	
+void main() {
+	ivec2 res = ivec2(imageSize(diffuse_accum));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const vec2 uv = (pix.xy + .5) / res.xy * 2. - 1.;
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+	
+	vec4 diffuse_history = vec4(0.);
+	vec4 specular_history = vec4(0.);
+	vec4 gi_sh1_history = vec4(0.);
+	vec4 gi_sh2_history = vec4(0.);
+
+	const float metalness = imageLoad(material_rmxx, pix).y;
+	const vec4 coords = imageLoad(reprojecting_coords, pix);
+	const ivec2 forward_coord = ivec2(coords.xy);
+	const ivec2 parallax_coord = ivec2(coords.zw);
+
+	// for metal surfaces try to reproject gi from second bounce
+	const ivec2 gi_coord = (metalness > .5 || parallax_coord.x > -99) ? parallax_coord : forward_coord;
+	
+	if (forward_coord.x > -99) {
+		diffuse_history = imageLoad(prev_temporal_diffuse, forward_coord);
+		diffuse_history.w += 1.; // add to reprojected samples counter
+	}
+
+	if (parallax_coord.x > -99) {
+		specular_history = imageLoad(prev_temporal_specular, parallax_coord);
+		specular_history.w += 1.; // add to reprojected samples counter
+	}
+
+	if (gi_coord.x > -99) {
+		gi_sh1_history = imageLoad(prev_temporal_gi_sh1, gi_coord);
+		gi_sh2_history = imageLoad(prev_temporal_gi_sh2, gi_coord);
+		gi_sh2_history.z += 1.; // add to reprojected samples counter
+	}
+
+	const vec4 diffuse_src = vec4(imageLoad(diffuse_accum, pix).rgb, 1.); 
+	const vec4 specular_src = vec4(imageLoad(specular_accum, pix).rgb, 1.); 
+	const vec4 gi_sh1_src = imageLoad(gi_sh1_accum, pix);
+	const vec4 gi_sh2_rayLength = imageLoad(gi_sh2_accum, pix);
+	const vec3 gi_sh2_src = vec3(gi_sh2_rayLength.xy, 1.);
+
+	vec4 diffuse_variance = vec4(1.); // default is maximal variance
+	vec4 specular_variance = vec4(1.); // default is maximal variance
+
+	const float diffuse_difference = 0.;
+	const float specular_difference = 0.;
+	const float gi_difference = 0.;
+
+	const float duffuse_samples_count = mix(diffuse_history.w, 1., diffuse_difference);
+	const float specular_samples_count = mix(specular_history.w,  1., specular_difference);
+	const float gi_samples_count = mix(gi_sh2_history.z, 1., gi_difference);
+
+	const float diffuse_frames_blend = clamp(1. - 1. / duffuse_samples_count, .0, DIFFUSE_BLEND_LIMIT);
+	const float specular_frames_blend = clamp(1. - 1. / specular_samples_count, .0, SPECULAR_BLEND_LIMIT);
+	const float gi_frames_blend = clamp(1. - 1. / gi_samples_count, .0, GI_BLEND_LIMIT);
+
+	if (diffuse_history.w > 0.99) {
+		diffuse_variance = calculateVariance(diffuse_src.rgb, diffuse_history.rgb, diffuse_frames_blend);
+	}
+
+	if (specular_history.w > 0.99) {
+		specular_variance = calculateVariance(specular_src.rgb, specular_history.rgb, specular_frames_blend);
+	}
+
+	vec4 diffuse_mixed = mix(diffuse_src, diffuse_history, diffuse_frames_blend);
+	vec4 specular_mixed = mix(specular_src, specular_history, specular_frames_blend);
+	vec4 gi_sh1_mixed = mix(gi_sh1_src, gi_sh1_history, gi_frames_blend);
+	vec3 gi_sh2_mixed = mix(gi_sh2_src, gi_sh2_history.xyz, gi_frames_blend);
+
+	//diffuse_mixed = diffuse_src;
+
+	imageStore(out_diffuse_reprojected, pix, diffuse_mixed);
+	imageStore(out_specular_reprojected, pix, specular_mixed);
+	imageStore(out_gi_sh1_reprojected, pix, gi_sh1_mixed);
+	imageStore(out_gi_sh2_reprojected, pix, vec4(gi_sh2_mixed, gi_sh2_rayLength.w));
+
+	imageStore(out_diffuse_variance, pix, diffuse_variance);
+	imageStore(out_specular_variance, pix, specular_variance);
+
+	imageStore(out_temporal_diffuse, pix, diffuse_mixed);
+	imageStore(out_temporal_specular, pix, specular_mixed);
+	imageStore(out_temporal_gi_sh1, pix, gi_sh1_mixed);
+	imageStore(out_temporal_gi_sh2, pix, vec4(gi_sh2_mixed, gi_sh2_rayLength.w));
+}

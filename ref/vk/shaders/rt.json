@@ -1,45 +1,129 @@
-{
-	"primary_ray": {
-		/*
-		"rgen": "ray_primary",
-		"miss": [
-			"ray_primary"
-		],
-		"hit": [
-			{"closest": "ray_primary"},
-			{"closest": "ray_primary", "any": "ray_common_alphatest"}
-		]
-		*/
-		"comp": "ray_primary"
-	},
-//	"light_direct": {
-//		"template": true,
+//{
+//	"primary_ray": {
+//		/*
+//		"rgen": "ray_primary",
 //		"miss": [
-//			"ray_shadow"
+//			"ray_primary"
 //		],
 //		"hit": [
-//			{"closest": "ray_shadow", "any": "ray_common_alphatest"}
+//			{"closest": "ray_primary"},
+//			{"closest": "ray_primary", "any": "ray_common_alphatest"}
 //		]
+//		*/
+//		"comp": "ray_primary"
 //	},
+////	"light_direct": {
+////		"template": true,
+////		"miss": [
+////			"ray_shadow"
+////		],
+////		"hit": [
+////			{"closest": "ray_shadow", "any": "ray_common_alphatest"}
+////		]
+////	},
+////	"light_direct_poly": {
+////		"inherit": "light_direct",
+////		"rgen": "ray_light_poly_direct"
+////	},
+////	"light_direct_point": {
+////		"inherit": "light_direct",
+////		"rgen": "ray_light_direct_point"
+////	},
 //	"light_direct_poly": {
-//		"inherit": "light_direct",
-//		"rgen": "ray_light_poly_direct"
+//		"comp": "ray_light_direct_poly"
 //	},
 //	"light_direct_point": {
-//		"inherit": "light_direct",
-//		"rgen": "ray_light_direct_point"
+//		"comp": "ray_light_direct_point"
 //	},
-	"light_direct_poly": {
-		"comp": "ray_light_direct_poly"
+//	"bounce": {
+//		"comp": "bounce"
+//	},
+//	"denoiser": {
+//		"comp": "denoiser"
+//	},
+//	//"RESOURCES": { "position_t_prev": { "previous_frame": "position_t" }, },
+//}
+
+
+{
+	"primary_ray": {
+		"comp": "lk_dnsr_ray_primary"
 	},
-	"light_direct_point": {
-		"comp": "ray_light_direct_point"
+
+	"direct_point": {
+		"comp": "lk_dnsr_light_direct_point"
 	},
-	"bounce": {
-		"comp": "bounce"
+	"direct_poly": {
+		"comp": "lk_dnsr_light_direct_poly"
 	},
+	"refl_point": {
+		"comp": "lk_dnsr_light_refl_point"
+	},
+	"refl_poly": {
+		"comp": "lk_dnsr_light_refl_poly"
+	},
+	"gi_point": {
+		"comp": "lk_dnsr_light_gi_point"
+	},
+	"gi_poly": {
+		"comp": "lk_dnsr_light_gi_poly"
+	},
+
+	"convert to denoiser": {
+		"comp": "lk_dnsr_lights_mix"
+	},
+
+	"temporal reprojecting": {
+		"comp": "lk_dnsr_reprojecting"
+	},
+	"temporal accumulation": {
+		"comp": "lk_dnsr_accumulation"
+	},
+
+	"diffuse_svgf_1": {
+		"comp": "lk_dnsr_diffuse_svgf_1"
+	},
+	"diffuse_svgf_2": {
+		"comp": "lk_dnsr_diffuse_svgf_2"
+	},
+	"diffuse_svgf_3": {
+		"comp": "lk_dnsr_diffuse_svgf_3"
+	},
+
+	//"gi_blur_pass_1": {
+	//	"comp": "lk_dnsr_gi_blur_pass_1" // this is broken
+	//},
+	//"gi_blur_pass_2": {
+	//	"comp": "lk_dnsr_gi_blur_pass_2"
+	//},
+	//"gi_blur_pass_3": {
+	//	"comp": "lk_dnsr_gi_blur_pass_3"
+	//},
+
+	"specular_svgf_1": {
+		"comp": "lk_dnsr_specular_svgf_1"
+	},
+	"specular_svgf_2": {
+		"comp": "lk_dnsr_specular_svgf_2"
+	},
+	"specular_svgf_3": {
+		"comp": "lk_dnsr_specular_svgf_3"
+	},
+	"specular_svgf_4": {
+		"comp": "lk_dnsr_specular_svgf_4"
+	},
+
+	"skip denoising": {
+		"comp": "lk_dnsr_skip_denoising"
+	},
+
 	"denoiser": {
-		"comp": "denoiser"
+		"comp": "lk_dnsr_compose"
 	},
-	//"RESOURCES": { "position_t_prev": { "previous_frame": "position_t" }, },
+	"checker_mix": {
+		"comp": "lk_dnsr_checker_mix"
+	},
+	"fxaa": {
+		"comp": "lk_dnsr_fxaa"
+	}
 }

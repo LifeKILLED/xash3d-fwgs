@@ -1,0 +1,9 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define SVGF_STEP_SIZE 1
+#define INPUT_IMAGE diffuse_reprojected
+#define OUTPUT_IMAGE out_diffuse_svgf_1
+#define VARIANCE_IMAGE diffuse_variance
+
+#include "lk_dnsr_svgf_kernel.glsl"
