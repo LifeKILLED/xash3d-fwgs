@@ -127,7 +127,7 @@ void main() {
 #endif
 
 		const vec3 throughput = vec3(1.);
-		//computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
+		computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
 
 	// NightFox's corrections for compensation of difference between baked and realtime lightings
 //#if LIGHT_POINT

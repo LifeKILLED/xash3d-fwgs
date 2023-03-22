@@ -1,5 +1,6 @@
 #include "utils.glsl"
 #include "noise.glsl"
+#include "lk_dnsr_config.glsl"
 #include "lk_dnsr_utils.glsl"
 #include "color_spaces.glsl"
 
@@ -18,11 +19,18 @@
 #define CLUSTERS_IN_ADAPT_SAMPLING 1
 
 // max value for simple light weight calculating
-#define LIGHT_WEIGHT_MAX_VALUE 10.
+#define LIGHT_WEIGHT_MAX_VALUE 0.1
+
+#define LIGHT_WEIGHT_MIN_VALUE 0.0
 
 // use this normal type for simple weight calculating
 #define LIGHT_WEIGHT_NORMAL shading_normal
 
+// random choose of light and put in texture for sampling in separately shader
+//#define LIGHT_CHOOSE_PASS 1
+
+// use texture with chosen lights data for sampling
+//#define LIGHT_SAMPLE_PASS 1
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -31,6 +39,10 @@ layout(set = 0, binding = 11, rgba32f) uniform readonly image2D SRC_POSITION;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D SRC_NORMALS;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D SRC_MATERIAL;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D SRC_BASE_COLOR;
+
+#if LIGHT_SAMPLE_PASS
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D SRC_LIGHTS_CHOSEN;
+#endif
 
 #if OUT_SEPARATELY
 	layout(set=0, binding=20, rgba16f) uniform writeonly image2D OUT_DIFFUSE;
@@ -65,16 +77,47 @@ float polyWeight(const PolygonLight poly, const vec3 P, const vec3 N) {
 	const vec3 dir = poly.center - P;
 	const float coplanar = 1. - clamp(dot(normalize(poly.plane.xyz), -normalize(dir)), 0., 1.);
 	const float coplanar_pow = 1. - coplanar * coplanar;
-	const float dist = 1. / dot(dir, dir);
+	const float dist = LIGHT_WEIGHT_MIN_VALUE + 1. / dot(dir, dir);
 	const float shading = dot(N, normalize(dir));
-	return clamp(dist * shading * coplanar_pow * luminance(poly.emissive), 0.0, LIGHT_WEIGHT_MAX_VALUE);
+	const float weight = dist * shading * coplanar_pow * luminance(poly.emissive);
+	return clamp(weight, 0., LIGHT_WEIGHT_MAX_VALUE);
+}
+
+vec3 polyShadingApproximate(const PolygonLight poly, const vec3 P, const vec3 N) {
+	const vec3 dir = poly.center - P;
+	const float coplanar = 1. - clamp(dot(normalize(poly.plane.xyz), -normalize(dir)), 0., 1.);
+	const float coplanar_pow = 1. - coplanar * coplanar;
+	const float dist = LIGHT_WEIGHT_MIN_VALUE + 1. / dot(dir, dir);
+	const float shading = dot(N, normalize(dir));
+	return max(vec3(0.), (poly.area / 4.) * dist * shading * coplanar_pow * poly.emissive);
+}
+
+float PackLightIndexAndProbability(int index, float probability) {
+	if (probability == 0.)
+		return -1.; // guaranted void value, fix float inaccuracy
+
+	// pack id in whole number and probability in mantissa
+	return float(index) + min(0.99, probability);
+}
+
+void UnpackLightIndexAndProbability(float light_id_probability, out int index, out float probability) {
+	if (light_id_probability < 0.)
+	{
+		index = -1; // guaranted void value, fix float inaccuracy
+		probability = 0.;
+	}
+	else
+	{
+		index = int(light_id_probability);
+		probability = light_id_probability - float(index);
+	}
 }
 
 void main() {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
 	const ivec2 res = ivec2(imageSize(SRC_MATERIAL));
 	rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
-	
+
 	// FIXME incorrect for reflection/refraction
 	const ivec3 pix_src = CheckerboardToPix(pix, res);
 	const vec2 uv = PixToUV(pix_src.xy, res);
@@ -83,9 +126,20 @@ void main() {
 
 	vec3 regular_diffuse = vec3(0.), regular_specular = vec3(0.);
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
+	vec4 lightWeightsIndices = vec4(-1.);
 
 	const vec4 material_data = imageLoad(SRC_MATERIAL, pix);
 	const vec3 base_color_a = SRGBtoLINEAR(imageLoad(SRC_BASE_COLOR, pix).rgb);
+
+	if (any(equal(base_color_a, vec3(0.)))) {
+	#if OUT_SEPARATELY
+		imageStore(OUT_DIFFUSE, pix, vec4(0.));
+		imageStore(OUT_SPECULAR, pix, vec4(0.));
+	#else
+		imageStore(OUT_LIGHTING, pix, vec4(0.));
+	#endif
+		return;
+	}
 
 	MaterialProperties material;
 	
@@ -107,8 +161,6 @@ void main() {
 	readNormals(pix, geometry_normal, shading_normal);
 
 	const vec3 pos = imageLoad(SRC_POSITION, pix).xyz + geometry_normal * 0.1;
-
-
 	
 #if REUSE_SCREEN_LIGHTING
 
@@ -153,13 +205,17 @@ void main() {
 	#endif
 
 		const vec3 throughput = vec3(1.);
-
 		const vec3 P = pos + geometry_normal * .001;
 
-		const ivec3 light_cell = ivec3(floor(P / LIGHT_GRID_CELL_SIZE)) - lights.m.grid_min_cell;
-		const uint cluster_index = uint(dot(light_cell, ivec3(1, lights.m.grid_size.x, lights.m.grid_size.x * lights.m.grid_size.y)));
+		float sample_random_pos[ADAPT_LIGHTS_COUNT];
+		int sampled_id[ADAPT_LIGHTS_COUNT];
+		float sampled_probability[ADAPT_LIGHTS_COUNT];
+
+#ifndef LIGHT_SAMPLE_PASS // - need to choose lights by random
 
 	#ifdef CLUSTERS_IN_ADAPT_SAMPLING
+		const ivec3 light_cell = ivec3(floor(P / LIGHT_GRID_CELL_SIZE)) - lights.m.grid_min_cell;
+		const uint cluster_index = uint(dot(light_cell, ivec3(1, lights.m.grid_size.x, lights.m.grid_size.x * lights.m.grid_size.y)));
 		const uint num_polygons = uint(light_grid.clusters_[cluster_index].num_polygons);
 	#else
 		const uint num_polygons = lights.m.num_polygons;
@@ -171,8 +227,8 @@ void main() {
 		float light_weights_sum = 0.;
 
 	#ifdef RANDOM_REGULAR_SAMPLES
-		const uint start = num_polygons > REGULAR_SAMPLES ? rand_range(num_polygons - REGULAR_SAMPLES) : 0;
-		const uint random_end = start + REGULAR_SAMPLES;
+		const uint start = num_polygons > RANDOM_REGULAR_SAMPLES ? rand_range(num_polygons - RANDOM_REGULAR_SAMPLES) : 0;
+		const uint random_end = start + RANDOM_REGULAR_SAMPLES;
 		const uint end = random_end < num_polygons ? random_end : num_polygons;
 	#else
 		const uint start = 0;
@@ -191,19 +247,15 @@ void main() {
 			vec3 curr_diffuse = vec3(0.), curr_specular = vec3(0.);
 			const PolygonLight poly = lights.m.polygons[selected];
 
-			const float curr_weight = polyWeight(poly, P, LIGHT_WEIGHT_NORMAL);
+			const float curr_weight = luminance(polyShadingApproximate(poly, P, LIGHT_WEIGHT_NORMAL));
 			light_weights_sum += curr_weight;
 		}
 
 		if (light_weights_sum > 0.) {
-			float sample_random_pos[ADAPT_LIGHTS_COUNT];
-			int sampled_id[ADAPT_LIGHTS_COUNT];
-			//float sampled_probability[ADAPT_LIGHTS_COUNT];
-
 			for (uint a = 0; a < ADAPT_LIGHTS_COUNT; a++) {
 				sample_random_pos[a] = rand01() * light_weights_sum;
 				sampled_id[a] = -1;
-				//sampled_probability[a] = 0.001;
+				sampled_probability[a] = 0.;
 			}
 
 			float sample_rnd_start = 0.;
@@ -217,7 +269,7 @@ void main() {
 			#endif
 
 				const PolygonLight poly = lights.m.polygons[selected];
-				const float curr_weight = polyWeight(poly, P, LIGHT_WEIGHT_NORMAL);
+				const float curr_weight = luminance(polyShadingApproximate(poly, P, LIGHT_WEIGHT_NORMAL));
 
 				sample_rnd_start = sample_rnd_end;
 				sample_rnd_end += curr_weight;
@@ -225,29 +277,88 @@ void main() {
 				for (uint a = 0; a < ADAPT_LIGHTS_COUNT; a++) {
 					if (sample_random_pos[a] > sample_rnd_start && sample_random_pos[a] < sample_rnd_end) {
 						sampled_id[a] = int(selected);
-						//sampled_probability[a] = (curr_weight / light_weights_sum);
+						sampled_probability[a] = (curr_weight / light_weights_sum);
 					}
 				}
 			}
-
-			const SampleContext ctx = buildSampleContext(P, shading_normal, view_dir);
-
-			vec3 curr_diffuse = vec3(0.), curr_specular = vec3(0.);
-			for (uint a = 0; a < ADAPT_LIGHTS_COUNT; a++) {
-				if (sampled_id[a] != -1) {
-					const PolygonLight poly = lights.m.polygons[sampled_id[a]];
-					sampleSinglePolygonLight(P, shading_normal, view_dir, ctx, material, poly, curr_diffuse, curr_specular);
-					diffuse += curr_diffuse /*/ sampled_probability[a]*/;
-					specular += curr_specular /*/ sampled_probability[a]*/;
-				}
-			}
-
-			diffuse /= float(ADAPT_LIGHTS_COUNT);
-			specular /= float(ADAPT_LIGHTS_COUNT);
 		}
-	}
 
-#if OUT_SEPARATELY
+#endif // not LIGHT_SAMPLE_PASS - need to choose lights by random
+
+
+#ifdef LIGHT_CHOOSE_PASS // save lights ids in diffuse channel and write it in out texture
+
+		// TODO: how do this better?
+	#if (ADAPT_LIGHTS_COUNT == 1)
+		lightWeightsIndices.x = float(sampled_id[0]);
+		lightWeightsIndices.y = sampled_probability[0];
+	#elif (ADAPT_LIGHTS_COUNT == 2)
+		lightWeightsIndices.x = float(sampled_id[0]);
+		lightWeightsIndices.y = sampled_probability[0];
+		lightWeightsIndices.z = float(sampled_id[1]);
+		lightWeightsIndices.w = sampled_probability[1];
+	#else
+		int i = 0;
+		if (i < ADAPT_LIGHTS_COUNT) lightWeightsIndices.x = PackLightIndexAndProbability(sampled_id[i], sampled_probability[i++]);
+		if (i < ADAPT_LIGHTS_COUNT) lightWeightsIndices.y = PackLightIndexAndProbability(sampled_id[i], sampled_probability[i++]);
+		if (i < ADAPT_LIGHTS_COUNT) lightWeightsIndices.z = PackLightIndexAndProbability(sampled_id[i], sampled_probability[i++]);
+		if (i < ADAPT_LIGHTS_COUNT) lightWeightsIndices.w = PackLightIndexAndProbability(sampled_id[i], sampled_probability[i++]);
+	#endif
+
+#else // not LIGHT_CHOOSE_PASS - make true samples with rays
+
+#ifdef LIGHT_SAMPLE_PASS 
+
+		// fill chosen lights array by image buffer from separated pass
+		const vec4 lightIndecesAndWeightes = imageLoad(SRC_LIGHTS_CHOSEN, pix);
+
+		// TODO: how do this better?
+	#if (ADAPT_LIGHTS_COUNT == 1)
+		sampled_id[0] =		 int(lightIndecesAndWeightes.x);
+		sampled_probability[0] = lightIndecesAndWeightes.y;
+	#elif (ADAPT_LIGHTS_COUNT == 2)
+		sampled_id[0] =		 int(lightIndecesAndWeightes.x);
+		sampled_probability[0] = lightIndecesAndWeightes.y;
+		sampled_id[1] =		 int(lightIndecesAndWeightes.z);
+		sampled_probability[1] = lightIndecesAndWeightes.w;
+	#else
+		int i = 0;
+		if (i < ADAPT_LIGHTS_COUNT) UnpackLightIndexAndProbability(lightIndecesAndWeightes.x, sampled_id[i], sampled_probability[i++]);
+		if (i < ADAPT_LIGHTS_COUNT) UnpackLightIndexAndProbability(lightIndecesAndWeightes.y, sampled_id[i], sampled_probability[i++]);
+		if (i < ADAPT_LIGHTS_COUNT) UnpackLightIndexAndProbability(lightIndecesAndWeightes.z, sampled_id[i], sampled_probability[i++]);
+		if (i < ADAPT_LIGHTS_COUNT) UnpackLightIndexAndProbability(lightIndecesAndWeightes.w, sampled_id[i], sampled_probability[i++]);
+	#endif
+#endif // LIGHT_SAMPLE_PASS
+
+		const SampleContext ctx = buildSampleContext(P, shading_normal, view_dir);
+		vec3 curr_diffuse = vec3(0.), curr_specular = vec3(0.);
+
+		for (uint a = 0; a < ADAPT_LIGHTS_COUNT; a++) {
+			if (sampled_id[a] != -1 && sampled_probability[a] > 0.) {
+				const PolygonLight poly = lights.m.polygons[sampled_id[a]];
+				//if (pix_src.x < res.x / 2) {
+					sampleSinglePolygonLight(P, shading_normal, view_dir, ctx, material, poly, curr_diffuse, curr_specular);
+				//} else {
+				//	curr_diffuse = polyShadingApproximate(poly, P, LIGHT_WEIGHT_NORMAL);
+				//}
+				diffuse += curr_diffuse / sampled_probability[a];
+				specular += curr_specular / sampled_probability[a];
+			}
+		}
+
+		//diffuse = vec3(light_weights_sum);
+		//specular *= 10.;
+
+		diffuse /= 25. * float(ADAPT_LIGHTS_COUNT);
+		specular /= 25. * float(ADAPT_LIGHTS_COUNT);
+
+		
+#endif // not LIGHT_CHOOSE_PASS - make true samples with rays
+
+	}
+#if LIGHT_CHOOSE_PASS
+	imageStore(OUT_LIGHTING, pix, lightWeightsIndices);
+#elif OUT_SEPARATELY
 	imageStore(OUT_DIFFUSE, pix, vec4(diffuse, 0.));
 	imageStore(OUT_SPECULAR, pix, vec4(specular, 0.));
 #else

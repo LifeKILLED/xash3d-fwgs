@@ -15,6 +15,9 @@
 
 #define OUT_LIGHTING out_light_poly_gi
 
+#define LIGHT_SAMPLE_PASS 1
+#define SRC_LIGHTS_CHOSEN light_poly_chosen_gi
+
 #define LIGHT_POLYGON 1
 //#define ONE_LIGHT_PER_TEXEL 1
 

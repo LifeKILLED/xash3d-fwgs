@@ -5,17 +5,21 @@
 
 #define RAY_QUERY
 
-#define GLOBAL_ILLUMINATION 1
+#define PRIMARY_VIEW 1
 
-#define SRC_FIRST_POSITION gi_prev_bounce_pos
-#define SRC_POSITION gi_position_t
-#define SRC_NORMALS gi_normals_gs
+#define SRC_FIRST_POSITION refl_position_t
+#define SRC_POSITION position_t
+#define SRC_NORMALS normals_gs
 #define SRC_MATERIAL material_rmxx
-#define SRC_BASE_COLOR gi_base_color_a
+#define SRC_BASE_COLOR base_color_a
 
-#define OUT_LIGHTING out_light_poly_gi
+#define LIGHT_CHOOSE_PASS 1
+#define OUT_LIGHTING out_light_poly_chosen_direct
 
 #define LIGHT_POLYGON 1
+#define GRAY_MATERIAL 1
+
+//#define MAX_LIGHTS_PER_TEXEL 32
 //#define ONE_LIGHT_PER_TEXEL 1
 
 #include "lk_dnsr_lights_adaptive.glsl"

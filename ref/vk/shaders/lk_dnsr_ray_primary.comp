@@ -6,14 +6,12 @@
 #define RAY_QUERY
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-// But it's not plane, it's sphere
-#define NEAR_PLANE_OFFSET 5.
-
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
 #include "utils.glsl"
 #include "noise.glsl"
 #include "brdf.h"
+#include "lk_dnsr_config.glsl"
 #include "lk_dnsr_utils.glsl"
 
 #define RAY_PRIMARY_OUTPUTS(X) \
@@ -27,11 +25,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 	X(17, refl_normals_gs, rgba16f) \
 	X(18, refl_material_rmxx, rgba8) \
 	X(19, refl_emissive, rgba16f) \
-	X(20, gi_base_color_a, rgba8) \
-	X(21, gi_position_t, rgba32f) \
-	X(22, gi_normals_gs, rgba16f) \
-	X(23, gi_emissive, rgba16f) \
-	X(24, geometry_prev_position, rgba32f) \
+	X(20, geometry_prev_position, rgba32f) \
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_##name;
 RAY_PRIMARY_OUTPUTS(X)
@@ -135,6 +129,8 @@ void main() {
 	const ivec2 out_pix = checker_pix.xy;
 	const int checker_transparent = checker_pix.b;
 
+	//const ivec2 out_pix = pix; // DEBUG!!!!!!!!!!!!!!!
+
 	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
 	const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz + direction * NEAR_PLANE_OFFSET;
@@ -194,9 +190,9 @@ void main() {
 		previous_position_t = payload.prev_pos_t;
 	}
 
-	if (not_overlapped) {
-		material_rmxx.b = checker_transparent == 1 ? float(TEXEL_FLAG_TRANSPARENT) : float(TEXEL_FLAG_REFRACTION) + 0.01;
-	}
+	//if (not_overlapped) {
+	//	material_rmxx.b = checker_transparent == 1 ? float(TEXEL_FLAG_TRANSPARENT) : float(TEXEL_FLAG_REFRACTION) + 0.01;
+	//}
 
 	float depth = length(origin - payload.hit_t.xyz);
 	position_t.w = depth;
@@ -212,6 +208,14 @@ void main() {
 	const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
 	const float roughness = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
 	payload.material_rmxx.r = roughness;
+
+	imageStore(out_base_color_a, out_pix, base_color_a);
+	imageStore(out_position_t, out_pix, position_t);
+	imageStore(out_normals_gs, out_pix, normals_gs);
+	imageStore(out_material_rmxx, out_pix, material_rmxx);
+	imageStore(out_emissive, out_pix, emissive);
+
+	imageStore(out_geometry_prev_position, out_pix, previous_position_t);
 
 		// ---------------------------- //
 		// REFLECTION / SPECULAR BOUNCE //
@@ -247,41 +251,9 @@ void main() {
 
 	const vec3 refl_geometry_normal = normalize(normalDecode(refl_normals_gs.xy));
 
-		// -------------------------------- //
-		// FIRST GLOBAL ILLUMINATION BOUNCE //
-		// -------------------------------- //
-
-	// metal surfaces have gi pass after 2 bounce (reflection), diffuse surfaces have it after 1 bounce
-	const vec3 gi_origin = material_rmxx.y > .5 ? refl_position_t.xyz : bounce_origin;
-	const vec3 gi_geometry_normal = material_rmxx.y > .5 ? refl_geometry_normal : geometry_normal;
-
-	const vec3 sphereRandom = sampleSphere(vec2(rand01(), rand01()));
-	const vec3 gi_direction = randomizedOnHemisphere(sphereRandom, gi_geometry_normal);
-
-	payload.hit_t = vec4(0.);
-	payload.base_color_a = vec4(0.);
-	payload.normals_gs = vec4(0.);
-	payload.material_rmxx = vec4(0.);
-	payload.emissive = vec4(0.);
-
-	getHit(bounce_origin, normalize(gi_direction), GEOMETRY_BIT_OPAQUE, payload);
-
-	imageStore(out_base_color_a, out_pix, base_color_a);
-	imageStore(out_position_t, out_pix, position_t);
-	imageStore(out_normals_gs, out_pix, normals_gs);
-	imageStore(out_material_rmxx, out_pix, material_rmxx);
-	imageStore(out_emissive, out_pix, emissive);
-	
 	imageStore(out_refl_base_color_a, out_pix, refl_base_color_a);
 	imageStore(out_refl_position_t, out_pix, refl_position_t);
 	imageStore(out_refl_normals_gs, out_pix, refl_normals_gs);
 	imageStore(out_refl_material_rmxx, out_pix, refl_material_rmxx);
 	imageStore(out_refl_emissive, out_pix, refl_emissive);
-	
-	imageStore(out_gi_base_color_a, out_pix, payload.base_color_a);
-	imageStore(out_gi_position_t, out_pix, payload.hit_t);
-	imageStore(out_gi_normals_gs, out_pix, payload.normals_gs);
-	imageStore(out_gi_emissive, out_pix, payload.emissive);
-
-	imageStore(out_geometry_prev_position, out_pix, previous_position_t);
 }

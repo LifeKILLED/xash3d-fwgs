@@ -13,9 +13,12 @@
 #define SRC_MATERIAL material_rmxx
 #define SRC_BASE_COLOR gi_base_color_a
 
-#define OUT_LIGHTING out_light_poly_gi
+#define LIGHT_CHOOSE_PASS 1
+#define OUT_LIGHTING out_light_poly_chosen_gi
 
 #define LIGHT_POLYGON 1
+
+
 //#define ONE_LIGHT_PER_TEXEL 1
 
 #include "lk_dnsr_lights_adaptive.glsl"

@@ -103,7 +103,13 @@ void main() {
 	
 	const vec4 center_irradiance = imageLoad(INPUT_IMAGE, pix);
 	const float center_luminance = luminance(center_irradiance.rgb);
+
+#ifdef MAXIMAL_VARIANCE
+	const float reproject_variance = 1.;
+#else
 	const float reproject_variance = imageLoad(VARIANCE_IMAGE, pix).r;
+#endif
+
 	const vec4 material_rmxx = imageLoad(material_rmxx, pix);
 	//const vec3 center_irradiance = imageLoad(INPUT_IMAGE, pix).rgb;
 	const float depth = imageLoad(position_depth, pix).w;

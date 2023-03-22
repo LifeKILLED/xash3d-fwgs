@@ -15,6 +15,9 @@
 
 #define OUT_LIGHTING out_light_poly_refl
 
+#define LIGHT_SAMPLE_PASS 1
+#define SRC_LIGHTS_CHOSEN light_poly_chosen_refl
+
 #define LIGHT_POLYGON 1
 //#define REUSE_SCREEN_LIGHTING 1
 

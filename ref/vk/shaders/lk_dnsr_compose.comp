@@ -4,6 +4,7 @@
 #include "noise.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
+#include "lk_dnsr_config.glsl"
 #include "lk_dnsr_utils.glsl"
 #include "lk_dnsr_spherical_harmonics.glsl"
 
@@ -133,6 +134,10 @@ void main() {
 
 	// pbr
 	colour += PBRMixFresnel(base_color, diffuse /*+ diffuse_gi*/, specular, metalness, fresnel);
+
+	//colour = diffuse_gi;
+
+	//colour = imageLoad(diffuse_denoised, pix).rgb;
 
 	//colour *= imageLoad(gi_sh2, pix).w / 1000.;
 
