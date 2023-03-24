@@ -64,35 +64,35 @@
 	},
 
 	// choose and sample lights in one shader
-	//"direct_poly": {
-	//	"comp": "lk_dnsr_light_direct_poly"
-	//},
-	//"refl_poly": {
-	//	"comp": "lk_dnsr_light_refl_poly"
-	//},
-	//"gi_poly": {
-	//	"comp": "lk_dnsr_light_gi_poly"
-	//},
+	"direct_poly": {
+		"comp": "lk_dnsr_light_direct_poly"
+	},
+	"refl_poly": {
+		"comp": "lk_dnsr_light_refl_poly"
+	},
+	"gi_poly": {
+		"comp": "lk_dnsr_light_gi_poly"
+	},
 
 	// choose and sample lights in separate shaders
-	"direct_poly_choose": {
-		"comp": "lk_dnsr_light_direct_poly_choose"
-	},
-	"direct_poly_sample": {
-		"comp": "lk_dnsr_light_direct_poly_sample"
-	},
-	"refl_poly_choose": {
-		"comp": "lk_dnsr_light_refl_poly_choose"
-	},
-	"refl_poly_sample": {
-		"comp": "lk_dnsr_light_refl_poly_sample"
-	},
-	"gi_poly_choose": {
-		"comp": "lk_dnsr_light_gi_poly_choose"
-	},
-	"gi_poly_sample": {
-		"comp": "lk_dnsr_light_gi_poly_sample"
-	},
+	//"direct_poly_choose": {
+	//	"comp": "lk_dnsr_light_direct_poly_choose"
+	//},
+	//"direct_poly_sample": {
+	//	"comp": "lk_dnsr_light_direct_poly_sample"
+	//},
+	//"refl_poly_choose": {
+	//	"comp": "lk_dnsr_light_refl_poly_choose"
+	//},
+	//"refl_poly_sample": {
+	//	"comp": "lk_dnsr_light_refl_poly_sample"
+	//},
+	//"gi_poly_choose": {
+	//	"comp": "lk_dnsr_light_gi_poly_choose"
+	//},
+	//"gi_poly_sample": {
+	//	"comp": "lk_dnsr_light_gi_poly_sample"
+	//},
 
 
 	"lighting_mix": {

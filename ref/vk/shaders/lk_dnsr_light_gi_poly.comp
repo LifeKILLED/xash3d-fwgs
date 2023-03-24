@@ -18,4 +18,4 @@
 #define LIGHT_POLYGON 1
 //#define ONE_LIGHT_PER_TEXEL 1
 
-#include "lk_dnsr_lights_adaptive.glsl"
+#include "lk_dnsr_lights_direct.glsl"
