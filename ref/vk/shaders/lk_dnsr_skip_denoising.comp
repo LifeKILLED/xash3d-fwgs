@@ -28,8 +28,8 @@ void main() {
 		return;
 	}
 	
-//	imageStore(out_specular_denoised, pix, imageLoad(specular_accum, pix));
-//	imageStore(out_diffuse_denoised, pix, imageLoad(diffuse_accum, pix));
-//	imageStore(out_gi_sh1_denoised, pix, imageLoad(gi_sh1_accum, pix));
-//	imageStore(out_gi_sh2_denoised, pix, imageLoad(gi_sh2_accum, pix));
+	imageStore(out_specular_denoised, pix, imageLoad(specular_accum, pix));
+	imageStore(out_diffuse_denoised, pix, imageLoad(diffuse_accum, pix));
+	imageStore(out_gi_sh1_denoised, pix, imageLoad(gi_sh1_accum, pix));
+	imageStore(out_gi_sh2_denoised, pix, imageLoad(gi_sh2_accum, pix));
 }

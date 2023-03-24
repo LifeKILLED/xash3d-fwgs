@@ -69,7 +69,7 @@ layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 #include "light.glsl"
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(SRC_NORMALS, uv);
+	const vec4 n = FIX_NAN(imageLoad(SRC_NORMALS, uv));
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -129,8 +129,8 @@ void main() {
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 	vec4 lightWeightsIndices = vec4(-1.);
 
-	const vec4 material_data = imageLoad(SRC_MATERIAL, pix);
-	const vec3 base_color_a = SRGBtoLINEAR(imageLoad(SRC_BASE_COLOR, pix).rgb);
+	const vec4 material_data = FIX_NAN(imageLoad(SRC_MATERIAL, pix));
+	const vec3 base_color_a = SRGBtoLINEAR(FIX_NAN(imageLoad(SRC_BASE_COLOR, pix)).rgb);
 
 	if (any(equal(base_color_a, vec3(0.)))) {
 	#if OUT_SEPARATELY
@@ -161,7 +161,7 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	const vec3 pos = imageLoad(SRC_POSITION, pix).xyz + geometry_normal * 0.1;
+	const vec3 pos = FIX_NAN(imageLoad(SRC_POSITION, pix)).xyz + geometry_normal * 0.1;
 	
 #if REUSE_SCREEN_LIGHTING
 
@@ -177,7 +177,7 @@ void main() {
 
 		if (any(greaterThanEqual(first_pix, ivec2(0))) && any(lessThan(first_pix, res))) {
 	
-			const vec3 first_pos = imageLoad(SRC_FIRST_POSITION, first_pix).xyz;
+			const vec3 first_pos = FIX_NAN(imageLoad(SRC_FIRST_POSITION, first_pix)).xyz;
 
 			const float nessesary_depth = length(origin - pos);
 			const float current_depth = length(origin - first_pos);
@@ -201,7 +201,7 @@ void main() {
 	#if PRIMARY_VIEW
 		const vec3 view_dir = -direction;
 	#else
-		const vec3 primary_pos = imageLoad(SRC_FIRST_POSITION, pix).xyz;
+		const vec3 primary_pos = FIX_NAN(imageLoad(SRC_FIRST_POSITION, pix)).xyz;
 		const vec3 view_dir = normalize(primary_pos - pos);
 	#endif
 
@@ -255,7 +255,7 @@ void main() {
 		if (light_weights_sum > 0.) {
 			for (uint a = 0; a < ADAPT_LIGHTS_COUNT; a++) {
 				//sample_random_pos[a] = rand01() * light_weights_sum;
-				sample_random_pos[a] = imageLoad(blue_noise, pix).x * light_weights_sum;
+				sample_random_pos[a] = FIX_NAN(imageLoad(blue_noise, pix)).x * light_weights_sum;
 				sampled_id[a] = -1;
 				sampled_probability[a] = 0.;
 			}
@@ -312,7 +312,7 @@ void main() {
 #ifdef LIGHT_SAMPLE_PASS 
 
 		// fill chosen lights array by image buffer from separated pass
-		const vec4 lightIndecesAndWeightes = imageLoad(SRC_LIGHTS_CHOSEN, pix);
+		const vec4 lightIndecesAndWeightes = FIX_NAN(imageLoad(SRC_LIGHTS_CHOSEN, pix));
 
 		// TODO: how do this better?
 	#if (ADAPT_LIGHTS_COUNT == 1)

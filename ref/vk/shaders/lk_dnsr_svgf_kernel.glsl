@@ -101,18 +101,18 @@ void main() {
 		return;
 	}
 	
-	const vec4 center_irradiance = imageLoad(INPUT_IMAGE, pix);
+	const vec4 center_irradiance = FIX_NAN(imageLoad(INPUT_IMAGE, pix));
 	const float center_luminance = luminance(center_irradiance.rgb);
 
 #ifdef MAXIMAL_VARIANCE
 	const float reproject_variance = 1.;
 #else
-	const float reproject_variance = imageLoad(VARIANCE_IMAGE, pix).r;
+	const float reproject_variance = FIX_NAN(imageLoad(VARIANCE_IMAGE, pix)).r;
 #endif
 
-	const vec4 material_rmxx = imageLoad(material_rmxx, pix);
-	//const vec3 center_irradiance = imageLoad(INPUT_IMAGE, pix).rgb;
-	const float depth = imageLoad(position_depth, pix).w;
+	const vec4 material_rmxx = FIX_NAN(imageLoad(material_rmxx, pix));
+	//const vec3 center_irradiance = FIX_NAN(imageLoad(INPUT_IMAGE, pix).rgb;
+	const float depth = FIX_NAN(imageLoad(position_depth, pix)).w;
 	const vec2 depth_offset = vec2(1.);
 	//const float reproject_variance = 1.0; // need to calculate in reprojection
 	//const float phi = PHI_COLOR * sqrt(max(0.0, 0.0001 + reproject_variance));
@@ -173,8 +173,8 @@ void main() {
 				continue;
 			}
 
-			const vec3 current_irradiance = imageLoad(INPUT_IMAGE, p).rgb;
-			const float depth_current = imageLoad(position_depth, p).w;
+			const vec3 current_irradiance = FIX_NAN(imageLoad(INPUT_IMAGE, p)).rgb;
+			const float depth_current = FIX_NAN(imageLoad(position_depth, p)).w;
 
 			//float weight = normpdf(x, sigma) * normpdf(y, sigma);
 			float weight = kernel[abs(x)][abs(y)];
@@ -199,7 +199,7 @@ void main() {
 //
 //		#ifdef DRIVEN_BY_RAY_LENGTH
 //			//// TODO: release this for specular
-//			//const vec4 current_refl_ray_length = depth_current + imageLoad(refl_position_t, p).w;
+//			//const vec4 current_refl_ray_length = depth_current + FIX_NAN(imageLoad(refl_position_t, p)).w;
 //			//weight *= rayLengthWeight(current_refl_ray_length, refl_ray_length); // is not implemented now
 //		#endif
 
@@ -221,7 +221,7 @@ void main() {
 		irradiance /= weight_sum;
 	}
 
-	imageStore(OUTPUT_IMAGE, pix, vec4(irradiance, center_irradiance.w));
+	imageStore(OUTPUT_IMAGE, pix, FIX_NAN(vec4(irradiance, center_irradiance.w)));
 }
 
 

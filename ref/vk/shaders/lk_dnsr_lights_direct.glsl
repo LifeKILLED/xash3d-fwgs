@@ -39,7 +39,7 @@ layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 #include "light.glsl"
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(SRC_NORMALS, uv);
+	const vec4 n = FIX_NAN(imageLoad(SRC_NORMALS, uv));
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -58,8 +58,8 @@ void main() {
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 
 
-	const vec4 material_data = imageLoad(SRC_MATERIAL, pix);
-	const vec3 base_color_a = SRGBtoLINEAR(imageLoad(SRC_BASE_COLOR, pix).rgb);
+	const vec4 material_data = FIX_NAN(imageLoad(SRC_MATERIAL, pix));
+	const vec3 base_color_a = SRGBtoLINEAR(FIX_NAN(imageLoad(SRC_BASE_COLOR, pix)).rgb);
 
 	MaterialProperties material;
 	
@@ -80,7 +80,7 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	const vec3 pos = imageLoad(SRC_POSITION, pix).xyz + geometry_normal * 0.1;
+	const vec3 pos = FIX_NAN(imageLoad(SRC_POSITION, pix)).xyz + geometry_normal * 0.1;
 
 
 	/*
@@ -98,7 +98,7 @@ void main() {
 
 		if (any(greaterThanEqual(first_pix, ivec2(0))) && any(lessThan(first_pix, res))) {
 	
-			const vec3 first_pos = imageLoad(SRC_FIRST_POSITION, first_pix).xyz;
+			const vec3 first_pos = FIX_NAN(imageLoad(SRC_FIRST_POSITION, first_pix)).xyz;
 
 			const float nessesary_depth = length(origin - pos);
 			const float current_depth = length(origin - first_pos);
@@ -122,7 +122,7 @@ void main() {
 #if PRIMARY_VIEW
 		const vec3 V = -direction;
 #else
-		const vec3 primary_pos = imageLoad(SRC_FIRST_POSITION, pix).xyz;
+		const vec3 primary_pos = FIX_NAN(imageLoad(SRC_FIRST_POSITION, pix)).xyz;
 		const vec3 V = normalize(primary_pos - pos);
 #endif
 

@@ -198,7 +198,7 @@ void main() {
 		else
 		{
 			// hit emissive, store it and exit
-			//imageStore(out_gi_emissive, out_pix, vec4(payload.emissive.xyz * gi_troughput, 0.));
+			imageStore(out_gi_emissive, out_pix, vec4(payload.emissive.xyz * gi_troughput, 0.));
 			break;
 		}
 	}

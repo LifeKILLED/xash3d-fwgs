@@ -41,10 +41,10 @@ void main() {
 	ivec2 res = ivec2(imageSize(INPUT_GI_1));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
 
-	const vec4 gi_sh2_src = imageLoad(INPUT_GI_2, pix);
-	const float depth = imageLoad(position_t, pix).w;
-	const float metalness_factor = /*imageLoad(material_rmxx, pix).y > .5 ? 1. : 0.*/ 1.;
-	const vec3 normal = normalDecode(imageLoad(normals_gs, pix).xy);
+	const vec4 gi_sh2_src = FIX_NAN(imageLoad(INPUT_GI_2, pix));
+	const float depth = FIX_NAN(imageLoad(position_t, pix)).w;
+	const float metalness_factor = /*FIX_NAN(imageLoad(material_rmxx, pix)).y > .5 ? 1. : 0.*/ 1.;
+	const vec3 normal = normalDecode(FIX_NAN(imageLoad(normals_gs, pix)).xy);
 
 	vec4 gi_sh1 = vec4(0.);
 	vec2 gi_sh2 = vec2(0.);
@@ -58,15 +58,15 @@ void main() {
 			}
 
 			// metal surfaces have gi after 2 bounce, diffuse after 1, don't mix them
-//			const float current_metalness = imageLoad(material_rmxx, p).y;
+//			const float current_metalness = FIX_NAN(imageLoad(material_rmxx, p)).y;
 //			if (abs(metalness_factor - current_metalness) > .5)
 //				continue;
 
-			const vec4 current_gi_sh1 = imageLoad(INPUT_GI_1, p);
-			const vec4 current_gi_sh2 = imageLoad(INPUT_GI_2, p);
-			const vec3 current_normal = normalDecode(imageLoad(normals_gs, p).xy);
+			const vec4 current_gi_sh1 = FIX_NAN(imageLoad(INPUT_GI_1, p));
+			const vec4 current_gi_sh2 = FIX_NAN(imageLoad(INPUT_GI_2, p));
+			const vec3 current_normal = normalDecode(FIX_NAN(imageLoad(normals_gs, p)).xy);
 
-			const float depth_current = imageLoad(position_t, p).w;
+			const float depth_current = FIX_NAN(imageLoad(position_t, p)).w;
 			const float depth_offset = abs(depth - depth_current) / max(0.001, depth);
 			const float gi_depth_factor = 1. - smoothstep(0., DEPTH_THRESHOLD, depth_offset);
 			const float normals_factor = smoothstep(GI_BLUR_NORMALS_THRESHOLD_LOW, GI_BLUR_NORMALS_THRESHOLD_MAX, dot(normal, current_normal));

@@ -24,7 +24,7 @@ layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(normals_gs, uv);
+	const vec4 n = FIX_NAN(imageLoad(normals_gs, uv));
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -41,9 +41,9 @@ void main() {
 	const ivec2 pix_source = pix_source_a.xy;
 	const int center_is_transparent = pix_source_a.b;
 
-	const vec4 center_color = imageLoad(composed, pix);
-	const float center_alpha = imageLoad(base_color_a, pix).a;
-	const vec3 position = imageLoad(position_t, pix).xyz;
+	const vec4 center_color = FIX_NAN(imageLoad(composed, pix));
+	const float center_alpha = FIX_NAN(imageLoad(base_color_a, pix)).a;
+	const vec3 position = FIX_NAN(imageLoad(position_t, pix)).xyz;
 	
 	const vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec3 direction = normalize(position - origin);
@@ -68,13 +68,13 @@ void main() {
 
 		const ivec2 p_checker = PixToCheckerboard(p, res).xy;
 
-		const float neighboor_alpha = imageLoad(base_color_a, p_checker).a;
+		const float neighboor_alpha = FIX_NAN(imageLoad(base_color_a, p_checker)).a;
 
 		// for opaque texel need to sample only neighboors with transparency
 		if (center_is_transparent == 0 && neighboor_alpha > 0.999)
 			continue;
 
-		const vec3 neighboor_color = imageLoad(composed, p_checker).rgb;
+		const vec3 neighboor_color = FIX_NAN(imageLoad(composed, p_checker)).rgb;
 
 		vec3 neigh_geometry_normal, neigh_shading_normal;
 		readNormals(p_checker, neigh_geometry_normal, neigh_shading_normal);
@@ -84,7 +84,7 @@ void main() {
 		weight += 1.;
 	}
 
-	if (weight > 0.1) {
+	if (weight != 0.) {
 		neighboors_color_a /= weight;
 		neighboors_normal = normalize(neighboors_normal);
 
@@ -99,11 +99,11 @@ void main() {
 		const float blend_alpha = center_is_transparent == 0 ? fresnel_transparency : 1. - fresnel_transparency;
 		const vec4 result_color = mix(center_color, neighboors_color_a, blend_alpha);
 
-		imageStore(out_finalimage, pix_source, result_color); // FIXME!!! store in PIX and change angorythm for this!!!!
+		imageStore(out_finalimage, pix_source, FIX_NAN(result_color)); // FIXME!!! store in PIX and change angorythm for this!!!!
 	
 	} else { 
 		// There is not find transparency texels
-		imageStore(out_finalimage, pix_source, center_color); // FIXME!!! store in PIX and change angorythm for this!!!!
+		imageStore(out_finalimage, pix_source, FIX_NAN(center_color)); // FIXME!!! store in PIX and change angorythm for this!!!!
 	}
 
 	//imageStore(out_finalimage, pix, center_color); //DEBUG!!! remove this

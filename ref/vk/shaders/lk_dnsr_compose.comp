@@ -62,7 +62,7 @@ vec3 reinhard02(vec3 c, vec3 Cwhite2) {
 
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(normals_gs, uv);
+	const vec4 n = FIX_NAN(imageLoad(normals_gs, uv));
 	geometry_normal = normalDecode(n.xy);
 	shading_normal = normalDecode(n.zw);
 }
@@ -81,7 +81,7 @@ void main() {
 	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
 
-	//const vec3 colour = imageLoad(base_color_a, pix).rgb;
+	//const vec3 colour = FIX_NAN(imageLoad(base_color_a, pix).rgb;
 
 	
 	vec3 geometry_normal, shading_normal;
@@ -92,30 +92,30 @@ void main() {
 	vec3 diffuse = vec3(0.);
 	vec3 specular = vec3(0.);
 
-	const vec4 material_rmxx = imageLoad(material_rmxx, pix);
+	const vec4 material_rmxx = FIX_NAN(imageLoad(material_rmxx, pix));
 	const float roughness = material_rmxx.r;
 	const float metalness = material_rmxx.g;
 
 	// emissive/sky
-	colour += imageLoad(emissive, pix).rgb;
+	colour += FIX_NAN(imageLoad(emissive, pix)).rgb;
 
 	// albedo
-	const vec4 base_color_src = imageLoad(base_color_a, pix);
+	const vec4 base_color_src = FIX_NAN(imageLoad(base_color_a, pix));
 	const vec3 base_color = SRGBtoLINEAR(base_color_src.rgb);
 
 	// gray material diffuse component
-	diffuse = imageLoad(diffuse_denoised, pix).rgb;
+	diffuse = FIX_NAN(imageLoad(diffuse_denoised, pix)).rgb;
 
 	// specular from point lights
-	specular = imageLoad(specular_denoised, pix).rgb;
+	specular = FIX_NAN(imageLoad(specular_denoised, pix)).rgb;
 
-	//const vec3 refl_dir = imageLoad(refl_position_t, pix).xyz - imageLoad(position_t, pix).xyz;
-	const vec3 refl_dir = reflect(normalize(imageLoad(position_t, pix).xyz - origin), shading_normal);
+	//const vec3 refl_dir = FIX_NAN(imageLoad(refl_position_t, pix).xyz - FIX_NAN(imageLoad(position_t, pix)).xyz;
+	const vec3 refl_dir = reflect(normalize(FIX_NAN(imageLoad(position_t, pix)).xyz - origin), shading_normal);
 
 	// global illumination re-light
 	SH low_freq;
-	low_freq.shY = imageLoad(gi_sh1_denoised, pix);
-	low_freq.CoCg = imageLoad(gi_sh2_denoised, pix).xy;
+	low_freq.shY = FIX_NAN(imageLoad(gi_sh1_denoised, pix));
+	low_freq.CoCg = FIX_NAN(imageLoad(gi_sh2_denoised, pix)).xy;
 
 	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF;
 	const vec3 reflect_gi = project_SH_irradiance(low_freq, normalize(refl_dir)) / STORAGE_SCALE_LF;
@@ -135,13 +135,13 @@ void main() {
 	const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
 
 	// pbr
-	colour += PBRMixFresnel(base_color, diffuse /*+ diffuse_gi*/, specular, metalness, fresnel);
+	colour += PBRMixFresnel(base_color, diffuse + diffuse_gi, specular + reflect_gi, metalness, fresnel);
 
 	//colour = diffuse_gi;
 
-	//colour = imageLoad(diffuse_denoised, pix).rgb;
+	//colour = FIX_NAN(imageLoad(diffuse_denoised, pix)).rgb;
 
-	//colour *= imageLoad(gi_sh2, pix).w / 1000.;
+	//colour *= FIX_NAN(imageLoad(gi_sh2, pix)).w / 1000.;
 
 	//colour = specular;
 
@@ -176,8 +176,8 @@ void main() {
 	}
 #endif
 
-	// colour *= imageLoad(blue_noise, pix).rgb; // View blue noise for testing
+	// colour *= FIX_NAN(imageLoad(blue_noise, pix)).rgb; // View blue noise for testing
 
 	imageStore(out_composed, pix, vec4(colour, 0.));
-	//imageStore(dest, pix, imageLoad(light_direct_poly, pix));
+	//imageStore(dest, pix, FIX_NAN(imageLoad(light_direct_poly, pix)));
 }

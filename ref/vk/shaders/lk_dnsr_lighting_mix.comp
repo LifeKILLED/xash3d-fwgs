@@ -36,9 +36,10 @@ layout(set = 0, binding = 17, rgba32f) uniform readonly image2D gi_position_t;
 layout(set = 0, binding = 18, rgba32f) uniform readonly image2D gi_prev_bounce_pos;
 
 
+
 vec3 samplePolyDirect(ivec2 pix, ivec2 res) {
 	if (any(lessThan(pix, ivec2(0))) && any(greaterThanEqual(pix, res))) return vec3(-100.);
-	return imageLoad(light_poly_diffuse, pix).rgb;
+	return FIX_NAN(imageLoad(light_poly_diffuse, pix)).rgb;
 }
 
 vec3 samplePolyDirectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
@@ -52,7 +53,7 @@ vec3 samplePolyDirectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
 
 vec3 samplePolyReflect(ivec2 pix, ivec2 res) {
 	if (any(lessThan(pix, ivec2(0))) && any(greaterThanEqual(pix, res))) return vec3(-100.);
-	return imageLoad(light_poly_refl, pix).rgb;
+	return FIX_NAN(imageLoad(light_poly_refl, pix)).rgb;
 }
 
 vec3 samplePolyReflectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
@@ -62,6 +63,7 @@ vec3 samplePolyReflectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
 	else if (first.x < 0.99) return first;
 	return (first + second) / 2.;
 }
+
 
 void main() {
 	ivec2 res = ivec2(imageSize(base_color_a));
@@ -76,8 +78,8 @@ void main() {
 	//vec3 irradiance1 = 
 
 	// gray material diffuse component
-	const vec3 diffuse = imageLoad(light_point_diffuse, pix).rgb +
-						 imageLoad(light_poly_diffuse, pix).rgb/* +
+	const vec3 diffuse = FIX_NAN(imageLoad(light_point_diffuse, pix)).rgb +
+						 FIX_NAN(imageLoad(light_poly_diffuse, pix)).rgb/* +
 						 (samplePolyDirectOpposite(pix+ivec2(-1, -1), pix+ivec2(1, 1), res) +
 						 samplePolyDirectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
 						 samplePolyDirectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
@@ -87,7 +89,7 @@ void main() {
 	//					 imageLoad(light_point_diffuse, pix).rgb;
 
 	// reflection and reuse info stored in texture with light data
-	const vec3 reflection_poly = imageLoad(light_poly_refl, pix).rgb/* +
+	const vec3 reflection_poly = FIX_NAN(imageLoad(light_poly_refl, pix)).rgb/* +
 								(samplePolyReflectOpposite(pix+ivec2(-1, -1), pix+ivec2(1, 1), res) +
 								 samplePolyReflectOpposite(pix+ivec2(1, -1), pix+ivec2(-1, 1), res)) / 2. +
 								 samplePolyReflectOpposite(pix+ivec2(-1, 0), pix+ivec2(1, 0), res) +
@@ -98,25 +100,25 @@ void main() {
 //	if (reflection_poly.b < -99.) {
 //		ivec2 screen_pix = UVToPix(reflection_poly.rg, res);
 //		if (any(greaterThanEqual(screen_pix, ivec2(0))) && any(lessThan(screen_pix, res))) {
-//			vec4 refl_base_color_a_src = imageLoad(base_color_a, screen_pix);
+//			vec4 refl_base_color_a_src = FIX_NAN(imageLoad(base_color_a, screen_pix));
 //			vec3 refl_base_color_a = SRGBtoLINEAR(refl_base_color_a_src.rgb);
 //			float refl_metalness = refl_base_color_a_src.a;
-//			vec3 refl_diffuse = imageLoad(light_poly_diffuse, screen_pix).rgb +
-//								imageLoad(light_point_diffuse, screen_pix).rgb;
-//			vec3 refl_specular = imageLoad(light_poly_specular, screen_pix).rgb +
-//								imageLoad(light_point_specular, screen_pix).rgb;
+//			vec3 refl_diffuse = FIX_NAN(imageLoad(light_poly_diffuse, screen_pix)).rgb +
+//								FIX_NAN(imageLoad(light_point_diffuse, screen_pix)).rgb;
+//			vec3 refl_specular = FIX_NAN(imageLoad(light_poly_specular, screen_pix)).rgb +
+//								FIX_NAN(imageLoad(light_point_specular, screen_pix)).rgb;
 //
 //			reflection = PBRMix(refl_base_color_a.rgb, refl_diffuse, refl_specular, refl_metalness);
 //
 //			//reflection = vec3(100., 0., 0.); // TEST: visualize SSR texels
 //		}
 //	} else {
-		reflection = reflection_poly + imageLoad(light_point_refl, pix).rgb;
+		reflection = reflection_poly + FIX_NAN(imageLoad(light_point_refl, pix)).rgb;
 //	}
 
 //	// specular from lighting
-	reflection +=	imageLoad(light_point_specular, pix).rgb +
-					imageLoad(light_poly_specular, pix).rgb;
+	reflection +=	FIX_NAN(imageLoad(light_point_specular, pix)).rgb +
+					FIX_NAN(imageLoad(light_poly_specular, pix)).rgb;
 
 	//reflection = clamp_color(reflection, 1.);
 
@@ -132,13 +134,17 @@ void main() {
 			if (any(greaterThanEqual(pix_gi, res)))
 				continue;
 
-			// global illumination
-			vec3 global_illumination =	/*imageLoad(light_poly_gi, pix_gi).rgb +*/
-										imageLoad(light_point_gi, pix_gi).rgb /*+
-										/*imageLoad(gi_emissive, pix_gi).rgb*/;
+			vec3 gi_troughput = FIX_NAN(imageLoad(gi_troughput, pix_gi)).rgb;
+			if (any(equal(gi_troughput , vec3(0.))))
+				continue;
 
-			global_illumination *= imageLoad(gi_troughput, pix_gi).rgb;
-			global_illumination *= float(GI_DOWNSAMPLE * GI_DOWNSAMPLE) * 10.;
+			// global illumination
+			vec3 global_illumination =	FIX_NAN(imageLoad(light_poly_gi, pix_gi)).rgb +
+										FIX_NAN(imageLoad(light_point_gi, pix_gi)).rgb +
+										FIX_NAN(imageLoad(gi_emissive, pix_gi)).rgb;
+
+			global_illumination *= gi_troughput;
+			//global_illumination *= float(GI_DOWNSAMPLE * GI_DOWNSAMPLE) * 10.;
 
 			vec4 gi_sh1 = vec4(0.);
 			vec2 gi_sh2 = vec2(0.);
@@ -146,7 +152,7 @@ void main() {
 			// store indirectional light in spherical harmonics
 			if (any(greaterThan(global_illumination.rgb, vec3(0.)))) {
 				const vec3 indirect_color = global_illumination.rgb * STORAGE_SCALE_LF;
-				const vec3 gi_direction_src = imageLoad(gi_position_t, pix_gi).xyz - imageLoad(gi_prev_bounce_pos, pix_gi).xyz;
+				const vec3 gi_direction_src = FIX_NAN(imageLoad(gi_position_t, pix_gi)).xyz - FIX_NAN(imageLoad(gi_prev_bounce_pos, pix_gi)).xyz;
 
 				if (length(gi_direction_src) > 0.) {
 					SH low_freq = irradiance_to_SH(indirect_color, normalize(gi_direction_src));

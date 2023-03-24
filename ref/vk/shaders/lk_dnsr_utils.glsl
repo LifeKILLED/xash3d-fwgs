@@ -138,4 +138,6 @@ ivec2 closest_checker_texel(ivec2 pix, int source_checker_texel) {
 	return checker_texel(pix) == source_checker_texel ? pix : pix + ivec2(1, 0);
 }
 
+#define FIX_NAN(COLOR) (any(isnan(COLOR)) ? vec4(0.) : COLOR)
+
 #endif // #ifndef lk_dnsr_utils_LK_12231312

@@ -89,36 +89,36 @@ void main() {
 	vec4 gi_sh1_history = vec4(0.);
 	vec4 gi_sh2_history = vec4(0.);
 
-	const float metalness = imageLoad(material_rmxx, pix).y;
-	const ivec4 coords = ivec4(imageLoad(reprojecting_coords, pix));
+	const float metalness = FIX_NAN(imageLoad(material_rmxx, pix)).y;
+	const ivec4 coords = ivec4(FIX_NAN(imageLoad(reprojecting_coords, pix)));
 
 	const ivec2 forward_coord = coords.xy;
 	if (forward_coord.x > -99) {
-		diffuse_history = imageLoad(prev_temporal_diffuse, forward_coord);
+		diffuse_history = FIX_NAN(imageLoad(prev_temporal_diffuse, forward_coord));
 		diffuse_history.w += 1.; // add to reprojected samples counter
 	}
 
 	const ivec2 parallax_coord = coords.zw;
 	if (parallax_coord.x > -99) {
-		specular_history = imageLoad(prev_temporal_specular, parallax_coord);
+		specular_history = FIX_NAN(imageLoad(prev_temporal_specular, parallax_coord));
 		specular_history.w += 1.; // add to reprojected samples counter
 	}
 
 	// for metal surfaces try to reproject gi from second bounce
 	const ivec2 gi_coord = /*(metalness > .5 || parallax_coord.x > -99) ? coords.zw : */coords.xy;
 	if (gi_coord.x > -99) {
-		gi_sh1_history = imageLoad(prev_temporal_gi_sh1, gi_coord);
-		gi_sh2_history = imageLoad(prev_temporal_gi_sh2, gi_coord);
+		gi_sh1_history = FIX_NAN(imageLoad(prev_temporal_gi_sh1, gi_coord));
+		gi_sh2_history = FIX_NAN(imageLoad(prev_temporal_gi_sh2, gi_coord));
 		gi_sh2_history.z += 1.; // add to reprojected samples counter
 	}
 
 	
-	const vec4 diffuse_blured_src = vec4(imageLoad(diffuse_pre_blured, pix).rgb, 1.); 
-	const vec4 specular_blured_src = vec4(imageLoad(specular_pre_blured, pix).rgb, 1.); 
-	const vec4 diffuse_src = vec4(imageLoad(diffuse_accum, pix).rgb, 1.); 
-	const vec4 specular_src = vec4(imageLoad(specular_accum, pix).rgb, 1.);
-	const vec4 gi_sh1_src = imageLoad(gi_sh1_pre_blured, pix);
-	const vec4 gi_sh2_rayLength = imageLoad(gi_sh2_pre_blured, pix);
+	const vec4 diffuse_blured_src = vec4(FIX_NAN(imageLoad(diffuse_pre_blured, pix)).rgb, 1.); 
+	const vec4 specular_blured_src = vec4(FIX_NAN(imageLoad(specular_pre_blured, pix)).rgb, 1.); 
+	const vec4 diffuse_src = vec4(FIX_NAN(imageLoad(diffuse_accum, pix)).rgb, 1.); 
+	const vec4 specular_src = vec4(FIX_NAN(imageLoad(specular_accum, pix)).rgb, 1.);
+	const vec4 gi_sh1_src = FIX_NAN(imageLoad(gi_sh1_pre_blured, pix));
+	const vec4 gi_sh2_rayLength = FIX_NAN(imageLoad(gi_sh2_pre_blured, pix));
 	const vec3 gi_sh2_src = vec3(gi_sh2_rayLength.xy, 1.);
 
 	vec4 diffuse_variance = vec4(1.); // default is maximal variance

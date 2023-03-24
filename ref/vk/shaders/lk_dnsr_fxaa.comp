@@ -28,7 +28,7 @@ layout(set = 0, binding = 1, rgba16f) uniform readonly image2D finalimage;
 
 vec4 safeSample(ivec2 pix, ivec2 res) {
 	const ivec2 pix_clamped = clamp(pix, ivec2(0), res - ivec2(1));
-	return imageLoad(finalimage, pix_clamped);
+	return FIX_NAN(imageLoad(finalimage, pix_clamped));
 }
 
 void main() {
@@ -87,7 +87,7 @@ void main() {
     else
         color = vec4(rgbB, texColor.a);
 
-	//imageStore(dest, pix, imageLoad(final_image, pix)); // debug disable fxaa
+	//imageStore(dest, pix, FIX_NAN(imageLoad(final_image, pix)); // debug disable fxaa
 
-	imageStore(out_dest, pix, color);
+	imageStore(out_dest, pix, FIX_NAN(color));
 }
