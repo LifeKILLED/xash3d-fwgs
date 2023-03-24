@@ -28,7 +28,7 @@
 #define MAX_FRAMES_IN_FLIGHT 2
 
 // TODO settings/realtime modifiable/adaptive
-#if 0
+#if 1
 #define FRAME_WIDTH 1280
 #define FRAME_HEIGHT 720
 #elif 0
@@ -67,6 +67,7 @@ typedef struct {
 		int refcount;
 		int source_index_plus_1;
 } rt_resource_t;
+
 
 static struct {
 	// Holds UniformBuffer data
@@ -164,6 +165,12 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);
+
+	ubo->bluenoise_first_id = tglob.bluenoise.first_id;
+	ubo->bluenoise_count = tglob.bluenoise.count;
+	ubo->bluenoise_width = tglob.bluenoise.width;
+	ubo->bluenoise_height = tglob.bluenoise.height;
+	ubo->bluenoise_frame_id = g_rtx.frame_number;
 }
 
 typedef struct {

@@ -26,6 +26,7 @@ layout(set=0,binding=17,rgba16f) uniform readonly image2D normals_gs;
 layout(set=0,binding=18,rgba8)   uniform readonly image2D material_rmxx;
 layout(set=0,binding=19,rgba32f) uniform readonly image2D refl_position_t;
 layout(set=0,binding=20,rgba16f) uniform readonly image2D refl_normals_gs;
+layout(set=0,binding=21,rgba16f) uniform readonly image2D blue_noise;
 
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 
@@ -171,7 +172,8 @@ void main() {
 		payload.material_rmxx = vec4(0.);
 		payload.emissive = vec4(0.);
 
-		const vec3 sphereRandom = sampleSphere(vec2(rand01(), rand01()));
+		//const vec3 sphereRandom = sampleSphere(vec2(rand01(), rand01()));
+		const vec3 sphereRandom = sampleSphere(imageLoad(blue_noise, pix).xy);
 		const vec3 gi_direction = randomizedOnHemisphere(sphereRandom, gi_geometry_normal);
 		bool hitResult = getHit(gi_origin, normalize(gi_direction), GEOMETRY_BIT_OPAQUE, payload);
 
@@ -196,7 +198,7 @@ void main() {
 		else
 		{
 			// hit emissive, store it and exit
-			imageStore(out_gi_emissive, out_pix, vec4(payload.emissive.xyz * gi_troughput, 0.));
+			//imageStore(out_gi_emissive, out_pix, vec4(payload.emissive.xyz * gi_troughput, 0.));
 			break;
 		}
 	}

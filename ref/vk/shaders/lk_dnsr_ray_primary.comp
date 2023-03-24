@@ -26,6 +26,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 	X(18, refl_material_rmxx, rgba8) \
 	X(19, refl_emissive, rgba16f) \
 	X(20, geometry_prev_position, rgba32f) \
+	X(21, blue_noise, rgba16f) \
 
 #define X(index, name, format) layout(set=0,binding=index,format) uniform writeonly image2D out_##name;
 RAY_PRIMARY_OUTPUTS(X)
@@ -129,13 +130,32 @@ void main() {
 	const ivec2 out_pix = checker_pix.xy;
 	const int checker_transparent = checker_pix.b;
 
-	//const ivec2 out_pix = pix; // DEBUG!!!!!!!!!!!!!!!
-
 	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
 	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
 	const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz + direction * NEAR_PLANE_OFFSET;
-
+	
 	RayPayloadPrimary payload;
+
+		// -------------------//
+		// PREPARE BLUE NOISE //
+		// ------------------ //
+
+	vec4 blue_noise = vec4(0);
+	if (ubo.ubo.bluenoise_count != 0)
+	{
+		ivec2 bluenoise_pix = ivec2(pix.x % ubo.ubo.bluenoise_width, pix.y % ubo.ubo.bluenoise_height);
+		vec2 bluenoise_uv = (vec2(bluenoise_pix) + vec2(0.5)) / vec2(ubo.ubo.bluenoise_width, ubo.ubo.bluenoise_height);
+		uint bluenoise_id = ubo.ubo.bluenoise_first_id + ubo.ubo.bluenoise_frame_id % ubo.ubo.bluenoise_count;
+		
+		blue_noise = texture(textures[bluenoise_id], bluenoise_uv);
+		blue_noise += blue_noise.yzwx / 256. + blue_noise.zwxy / (256. * 256.); // add extra details up to 16 bits
+	}
+	else
+	{
+		blue_noise = vec4(rand(), rand(), rand(), rand()); // fallback to regular random if blue noise is not loaded
+	}
+
+	imageStore(out_blue_noise, out_pix, blue_noise);
 
 		// ----------- //
 		// FROM CAMERA //
@@ -225,7 +245,7 @@ void main() {
 
 	const float specPower = 1./ pow(roughness, 3.5);
 
-	const vec3 noise_vec = vec3(rand01(),rand01(),rand01());
+	const vec3 noise_vec = blue_noise.xyz;
 	const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
 	vec3 refl_direction = reflect(direction, microfacet);
 	float coplanar = dot(geometry_normal, refl_direction);

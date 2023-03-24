@@ -5,7 +5,7 @@
 // we downsample gi map and store bounces positions in neighboor texels
 // downsample image dimensions by 2 = store 4 bounces
 // downsample image dimensions by 3 = store 9 bounces
-#define GI_DOWNSAMPLE 2
+#define GI_DOWNSAMPLE 1
 
 // max bounces for testing bounces visiblity
-#define GI_BOUNCES_MAX 4
+#define GI_BOUNCES_MAX 1

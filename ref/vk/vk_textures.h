@@ -58,6 +58,13 @@ typedef struct vk_textures_global_s
 		texFlags_t flags;
 		VkSampler sampler;
 	} samplers[MAX_SAMPLERS];
+
+	struct {
+		int width;
+		int height;
+		int first_id;
+		int count;
+	} bluenoise;
 } vk_textures_global_t;
 
 // TODO rename this consistently

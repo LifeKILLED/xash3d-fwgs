@@ -133,9 +133,9 @@ void main() {
 				continue;
 
 			// global illumination
-			vec3 global_illumination =	imageLoad(light_poly_gi, pix_gi).rgb +
-										imageLoad(light_point_gi, pix_gi).rgb +
-										imageLoad(gi_emissive, pix_gi).rgb;
+			vec3 global_illumination =	/*imageLoad(light_poly_gi, pix_gi).rgb +*/
+										imageLoad(light_point_gi, pix_gi).rgb /*+
+										/*imageLoad(gi_emissive, pix_gi).rgb*/;
 
 			global_illumination *= imageLoad(gi_troughput, pix_gi).rgb;
 			global_illumination *= float(GI_DOWNSAMPLE * GI_DOWNSAMPLE) * 10.;

@@ -77,8 +77,8 @@ void main() {
 //			weight *= (GI_DOWNSAMPLE * GI_DOWNSAMPLE);
 //		#endif
 
-			//const float sigma = KERNEL_SIZE / 2.;
-			//const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor;
+//			const float sigma = KERNEL_X / 2.;
+//			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor * normals_factor;
 
 			gi_sh1 += current_gi_sh1 * weight;
 			gi_sh2 += current_gi_sh2.xy * weight;

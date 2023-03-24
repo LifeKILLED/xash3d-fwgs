@@ -39,9 +39,10 @@ layout(set = 0, binding = 11, rgba32f) uniform readonly image2D SRC_POSITION;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D SRC_NORMALS;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D SRC_MATERIAL;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D SRC_BASE_COLOR;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D blue_noise;
 
 #if LIGHT_SAMPLE_PASS
-layout(set = 0, binding = 15, rgba16f) uniform readonly image2D SRC_LIGHTS_CHOSEN;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D SRC_LIGHTS_CHOSEN;
 #endif
 
 #if OUT_SEPARATELY
@@ -253,7 +254,8 @@ void main() {
 
 		if (light_weights_sum > 0.) {
 			for (uint a = 0; a < ADAPT_LIGHTS_COUNT; a++) {
-				sample_random_pos[a] = rand01() * light_weights_sum;
+				//sample_random_pos[a] = rand01() * light_weights_sum;
+				sample_random_pos[a] = imageLoad(blue_noise, pix).x * light_weights_sum;
 				sampled_id[a] = -1;
 				sampled_probability[a] = 0.;
 			}

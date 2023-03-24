@@ -146,9 +146,19 @@ struct PushConstants {
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
 	mat4 prev_inv_proj, prev_inv_view;
+
 	float ray_cone_width;
 	uint random_seed;
-	PAD(2)
+
+	uint bluenoise_first_id;
+	uint bluenoise_count;
+
+	uint bluenoise_width;
+	uint bluenoise_height;
+
+	uint bluenoise_frame_id;
+
+	PAD(1)
 };
 
 #undef PAD

@@ -95,8 +95,8 @@
 	},
 
 
-	"lights_mix": {
-		"comp": "lk_dnsr_channels_mix"
+	"lighting_mix": {
+		"comp": "lk_dnsr_lighting_mix"
 	},
 
 

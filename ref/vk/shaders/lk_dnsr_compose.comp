@@ -25,6 +25,8 @@ layout(set = 0, binding = 8, rgba16f) uniform readonly image2D gi_sh1_denoised;
 layout(set = 0, binding = 9, rgba16f) uniform readonly image2D gi_sh2_denoised;
 layout(set = 0, binding = 10, rgba32f) uniform readonly image2D refl_position_t;
 
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D blue_noise;
+
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
@@ -174,7 +176,7 @@ void main() {
 	}
 #endif
 
-	//colour = colour  * 0.2 + vec4(imageLoad(blue_noise, ivec2(pix.x % 64, pix.y % 64))).rgb;
+	// colour *= imageLoad(blue_noise, pix).rgb; // View blue noise for testing
 
 	imageStore(out_composed, pix, vec4(colour, 0.));
 	//imageStore(dest, pix, imageLoad(light_direct_poly, pix));
