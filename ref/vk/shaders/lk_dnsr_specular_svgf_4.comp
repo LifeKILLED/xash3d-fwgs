@@ -1,0 +1,9 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define SVGF_STEP_SIZE 8
+#define INPUT_IMAGE specular_svgf_3
+#define OUTPUT_IMAGE out_specular_denoised
+#define VARIANCE_IMAGE specular_variance
+
+#include "lk_dnsr_svgf_kernel.glsl"

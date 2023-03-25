@@ -13,7 +13,7 @@
 //#define SOLID
 //#define SIMPLE_SOLID
 #else
-//#define PROJECTED
+#define PROJECTED
 //#define SOLID
 //#define SIMPLE_SOLID
 #endif

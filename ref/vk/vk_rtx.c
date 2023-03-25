@@ -58,7 +58,7 @@ enum {
 	ExternalResource_COUNT,
 };
 
-#define MAX_RESOURCES 32
+#define MAX_RESOURCES 128
 
 typedef struct {
 		char name[64];
@@ -164,6 +164,12 @@ static void prepareUniformBuffer( const vk_ray_frame_render_args_t *args, int fr
 
 	ubo->ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)FRAME_HEIGHT);
 	ubo->random_seed = (uint32_t)gEngine.COM_RandomLong(0, INT32_MAX);
+
+	ubo->bluenoise_first_id = tglob.bluenoise.first_id;
+	ubo->bluenoise_count = tglob.bluenoise.count;
+	ubo->bluenoise_width = tglob.bluenoise.width;
+	ubo->bluenoise_height = tglob.bluenoise.height;
+	ubo->bluenoise_frame_id = g_rtx.frame_number;
 }
 
 typedef struct {

@@ -6,7 +6,7 @@
 
 #include <stdlib.h>
 
-#define MAX_BARRIERS 16
+#define MAX_BARRIERS 32
 
 void R_VkResourcesPrepareDescriptorsValues(VkCommandBuffer cmdbuf, vk_resources_write_descriptors_args_t args) {
 	VkImageMemoryBarrier image_barriers[MAX_BARRIERS];

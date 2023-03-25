@@ -1,0 +1,11 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define SVGF_STEP_SIZE 2
+#define INPUT_IMAGE diffuse_pre_blur_1
+#define OUTPUT_IMAGE out_diffuse_pre_blured
+#define VARIANCE_IMAGE diffuse_variance
+
+#define MAXIMAL_VARIANCE 1
+
+#include "lk_dnsr_svgf_kernel.glsl"

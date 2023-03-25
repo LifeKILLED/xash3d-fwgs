@@ -1,0 +1,251 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "brdf.h"
+#include "lk_dnsr_config.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "lk_dnsr_spherical_harmonics.glsl"
+
+#define USE_BETTER_NEIGHBOOR_SEARCHING 1
+#define USE_PARALLAX_REPROJECTING 1
+
+#define DISTANCE_THRESHOLD 0.1
+#define NORMAL_THRESHOLD 0.95
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_reprojecting_coords;
+
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D refl_position_t;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 4, rgba8)   uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D geometry_prev_position;
+
+layout(set = 0, binding = 6, rgba32f) uniform image2D out_temporal_position_t;
+layout(set = 0, binding = 7, rgba32f) uniform image2D prev_temporal_position_t;
+
+layout(set = 0, binding = 8, rgba16f) uniform image2D out_temporal_normals_gs;
+layout(set = 0, binding = 9, rgba16f) uniform image2D prev_temporal_normals_gs;
+
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(set = 0, binding = 10) uniform UBO { UniformBuffer ubo; } ubo;
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+void readNormalsLast(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(prev_temporal_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+vec4 calculateVariance(vec3 current_radiance, vec3 last_radiance, float frames_blend) {
+	vec2 moments = vec2(luminance(current_radiance), 0.);
+	moments.g    = moments.r * moments.r;
+
+	vec2 prev_moments = vec2(luminance(last_radiance), 0.);
+	prev_moments.g    = prev_moments.r * prev_moments.r;
+
+	moments = mix(prev_moments, moments, frames_blend);
+	return vec4(max(0.0f, moments.g - moments.r * moments.r));
+}
+
+void main() {
+	const ivec2 res = ivec2(imageSize(position_t));
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	ivec3 pix_src = CheckerboardToPix(pix, res);
+	int is_transparent_texel = pix_src.b;
+	const vec2 uv = PixToUV(pix_src.xy, res);
+
+	const vec3 position = imageLoad(position_t, pix).xyz;
+	const vec3 actual_prev_position = imageLoad(geometry_prev_position, pix).xyz;
+	const vec3 reflection_pos = imageLoad(refl_position_t, pix).xyz;
+	const vec4 center_material_rmxx = imageLoad(material_rmxx, pix);
+	const float roughness = center_material_rmxx.r;
+	const float metalness = center_material_rmxx.g;
+
+	vec3 shadingNormal, geometryNormal;
+	readNormals(pix, geometryNormal, shadingNormal);
+
+	const vec3 origin = OriginWorldPosition(ubo.ubo.inv_view);
+
+	const int texel_flags = int(center_material_rmxx.b + 0.01);
+
+			// ---------------------------------------- //
+			// Simple reprojecting for diffuse lighting //
+			// ---------------------------------------- //
+
+	const vec3 prev_origin = OriginWorldPosition(ubo.ubo.prev_inv_view);
+
+	const vec3 prev_uv_w = WorldPositionToUV2(actual_prev_position, ubo.ubo.prev_inv_proj, ubo.ubo.prev_inv_view);
+	const ivec2 prev_pix_src = UVToPix(prev_uv_w.xy, res);
+	const ivec2 prev_pix = PixToCheckerboard(prev_pix_src, res, is_transparent_texel, texel_flags).xy;	
+
+	const float reflection_ray_lenth = length(reflection_pos - position);
+
+	ivec2 forward_coord = ivec2(-100);
+	ivec2 parallax_coord = ivec2(-100);
+	vec4 history_normals_depth = vec4(0.);
+
+#ifndef USE_BETTER_NEIGHBOOR_SEARCHING
+	// naive depth comparing
+	if (prev_uv_w.z > 0. && any(greaterThanEqual(prev_pix_src, ivec2(0))) && any(lessThan(prev_pix_src, res))) {
+		const vec4 prev_position_depth = imageLoad(prev_temporal_position_t, prev_pix);
+		if (length(prev_position_depth.xyz - actual_prev_position) < 10.) { // same depth
+			forward_coord = prev_pix;
+		}
+	}
+#else // USE_BETTER_NEIGHBOOR_SEARCHING
+	// depth comparing with searching better texels in neighboors
+	if (prev_uv_w.z > 0. && any(greaterThanEqual(prev_pix_src, ivec2(0))) && any(lessThan(prev_pix_src, res))) {
+		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(actual_prev_position, 1.)).xyz, 1.);
+		const float distance_treshold = DISTANCE_THRESHOLD * clip_space.w; // TODO: also use depth gradient
+		float better_offset = distance_treshold;
+		const int NEIGHBOOR_SEARCH_KERNEL = 1;
+		for(int x = -NEIGHBOOR_SEARCH_KERNEL; x <=NEIGHBOOR_SEARCH_KERNEL; x++) {
+			for(int y = -NEIGHBOOR_SEARCH_KERNEL; y <=NEIGHBOOR_SEARCH_KERNEL; y++) {
+				const ivec2 p = prev_pix_src + ivec2(x, y);
+				if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+					continue;
+				}
+
+				const ivec2 searching_pix = PixToCheckerboard(p, res, is_transparent_texel, texel_flags).xy;
+				const vec4 neighboor_position_depth = imageLoad( prev_temporal_position_t, searching_pix );
+				const float neighboor_offset = length(neighboor_position_depth.xyz - actual_prev_position);
+
+				// TODO: normals comparing, is this need here?
+				vec3 neighboor_shadingNormal, neighboor_geometryNormal;
+				readNormalsLast(searching_pix, neighboor_geometryNormal, neighboor_shadingNormal);
+				const float normals_difference = dot(neighboor_geometryNormal, normalize(geometryNormal));
+				if (normals_difference < NORMAL_THRESHOLD)
+					continue;
+
+				if (neighboor_offset < better_offset) {
+					better_offset = neighboor_offset;
+					forward_coord = searching_pix;
+				}
+			}
+		}
+	}
+#endif // USE_BETTER_NEIGHBOOR_SEARCHING
+
+			// ------------------------------------- //
+			// Parallax reprojecting for reflections //
+			// ------------------------------------- //
+			
+	// If there is simple reprojection
+#ifdef USE_PARALLAX_REPROJECTING
+
+	const vec3 current_normal = normalize(geometryNormal.xyz);
+	vec3 prev_normal = current_normal;
+
+	if (forward_coord.x > -99.) {
+		// by default reproject reflections from forward coords
+		if (roughness > 0.05) { // not for mirrors
+			parallax_coord = forward_coord;
+		}
+
+		// get surface normal from previous frame surface
+		const ivec2 forward_pix = ivec2(forward_coord);
+		vec3 forward_shadingNormal, forward_geometryNormal;
+		readNormalsLast(forward_pix.xy, forward_geometryNormal, forward_shadingNormal);
+		prev_normal = normalize(forward_geometryNormal.xyz);
+	}
+
+	//		
+	//	origin (camera)
+	//	       []<          reflection destination
+	//		 	| \        (UwU) (reflected in
+	//			|   \     /  |    surface texel)
+	//			|     \ /    |
+	//	--------x------x-----x------------
+	//	origin on      ^   reflection on plane
+	//	   plane	   |
+	//				reflection center
+	//		(surface texel in current frame)
+	//	  (need to find this in previous frame)
+	//		
+
+	// Parallax reprojection
+	const vec3 reflection_destination = reflect(normalize(position - origin), current_normal) * length(reflection_pos.xyz - position) + position;
+	const float reflection_distance_to_plane = dot(prev_normal, reflection_destination - actual_prev_position);
+	const vec3 reflection_on_plane = reflection_destination - prev_normal * reflection_distance_to_plane;
+	const float prev_distance_to_plane = dot(prev_normal, prev_origin - actual_prev_position);
+	const vec3 prev_origin_on_plane = prev_origin - prev_normal * prev_distance_to_plane;
+	const float reflection_center = prev_distance_to_plane / (prev_distance_to_plane + reflection_distance_to_plane);
+	const vec3 reflection_parallax_position = mix(prev_origin_on_plane, reflection_on_plane, reflection_center);
+	const float nesessary_ray_lenth = max(0.001, length(reflection_parallax_position - reflection_destination));
+
+	// we need to check ray lengths harder in low-roughness mirrors
+	const float actual_difference_treshold = mix(50., 1000., smoothstep(0., 0.3, roughness));
+
+	const vec3 parallax_uv = WorldPositionToUV2(reflection_parallax_position, ubo.ubo.prev_inv_proj, ubo.ubo.prev_inv_view);
+	const ivec2 parallax_pix_src = UVToPix(parallax_uv.xy, res);
+
+	// in front of camera and in bounds of frame
+	if (parallax_uv.z > 0. && any(greaterThanEqual(parallax_pix_src, ivec2(0))) && any(lessThan(parallax_pix_src, res))) {
+		const ivec2 parallax_pix = PixToCheckerboard(parallax_pix_src, res, is_transparent_texel, texel_flags).xy;
+			
+		// last ray length stored in gi_sh2.w for metal surfaces, for diffuse materials it's don't a critic
+		const float prev_ray_length = imageLoad(prev_temporal_position_t, parallax_pix).w;
+		const float ray_length_difference = abs(nesessary_ray_lenth - prev_ray_length);
+
+		// Better fitting by normals we searched in next block
+		vec3 parallax_shadingNormal, parallax_geometryNormal;
+		readNormalsLast(parallax_pix, parallax_geometryNormal, parallax_shadingNormal);
+
+		if (ray_length_difference < actual_difference_treshold
+			&& dot(prev_normal, normalize(parallax_shadingNormal)) > NORMAL_THRESHOLD) {
+
+			parallax_coord = parallax_pix;
+		}
+	}
+
+	//Search better fitting of reflection destination in zone between parallax and simple coords
+//	float best_destination_difference = -1.;
+//	if (parallax_coord.x > -99) {
+//		for (float n = 1.; n >= 0.; n -= 0.05) {
+//			const ivec2 parallax_search_pix_src = ivec2(mix(vec2(prev_pix_src), vec2(parallax_pix_src), n));
+//			const ivec2 parallax_search_pix = PixToCheckerboard(parallax_search_pix_src, res, is_transparent_texel, texel_flags).xy;
+//			if (any(greaterThanEqual(parallax_search_pix, ivec2(0))) && any(lessThan(parallax_search_pix, res))) {
+//				const vec3 prev_parallax_texel_pos = imageLoad(prev_temporal_position_t, parallax_search_pix).xyz;
+//				
+//				vec3 parallax_shadingNormal, parallax_geometryNormal;
+//				readNormals(parallax_search_pix, parallax_geometryNormal, parallax_shadingNormal);
+//
+//				const vec3 prev_reflection_destination = normalize(reflect(normalize(prev_parallax_texel_pos - prev_origin), parallax_shadingNormal));
+//				const float destination_difference = dot(normalize(reflection_destination - prev_parallax_texel_pos), prev_reflection_destination);
+//
+//				if (destination_difference > best_destination_difference) {
+//					best_destination_difference = destination_difference;
+//					parallax_coord = parallax_search_pix;
+//				}
+//			}
+//		}
+//	}
+
+#else // USE_PARALLAX_REPROJECTING
+	parallax_coord = forward_coord;
+#endif
+
+	imageStore(out_reprojecting_coords, pix, vec4(forward_coord, parallax_coord));
+
+	imageStore(out_temporal_position_t, pix, vec4(position.xyz, reflection_ray_lenth));
+	imageStore(out_temporal_normals_gs, pix, imageLoad(normals_gs, pix));
+}

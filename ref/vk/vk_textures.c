@@ -18,6 +18,9 @@
 
 #define TEXTURES_HASH_SIZE	(MAX_TEXTURES >> 2)
 
+#define BLUENOISE_PATH "bluenoise/LDR_RGBA_%d.png"
+#define BLUENOISE_SIZE 64
+
 static vk_texture_t vk_textures[MAX_TEXTURES];
 static vk_texture_t* vk_texturesHashTable[TEXTURES_HASH_SIZE];
 static uint	vk_numTextures;
@@ -25,6 +28,8 @@ vk_textures_global_t tglob = {0};
 
 static void VK_CreateInternalTextures(void);
 static VkSampler pickSamplerForFlags( texFlags_t flags );
+
+static void VK_LoadBlueNoiseTextures(void);
 
 void initTextures( void ) {
 	memset( vk_textures, 0, sizeof( vk_textures ));
@@ -47,6 +52,8 @@ void initTextures( void ) {
 	*/
 
 	VK_CreateInternalTextures();
+
+	VK_LoadBlueNoiseTextures();
 
 	/* FIXME
 	gEngine.Cmd_AddCommand( "texturelist", R_TextureList_f, "display loaded textures list" );
@@ -1136,4 +1143,44 @@ int XVK_CreateDummyTexture( const char *name ) {
 	}
 
 	return VK_LoadTextureInternal(name, pic, TF_NOMIPMAP);
+}
+
+static void VK_LoadBlueNoiseTextures(void)
+{
+	int bluenoise_first_tex_id = -1;
+	char filename[256] = BLUENOISE_PATH;
+	byte buf[ BLUENOISE_SIZE * BLUENOISE_SIZE * 4 ];
+
+
+	for (int i = 0; i < BLUENOISE_SIZE; i++)
+	{
+		sprintf(filename, BLUENOISE_PATH, i);
+
+		const int tex_id = VK_LoadTexture(filename, buf, (BLUENOISE_SIZE * BLUENOISE_SIZE * 4),
+			IMAGE_HAS_COLOR | IMAGE_HAS_ALPHA | TF_NOMIPMAP | TF_NEAREST);
+
+		if (tex_id < 0) {
+			gEngine.Con_Printf(S_ERROR "Failed to load blue noise texture \"%s\"\n", filename);
+			return;
+		}
+
+		if (i == 0)
+		{
+			// remember first texture gpu index
+			tglob.bluenoise.first_id = tex_id;
+		}
+		else if (tex_id != (tglob.bluenoise.first_id + i))
+		{
+			// texture indices need to be stored ordered from first to last
+			gEngine.Con_Printf(S_ERROR "Blue noise textures indices are not ordered\n", filename);
+			return;
+		}
+	}
+
+	// TODO: it's ok for 3d blue noise, but this is hardcode
+	tglob.bluenoise.width = BLUENOISE_SIZE;
+	tglob.bluenoise.height = BLUENOISE_SIZE;
+	tglob.bluenoise.count = BLUENOISE_SIZE;
+
+	gEngine.Con_Printf("Loaded %d blue noise textures\n", BLUENOISE_SIZE);
 }
