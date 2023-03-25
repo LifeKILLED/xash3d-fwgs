@@ -155,7 +155,6 @@ void main() {
 		blue_noise = vec4(rand(), rand(), rand(), rand()); // fallback to regular random if blue noise is not loaded
 	}
 
-	imageStore(out_blue_noise, out_pix, blue_noise);
 
 		// ----------- //
 		// FROM CAMERA //
@@ -172,108 +171,130 @@ void main() {
 	const uint sbt_stride = 0;
 	const float L = 10000.; // TODO Why 10k?
 
+	vec4 first_position_t = vec4(0.);
+	vec4 first_base_color_a = vec4(0.);
+	vec4 first_normals_gs = vec4(0.);
+	vec4 first_material_rmxx = vec4(0.);
+	vec4 first_emissive = vec4(0.);
+	vec4 first_previous_position_t = vec4(0.);
+
+	vec4 position_t = vec4(0.);
+	vec4 base_color_a = vec4(0.);
+	vec4 normals_gs = vec4(0.);
+	vec4 material_rmxx = vec4(0.);
+	vec4 emissive = vec4(0.);
+	vec4 previous_position_t = vec4(0.);
+
+	vec3 geometry_normal = vec3(1.);
+	vec3 shading_normal = vec3(1.);
+	vec3 refl_geometry_normal = vec3(1.);
+
+	vec4 refl_position_t = vec4(0.);
+	vec4 refl_base_color_a = vec4(0.);
+	vec4 refl_normals_gs = vec4(0.);
+	vec4 refl_material_rmxx = vec4(0.);
+	vec4 refl_emissive = vec4(0.);
+
+	float roughness = 0.;
+
+	float depth = 0.;
+	float refl_ray_length = 0.;
+
+
 	// opaque or transparent
-	getHit(origin, direction, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_REFRACTIVE, payload);
+	if (getHit(origin, direction, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_REFRACTIVE, payload)) {
 	
-	const vec4 first_position_t = payload.hit_t;
-	const vec4 first_base_color_a = payload.base_color_a;
-	const vec4 first_normals_gs = payload.normals_gs;
-	const vec4 first_material_rmxx = payload.material_rmxx;
-	const vec4 first_emissive = payload.emissive;
-	const vec4 first_previous_position_t = payload.prev_pos_t;
+		position_t = first_position_t = payload.hit_t;
+		base_color_a = first_base_color_a = payload.base_color_a;
+		normals_gs = first_normals_gs = payload.normals_gs;
+		material_rmxx = first_material_rmxx = payload.material_rmxx;
+		emissive = first_emissive = payload.emissive;
+		previous_position_t = first_previous_position_t = payload.prev_pos_t;
 	
-	vec4 position_t;
-	vec4 base_color_a;
-	vec4 normals_gs;
-	vec4 material_rmxx;
-	vec4 emissive;
-	vec4 previous_position_t;
+		// opaque and refraction check
+		// FIXME: check from geometry color blending parameters
+		if (getHit(origin, direction, GEOMETRY_BIT_OPAQUE, payload)) {
+			const bool is_transparent = length(origin - payload.hit_t.xyz) > length(origin - first_position_t.xyz);
+			if (checker_transparent == 1 && is_transparent) {
+				position_t = payload.hit_t;
+				base_color_a = payload.base_color_a;
+				normals_gs = payload.normals_gs;
+				material_rmxx = payload.material_rmxx;
+				emissive = payload.emissive;
+				previous_position_t = payload.prev_pos_t;
+			}
+		}
+
+		//if (not_overlapped) {
+		//	material_rmxx.b = checker_transparent == 1 ? float(TEXEL_FLAG_TRANSPARENT) : float(TEXEL_FLAG_REFRACTION) + 0.01;
+		//}
+
+		float depth = length(origin - position_t.xyz);
+		position_t.w = depth;
+
+		geometry_normal = normalize(normalDecode(normals_gs.xy));
+		shading_normal = normalize(normalDecode(normals_gs.zw));
+
+		// correct roughness by fresnel
+		const float NdotS = max(0., dot(normalize(direction.xyz), normalize(-shading_normal)));
+		const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
+		const float roughness_source = material_rmxx.r;
+		const float roughness_low = mix(roughness_source, 0., fresnel);
+		const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
+		roughness = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
+
+
+			// ---------------------------- //
+			// REFLECTION / SPECULAR BOUNCE //
+			// ---------------------------- //
+
+		const vec3 bounce_origin = position_t.xyz + geometry_normal * 0.001;
+
+		const float specPower = 1./ pow(roughness, 3.5);
+
+		const vec3 noise_vec = blue_noise.xyz;
+		const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
+		vec3 refl_direction = reflect(direction, microfacet);
+		float coplanar = dot(geometry_normal, refl_direction);
+		if (coplanar < 0.) {
+			refl_direction += geometry_normal * (coplanar * -2.);
+		}
+
+		payload.hit_t = vec4(0.);
+		payload.base_color_a = vec4(0.);
+		payload.normals_gs = vec4(0.);
+		payload.material_rmxx = vec4(0.);
+		payload.emissive = vec4(0.);
+
+		if (getHit(bounce_origin, normalize(refl_direction), GEOMETRY_BIT_OPAQUE, payload)) {
+
+			refl_ray_length = length(position_t.xyz - payload.hit_t.xyz);
+
+			refl_position_t = vec4(payload.hit_t.xyz, refl_ray_length);
+			refl_base_color_a = payload.base_color_a;
+			refl_normals_gs = payload.normals_gs;
+			refl_material_rmxx = payload.material_rmxx;
+			refl_emissive = vec4(max(vec3(0.), payload.emissive.rgb), 0.);
+
+			refl_geometry_normal = normalize(normalDecode(refl_normals_gs.xy));
+		}
+
+	} // if first hit is ok
 	
-	// opaque and refraction check
-	getHit(origin, direction, GEOMETRY_BIT_OPAQUE, payload);
+	imageStore(out_base_color_a, out_pix, FIX_NAN(base_color_a));
+	imageStore(out_position_t, out_pix, FIX_NAN(position_t));
+	imageStore(out_normals_gs, out_pix, FIX_NAN(normals_gs));
+	imageStore(out_material_rmxx, out_pix, FIX_NAN(material_rmxx));
+	imageStore(out_emissive, out_pix, FIX_NAN(emissive));
 
-	bool not_overlapped = length(first_position_t.xyz - payload.hit_t.xyz) > 0.01;
+	imageStore(out_geometry_prev_position, out_pix, FIX_NAN(previous_position_t));
 
-	if (checker_transparent == 1 && not_overlapped) {
-		position_t = first_position_t;
-		base_color_a = first_base_color_a;
-		normals_gs = first_normals_gs;
-		material_rmxx = first_material_rmxx;
-		emissive = first_emissive;
-		previous_position_t = first_previous_position_t;
-	} else {
-		position_t = payload.hit_t;
-		base_color_a = payload.base_color_a;
-		normals_gs = payload.normals_gs;
-		material_rmxx = payload.material_rmxx;
-		emissive = payload.emissive;
-		previous_position_t = payload.prev_pos_t;
-	}
+	imageStore(out_refl_base_color_a, out_pix, FIX_NAN(refl_base_color_a));
+	imageStore(out_refl_position_t, out_pix, FIX_NAN(refl_position_t));
+	imageStore(out_refl_normals_gs, out_pix, FIX_NAN(refl_normals_gs));
+	imageStore(out_refl_material_rmxx, out_pix, FIX_NAN(refl_material_rmxx));
+	imageStore(out_refl_emissive, out_pix, FIX_NAN(refl_emissive));
 
-	//if (not_overlapped) {
-	//	material_rmxx.b = checker_transparent == 1 ? float(TEXEL_FLAG_TRANSPARENT) : float(TEXEL_FLAG_REFRACTION) + 0.01;
-	//}
-
-	float depth = length(origin - payload.hit_t.xyz);
-	position_t.w = depth;
-
-	const vec3 geometry_normal = normalize(normalDecode(normals_gs.xy));
-	const vec3 shading_normal = normalize(normalDecode(normals_gs.zw));
-
-	// correct roughness by fresnel
-	const float NdotS = max(0., dot(normalize(direction.xyz), normalize(-shading_normal)));
-	const float fresnel = evalFresnel(vec3(1.), 0., NdotS).x;
-	const float roughness_source = payload.material_rmxx.r;
-	const float roughness_low = mix(roughness_source, 0., fresnel);
-	const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
-	const float roughness = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
-	payload.material_rmxx.r = roughness;
-
-	imageStore(out_base_color_a, out_pix, base_color_a);
-	imageStore(out_position_t, out_pix, position_t);
-	imageStore(out_normals_gs, out_pix, normals_gs);
-	imageStore(out_material_rmxx, out_pix, material_rmxx);
-	imageStore(out_emissive, out_pix, emissive);
-
-	imageStore(out_geometry_prev_position, out_pix, previous_position_t);
-
-		// ---------------------------- //
-		// REFLECTION / SPECULAR BOUNCE //
-		// ---------------------------- //
-
-	const vec3 bounce_origin = position_t.xyz + geometry_normal * 0.001;
-
-	const float specPower = 1./ pow(roughness, 3.5);
-
-	const vec3 noise_vec = blue_noise.xyz;
-	const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
-	vec3 refl_direction = reflect(direction, microfacet);
-	float coplanar = dot(geometry_normal, refl_direction);
-	if (coplanar < 0.) {
-		refl_direction += geometry_normal * (coplanar * -2.);
-	}
-
-	payload.hit_t = vec4(0.);
-	payload.base_color_a = vec4(0.);
-	payload.normals_gs = vec4(0.);
-	payload.material_rmxx = vec4(0.);
-	payload.emissive = vec4(0.);
-
-	getHit(bounce_origin, normalize(refl_direction), GEOMETRY_BIT_OPAQUE, payload);
-
-	const float refl_ray_length = length(position_t.xyz - payload.hit_t.xyz);
-
-	const vec4 refl_position_t = vec4(payload.hit_t.xyz, refl_ray_length);
-	const vec4 refl_base_color_a = payload.base_color_a;
-	const vec4 refl_normals_gs = payload.normals_gs;
-	const vec4 refl_material_rmxx = payload.material_rmxx;
-	const vec4 refl_emissive = vec4(max(vec3(0.), payload.emissive.rgb), 0.);
-
-	const vec3 refl_geometry_normal = normalize(normalDecode(refl_normals_gs.xy));
-
-	imageStore(out_refl_base_color_a, out_pix, refl_base_color_a);
-	imageStore(out_refl_position_t, out_pix, refl_position_t);
-	imageStore(out_refl_normals_gs, out_pix, refl_normals_gs);
-	imageStore(out_refl_material_rmxx, out_pix, refl_material_rmxx);
-	imageStore(out_refl_emissive, out_pix, refl_emissive);
+	
+	imageStore(out_blue_noise, out_pix, FIX_NAN(blue_noise));
 }

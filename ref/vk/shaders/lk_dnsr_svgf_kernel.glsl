@@ -107,7 +107,7 @@ void main() {
 #ifdef MAXIMAL_VARIANCE
 	const float reproject_variance = 1.;
 #else
-	const float reproject_variance = FIX_NAN(imageLoad(VARIANCE_IMAGE, pix)).r;
+	const float reproject_variance = max(0.001, FIX_NAN(imageLoad(VARIANCE_IMAGE, pix)).r);
 #endif
 
 	const vec4 material_rmxx = FIX_NAN(imageLoad(material_rmxx, pix));
