@@ -31,16 +31,16 @@
 #define MAX_FRAMES_IN_FLIGHT 2
 
 // TODO settings/realtime modifiable/adaptive
-#if 1
-#define FRAME_WIDTH 1280
-#define FRAME_HEIGHT 720
-#elif 0
+//#if 1
+//#define FRAME_WIDTH 1280
+//#define FRAME_HEIGHT 720
+//#elif 0
 #define FRAME_WIDTH 2560
 #define FRAME_HEIGHT 1440
-#else
-#define FRAME_WIDTH 1920
-#define FRAME_HEIGHT 1080
-#endif
+//#else
+//#define FRAME_WIDTH 1920
+//#define FRAME_HEIGHT 1080
+//#endif
 
 	// TODO each of these should be registered by the provider of the resource:
 #define EXTERNAL_RESOUCES(X) \
@@ -62,7 +62,7 @@ enum {
 	ExternalResource_COUNT,
 };
 
-#define MAX_RESOURCES 32
+#define MAX_RESOURCES 128
 
 typedef struct {
 		char name[64];
