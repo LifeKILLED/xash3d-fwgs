@@ -1,0 +1,15 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+//#define OFFSET ivec2(10, 15)
+
+#define INPUT_GI_1 gi_sh1_accum
+#define INPUT_GI_2 gi_sh2_accum
+
+#define OUTPUT_GI_1 out_gi_sh1_pre_blur_1
+#define OUTPUT_GI_2 out_gi_sh2_pre_blur_1
+
+
+//#define SPREAD_UPSCALED 1
+
+#include "lk_dnsr_gi_noisy_spread.glsl"

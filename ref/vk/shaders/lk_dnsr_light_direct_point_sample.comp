@@ -1,0 +1,29 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_ray_query: require
+#extension GL_EXT_shader_atomic_float: require
+
+#define RAY_QUERY
+
+#define PRIMARY_VIEW 1
+
+#define SRC_FIRST_POSITION refl_position_t
+#define SRC_POSITION position_t
+#define SRC_NORMALS normals_gs
+#define SRC_MATERIAL material_rmxx
+#define SRC_BASE_COLOR base_color_a
+
+#define OUT_SEPARATELY 1
+
+#define OUT_DIFFUSE out_light_point_diffuse
+#define OUT_SPECULAR out_light_point_specular
+
+#define LIGHT_SAMPLE_PASS 1
+#define SRC_LIGHTS_CHOSEN light_point_chosen_direct
+
+#define LIGHT_POINT 1
+#define GRAY_MATERIAL 1
+//#define MAX_LIGHTS_PER_TEXEL 32
+//#define ONE_LIGHT_PER_TEXEL 1
+
+#include "lk_dnsr_lights_adaptive_point.glsl"
