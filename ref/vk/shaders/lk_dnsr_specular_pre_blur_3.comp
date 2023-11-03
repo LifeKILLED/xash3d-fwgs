@@ -1,9 +1,9 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 
-#define SVGF_STEP_SIZE 2
-#define INPUT_IMAGE specular_pre_blur_1
-#define OUTPUT_IMAGE out_specular_pre_blur_2
+#define SVGF_STEP_SIZE 4
+#define INPUT_IMAGE specular_pre_blur_2
+#define OUTPUT_IMAGE out_specular_pre_blured
 //#define VARIANCE_IMAGE specular_variance
 
 #define MAXIMAL_VARIANCE 1

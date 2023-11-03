@@ -85,15 +85,20 @@ void main() {
 
 	const vec3 throughput = vec3(1.);
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
-	computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
+	//computeLighting(pos + geometry_normal * .001, shading_normal, throughput, -direction, material, diffuse, specular);
 
 #if LIGHT_POINT
 #ifdef PRIMARY_VIEW
 	imageStore(out_light_point_diffuse, pix, vec4(diffuse, 0.f));
 	imageStore(out_light_point_specular, pix, vec4(specular, 0.f));
 #else
+#ifdef GI
+	imageStore(out_light_point_diffuse_gi, pix, vec4(diffuse, 0.f));
+	imageStore(out_light_point_specular_gi, pix, vec4(specular, 0.f));
+#else
 	imageStore(out_light_point_diffuse_refl, pix, vec4(diffuse, 0.f));
 	imageStore(out_light_point_specular_refl, pix, vec4(specular, 0.f));
+#endif
 #endif
 #endif
 

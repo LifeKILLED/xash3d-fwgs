@@ -105,7 +105,7 @@ vec3 PowRand( vec3 rand, vec3 axis, float fpow )
 
 bool getHit(vec3 origin, vec3 direction, int mask, inout RayPayloadPrimary payload) {
 
-	float L = 1000.;
+	float L = 100000.;
 
 	rayQueryEXT rq;
 	const uint flags = 0

@@ -1,0 +1,54 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "brdf.h"
+#include "lk_dnsr_config.glsl"
+#include "lk_dnsr_spherical_harmonics.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "color_spaces.glsl"
+
+#define GI_LIMIT_LUMINANCE 0.2
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_specular_accum;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_diffuse_accum;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_gi_sh1_accum;
+layout(set = 0, binding = 3, rgba16f) uniform image2D out_gi_sh2_accum;
+
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 5, rgba8) uniform readonly image2D refl_base_color_a;
+
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D light_poly_diffuse;
+
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D light_point_diffuse;
+
+
+
+vec3 samplePolyDirect(ivec2 pix, ivec2 res) {
+	if (any(lessThan(pix, ivec2(0))) && any(greaterThanEqual(pix, res))) return vec3(-100.);
+	return FIX_NAN(imageLoad(light_poly_diffuse, pix)).rgb;
+}
+
+vec3 samplePolyDirectOpposite(ivec2 pix1, ivec2 pix2, ivec2 res) {
+	const vec3 first = samplePolyDirect(pix1, res);
+	const vec3 second = samplePolyDirect(pix2, res);
+	if (first.x < 0.99) return second;
+	else if (first.x < 0.99) return first;
+	return (first + second) / 2.;
+}
+
+void main() {
+	ivec2 res = ivec2(imageSize(base_color_a));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const vec3 diffuse = FIX_NAN(imageLoad(light_point_diffuse, pix)).rgb
+		                + FIX_NAN(imageLoad(light_poly_diffuse, pix)).rgb;
+
+	imageStore(out_diffuse_accum, pix, vec4(diffuse, 0.));
+}

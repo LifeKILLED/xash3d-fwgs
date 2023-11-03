@@ -25,19 +25,21 @@ layout(set = 0, binding = 8, rgba16f) uniform readonly image2D gi_sh1_denoised;
 layout(set = 0, binding = 9, rgba16f) uniform readonly image2D gi_sh2_denoised;
 layout(set = 0, binding = 10, rgba32f) uniform readonly image2D refl_position_t;
 
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D blue_noise;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D blue_noise;
 
-//layout(set = 0, binding = 13, rgba16f) uniform writeonly image2D out_temporal_gi_sh1_denoised;
-//layout(set = 0, binding = 14, rgba16f) uniform writeonly image2D out_temporal_gi_sh2_denoised;
+layout(set = 0, binding = 12, rgba16f) uniform writeonly image2D out_temporal_gi_sh1_denoised;
+layout(set = 0, binding = 13, rgba16f) uniform writeonly image2D out_temporal_gi_sh2_denoised;
 
-//layout(set = 0, binding = 10, rgba16f) uniform readonly image2D gi_sh1_accum;
-//layout(set = 0, binding = 11, rgba16f) uniform readonly image2D gi_sh2_accum;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D gi_sh1_accum;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D gi_sh2_accum;
+
+layout(set = 0, binding = 16, rgba32f) uniform readonly image2D gi_position_t;
 
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
 
-layout(set = 0, binding = 11) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 17) uniform UBO { UniformBuffer ubo; } ubo;
 
 // Blatantly copypasted from https://www.shadertoy.com/view/XsGfWV
 vec3 aces_tonemap(vec3 color){
@@ -151,7 +153,7 @@ void main() {
 //	low_freq.CoCg = FIX_NAN(imageLoad(gi_sh2_accum, pix)).xy;
 //	colour = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF;
 
-	//colour = diffuse_gi;
+//	colour = normalize(imageLoad(gi_position_t, pix).xyz);
 
 	//colour = FIX_NAN(imageLoad(diffuse_denoised, pix)).rgb;
 
@@ -194,8 +196,8 @@ void main() {
 
 	imageStore(out_composed, pix, vec4(colour, 0.));
 
-	//imageStore(out_temporal_gi_sh1_denoised, pix, low_freq.shY);
-	//imageStore(out_temporal_gi_sh2_denoised, pix, vec4(low_freq.CoCg, 0., 0.));
+	imageStore(out_temporal_gi_sh1_denoised, pix, low_freq.shY);
+	imageStore(out_temporal_gi_sh2_denoised, pix, vec4(low_freq.CoCg, 0., 0.));
 
 	//imageStore(dest, pix, FIX_NAN(imageLoad(light_direct_poly, pix)));
 }

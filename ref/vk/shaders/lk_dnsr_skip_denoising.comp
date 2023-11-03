@@ -14,8 +14,8 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_diffuse_deno
 layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_gi_sh1_denoised;
 layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_gi_sh2_denoised;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_accum;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D diffuse_accum;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_pre_blured;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D diffuse_pre_blured;
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D gi_sh1_accum;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D gi_sh2_accum;
 
@@ -35,8 +35,8 @@ void main() {
 //	imageStore(out_gi_sh2_denoised, pix, vec4(0.));
 
 
-	imageStore(out_specular_denoised, pix, imageLoad(specular_accum, pix));
-	imageStore(out_diffuse_denoised, pix, imageLoad(diffuse_accum, pix));
+	imageStore(out_specular_denoised, pix, imageLoad(specular_pre_blured, pix));
+	imageStore(out_diffuse_denoised, pix, imageLoad(diffuse_pre_blured, pix));
 	imageStore(out_gi_sh1_denoised, pix, imageLoad(gi_sh1_accum, pix));
 	imageStore(out_gi_sh2_denoised, pix, imageLoad(gi_sh2_accum, pix));
 }

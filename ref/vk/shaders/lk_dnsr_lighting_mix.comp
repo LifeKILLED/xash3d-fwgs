@@ -30,16 +30,18 @@ layout(set = 0, binding = 10, rgba16f) uniform readonly image2D light_poly_refl;
 
 layout(set = 0, binding = 11, rgba16f) uniform readonly image2D light_point_diffuse_refl;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D light_point_specular_refl;
-/*
+
 layout(set = 0, binding = 11, rgba16f) uniform readonly image2D light_poly_gi;
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D light_point_gi;
-*/
-layout(set = 0, binding = 13, rgba16f)  uniform readonly image2D refl_emissive;
-/*layout(set = 0, binding = 14, rgba16f) uniform readonly image2D gi_emissive;
-layout(set = 0, binding = 15, rgba8)   uniform readonly image2D gi_base_color_a;
-layout(set = 0, binding = 16, rgba16f) uniform readonly image2D gi_troughput;
-layout(set = 0, binding = 17, rgba32f) uniform readonly image2D gi_position_t;
-layout(set = 0, binding = 18, rgba32f) uniform readonly image2D gi_prev_bounce_pos;*/
+
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D light_point_diffuse_gi;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D light_point_specular_gi;
+
+layout(set = 0, binding = 14, rgba16f)  uniform readonly image2D refl_emissive;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D gi_emissive;
+layout(set = 0, binding = 16, rgba8)   uniform readonly image2D gi_base_color_a;
+layout(set = 0, binding = 17, rgba16f) uniform readonly image2D gi_troughput;
+layout(set = 0, binding = 18, rgba32f) uniform readonly image2D gi_position_t;
+layout(set = 0, binding = 19, rgba32f) uniform readonly image2D gi_prev_bounce_pos;
 
 
 
@@ -79,20 +81,20 @@ void main() {
 		return;
 	}
 
-	const vec3 diffuse = FIX_NAN(imageLoad(light_point_diffuse, pix)).rgb
-		                + FIX_NAN(imageLoad(light_poly_diffuse, pix)).rgb;
+	//const vec3 diffuse = FIX_NAN(imageLoad(light_point_diffuse, pix)).rgb
+	//	                + FIX_NAN(imageLoad(light_poly_diffuse, pix)).rgb;
 
 	const vec3 specular = FIX_NAN(imageLoad(light_poly_refl, pix)).rgb
 						+ FIX_NAN(imageLoad(light_point_diffuse_refl, pix)).rgb
 						+ FIX_NAN(imageLoad(light_point_specular_refl, pix)).rgb
-		                + FIX_NAN(imageLoad(light_poly_specular, pix)).rgb
+		                //+ FIX_NAN(imageLoad(light_poly_specular, pix)).rgb
 						+ FIX_NAN(imageLoad(light_point_specular, pix)).rgb
 						+ FIX_NAN(imageLoad(refl_emissive, pix)).rgb;
 
-	imageStore(out_diffuse_accum, pix, vec4(diffuse, 0.));
+	//imageStore(out_diffuse_accum, pix, vec4(diffuse, 0.));
 	imageStore(out_specular_accum, pix, vec4(specular, 0.));
-	imageStore(out_gi_sh1_accum, pix, vec4(0.));
-	imageStore(out_gi_sh2_accum, pix, vec4(0.));
+	//imageStore(out_gi_sh1_accum, pix, vec4(0.));
+	//imageStore(out_gi_sh2_accum, pix, vec4(0.));
 
 
 	//vec3 irradiance1 = 
@@ -136,7 +138,7 @@ void main() {
 
 	imageStore(out_diffuse_accum, pix, vec4(diffuse, 0.));
 	imageStore(out_specular_accum, pix, vec4(reflection, 0.));
-
+	*/
 	vec4 gi_sh1_sum = vec4(0.);
 	vec2 gi_sh2_sum = vec2(0.);
 
@@ -151,11 +153,12 @@ void main() {
 				continue;
 
 			// global illumination
-			vec3 global_illumination =	FIX_NAN(imageLoad(light_poly_gi, pix_gi)).rgb +
-										FIX_NAN(imageLoad(light_point_gi, pix_gi)).rgb +
-										FIX_NAN(imageLoad(gi_emissive, pix_gi)).rgb * 100.0f;
+			vec3 global_illumination =	(FIX_NAN(imageLoad(light_poly_gi, pix_gi)).rgb +
+										FIX_NAN(imageLoad(light_point_diffuse_gi, pix_gi)).rgb +
+										FIX_NAN(imageLoad(light_point_specular_gi, pix_gi)).rgb +
+										FIX_NAN(imageLoad(gi_emissive, pix_gi)).rgb) * 100.0f;
 
-			global_illumination = vec3(1.);
+			//global_illumination = vec3(1.);
 
 			//global_illumination *= gi_troughput;
 			//global_illumination *= float(GI_DOWNSAMPLE * GI_DOWNSAMPLE) * 10.;
@@ -194,7 +197,7 @@ void main() {
 				imageStore(out_gi_sh2_accum, pix_gi, vec4(gi_sh2_sum, 0., 0.));
 			}
 		}
-//		imageStore(out_gi_sh1_accum, pix * GI_DOWNSAMPLE, gi_sh1_sum);
-//		imageStore(out_gi_sh2_accum, pix * GI_DOWNSAMPLE, vec4(gi_sh2_sum, 0., 0.));
-	}*/
+		imageStore(out_gi_sh1_accum, pix * GI_DOWNSAMPLE, gi_sh1_sum);
+		imageStore(out_gi_sh2_accum, pix * GI_DOWNSAMPLE, vec4(gi_sh2_sum, 0., 0.));
+	}
 }
