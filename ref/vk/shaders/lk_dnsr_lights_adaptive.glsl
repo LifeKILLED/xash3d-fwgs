@@ -1,8 +1,8 @@
 #include "utils.glsl"
+#include "noise.glsl"
 #include "lk_dnsr_config.glsl"
 #include "lk_dnsr_utils.glsl"
 #include "color_spaces.glsl"
-#include "noise.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -54,9 +54,6 @@ layout(set = 0, binding = 16, rgba16f) uniform readonly image2D SRC_LIGHTS_CHOSE
 
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
-
-layout(set = 0, binding = 3) uniform sampler3D blue_noise_texture;
-
 
 #include "ray_kusochki.glsl"
 

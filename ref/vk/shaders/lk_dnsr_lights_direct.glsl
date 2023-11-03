@@ -15,7 +15,6 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D SRC_NORMALS;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D SRC_MATERIAL;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D SRC_BASE_COLOR;
 
-
 #if OUT_SEPARATELY
 	layout(set=0, binding=20, rgba16f) uniform writeonly image2D OUT_DIFFUSE;
 	layout(set=0, binding=21, rgba16f) uniform writeonly image2D OUT_SPECULAR;
@@ -23,11 +22,8 @@ layout(set = 0, binding = 14, rgba8) uniform readonly image2D SRC_BASE_COLOR;
 	layout(set=0, binding=20, rgba16f) uniform writeonly image2D OUT_LIGHTING;
 #endif
 
-
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
-
-layout(set = 0, binding = 3) uniform sampler3D blue_noise_texture;
 
 #include "ray_kusochki.glsl"
 

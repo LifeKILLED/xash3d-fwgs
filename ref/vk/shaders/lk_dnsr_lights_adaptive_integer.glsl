@@ -62,8 +62,6 @@ layout(set = 0, binding = 16, rgba16i) uniform readonly iimage2D SRC_LIGHTS_CHOS
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 
-layout(set = 0, binding = 3) uniform sampler3D blue_noise_texture;
-
 #include "ray_kusochki.glsl"
 
 #undef SHADER_OFFSET_HIT_SHADOW_BASE

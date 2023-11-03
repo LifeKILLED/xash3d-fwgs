@@ -10,7 +10,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #include "ray_primary_hit.glsl"
 #include "utils.glsl"
 #include "noise.glsl"
-
+#include "bluenoise.glsl"
 #include "brdf.h"
 #include "lk_dnsr_config.glsl"
 #include "lk_dnsr_utils.glsl"
@@ -34,9 +34,6 @@ RAY_PRIMARY_OUTPUTS(X)
 #undef X
 
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
-
-layout(set = 0, binding = 2) uniform sampler3D blue_noise_texture;
-#include "bluenoise.glsl"
 
 #include "trace_simple_blending.glsl"
 
@@ -306,7 +303,7 @@ void main() {
 		
 	} // if first hit is ok
 	
-	imageStore(out_base_color_a, out_pix, LINEARtoSRGB(FIX_NAN(base_color_a)));
+	imageStore(out_base_color_a, out_pix, FIX_NAN(base_color_a));
 	imageStore(out_position_t, out_pix, FIX_NAN(position_t));
 	imageStore(out_normals_gs, out_pix, FIX_NAN(normals_gs));
 	imageStore(out_material_rmxx, out_pix, FIX_NAN(material_rmxx));
@@ -314,7 +311,7 @@ void main() {
 
 	imageStore(out_geometry_prev_position, out_pix, FIX_NAN(previous_position_t));
 
-	imageStore(out_refl_base_color_a, out_pix, LINEARtoSRGB(FIX_NAN(refl_base_color_a)));
+	imageStore(out_refl_base_color_a, out_pix, FIX_NAN(refl_base_color_a));
 	imageStore(out_refl_position_t, out_pix, FIX_NAN(refl_position_t));
 	imageStore(out_refl_normals_gs, out_pix, FIX_NAN(refl_normals_gs));
 	imageStore(out_refl_material_rmxx, out_pix, FIX_NAN(refl_material_rmxx));

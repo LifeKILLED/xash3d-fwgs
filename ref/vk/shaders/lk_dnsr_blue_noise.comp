@@ -16,8 +16,6 @@ layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_blue_noise;
 layout(set = 0, binding = 1) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 2) uniform sampler2D textures[MAX_TEXTURES];
 
-layout(set = 0, binding = 3) uniform sampler3D blue_noise_texture;
-
 #include "bluenoise.glsl"
 
 void main() {
