@@ -1,7 +1,7 @@
 #include "vk_core.h"
 
 #include "vk_common.h"
-#include "vk_textures.h"
+#include "r_textures.h"
 #include "vk_overlay.h"
 #include "vk_renderstate.h"
 #include "vk_staging.h"
@@ -544,7 +544,7 @@ static qboolean createDevice( void ) {
 		VkDeviceDiagnosticsConfigCreateInfoNV diag_config_nv = {
 			.sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV,
 			.pNext = head,
-			.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_ERROR_REPORTING_BIT_NV
+			.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV | 0x00000008 /*VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_ERROR_REPORTING_BIT_NV */
 		};
 
 		if (candidate_device->nv_checkpoint)
@@ -786,7 +786,7 @@ qboolean R_VkInit( void )
 
 	VK_SceneInit();
 
-	initTextures();
+	R_TexturesInit();
 
 	// All below need render_pass
 
@@ -833,7 +833,9 @@ void R_VkShutdown( void ) {
 
 	VK_FrameCtlShutdown();
 
-	destroyTextures();
+	R_VkMaterialsShutdown();
+
+	R_TexturesShutdown();
 
 	VK_PipelineShutdown();
 

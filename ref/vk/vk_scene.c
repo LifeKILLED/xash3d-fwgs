@@ -13,7 +13,7 @@
 #include "vk_beams.h"
 #include "vk_light.h"
 #include "vk_rtx.h"
-#include "vk_textures.h"
+#include "r_textures.h"
 #include "vk_cvar.h"
 #include "vk_materials.h"
 #include "camera.h"
@@ -230,6 +230,9 @@ int R_FIXME_GetEntityRenderMode( cl_entity_t *ent )
 }
 
 void R_SceneMapDestroy( void ) {
+	// Make sure no rendering is happening
+	XVK_CHECK(vkDeviceWaitIdle( vk_core.device ));
+
 	VK_BrushModelDestroyAll();
 }
 
@@ -254,8 +257,7 @@ void R_NewMap( void ) {
 
 	// Make sure that we're not rendering anything before starting to mess with GPU objects
 	XVK_CHECK(vkDeviceWaitIdle(vk_core.device));
-
-	XVK_SetupSky( gEngine.pfnGetMoveVars()->skyName );
+	R_TextureSetupSky( gEngine.pfnGetMoveVars()->skyName );
 
 	loadMap(map);
 

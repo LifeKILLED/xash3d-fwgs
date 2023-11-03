@@ -23,7 +23,7 @@
 	X(11, string, target, String) \
 	X(12, int, style, Int) \
 	X(13, int_array_t, _xvk_surface_id, IntArray) \
-	X(14, string, _xvk_texture, String) \
+	X(14, string, _xvk_material, String) \
 	X(15, int_array_t, _xvk_ent_id, IntArray) \
 	X(16, float, _xvk_radius, Float) \
 	X(17, vec4_t, _xvk_svec, Vec4) \
@@ -36,6 +36,8 @@
 	X(24, int_array_t, _xvk_smoothing_group, IntArray) \
 	X(25, string, _xvk_map_material, String) \
 	X(26, int, rendermode, Int) \
+	X(27, int, _xvk_smooth_entire_model, Int) \
+	X(28, int_array_t, _xvk_smoothing_excluded, IntArray) \
 
 /* NOTE: not used
 	X(23, int, renderamt, Int) \
@@ -116,6 +118,8 @@ typedef struct {
 
 	int rendermode;
 
+	qboolean smooth_entire_model;
+
 	/* NOTE: not used. Might be needed for #118 in the future.
 	int renderamt, renderfx;
 	color24 rendercolor;
@@ -159,15 +163,20 @@ typedef struct {
 		float threshold;
 
 #define MAX_EXCLUDED_SMOOTHING_SURFACES_PAIRS 32
-		int excluded[MAX_EXCLUDED_SMOOTHING_SURFACES_PAIRS * 2];
-		int excluded_count;
+		int excluded_pairs[MAX_EXCLUDED_SMOOTHING_SURFACES_PAIRS * 2];
+		int excluded_pairs_count;
 
 #define MAX_INCLUDED_SMOOTHING_GROUPS 32
 		int groups_count;
 		xvk_smoothing_group_t groups[MAX_INCLUDED_SMOOTHING_GROUPS];
+
+#define MAX_EXCLUDED_SMOOTHING_SURFACES 256
+		int excluded_count;
+		int excluded[MAX_EXCLUDED_SMOOTHING_SURFACES];
 	} smoothing;
 } xvk_map_entities_t;
 
+// TODO expose a bunch of things here as funtions, not as internal structures
 extern xvk_map_entities_t g_map_entities;
 
 enum { NoEnvironmentLights = -1, MoreThanOneEnvironmentLight = -2 };
@@ -178,7 +187,7 @@ void XVK_ParseMapPatches( void );
 enum {
 	Patch_Surface_NoPatch = 0,
 	Patch_Surface_Delete = (1<<0),
-	Patch_Surface_Texture = (1<<1),
+	Patch_Surface_Material = (1<<1),
 	Patch_Surface_Emissive = (1<<2),
 	Patch_Surface_STvecs = (1<<3),
 	Patch_Surface_TexOffset = (1<<4),
@@ -190,11 +199,7 @@ struct texture_s;
 typedef struct {
 	uint32_t flags;
 
-	// Static texture index in case there's no texture_s pointer
-	int tex_id;
-
-	// Pointer to texture_s data (which also may include animation)
-	const struct texture_s *tex;
+	r_vk_material_ref_t material_ref;
 
 	vec3_t emissive;
 
