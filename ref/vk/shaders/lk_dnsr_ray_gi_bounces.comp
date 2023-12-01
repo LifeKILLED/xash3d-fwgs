@@ -1,0 +1,317 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_ray_query: require
+
+
+#define GI_DIR_ADAPTIVE_CANDIDATES 1
+
+#define RAY_QUERY
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "ray_primary_common.glsl"
+#include "ray_primary_hit.glsl"
+#include "utils.glsl"
+#include "noise.glsl"
+#include "brdf.h"
+#include "lk_dnsr_config.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "lk_dnsr_spherical_harmonics.glsl"
+
+layout(set=0,binding=10,rgba8)   uniform writeonly image2D out_gi_base_color_a;
+layout(set=0,binding=11,rgba16f) uniform writeonly image2D out_gi_troughput;
+layout(set=0,binding=12,rgba32f) uniform writeonly image2D out_gi_position_t;
+layout(set=0,binding=13,rgba16f) uniform writeonly image2D out_gi_normals_gs;
+layout(set=0,binding=14,rgba16f) uniform writeonly image2D out_gi_emissive;
+layout(set=0,binding=15,rgba32f) uniform writeonly image2D out_gi_prev_bounce_pos;
+
+layout(set=0,binding=16,rgba32f) uniform readonly image2D position_t;
+layout(set=0,binding=17,rgba16f) uniform readonly image2D normals_gs;
+layout(set=0,binding=18,rgba8)   uniform readonly image2D material_rmxx;
+layout(set=0,binding=19,rgba32f) uniform readonly image2D refl_position_t;
+layout(set=0,binding=20,rgba16f) uniform readonly image2D refl_normals_gs;
+layout(set=0,binding=21,rgba16f) uniform readonly image2D blue_noise;
+layout(set=0,binding=22,rgba16f) uniform readonly image2D reprojecting_coords;
+
+layout(set=0,binding=23,rgba16f) uniform readonly image2D prev_temporal_gi_sh1_denoised;
+layout(set=0,binding=24,rgba16f) uniform readonly image2D prev_temporal_gi_sh2_denoised;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+
+#include "trace_simple_blending.glsl"
+
+#ifndef M_PI
+#define M_PI 3.1488
+#endif
+
+vec3 randomizedOnHemisphere(vec3 randomVec, vec3 normal) {
+	float directionality = dot(normal, randomVec);
+	if (directionality > 0.) return normalize(randomVec);
+	return -normalize(randomVec);
+}
+
+vec3 sampleSphere(vec2 uv)
+{
+    float y = 2.0 * uv.x - 1;
+    float theta = 2.0 * M_PI * uv.y;
+    float r = sqrt(1.0 - y * y);
+    return vec3(cos(theta) * r, y, sin(theta) * r);
+}
+
+// Microfacet bounce from this example https://www.shadertoy.com/view/Md3yWl
+
+vec3 SphereRand( vec2 rand )
+{
+    rand += vec2(.5);
+    float sina = rand.x*2. - 1.;
+    float b = 6.283*rand.y;
+    float cosa = sqrt(1.-sina*sina);
+    return vec3(cosa*cos(b),sina,cosa*sin(b));
+}
+
+vec3 PowRand( vec3 rand, vec3 axis, float fpow )
+{
+	vec3 r = normalize(rand  - vec3(0.5));
+	//vec3 r = sampleHemisphere(rand);
+    //vec3 r = SphereRand(rand);
+    float d = dot(r,axis);
+    r -= d*axis;
+    r = normalize(r);
+    float h = d*.5+.5;
+    r *= sqrt( 1. - pow( h, 2./(fpow+1.) ) );
+    r += axis*sqrt(1.-dot(r,r));
+    return r;
+}
+/*
+bool bool getHit(vec3 origin, vec3 direction, int mask, inout RayPayloadPrimary payload) {
+	rayQueryEXT rq;
+	const uint flags = 0
+		| gl_RayFlagsCullFrontFacingTrianglesEXT
+		//| gl_RayFlagsOpaqueEXT
+		//| gl_RayFlagsTerminateOnFirstHitEXT
+		//| gl_RayFlagsSkipClosestHitShaderEXT
+		;
+	rayQueryInitializeEXT(rq, tlas, flags, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_ALPHA_TEST | GEOMETRY_BIT_REFRACTIVE, ray.origin, 0., ray.direction, ray.dist);
+	while (rayQueryProceedEXT(rq)) {
+		if (0 != (rayQueryGetRayFlagsEXT(rq) & gl_RayFlagsOpaqueEXT))
+			continue;
+
+		// alpha test
+		// TODO check other possible ways of doing alpha test. They might be more efficient
+		// (although in this particular primary ray case it's not taht important):
+		// 1. Do a separate ray query for alpha masked geometry. Reason: here we might accidentally do the expensive
+		//    texture sampling for geometry that's ultimately invisible (i.e. behind walls). Also, shader threads congruence.
+		//    Separate pass could be more efficient as it'd be doing the same thing for every invocation.
+		// 2. Same as the above, but also with a completely independent TLAS. Why: no need to mask-check geometry for opaque-vs-alpha
+		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const uint tex_base_color = getKusok(geom.kusok_index).tex_base_color;
+		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
+
+		const float alpha_mask_threshold = .1f;
+		if (texture_color.a >= alpha_mask_threshold) {
+			rayQueryConfirmIntersectionEXT(rq);
+		}
+	}
+
+	float L = ray.dist;
+
+	if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
+		primaryRayHit(rq, payload);
+		L = rayQueryGetIntersectionTEXT(rq, true);
+	}
+}*/
+
+bool getHit(vec3 origin, vec3 direction, int mask, inout RayPayloadPrimary payload) {
+
+	float L = 100000.;
+
+	rayQueryEXT rq;
+	const uint flags = 0
+		//| gl_RayFlagsCullFrontFacingTrianglesEXT
+		//| gl_RayFlagsOpaqueEXT
+		//| gl_RayFlagsTerminateOnFirstHitEXT
+		//| gl_RayFlagsSkipClosestHitShaderEXT
+		;
+	rayQueryInitializeEXT(rq, tlas, flags, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_ALPHA_TEST | GEOMETRY_BIT_REFRACTIVE, origin, 0., direction, L);
+	while (rayQueryProceedEXT(rq)) {
+		// FIXME this is a no-op. It doesn't do what I though it did. Should check for SBT index for alpha-test material instead.
+		if (0 != (rayQueryGetRayFlagsEXT(rq) & gl_RayFlagsOpaqueEXT))
+			continue;
+
+		// alpha test
+		// TODO check other possible ways of doing alpha test. They might be more efficient
+		// (although in this particular primary ray case it's not taht important):
+		// 1. Do a separate ray query for alpha masked geometry. Reason: here we might accidentally do the expensive
+		//    texture sampling for geometry that's ultimately invisible (i.e. behind walls). Also, shader threads congruence.
+		//    Separate pass could be more efficient as it'd be doing the same thing for every invocation.
+		// 2. Same as the above, but also with a completely independent TLAS. Why: no need to mask-check geometry for opaque-vs-alpha
+		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
+		// Should never happen: skybox is opaque if (tex_base_color == TEX_BASE_SKYBOX)
+		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
+
+		const float alpha_mask_threshold = .1f;
+		if (texture_color.a >= alpha_mask_threshold) {
+			rayQueryConfirmIntersectionEXT(rq);
+		}
+	}
+
+	//uint debug_geometry_index = 0;
+	if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
+		//debug_geometry_index = rayQueryGetIntersectionGeometryIndexEXT(rq, true);
+		//debug_geometry_index = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
+		primaryRayHit(rq, payload);
+		L = rayQueryGetIntersectionTEXT(rq, true);
+	} else {
+		// Draw skybox when nothing is hit
+		payload.emissive.rgb = SRGBtoLINEAR(texture(skybox, direction).rgb);
+	}
+
+	traceSimpleBlending(origin,direction, L, payload.emissive.rgb, payload.base_color_a.rgb);
+
+	return true;
+}
+
+void main() {
+	const ivec2 res = ivec2(imageSize(out_gi_base_color_a));
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const ivec2 pix_full = pix * GI_DOWNSAMPLE;
+
+	if (any(greaterThanEqual(pix, res / GI_DOWNSAMPLE)))
+		return;
+
+	rand01_state = ubo.ubo.random_seed + pix.x * 1833 +  pix.y * 31337;
+
+//	const ivec3 checker_pix = PixToCheckerboard(pix, res);
+//	const ivec2 out_pix = checker_pix.xy;
+//	const int checker_transparent = checker_pix.b;
+
+//	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+//	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
+//	const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz + direction * NEAR_PLANE_OFFSET;
+
+	const vec3 forward_position = imageLoad(position_t, pix_full).xyz;
+	const vec3 refl_position = imageLoad(refl_position_t, pix_full).xyz;
+	const vec3 geometry_normal = normalDecode(imageLoad(normals_gs, pix_full).xy);
+	const vec3 refl_geometry_normal = normalDecode(imageLoad(refl_normals_gs, pix_full).xy);
+	const float metalness = imageLoad(material_rmxx, pix_full).y;
+	
+	// metal surfaces have gi pass after 2 bounce (reflection), diffuse surfaces have it after 1 bounce
+	vec3 gi_origin = /*metalness > .5 ? refl_position.xyz :*/ forward_position;
+	vec3 gi_geometry_normal = /*metalness > .5 ? refl_geometry_normal :*/ geometry_normal;
+	vec3 gi_troughput = vec3(1.);
+
+	// fill values by zeroes
+	// TODO: move this to bounces cycle
+	for (int bounce = 0; bounce < (GI_DOWNSAMPLE * GI_DOWNSAMPLE); bounce++) {
+		const ivec2 out_pix = pix + (res / GI_DOWNSAMPLE) * ivec2(bounce / GI_DOWNSAMPLE, bounce % GI_DOWNSAMPLE);
+		if (any(greaterThanEqual(out_pix, res)))
+			continue;
+
+		imageStore(out_gi_base_color_a, out_pix, vec4(0.));
+		imageStore(out_gi_troughput, out_pix, vec4(0.));
+		imageStore(out_gi_position_t, out_pix, vec4(0.));
+		imageStore(out_gi_prev_bounce_pos, out_pix, vec4(0.));
+		imageStore(out_gi_normals_gs, out_pix, vec4(1.)); // save from zero divide when normalizing
+		imageStore(out_gi_emissive, out_pix, vec4(0.));
+	}
+
+
+	const ivec4 coords = ivec4(FIX_NAN(imageLoad(reprojecting_coords, pix)));
+	const ivec2 forward_coord = coords.x > -100. ? coords.xy : pix_full;
+
+	SH low_freq;
+	low_freq.shY = FIX_NAN(imageLoad(prev_temporal_gi_sh1_denoised, forward_coord));
+	low_freq.CoCg = FIX_NAN(imageLoad(prev_temporal_gi_sh2_denoised, forward_coord)).xy;
+
+	// choose better direction by russian rulette based on prev frame lighting
+	vec3 dir_candidates[GI_DIR_ADAPTIVE_CANDIDATES];
+	float dir_weights[GI_DIR_ADAPTIVE_CANDIDATES];
+	float dir_weights_sum = 0.;
+	for (int c = 0; c < GI_DIR_ADAPTIVE_CANDIDATES; c++) {
+		const vec3 sphereRandom = sampleSphere(vec2(rand01(), rand01()));
+		const vec3 dir = randomizedOnHemisphere(sphereRandom, gi_geometry_normal);
+		const float weight = luminance(project_SH_irradiance(low_freq, dir) / STORAGE_SCALE_LF);
+		dir_candidates[c] = dir;
+		dir_weights[c] = weight;
+		dir_weights_sum += weight;
+	}
+	vec3 gi_direction = vec3(1.);
+	float adapt_weight = 1.;
+	/*
+	const float random_choose_pos = rand01();
+	if (dir_weights_sum > 0. && GI_DIR_ADAPTIVE_CANDIDATES > 1) {
+		float sample_rnd_start = 0.;
+		float sample_rnd_end = 0.;
+		for (int c = 0; c < GI_DIR_ADAPTIVE_CANDIDATES; c++) {
+			const float curr_weight = dir_weights[c] / dir_weights_sum;
+			sample_rnd_start = sample_rnd_end;
+			sample_rnd_end += curr_weight;
+			if (random_choose_pos >= sample_rnd_start && random_choose_pos < sample_rnd_end) {
+				gi_direction = dir_candidates[c];
+				adapt_weight = curr_weight;
+			}
+		}
+	} else {*/
+		gi_direction = dir_candidates[0];
+		adapt_weight = 1.0;
+	/*}*/
+
+	adapt_weight = 1.0f; // rag for remove fireflyes?
+
+	// make bounces
+	for (int bounce = 0; bounce < GI_BOUNCES_MAX && bounce < (GI_DOWNSAMPLE * GI_DOWNSAMPLE); bounce++) {
+		const ivec2 out_pix = pix + (res / GI_DOWNSAMPLE) * ivec2(bounce / GI_DOWNSAMPLE, bounce % GI_DOWNSAMPLE);
+		if (any(greaterThanEqual(out_pix, res)))
+			continue;
+		
+		RayPayloadPrimary payload;
+		payload.hit_t = vec4(0.);
+		payload.base_color_a = vec4(0.);
+		payload.normals_gs = vec4(0.);
+		payload.material_rmxx = vec4(0.);
+		payload.emissive = vec4(0.);
+
+		bool isSky = getHit(gi_origin, normalize(-gi_direction), GEOMETRY_BIT_OPAQUE, payload);
+
+		if (any(lessThan(gi_troughput, vec3(0.001)))) {
+			break;
+		}
+		else {
+			if (!isSky)
+			{
+				// non emissive, save result and go next bounce
+				const vec3 albedo = SRGBtoLINEAR(payload.base_color_a.xyz);
+			
+				imageStore(out_gi_base_color_a,out_pix, vec4(albedo * gi_troughput, 0.)); // 8 bit value need for lighting pass
+				imageStore(out_gi_troughput,   out_pix, vec4((albedo * gi_troughput) / adapt_weight, 0.));
+				imageStore(out_gi_position_t, out_pix, payload.hit_t);
+				imageStore(out_gi_prev_bounce_pos, out_pix, vec4(gi_origin, 0.));
+				imageStore(out_gi_normals_gs, out_pix, payload.normals_gs);
+				imageStore(out_gi_emissive, out_pix, vec4((payload.emissive.xyz * gi_troughput) / adapt_weight, 0.));
+
+				//imageStore(out_gi_base_color_a,out_pix, vec4(albedo * gi_troughput, 0.)); // 8 bit value need for lighting pass
+
+
+				// update values for next bounce
+				gi_geometry_normal = normalize(normalDecode(payload.normals_gs.xy));
+				gi_origin = payload.hit_t.xyz + gi_geometry_normal * 0.001;
+				gi_troughput *= albedo;
+				const vec3 sphereRandom = sampleSphere(vec2(rand01(), rand01()));
+				gi_direction = randomizedOnHemisphere(sphereRandom, gi_geometry_normal);
+			}
+			else
+			{
+				// it is sky
+				payload.emissive.x = 10.;
+				imageStore(out_gi_troughput,out_pix, vec4((gi_troughput) / adapt_weight, 0.));
+				imageStore(out_gi_emissive, out_pix, vec4((payload.emissive.xyz * gi_troughput) / adapt_weight, 0.));
+				break;
+			}
+		}
+		imageStore(out_gi_troughput,out_pix, vec4(1., 1., 1., 0.));
+		//imageStore(out_gi_emissive, out_pix, vec4(10., 0., 0., 1.));
+		imageStore(out_gi_emissive, out_pix, vec4(10., 0., 0., 1.));
+
+	}
+}

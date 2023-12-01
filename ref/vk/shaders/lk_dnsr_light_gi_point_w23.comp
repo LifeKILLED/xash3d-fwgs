@@ -1,0 +1,15 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_ray_query: require
+
+#define RAY_QUERY
+
+#define SECOND_POSITION gi_position_t
+
+#define GI
+
+#define LIGHT_POINT 1
+#define OUTPUTS(X) \
+	X(20, light_point_diffuse_gi, rgba16f) \
+	X(21, light_point_specular_gi, rgba16f)
+#include "lk_dnsr_lights_direct_w23.glsl"

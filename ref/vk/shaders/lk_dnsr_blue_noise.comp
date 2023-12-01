@@ -1,0 +1,37 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "lk_dnsr_utils.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_blue_noise;
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(set = 0, binding = 1) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 2) uniform sampler2D textures[MAX_TEXTURES];
+
+layout(set = 0, binding = 3) uniform sampler3D blue_noise_texture;
+
+#include "bluenoise.glsl"
+
+void main() {
+	ivec2 res = ivec2(imageSize(out_blue_noise));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const ivec2 out_pix = pix; // need a checkerboard?
+
+	vec4 blue_noise = blueNoise(ivec3(pix.xy, ubo.ubo.frame_counter));
+	blue_noise += blue_noise.yzwx / 256. + blue_noise.zwxy / (256. * 256.); // add extra details up to 16 bits
+	
+	imageStore(out_blue_noise, out_pix, FIX_NAN(blue_noise));
+}
