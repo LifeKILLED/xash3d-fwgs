@@ -1,0 +1,43 @@
+#version 460
+
+#include "noise.glsl"
+#include "utils.glsl"
+#include "lk_dnsr_utils.glsl"
+#include "color_spaces.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_indirect_diffuse;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_indirect_specular;
+
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D light_point_gi;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_gi;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D gi_emission;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D gi_throughput;
+
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D light_point_refl;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D light_poly_refl;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D refl_emission;
+
+void main() {
+	ivec2 res = ivec2(imageSize(light_point_gi));
+	ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const vec4 refl = imageLoad(light_point_refl, pix) + imageLoad(light_poly_refl, pix) + imageLoad(refl_emission, pix);
+	imageStore(out_indirect_specular, pix, refl);
+
+	if (pix.x % 2 == 0 && pix.y % 2 == 0) {
+		vec4 gi = vec4(0.);
+		for (int bounce_index = 0; bounce_index < 4; ++bounce_index) {
+			const ivec2 pix_gi = pix + ivec2(bounce_index % 2, bounce_index / 2);
+			gi += (imageLoad(light_point_gi, pix) + imageLoad(light_poly_gi, pix) + imageLoad(gi_emission, pix)) * imageLoad(gi_throughput, pix);
+		}
+		imageStore(out_indirect_diffuse, pix, gi);
+	} else {
+		imageStore(out_indirect_diffuse, pix, vec4(0.));
+	}
+}

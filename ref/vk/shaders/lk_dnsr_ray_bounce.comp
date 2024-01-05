@@ -1,0 +1,286 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query: require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define MAX_BOUNCES 4 // maximal value is 4
+
+#define RAY_BOUNCE
+#define RAY_QUERY
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+layout(set = 0, binding = 7) uniform samplerCube skybox;
+
+layout (set = 0, binding = 8) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout (set = 0, binding = 9, align = 1) readonly buffer UBOLightClusters {
+	LightCluster clusters_[MAX_LIGHT_CLUSTERS];
+} light_grid;
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba8)   uniform readonly image2D material_rmxx;
+
+layout(set = 0, binding = 19, rgba8) uniform writeonly image2D out_gi_base_color_a;
+layout(set = 0, binding = 20, rgba32f) uniform writeonly image2D out_gi_position_t;
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_gi_normals_gs;
+layout(set = 0, binding = 22, rgba8)   uniform writeonly image2D out_gi_material_rmxx;
+layout(set = 0, binding = 23, rgba16f) uniform writeonly image2D out_gi_emission;
+layout(set = 0, binding = 24, rgba16f) uniform writeonly image2D out_gi_throughput;
+
+layout(set = 0, binding = 25, rgba8) uniform writeonly image2D out_refl_base_color_a;
+layout(set = 0, binding = 26, rgba32f) uniform writeonly image2D out_refl_position_t;
+layout(set = 0, binding = 27, rgba16f) uniform writeonly image2D out_refl_normals_gs;
+layout(set = 0, binding = 28, rgba8)   uniform writeonly image2D out_refl_material_rmxx;
+layout(set = 0, binding = 29, rgba16f) uniform writeonly image2D out_refl_emission;
+
+layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+
+#include "ray_primary_common.glsl"
+#include "ray_primary_hit.glsl"
+#include "noise.glsl"
+#include "brdf.glsl"
+#include "lk_dnsr_utils.glsl"
+
+#define LIGHT_POLYGON 1
+#define LIGHT_POINT 1
+
+#include "light.glsl"
+
+#include "trace_simple_blending.glsl"
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload) {
+	rayQueryEXT rq;
+	const uint flags = 0
+		| gl_RayFlagsCullFrontFacingTrianglesEXT
+		//| gl_RayFlagsOpaqueEXT
+		//| gl_RayFlagsTerminateOnFirstHitEXT
+		//| gl_RayFlagsSkipClosestHitShaderEXT
+		;
+	const float L = 10000.; // TODO Why 10k?
+	rayQueryInitializeEXT(rq, tlas, flags, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_ALPHA_TEST, origin, 0., direction, L);
+	while (rayQueryProceedEXT(rq)) {
+		if (0 != (rayQueryGetRayFlagsEXT(rq) & gl_RayFlagsOpaqueEXT))
+			continue;
+
+		// alpha test
+		// TODO check other possible ways of doing alpha test. They might be more efficient
+		// (although in this particular primary ray case it's not taht important):
+		// 1. Do a separate ray query for alpha masked geometry. Reason: here we might accidentally do the expensive
+		//    texture sampling for geometry that's ultimately invisible (i.e. behind walls). Also, shader threads congruence.
+		//    Separate pass could be more efficient as it'd be doing the same thing for every invocation.
+		// 2. Same as the above, but also with a completely independent TLAS. Why: no need to mask-check geometry for opaque-vs-alpha
+		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
+		// tex_base_color cannot be TEX_BASE_SKYBOX, as skybox is opaque
+		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
+
+		const float alpha_mask_threshold = .1f;
+		if (texture_color.a >= alpha_mask_threshold) {
+			rayQueryConfirmIntersectionEXT(rq);
+		}
+	}
+
+	if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT)
+		return false;
+
+	primaryRayHit(rq, payload);
+	//L = rayQueryGetIntersectionTEXT(rq, true);
+	return true;
+}
+const int INDIRECT_SCALE = 2;
+
+#define BRDF_TYPE_NONE 0
+#define BRDF_TYPE_DIFFUSE 1
+#define BRDF_TYPE_SPECULAR 2
+int pickBounceDirection(MaterialProperties material, vec3 view, vec3 geometry_normal, vec3 shading_normal, /*float alpha, */out vec3 out_direction, inout vec3 inout_throughput) {
+	const int brdf_type = material.metalness < .5 ? BRDF_TYPE_DIFFUSE : BRDF_TYPE_SPECULAR;
+
+	if (any(isnan(geometry_normal))) {
+		inout_throughput = vec3(1.,0.,1.);
+		return brdf_type;
+	}
+
+	if (brdf_type == BRDF_TYPE_DIFFUSE) {
+		// Very bad distribution, don't do this.
+		out_direction = vec3(rand01(), rand01(), rand01()) * 2. - 1.;
+		out_direction *= sign(dot(out_direction, shading_normal));
+
+		if (dot(out_direction, out_direction) < 1e-5 || dot(out_direction, geometry_normal) <= 0.)
+			return BRDF_TYPE_NONE;
+		//out_direction = reflect(-view, shading_normal);
+		out_direction = normalize(out_direction);
+	} else {
+		// Lifekilleds's reflection distribution, replace this by some physical correct
+		const vec3 direction = -view;
+		const float NdotS = max(0., dot(normalize(direction), normalize(shading_normal)));
+		const float fresnel = evalFresnelSchlickM(vec3(1.), 0., NdotS).x;
+		const float roughness_source = material.roughness;
+		const float roughness_low = mix(roughness_source, 0., fresnel);
+		const float roughness_high = mix(roughness_source, roughness_source * 0.5, fresnel);
+		const float roughness_final = mix(roughness_low, roughness_high, smoothstep(.1, .5, roughness_source));
+		const float specPower = 1./ pow(roughness_final, 3.5);
+		const vec3 noise_vec = vec3(rand01(), rand01(), rand01());
+		const vec3 microfacet = PowRand( noise_vec, shading_normal, specPower );
+		out_direction = normalize(reflect(direction, microfacet));
+		float coplanar = dot(geometry_normal, out_direction);
+		if (coplanar < 0.) {
+			out_direction += geometry_normal * (coplanar * -2.);
+		}
+	}
+
+	return brdf_type;
+}
+
+struct MaterialEx {
+	MaterialProperties prop;
+	vec3 geometry_normal, shading_normal;
+	//TODO float alpha;
+};
+
+bool computeSingleBounce(MaterialEx mat, inout vec3 pos, inout vec3 direction, inout vec3 throughput, inout RayPayloadPrimary payload) {
+	const float ray_normal_fudge = .01;
+
+	payload.base_color_a = vec4(0.);
+	payload.emissive = vec4(0.);
+	payload.material_rmxx = vec4(0.);
+	payload.normals_gs = vec4(0.);
+	
+	vec3 bounce_direction;
+	const int brdf_type = pickBounceDirection(mat.prop, -direction, mat.geometry_normal, mat.shading_normal, bounce_direction, throughput);
+		
+	if (brdf_type == BRDF_TYPE_NONE)
+		return false;
+
+	vec3 lighting = vec3(0.);
+	pos += mat.geometry_normal * ray_normal_fudge;
+	const bool did_hit = getHit(pos, bounce_direction, payload);
+
+	if (!did_hit || payload.hit_t.w < 0.) {
+		payload.base_color_a = vec4(0.);
+		payload.emissive.rgb = texture(skybox, bounce_direction).rgb * ubo.ubo.skybox_exposure;
+		return false;
+	} else {
+		return true;
+	}
+}
+
+void main() {
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const ivec2 res = ubo.ubo.res;
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+	const vec2 uv = (gl_GlobalInvocationID.xy + .5) / res * 2. - 1.;
+
+	const vec4 pos_t = imageLoad(position_t, pix);
+	vec3 diffuse = vec3(0.), specular = vec3(0.);
+	if (pos_t.w > 0.) {
+		const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+		const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+		const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
+
+		rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337 + 12;
+
+		const vec4 material_data = imageLoad(material_rmxx, pix);
+
+		vec3 geometry_normal, shading_normal;
+		readNormals(pix, geometry_normal, shading_normal);
+
+		MaterialEx mat;
+		mat.prop.base_color = vec3(1.0);
+		mat.prop.metalness = material_data.g;
+		mat.prop.roughness = material_data.r;
+		mat.geometry_normal = geometry_normal;
+		mat.shading_normal = shading_normal;
+
+		RayPayloadPrimary payload;
+
+		// reflection
+		mat.prop.metalness = 1.0;
+		vec3 refl_pos = pos_t.xyz;
+		vec3 refl_direction = direction;
+		vec3 refl_throughput = vec3(1.);
+		computeSingleBounce(mat, refl_pos, refl_direction, refl_throughput, payload);
+
+		payload.base_color_a.xyz = SRGBtoLINEAR(payload.base_color_a.xyz);
+
+		imageStore(out_refl_base_color_a, pix, payload.base_color_a);
+		imageStore(out_refl_position_t, pix, payload.hit_t);
+		imageStore(out_refl_normals_gs, pix, payload.normals_gs);
+		imageStore(out_refl_material_rmxx, pix, payload.material_rmxx);
+		imageStore(out_refl_emission, pix, payload.emissive);
+		
+		// diffuse bounces
+		if (pix.x % 2 == 0 && pix.y % 2 == 0) {
+			mat.prop.metalness = 0.0f;
+			int bounce_index = 0;
+			vec3 gi_pos = pos_t.xyz;
+			vec3 gi_throughput = vec3(1.);
+			vec3 gi_direction = direction;
+			for (; bounce_index < MAX_BOUNCES && bounce_index < 4; ++bounce_index) {
+				const ivec2 pix_gi = pix + ivec2(bounce_index % 2, bounce_index / 2);
+
+				const bool nextBounceAvaible = computeSingleBounce(mat, gi_pos, gi_direction, gi_throughput, payload);
+
+				imageStore(out_gi_base_color_a, pix_gi, payload.base_color_a);
+				imageStore(out_gi_position_t, pix_gi, payload.hit_t);
+				imageStore(out_gi_normals_gs, pix_gi, payload.normals_gs);
+				imageStore(out_gi_material_rmxx, pix_gi, vec4(1., 0., 0., 0.));
+				imageStore(out_gi_emission, pix_gi, payload.emissive);
+				imageStore(out_gi_throughput, pix_gi, vec4(gi_throughput, 0.));
+
+				if (!nextBounceAvaible) {
+					bounce_index++;
+					break;
+				}
+			}
+
+			for (; bounce_index < 4; ++bounce_index) {
+				const ivec2 pix_gi = pix + ivec2(bounce_index % 2, bounce_index / 2);
+
+				imageStore(out_gi_base_color_a, pix_gi, vec4(0.));
+				imageStore(out_gi_position_t, pix_gi, vec4(0.));
+				imageStore(out_gi_normals_gs, pix_gi, vec4(0.));
+				imageStore(out_gi_material_rmxx, pix_gi, vec4(1., 0., 0., 0.));
+				imageStore(out_gi_emission, pix_gi, vec4(0.));
+				imageStore(out_gi_throughput, pix_gi, vec4(0.));
+			}
+		}
+	} else {
+		imageStore(out_refl_base_color_a, pix, vec4(0.));
+		imageStore(out_refl_position_t, pix, vec4(0.));
+		imageStore(out_refl_normals_gs, pix, vec4(0.));
+		imageStore(out_refl_material_rmxx, pix, vec4(0.));
+		imageStore(out_refl_emission, pix, vec4(0.));
+
+		if (pix.x % 2 == 0 && pix.y % 2 == 0) {
+			for (int bounce_index = 0; bounce_index < 4; ++bounce_index) {
+				const ivec2 pix_gi = pix + ivec2(bounce_index % 2, bounce_index / 2);
+				imageStore(out_gi_base_color_a, pix_gi, vec4(0.));
+				imageStore(out_gi_position_t, pix_gi, vec4(0.));
+				imageStore(out_gi_normals_gs, pix_gi, vec4(0.));
+				imageStore(out_gi_material_rmxx, pix_gi, vec4(0.));
+				imageStore(out_gi_emission, pix_gi, vec4(0.));
+				imageStore(out_gi_throughput, pix_gi, vec4(0.));
+			}
+		}
+	}
+}
