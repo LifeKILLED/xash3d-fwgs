@@ -100,7 +100,7 @@ Components dontBlurSamples(const ivec2 res, const ivec2 pix) {
 	c.direct_diffuse += imageLoad(light_point_diffuse, p).rgb;
 	c.direct_diffuse += imageLoad(light_poly_diffuse, p).rgb;
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DENOISE_GI_BY_SH) == 0) {
-		c.indirect_diffuse += imageLoad(indirect_diffuse, p_indirect).rgb;
+	c.indirect_diffuse += imageLoad(indirect_diffuse, p_indirect).rgb;
 	} else {
 		c.indirect_diffuse += imageLoad(indirect_diffuse_denoised_by_sh, p).rgb;
 	}
@@ -149,7 +149,7 @@ Components boxBlurSamples(ivec2 res, ivec2 pix) {
 	pix /= 2;
 	
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DENOISE_GI_BY_SH) == 0) {
-		BOX_BLUR(c.indirect_diffuse, indirect_diffuse, res, pix, INDIRECT_DIFFUSE_KERNEL);
+	BOX_BLUR(c.indirect_diffuse, indirect_diffuse, res, pix, INDIRECT_DIFFUSE_KERNEL);
 	}
 
 	BOX_BLUR(c.indirect_specular, indirect_specular, res, pix, INDIRECT_SPECULAR_KERNEL);
