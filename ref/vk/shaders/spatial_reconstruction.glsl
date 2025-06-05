@@ -1,8 +1,13 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query: require
+
 // originally implemented by Mikhail Gorobets for Diligent Engine
 // https://github.com/DiligentGraphics/DiligentEngine
 
 #ifndef SPATIAL_RECONSTRUCTION_RADIUS
-#define SPATIAL_RECONSTRUCTION_RADIUS 7.
+#define SPATIAL_RECONSTRUCTION_RADIUS 16.
 #endif
 
 #ifndef SPECULAR_INPUT_IMAGE
@@ -20,6 +25,7 @@
 #define SPATIAL_RECONSTRUCTION_ROUGHNESS_FACTOR 5.
 #define SPATIAL_RECONSTRUCTION_SIGMA 0.9
 #define INDIRECT_SCALE 2
+#define POISSON_DISK_ROTATIONS 4
 
 #define GLSL
 #include "ray_interop.h"
@@ -100,11 +106,31 @@ float normalDistribution_GGX(float NdotH, float alphaRoughness) {
 	return a2 / max(PI * f * f, 1e-9);
 }
 
+float pdf_GGX_reflection(vec3 N, vec3 V, vec3 R, float roughness) {
+    float alpha = roughness * roughness;
+
+    // Half-vector (must be normalized sum of view and reflection direction)
+    vec3 H = normalize(V + R);
+
+    // GGX Normal Distribution Function (Trowbridge-Reitz)
+    float NdotH = max(dot(N, H), 0.0);
+    float RdotH = max(dot(R, H), 0.0);
+
+    float alpha2 = alpha * alpha;
+    float denom = NdotH * NdotH * (alpha2 - 1.0) + 1.0;
+    float D = alpha2 / (PI * denom * denom);
+
+    // PDF = D(H) * (N · H) / (4 * (R · H))
+    float pdf = (D * NdotH) / max(4.0 * RdotH, 1e-6); // avoid divide-by-zero
+
+    return pdf;
+}
+
 vec2 computeWeightRayLength(ivec2 pix, vec3 V, vec3 N, float roughness, float NdotV, float weight) {
 	vec4 rayDirectionPDF = imageLoad(reflection_direction_pdf, pix);
 	float rayLength = length(rayDirectionPDF.xyz);
 	vec3 rayDirection = normalize(rayDirectionPDF.xyz);
-	float PDF = rayDirectionPDF.w;
+	float PDF = pdf_GGX_reflection(N, V, rayDirection, roughness);
 	float alphaRoughness = roughness * roughness;
 
 	vec3 L = rayDirection;
@@ -211,18 +237,32 @@ void main() {
 	// TODO: Try to implement sampling from https://youtu.be/MyTOGHqyquU?t=1043
 	for (int i = 0; i < SPATIAL_RECONSTRUCTION_SAMPLES; i++)
 	{
-		ivec2 p = max(ivec2(0), min(ivec2(res) - ivec2(1), ivec2(pix + radius * poisson[i].xy))); 
+		for (int j = 0; j < POISSON_DISK_ROTATIONS; j++)
+		{
+			vec3 poissonSample = poisson[i];
 
-		float weightS = computeSpatialWeight(poisson[i].z * poisson[i].z, SPATIAL_RECONSTRUCTION_SIGMA);
-		vec2 weightLength = computeWeightRayLength(p, V, shading_normal, roughness, NdotV, weightS);
-		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p).xyz, SPECULAR_CLAMPING_MAX);
-		computeWeightedVariance(pixelAreaStat, sampleColor, weightLength.x);
+			if (j == 1) { // TODO use matrices because it is looks horrible
+				poissonSample = vec3(poissonSample.y, -poissonSample.x, poissonSample.z);
+			} else if (j == 2) {
+				poissonSample = vec3(-poissonSample.x, -poissonSample.y, poissonSample.z);
+			} else if (j == 3) {
+				poissonSample = vec3(-poissonSample.y, poissonSample.x, poissonSample.z);
+			}
 
-		if (weightLength.x > 1.0e-6)
-			nearestSurfaceHitDistance = max(weightLength.y, nearestSurfaceHitDistance);
+			ivec2 p = max(ivec2(0), min(ivec2(res) - ivec2(1), ivec2(pix + radius * poissonSample.xy))); 
 
-		result_color += sampleColor.xyz * weightLength.x;
-		weights_sum += weightLength.x;
+
+			float weightS = computeSpatialWeight(poissonSample.z * poissonSample.z, SPATIAL_RECONSTRUCTION_SIGMA);
+			vec2 weightLength = computeWeightRayLength(p, V, shading_normal, roughness, NdotV, weightS);
+			vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p).xyz, SPECULAR_CLAMPING_MAX);
+			computeWeightedVariance(pixelAreaStat, sampleColor, weightLength.x);
+
+			if (weightLength.x > 1.0e-6)
+				nearestSurfaceHitDistance = max(weightLength.y, nearestSurfaceHitDistance);
+
+			result_color += sampleColor.xyz * weightLength.x;
+			weights_sum += weightLength.x;
+		}
 	}
 
 	if (weights_sum > 0.) {
