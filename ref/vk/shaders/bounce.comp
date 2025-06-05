@@ -278,14 +278,15 @@ void main() {
 		readNormals(pix * INDIRECT_SCALE, geometry_normal, shading_normal);
 
 		MaterialEx mat;
-		mat.prop.base_color = base_a.rgb;
 		mat.geometry_normal = geometry_normal;
 		mat.shading_normal = shading_normal;
 
 		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_ONLY_DIFFUSE_GI) != 0) {
+			mat.prop.base_color = vec3(1.);
 			mat.prop.metalness = 0.0;
 			mat.prop.roughness = 1.0;
 		} else {
+			mat.prop.base_color = base_a.rgb;
 			mat.prop.metalness = material_data.g;
 			mat.prop.roughness = material_data.r;
 		}

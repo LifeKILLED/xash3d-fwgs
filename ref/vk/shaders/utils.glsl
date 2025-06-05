@@ -50,4 +50,11 @@ vec3 mixFinalColor(vec3 base_color, vec3 diffuse, vec3 specular, float metalness
 		// Specular color is already computed-in as it is both view and light-source-direction dependent
 		return diffuse * diffuse_color + specular;
 }
+
+vec3 mixRawIrradianceToFinalColor(vec3 base_color, vec3 diffuse, vec3 specular, float metalness, float fresnel) {
+    const float dielectric_alpha = mix(0.04, 1.0, fresnel); // 0.04 like in Unreal Engine, Marmoset, Supstance Painter etc.
+    const vec3 dielectric_color = mix(base_color * diffuse, specular, dielectric_alpha);
+    const vec3 metallic_color = mix(base_color * specular, specular, fresnel);
+    return mix(dielectric_color, metallic_color, metalness);
+}
 #endif // UTILS_GLSL_INCLUDED
