@@ -98,7 +98,7 @@ Components dontBlurSamples(const ivec2 res, const ivec2 pix) {
 	const ivec2 p = pix;
 	const ivec2 p_indirect = pix / INDIRECT_SCALE;
 	c.direct_diffuse = imageLoad(diffuse_reprojected, p).rgb;
-	c.direct_specular = imageLoad(specular_reprojected, p).rgb;
+	c.direct_specular = imageLoad(specular_reprojected, pix).rgb;
 	c.indirect_diffuse = imageLoad(indirect_reprojected, p).rgb;
 	return c;
 }

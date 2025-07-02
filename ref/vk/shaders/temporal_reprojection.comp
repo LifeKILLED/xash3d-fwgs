@@ -7,7 +7,7 @@
 #include "ray_interop.h"
 #undef GLSL
 
-const int INDIRECT_SCALE = 2;
+const int INDIRECT_SCALE = 1;
 
 #define MAX_SAMPLES_COUNT 8.
 
@@ -271,21 +271,21 @@ void main() {
 	vec4 specular_samples = mixIrradianceSamplesCount(specular_src, specular_avg, history_specular, history_specular_avg, specular_samples_count, LUMINANCE_THRESHOLD);
 	vec4 indirect_samples = mixIrradianceSamplesCount(indirect_src, indirect_avg, history_indirect, history_indirect_avg, indirect_samples_count, LUMINANCE_THRESHOLD);
 
-	imageStore(out_diffuse_reprojected, pix, vec4(diffuse_src, 0.));
-	imageStore(out_specular_reprojected, pix, vec4(specular_src, 0.));
-	imageStore(out_indirect_reprojected, pix, vec4(indirect_src, 0.));
+	// imageStore(out_diffuse_reprojected, pix, vec4(diffuse_src, 0.));
+	// imageStore(out_specular_reprojected, pix, vec4(specular_src, 0.));
+	// imageStore(out_indirect_reprojected, pix, vec4(indirect_src, 0.));
 
-	imageStore(out_temporal_depth, pix, vec4(0.)); // reserve other values
-	imageStore(out_temporal_diffuse, pix, vec4(0.));
-	imageStore(out_temporal_specular, pix, vec4(0.));
-	imageStore(out_temporal_indirect, pix, vec4(0.));
+	// imageStore(out_temporal_depth, pix, vec4(0.)); // reserve other values
+	// imageStore(out_temporal_diffuse, pix, vec4(0.));
+	// imageStore(out_temporal_specular, pix, vec4(0.));
+	// imageStore(out_temporal_indirect, pix, vec4(0.));
 
-	// imageStore(out_diffuse_reprojected, pix, diffuse_samples);
-	// imageStore(out_specular_reprojected, pix, specular_samples);
-	// imageStore(out_indirect_reprojected, pix, indirect_samples);
+	imageStore(out_diffuse_reprojected, pix, diffuse_samples);
+	imageStore(out_specular_reprojected, pix, specular_samples);
+	imageStore(out_indirect_reprojected, pix, indirect_samples);
 	
-	// imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
-	// imageStore(out_temporal_diffuse, pix, diffuse_samples);
-	// imageStore(out_temporal_specular, pix, specular_samples);
-	// imageStore(out_temporal_indirect, pix, indirect_samples);
+	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
+	imageStore(out_temporal_diffuse, pix, diffuse_samples);
+	imageStore(out_temporal_specular, pix, specular_samples);
+	imageStore(out_temporal_indirect, pix, indirect_samples);
 }
