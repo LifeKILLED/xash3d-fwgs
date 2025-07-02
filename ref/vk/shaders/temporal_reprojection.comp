@@ -83,11 +83,11 @@ vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_avg, vec3 ir
 
 		const vec3 irradiance_mixed = mix(irradiance_history, irradiance_src, blend_weight);
 		const vec3 irradiance_mixed_avg = mix(irradiance_history_avg, irradiance_avg, blend_weight);
-		
-		const float luminance_history = luminance(irradiance_history_avg);
-		const float luminance_mixed = luminance(irradiance_mixed_avg);
 
-		if (abs(luminance_history - luminance_mixed) < (luminance_threshold * luminance_history * blend_weight))
+		//const float luminance_history = luminance(irradiance_history_avg);
+		//const float luminance_mixed = luminance(irradiance_mixed_avg);
+
+		//if (abs(luminance_history - luminance_mixed) < (luminance_threshold * luminance_history * blend_weight))
 			return vec4(irradiance_mixed, min(samples_count + 1., MAX_SAMPLES_COUNT));
 	}
 
@@ -136,8 +136,8 @@ void main() {
 	vec3 diffuse_src = imageLoad(light_poly_diffuse, pix).rgb +
 					   imageLoad(light_point_diffuse, pix).rgb;
 
-	vec3 specular_src = imageLoad(light_poly_specular, pix).rgb +
-					   imageLoad(light_point_specular, pix).rgb +
+	vec3 specular_src = //imageLoad(light_poly_specular, pix).rgb +
+					   //imageLoad(light_point_specular, pix).rgb +
 					   imageLoad(indirect_specular_reconstructed, pix_indirect).rgb;
 
 	vec3 indirect_src = imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
@@ -175,7 +175,7 @@ void main() {
 	float specular_samples_count = 1.;
 	float indirect_samples_count = 1.;
 
-	{
+	{/*
 		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
 		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
 		const vec2 reproj_uv = clip_space.xy / clip_space.w;
@@ -264,28 +264,28 @@ void main() {
 					specular_samples_count = parallax_specular_samples.w;
 				}
 			}
-		}
+		}*/
 	}
 
 	vec4 diffuse_samples = mixIrradianceSamplesCount(diffuse_src, diffuse_avg, history_diffuse, history_diffuse_avg, diffuse_samples_count, LUMINANCE_THRESHOLD);
 	vec4 specular_samples = mixIrradianceSamplesCount(specular_src, specular_avg, history_specular, history_specular_avg, specular_samples_count, LUMINANCE_THRESHOLD);
 	vec4 indirect_samples = mixIrradianceSamplesCount(indirect_src, indirect_avg, history_indirect, history_indirect_avg, indirect_samples_count, LUMINANCE_THRESHOLD);
 
-	// imageStore(out_diffuse_reprojected, pix, vec4(diffuse_src, 0.));
-	// imageStore(out_specular_reprojected, pix, vec4(specular_src, 0.));
-	// imageStore(out_indirect_reprojected, pix, vec4(indirect_src, 0.));
+	imageStore(out_diffuse_reprojected, pix, vec4(diffuse_src, 0.));
+	imageStore(out_specular_reprojected, pix, vec4(specular_src, 0.));
+	imageStore(out_indirect_reprojected, pix, vec4(indirect_src, 0.));
 
-	// imageStore(out_temporal_depth, pix, vec4(0.)); // reserve other values
-	// imageStore(out_temporal_diffuse, pix, vec4(0.));
-	// imageStore(out_temporal_specular, pix, vec4(0.));
-	// imageStore(out_temporal_indirect, pix, vec4(0.));
+	imageStore(out_temporal_depth, pix, vec4(0.)); // reserve other values
+	imageStore(out_temporal_diffuse, pix, vec4(0.));
+	imageStore(out_temporal_specular, pix, vec4(0.));
+	imageStore(out_temporal_indirect, pix, vec4(0.));
 
-	imageStore(out_diffuse_reprojected, pix, diffuse_samples);
-	imageStore(out_specular_reprojected, pix, specular_samples);
-	imageStore(out_indirect_reprojected, pix, indirect_samples);
+	// imageStore(out_diffuse_reprojected, pix, diffuse_samples);
+	// imageStore(out_specular_reprojected, pix, specular_samples);
+	// imageStore(out_indirect_reprojected, pix, indirect_samples);
 	
-	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
-	imageStore(out_temporal_diffuse, pix, diffuse_samples);
-	imageStore(out_temporal_specular, pix, specular_samples);
-	imageStore(out_temporal_indirect, pix, indirect_samples);
+	// imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
+	// imageStore(out_temporal_diffuse, pix, diffuse_samples);
+	// imageStore(out_temporal_specular, pix, specular_samples);
+	// imageStore(out_temporal_indirect, pix, indirect_samples);
 }
