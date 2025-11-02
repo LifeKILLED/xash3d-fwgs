@@ -1,0 +1,122 @@
+#version 460
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define RCAS_STRENGH 0.0
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_dest;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D antialiased;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+// Cubic kernel (Catmull-Rom like)
+float cubic(float x) {
+    x = abs(x);
+    if (x <= 1.0) {
+        return 1.5 * x*x*x - 2.5 * x*x + 1.0;
+    } else if (x < 2.0) {
+        return -0.5 * x*x*x + 2.5 * x*x - 4.0 * x + 2.0;
+    } else {
+        return 0.0;
+    }
+}
+
+// 2D bicubic sampling
+vec4 textureBicubic(vec2 uv, vec2 texSize) {
+    // convert to texel space
+    vec2 px = uv * texSize - 0.5;
+    ivec2 i0 = ivec2(floor(px));
+    vec2 f = px - vec2(i0);
+
+    vec4 result = vec4(0.0);
+    for (int m = -1; m <= 2; ++m) {
+        float wy = cubic(float(m) - f.y);
+        for (int n = -1; n <= 2; ++n) {
+            float wx = cubic(f.x - float(n));
+            ivec2 sampleUV = ivec2(vec2(i0.x + n, i0.y + m) + 0.5);
+            sampleUV = clamp(sampleUV, ivec2(0), ivec2(texSize));
+            result += imageLoad(antialiased, sampleUV) * (wx * wy);
+        }
+    }
+    return result;
+}
+
+// Simple luminance
+float lum(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// RCAS-like unsharp mask (simple and stable)
+vec3 rcas_sharpen(vec3 orig, vec3 blurred, float strength) {
+    // Unsharp mask: sharpened = orig + amount * (orig - blurred)
+    // But clamp to avoid overshoot. strength in [0..1] typical small.
+    vec3 diff = orig - blurred;
+    vec3 sharpened = orig + strength * diff;
+    // optional contrast-aware scaling (soft)
+    return clamp(sharpened, 0.0, 1.0);
+}
+
+void main() {
+    const bool is_upscale = (ubo.ubo.renderer_flags & RENDERER_FLAG_UPSCALE_FXAA) != 0;
+
+    const ivec2 srcSize = ubo.ubo.res / 2;
+    const ivec2 dstSize = ubo.ubo.res;
+
+    ivec2 outXY = ivec2(gl_GlobalInvocationID.xy);
+	if (any(greaterThanEqual(outXY, dstSize))) {
+		return;
+	}
+
+    if (!is_upscale) {
+	    imageStore(out_dest, outXY, imageLoad(antialiased, outXY));
+        return;
+    }
+
+    // normalized coords in [0,1] for the destination pixel center
+    vec2 dstUV = (vec2(outXY) + 0.5) / vec2(dstSize);
+
+    // Map dest UV to source texture space (simple scale). This is where EASU would apply more complex offsets.
+    // We mimic EASU by mapping then using a bicubic kernel on a 4x4 footprint.
+    vec2 srcSizeF = vec2(srcSize);
+    vec2 srcUV = dstUV * (srcSizeF / vec2(dstSize)); // equivalent to dst*scale
+
+    // read bicubic filtered color from source
+    vec4 color = textureBicubic(srcUV, dstSize);
+
+    // RCAS pass: compute a small blurred version (3x3 gaussian) for unsharp mask
+    if (RCAS_STRENGH > 0.0001) {
+        // sample a small 3x3 box with linear filtering via explicit taps (on source space around srcUV)
+        // compute blur by sampling neighbors in source texel space
+        vec2 one = 1.0 / srcSizeF;
+        vec3 blur = vec3(0.0);
+        float wsum = 0.0;
+
+        // 3x3 gaussian weights (approx)
+        float kernel[9] = float[9](1.0, 2.0, 1.0,
+                                   2.0, 4.0, 2.0,
+                                   1.0, 2.0, 1.0);
+        int idx = 0;
+        for (int dy = -1; dy <= 1; ++dy) {
+            for (int dx = -1; dx <= 1; ++dx) {
+                vec2 sUV = srcUV + vec2(dx, dy) * one;
+                ivec2 p = clamp(ivec2(sUV * srcSize), ivec2(0), srcSize);
+                vec3 currColor = imageLoad(antialiased, p).rgb;
+                float w = kernel[idx++];
+                blur += currColor * w;
+                wsum += w;
+            }
+        }
+        blur /= wsum;
+
+        // apply RCAS sharpening in linear space
+        vec3 sharpened = rcas_sharpen(color.rgb, blur, RCAS_STRENGH);
+        imageStore(out_dest, outXY, vec4(sharpened, color.a));
+    } else {
+        imageStore(out_dest, outXY, color);
+    }
+}

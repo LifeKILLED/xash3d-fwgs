@@ -13,7 +13,7 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform image2D out_dest;
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_final_image;
 
 layout(set = 0, binding = 1, rgba8) uniform readonly image2D base_color_a;
 
@@ -428,27 +428,27 @@ void main() {
 	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DISABLED) {
 		// no-op, just continue
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_BASECOLOR) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(imageLoad(base_color_a, pix).rgb), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(imageLoad(base_color_a, pix).rgb), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_BASEALPHA) {
-		imageStore(out_dest, pix, imageLoad(base_color_a, pix).aaaa); return;
+		imageStore(out_final_image, pix, imageLoad(base_color_a, pix).aaaa); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_EMISSIVE) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(imageLoad(emissive, pix).rgb), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(imageLoad(emissive, pix).rgb), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_MATERIAL) {
-		imageStore(out_dest, pix, vec4(imageLoad(material_rmxx, pix).rg, 0., 0.)); return;
+		imageStore(out_final_image, pix, vec4(imageLoad(material_rmxx, pix).rg, 0., 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_NSHADE) {
-		imageStore(out_dest, pix, vec4(.5 + shading_normal * .5, 0.));
+		imageStore(out_final_image, pix, vec4(.5 + shading_normal * .5, 0.));
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_NGEOM) {
-		imageStore(out_dest, pix, vec4(.5 + geometry_normal * .5, 0.));
+		imageStore(out_final_image, pix, vec4(.5 + geometry_normal * .5, 0.));
 		return;
 	}
 
 #ifdef DEBUG_NOISE
-	imageStore(out_dest, pix, blueNoise(ivec3(pix.xy, ubo.ubo.frame_counter))); return;
+	imageStore(out_final_image, pix, blueNoise(ivec3(pix.xy, ubo.ubo.frame_counter))); return;
 #endif
 
 	//const Components c = blurSamples(res, pix);
@@ -459,28 +459,28 @@ void main() {
 	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DISABLED) {
 		// Skip
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.direct_diffuse + c.direct_specular), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.direct_diffuse + c.direct_specular), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_DIFF) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.direct_diffuse), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.direct_diffuse), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_SPEC) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.direct_specular), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.direct_specular), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_INDIRECT) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.indirect_diffuse + c.indirect_specular), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.indirect_diffuse + c.indirect_specular), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_INDIRECT_SPEC) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.indirect_specular), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.indirect_specular), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_INDIRECT_DIFF) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.indirect_diffuse), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.indirect_diffuse), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIFFUSE) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.indirect_diffuse + c.direct_diffuse), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.indirect_diffuse + c.direct_diffuse), 0.)); return;
 		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_SPECULAR) {
-		imageStore(out_dest, pix, vec4(LINEARtoSRGB(c.indirect_specular + c.direct_specular), 0.)); return;
+		imageStore(out_final_image, pix, vec4(LINEARtoSRGB(c.indirect_specular + c.direct_specular), 0.)); return;
 		return;
 	}
 
@@ -635,5 +635,5 @@ void main() {
 
 	DEBUG_VALIDATE_RANGE_VEC3("denoiser.colour", colour, 0., 1e6);
 
-	imageStore(out_dest, pix, vec4(colour, 0./*unused*/));
+	imageStore(out_final_image, pix, vec4(colour, 0./*unused*/));
 }

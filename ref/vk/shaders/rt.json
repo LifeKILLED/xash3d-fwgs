@@ -71,5 +71,11 @@
 	"denoiser": {
 		"comp": "denoiser"
 	},
+	"fxaa": {
+		"comp": "fxaa"
+	},
+	"upscale": {
+		"comp": "upscale"
+	},
 	//"RESOURCES": { "position_t_prev": { "previous_frame": "position_t" }, },
 }
