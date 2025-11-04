@@ -194,6 +194,10 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	ret.ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)frame_height);
 	ret.skybox_exposure = R_TexturesGetSkyboxInfo().exposure;
 
+	ret.resScale = rt_resolution_scale->value;
+	if (ret.resScale < 0.25f) ret.resScale = 0.25f; // TODO: existing clamp function?
+	if (ret.resScale > 1.0f) ret.resScale = 1.0f;
+
 	parseDebugDisplayValue();
 	if (g_rtx.debug.rt_debug_display_only_value) {
 		ret.debug_display_only = g_rtx.debug.rt_debug_display_only_value;
@@ -212,7 +216,7 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 						  SET_RENDERER_FLAG(rt_denoise_gi_by_sh, RENDERER_FLAG_DENOISE_GI_BY_SH) |
 						  SET_RENDERER_FLAG(rt_disable_gi, RENDERER_FLAG_DISABLE_GI) |
 						  SET_RENDERER_FLAG(rt_spatial_reconstruction, RENDERER_FLAG_SPATIAL_RECONSTRUCTION) |
-						  SET_RENDERER_FLAG(rt_upscale_fxaa, RENDERER_FLAG_UPSCALE_FXAA);
+						  SET_RENDERER_FLAG(rt_fxaa, RENDERER_FLAG_FXAA);
 #undef SET_RENDERER_FLAG
 
 	return ret;
@@ -224,6 +228,7 @@ typedef struct {
 	uint32_t frame_counter;
 	float fov_angle_y;
 	int frame_width, frame_height;
+	float resolution_scale;
 } perform_tracing_args_t;
 
 static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_args_t* args) {

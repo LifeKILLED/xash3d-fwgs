@@ -34,7 +34,7 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 
 
 void main() {
-	ivec2 res = ivec2(imageSize(base_color_a));
+	ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {

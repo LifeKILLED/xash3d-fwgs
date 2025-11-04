@@ -62,9 +62,7 @@ vec3 rcas_sharpen(vec3 orig, vec3 blurred, float strength) {
 }
 
 void main() {
-    const bool is_upscale = (ubo.ubo.renderer_flags & RENDERER_FLAG_UPSCALE_FXAA) != 0;
-
-    const ivec2 srcSize = ubo.ubo.res / 2;
+    const ivec2 srcSize = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
     const ivec2 dstSize = ubo.ubo.res;
 
     ivec2 outXY = ivec2(gl_GlobalInvocationID.xy);
@@ -72,7 +70,7 @@ void main() {
 		return;
 	}
 
-    if (!is_upscale) {
+    if (ubo.ubo.resScale == 1.0) {
 	    imageStore(out_dest, outXY, imageLoad(antialiased, outXY));
         return;
     }

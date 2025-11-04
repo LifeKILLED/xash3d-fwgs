@@ -43,7 +43,7 @@ layout(set = 0, binding = 6, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
 
 void main() {
-	ivec2 res = ivec2(imageSize(INPUT_GI_1));
+	ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DENOISE_GI_BY_SH) == 0) {

@@ -18,7 +18,7 @@ void main() {
 	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
 #elif defined(RAY_QUERY)
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
-	const ivec2 res = ubo.ubo.res;
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}

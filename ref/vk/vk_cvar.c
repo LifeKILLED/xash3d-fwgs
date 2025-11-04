@@ -46,7 +46,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_denoise_gi_by_sh = gEngine.Cvar_Get("rt_denoise_gi_by_sh", "", FCVAR_GLCONFIG, "Denoise global illumination by spherical harmonics");
 		rt_disable_gi = gEngine.Cvar_Get("rt_disable_gi", "", FCVAR_GLCONFIG, "Disable global illumination calculation");
 		rt_spatial_reconstruction = gEngine.Cvar_Get("rt_spatial_reconstruction", "", FCVAR_GLCONFIG, "Apply spatial reconstruction to specular");
-		rt_upscale_fxaa = gEngine.Cvar_Get("rt_upscale_fxaa", "", FCVAR_GLCONFIG, "Render in low resolution and apply FXAA");
+		rt_fxaa = gEngine.Cvar_Get("rt_fxaa", "", FCVAR_GLCONFIG, "Anti-aliasing FXAA for ray traced mode");
+		rt_resolution_scale = gEngine.Cvar_Get("rt_resolution_scale", "100", FCVAR_GLCONFIG, "Rendering resolution scale for upscaling (0.25 ... 1.0)");
 	} else {
 		rt_enable = gEngine.Cvar_Get( "rt_enable", "0", FCVAR_READ_ONLY, "DISABLED: Ray tracing is not supported by your hardware/drivers" );
 	}

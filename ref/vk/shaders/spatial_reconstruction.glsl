@@ -160,7 +160,7 @@ vec3 clampSpecular(vec3 specular, float maxLuminace) {
 
 void main() {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
-	const ivec2 res = ubo.ubo.res / INDIRECT_SCALE;
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale) / INDIRECT_SCALE;
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}

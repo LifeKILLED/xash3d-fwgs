@@ -408,9 +408,7 @@ Components blurSamples(const ivec2 res, const ivec2 pix) {
 }
 
 void main() {
-	const bool is_upscale = (ubo.ubo.renderer_flags & RENDERER_FLAG_UPSCALE_FXAA) != 0;
-
-	const ivec2 res = is_upscale ? ubo.ubo.res / 2 : ubo.ubo.res;
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {

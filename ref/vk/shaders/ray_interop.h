@@ -199,12 +199,13 @@ struct LightCluster {
 #define RENDERER_FLAG_DENOISE_GI_BY_SH (1<<2)
 #define RENDERER_FLAG_DISABLE_GI (1<<3)
 #define RENDERER_FLAG_SPATIAL_RECONSTRUCTION (1<<4)
-#define RENDERER_FLAG_UPSCALE_FXAA (1<<5)
+#define RENDERER_FLAG_FXAA (1<<5)
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
 	mat4 prev_inv_proj, prev_inv_view;
 	ivec2 res;
+	float resScale;
 	float ray_cone_width;
 	uint random_seed;
 	uint frame_counter;
