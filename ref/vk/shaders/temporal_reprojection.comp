@@ -1,0 +1,291 @@
+#version 460
+#include "debug.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+const int INDIRECT_SCALE = 1;
+
+#define MAX_SAMPLES_COUNT 8.
+
+const float LUMINANCE_THRESHOLD = 2.0;
+const float DIELECTRIC_SPECULAR_MULTIPLIER = 0.02; // default value from pbr papers, but 0.04 in Unreal Engine
+const int AVERAGE_KERNEL = 2; // big kernel not needed
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
+layout(set = 0, binding = 2, rgba16f) uniform image2D out_indirect_reprojected;
+
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_diffuse;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_poly_specular;
+
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_diffuse;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D light_point_specular;
+
+layout(set = 0, binding = 7, rgba8) uniform readonly image2D base_color_a;
+
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 10, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 11, rgba32f) uniform readonly image2D geometry_prev_position;
+
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D reflection_direction_pdf;
+
+layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_depth;
+layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_depth;
+
+layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_diffuse;
+layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_diffuse;
+
+layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_indirect;
+layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_indirect;
+
+layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_specular;
+layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_specular;
+
+layout(set = 0, binding = 24) uniform UBO { UniformBuffer ubo; } ubo;
+
+float luminance(vec3 rgb) { // TODO: include brdf.h
+	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+float closestColorWeight(vec3 color1, vec3 color2, vec3 sampleColor) {
+    float dist1 = dot(color1 - sampleColor, color1 - sampleColor);
+    float dist2 = dot(color2 - sampleColor, color2 - sampleColor);
+    return (dist1 < dist2) ? 0.0 : 1.0;
+}
+
+vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness) {
+	// TODO: add fresnel and do like PBR
+	const vec3 plasticSpecular = decolorized_specular * DIELECTRIC_SPECULAR_MULTIPLIER;
+	const vec3 metalSpecular = decolorized_specular * base_color;
+	return mix(plasticSpecular, metalSpecular, metalness);
+}
+
+vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_avg, vec3 irradiance_history, vec3 irradiance_history_avg, float samples_count, float luminance_threshold)
+{
+	if (samples_count != 0.) {
+		const float blend_weight = 1. / (samples_count + 1.);
+
+		const vec3 irradiance_mixed = mix(irradiance_history, irradiance_src, blend_weight);
+		const vec3 irradiance_mixed_avg = mix(irradiance_history_avg, irradiance_avg, blend_weight);
+
+		//const float luminance_history = luminance(irradiance_history_avg);
+		//const float luminance_mixed = luminance(irradiance_mixed_avg);
+
+		//if (abs(luminance_history - luminance_mixed) < (luminance_threshold * luminance_history * blend_weight))
+			return vec4(irradiance_mixed, min(samples_count + 1., MAX_SAMPLES_COUNT));
+	}
+
+	return vec4(irradiance_src, 1.);
+}
+
+#define AVERAGE_COLOR(average_color, image, pix, downscale) \
+{ \
+ 	average_color = vec3(0.); \
+ 	float samples_count = 0.; \
+ 	for(int x = -AVERAGE_KERNEL; x <= AVERAGE_KERNEL; x++) { \
+ 		for(int y = -AVERAGE_KERNEL; y <= AVERAGE_KERNEL; y++) { \
+ 			const ivec2 p = pix / downscale + ivec2(x, y); \
+ 			if (any(greaterThanEqual(p, res / downscale)) || any(lessThan(p, ivec2(0)))) { \
+ 				continue; \
+ 			} \
+ 			/*average_color += imageLoad(image, p ).xyz;*/ \
+			average_color = max(average_color, imageLoad(image, p ).xyz); \
+ 			samples_count += 1.; \
+ 		} \
+ 	} \
+ 	/*if (samples_count != 0.)*/ \
+ 		/*average_color /= samples_count;*/ \
+} \
+
+void main() {
+	const ivec2 res = ubo.ubo.res;
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const ivec2 pix_indirect = pix / INDIRECT_SCALE;
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const vec3 origin = (ubo.ubo.inv_view * vec4(0., 0., 0., 1.)).xyz;
+
+	const vec3 position = imageLoad(position_t, pix).xyz;
+	const float depth = length(origin - position);
+
+	const vec3 base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+	const float metalness = imageLoad(material_rmxx, pix).g;
+
+	vec3 geometry_normal, shading_normal;
+	readNormals(pix, geometry_normal, shading_normal);
+
+	vec3 diffuse_src = imageLoad(light_poly_diffuse, pix).rgb +
+					   imageLoad(light_point_diffuse, pix).rgb;
+
+	vec3 specular_src = //imageLoad(light_poly_specular, pix).rgb +
+					   //imageLoad(light_point_specular, pix).rgb +
+					   imageLoad(indirect_specular_reconstructed, pix_indirect).rgb;
+
+	vec3 indirect_src = imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
+
+	// TODO: mix lights earlier for faster blur
+	vec3 diffuse_avg_poly, diffuse_avg_point;
+	AVERAGE_COLOR(diffuse_avg_poly, light_poly_diffuse, pix, 1);
+	AVERAGE_COLOR(diffuse_avg_point, light_point_diffuse, pix, 1);
+	vec3 diffuse_avg = diffuse_avg_poly + diffuse_avg_point;
+
+	vec3 specular_avg_poly, specular_avg_point, specular_avg_indirect;
+	AVERAGE_COLOR(specular_avg_poly, light_poly_specular, pix, 1);
+	AVERAGE_COLOR(specular_avg_point, light_point_specular, pix, 1);
+	AVERAGE_COLOR(specular_avg_indirect, indirect_specular_reconstructed, pix_indirect, 1);
+	vec3 specular_avg = specular_avg_poly + specular_avg_point +
+					    specular_avg_indirect;
+
+	vec3 indirect_avg;
+	AVERAGE_COLOR(indirect_avg, indirect_diffuse_denoised_by_sh, pix, 1);
+
+	// // DEBUG
+	// diffuse_src = diffuse_avg; 
+	// specular_src = specular_avg;
+	// indirect_src = indirect_avg;
+
+	vec3 history_diffuse = diffuse_src;
+	vec3 history_specular = specular_src;
+	vec3 history_indirect = indirect_src;
+	
+	vec3 history_diffuse_avg = diffuse_avg;
+	vec3 history_specular_avg = specular_avg;
+	vec3 history_indirect_avg = indirect_avg;
+
+	float diffuse_samples_count = 1.;
+	float specular_samples_count = 1.;
+	float indirect_samples_count = 1.;
+
+	{/*
+		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
+		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
+		const vec2 reproj_uv = clip_space.xy / clip_space.w;
+		const ivec2 reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
+		const vec3 prev_origin = (ubo.ubo.prev_inv_view * vec4(0., 0., 0., 1.)).xyz;
+		const float depth_nessesary = length(prev_position - prev_origin);
+		const float depth_treshold = 0.01 * clip_space.w;
+		float depth_offset_max = depth_treshold;
+		
+		if (any(greaterThanEqual(reproj_pix, ivec2(0))) && any(lessThan(reproj_pix, res))) {
+			const vec4 history_diffuse_samples = imageLoad( prev_temporal_diffuse, reproj_pix );
+			const vec4 history_specular_samples = imageLoad( prev_temporal_specular, reproj_pix );
+			const vec4 history_indirect_samples = imageLoad( prev_temporal_indirect, reproj_pix );
+			const float history_depth = imageLoad( prev_temporal_depth, reproj_pix ).r;
+
+			const float depth_offset = abs(history_depth - depth_nessesary);
+			if ( depth_offset < depth_offset_max ) {
+				history_diffuse = history_diffuse_samples.rgb;
+				diffuse_samples_count = history_diffuse_samples.w;
+				AVERAGE_COLOR(history_diffuse_avg, prev_temporal_diffuse, reproj_pix, 1);
+
+				history_specular = history_specular_samples.rgb;
+				specular_samples_count = history_specular_samples.w;
+				AVERAGE_COLOR(history_specular_avg, prev_temporal_specular, reproj_pix, 1);
+
+				history_indirect = history_indirect_samples.rgb;
+				indirect_samples_count = history_indirect_samples.w;
+				AVERAGE_COLOR(history_indirect_avg, prev_temporal_indirect, reproj_pix, 1);
+			}
+		}
+
+		// parallax reprojecting for specular
+		float average_ray_length = 0.;
+		float ray_length_samples_count = 0.;
+		const int AVERAGE_RAY_LENGTH_KERNEL = 1;
+		for(int x = -AVERAGE_RAY_LENGTH_KERNEL; x <=AVERAGE_RAY_LENGTH_KERNEL; x++) {
+			for(int y = -AVERAGE_RAY_LENGTH_KERNEL; y <=AVERAGE_RAY_LENGTH_KERNEL; y++) {
+				const ivec2 p = pix / INDIRECT_SCALE + ivec2(x, y);
+				if (any(greaterThanEqual(p, res / INDIRECT_SCALE)) || any(lessThan(p, ivec2(0)))) {
+					continue;
+				}
+
+				average_ray_length += length(imageLoad( reflection_direction_pdf, p ).xyz);
+				ray_length_samples_count += 1.;
+			}
+		}
+		if (ray_length_samples_count > 0. && average_ray_length > 0.) {
+			average_ray_length /= ray_length_samples_count;
+
+			//	origin (camera)
+			//	       []<          reflection destination
+			//		 	| \        (UwU) (reflected in
+			//			|   \     /  |    surface texel)
+			//			|     \ /    |
+			//	--------x------x-----x------------
+			//	origin on      ^   reflection on plane
+			//	   plane	   |
+			//				reflection center
+			//		(surface texel in current frame)
+			//	  (need to find this in previous frame)
+			//		
+
+			const vec3 refl_position = reflect(normalize(position - origin), geometry_normal) * average_ray_length + position;
+			const float refl_distance_to_plane = dot(geometry_normal, refl_position - prev_position);
+			const vec3 refl_on_plane = refl_position - geometry_normal * refl_distance_to_plane;
+			const float prev_distance_to_plane = dot(geometry_normal, prev_origin - prev_position);
+			const vec3 prev_origin_on_plane = prev_origin - geometry_normal * prev_distance_to_plane;
+			const float refl_center = prev_distance_to_plane / (prev_distance_to_plane + refl_distance_to_plane);
+			const vec3 parallax_position = mix(prev_origin_on_plane, refl_on_plane, refl_center);
+
+			const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(parallax_position, 1.)).xyz, 1.);
+			const vec2 parallax_uv = clip_space.xy / clip_space.w;
+			const ivec2 parallax_pix = ivec2((parallax_uv * 0.5 + vec2(0.5)) * vec2(res));
+
+			if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
+				const vec4 parallax_specular_samples = imageLoad( prev_temporal_specular, parallax_pix );
+				
+				vec3 parallax_specular_avg;
+				AVERAGE_COLOR(parallax_specular_avg, prev_temporal_specular, parallax_pix, 1);
+
+				const float weight = closestColorWeight(history_specular_avg, parallax_specular_avg, specular_avg);
+				if (weight == 1.0) {
+					// parallax reprojected color closer than simple reprojected, use it
+					history_specular = parallax_specular_samples.xyz;
+					history_specular_avg = parallax_specular_avg;
+					specular_samples_count = parallax_specular_samples.w;
+				}
+			}
+		}*/
+	}
+
+	vec4 diffuse_samples = mixIrradianceSamplesCount(diffuse_src, diffuse_avg, history_diffuse, history_diffuse_avg, diffuse_samples_count, LUMINANCE_THRESHOLD);
+	vec4 specular_samples = mixIrradianceSamplesCount(specular_src, specular_avg, history_specular, history_specular_avg, specular_samples_count, LUMINANCE_THRESHOLD);
+	vec4 indirect_samples = mixIrradianceSamplesCount(indirect_src, indirect_avg, history_indirect, history_indirect_avg, indirect_samples_count, LUMINANCE_THRESHOLD);
+
+	// imageStore(out_diffuse_reprojected, pix, vec4(diffuse_src, 0.));
+	// imageStore(out_specular_reprojected, pix, vec4(specular_src, 0.));
+	// imageStore(out_indirect_reprojected, pix, vec4(indirect_src, 0.));
+
+	// imageStore(out_temporal_depth, pix, vec4(0.)); // reserve other values
+	// imageStore(out_temporal_diffuse, pix, vec4(0.));
+	// imageStore(out_temporal_specular, pix, vec4(0.));
+	// imageStore(out_temporal_indirect, pix, vec4(0.));
+
+	imageStore(out_diffuse_reprojected, pix, diffuse_samples);
+	imageStore(out_specular_reprojected, pix, specular_samples);
+	imageStore(out_indirect_reprojected, pix, indirect_samples);
+	
+	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
+	imageStore(out_temporal_diffuse, pix, diffuse_samples);
+	imageStore(out_temporal_specular, pix, specular_samples);
+	imageStore(out_temporal_indirect, pix, indirect_samples);
+}
