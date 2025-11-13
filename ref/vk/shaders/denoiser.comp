@@ -117,7 +117,7 @@ Components dontBlurSamples(const ivec2 res, const ivec2 pix) {
 	}
 	c.direct_specular += imageLoad(light_poly_specular, p).rgb;
 	c.direct_specular += imageLoad(light_point_specular, p).rgb;
-	c.indirect_specular += imageLoad(indirect_specular_reconstructed, p_indirect).rgb;
+	c.indirect_specular += imageLoad(indirect_specular_reconstructed, p).rgb;
 	return c;
 }
 
@@ -251,11 +251,10 @@ Components blurATrous(const ivec2 res, const ivec2 pix, vec3 pos, vec3 shading_n
 					res, pix, pos, shading_normal, offset, step_width, 1, sn_phi, p_phi, p);
 
 				if (weight > 0.) {
-					const ivec2 p_scaled = p / INDIRECT_SCALE;
-					const bool do_indirect = all(lessThan(p_scaled, res_scaled));
+					const bool do_indirect = all(lessThan(p, res));
 					if (do_indirect) {
 						weight_total_indirect_specular += weight;
-						c.indirect_specular += restoreSpecular(imageLoad(indirect_specular_reconstructed, p_scaled).rgb, base_color, metalness) * weight;
+						c.indirect_specular += restoreSpecular(imageLoad(indirect_specular_reconstructed, p).rgb, base_color, metalness) * weight;
 					}
 				}
 			}
@@ -361,14 +360,14 @@ Components blurSamples(const ivec2 res, const ivec2 pix) {
 			}
 
 			if (all(lessThan(abs(ivec2(x, y)), ivec2(INDIRECT_SPECULAR_KERNEL)))) {
-				const ivec2 p_indirect = (pix + ivec2(x, y)) / INDIRECT_SCALE;// + ivec2(x, y);
-				const bool do_indirect = all(lessThan(p_indirect, res_scaled)) && all(greaterThanEqual(p_indirect, ivec2(0)));
+				const ivec2 p = pix + ivec2(x, y);
+				const bool do_indirect = all(lessThan(p, res)) && all(greaterThanEqual(p, ivec2(0)));
 
 				if (do_indirect) {
 					// TODO indirect operates at different scale, do a separate pass
 					const float specular_scale = scale * normpdf(x, indirect_specular_sigma) * normpdf(y, indirect_specular_sigma);
 					indirect_specular_total += specular_scale;
-					c.indirect_specular += imageLoad(indirect_specular_reconstructed, p_indirect).rgb * specular_scale;
+					c.indirect_specular += imageLoad(indirect_specular_reconstructed, p).rgb * specular_scale;
 				}
 			}
 		}

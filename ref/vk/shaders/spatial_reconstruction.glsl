@@ -13,11 +13,14 @@
 #define SPECULAR_OUTPUT_IMAGE out_indirect_specular_reconstructed
 #endif
 
+#ifndef UPSCALE_SCALE
+	#define UPSCALE_SCALE 2
+#endif
+
 #include "debug.glsl"
 
 #define SPECULAR_CLAMPING_MAX 10.0
 #define SPATIAL_RECONSTRUCTION_SAMPLES 16
-#define INDIRECT_SCALE 2
 
 #define GLSL
 #include "ray_interop.h"
@@ -98,8 +101,7 @@ float normalDistribution_GGX(float NdotH, float alphaRoughness) {
 	return a2 / max(PI * f * f, 1e-9);
 }
 
-vec2 computeWeightRayLength(ivec2 pix, vec3 V, vec3 N, float roughness, float NdotV, float weight) {
-	vec4 rayDirectionPDF = imageLoad(reflection_direction_pdf, pix);
+vec2 computeWeightRayLength(vec4 rayDirectionPDF, vec3 V, vec3 N, float roughness, float NdotV, float weight) {
 	float rayLength = length(rayDirectionPDF.xyz);
 	vec3 rayDirection = normalize(rayDirectionPDF.xyz);
 	float PDF = rayDirectionPDF.w;
@@ -153,7 +155,11 @@ vec3 clampSpecular(vec3 specular, float maxLuminace) {
 
 void main() {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
-	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale) / INDIRECT_SCALE;
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+
+	const ivec2 pix_scaled = pix / UPSCALE_SCALE;
+	const ivec2 res_scaled = res / UPSCALE_SCALE;
+
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}
@@ -161,14 +167,14 @@ void main() {
 	rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337 + 12;
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_SPATIAL_RECONSTRUCTION) == 0) {
-		imageStore(SPECULAR_OUTPUT_IMAGE, pix, imageLoad(SPECULAR_INPUT_IMAGE, pix));
+		imageStore(SPECULAR_OUTPUT_IMAGE, pix, imageLoad(SPECULAR_INPUT_IMAGE, pix / UPSCALE_SCALE));
 		return;
 	}
 
 	const vec2 uv = (gl_GlobalInvocationID.xy + .5) / res * 2. - 1.;
 	
 	const vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
-	const vec3 position = imageLoad(position_t, pix * INDIRECT_SCALE).xyz;
+	const vec3 position = imageLoad(position_t, pix).xyz;
 
 	vec3 poisson[SPATIAL_RECONSTRUCTION_SAMPLES];
 	poisson[0]  = vec3( 0.000000000,  0.000000000, 0.128544338);
@@ -189,12 +195,12 @@ void main() {
 	poisson[15] = vec3( 0.567593882, -0.598135228, 0.034960177);
 
 	vec3 geometry_normal, shading_normal;
-	readNormals(pix * INDIRECT_SCALE, geometry_normal, shading_normal);
+	readNormals(pix, geometry_normal, shading_normal);
 
 	vec3 V = normalize(origin - position);
 	float NdotV = saturate(dot(shading_normal, V));
 
-	float roughness = imageLoad(material_rmxx, pix * INDIRECT_SCALE).x;
+	float roughness = imageLoad(material_rmxx, pix).x;
 
 	PixelAreaStatistic pixelAreaStat;
 	pixelAreaStat.colorSum = vec4(0.0, 0.0, 0.0, 0.0);
@@ -207,36 +213,37 @@ void main() {
 	vec3 result_color = vec3(0.);
 	float weights_sum = 0.;
 
-	vec3 aabbMin = imageLoad(reflection_direction_pdf, pix).xyz;
+	vec3 aabbMin = imageLoad(reflection_direction_pdf, pix_scaled).xyz;
 	vec3 aabbMax = aabbMin;
 	for(int x = -1; x <= 1; x++) {
  		for(int y = -1; y <= 1; y++) {
- 			const ivec2 p = pix + ivec2(x, y);
- 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+ 			const ivec2 p_scaled = pix_scaled + ivec2(x, y);
+ 			if (any(greaterThanEqual(p_scaled, res_scaled)) || any(lessThan(p_scaled, ivec2(0)))) {
  				continue;
  			}
-			vec3 nearDir = imageLoad(reflection_direction_pdf, p).xyz;
+			vec3 nearDir = imageLoad(reflection_direction_pdf, p_scaled).xyz;
 			aabbMin = min(aabbMin, nearDir);
 			aabbMax = max(aabbMax, nearDir);
  		}
  	}
 
-	vec2 axisX = normalize(vec2(rand01(), rand01()));
+	vec2 axisX = normalize(vec2(rand01(), rand01())) * SPATIAL_RECONSTRUCTION_RADIUS;
 	vec2 axisY = vec2(-axisX.y, axisX.x);
  
  	// TODO: Try to implement sampling from https://youtu.be/MyTOGHqyquU?t=1043
 	for (int i = 0; i < SPATIAL_RECONSTRUCTION_SAMPLES; i++)
 	{
 		vec2 offset = poisson[i].x * axisX + poisson[i].y * axisY;
-		ivec2 p = clampScreenCoord(ivec2(vec2(pix) + vec2(0.5) + SPATIAL_RECONSTRUCTION_RADIUS * offset), res); 
+		ivec2 p = clampScreenCoord(ivec2(vec2(pix) + vec2(0.5) + offset), res); 
+		ivec2 p_scaled = p / UPSCALE_SCALE;
 
-		vec3 reflDir = imageLoad(reflection_direction_pdf, p).xyz;
-		if (any(greaterThan(reflDir, aabbMax)) || any(lessThan(reflDir, aabbMin))) {
+		vec4 reflDirPDF = imageLoad(reflection_direction_pdf, p_scaled);
+		if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin))) {
 			continue;
 		}
 
-		vec2 weightLength = computeWeightRayLength(p, V, shading_normal, roughness, NdotV, poisson[i].z);
-		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p).xyz, SPECULAR_CLAMPING_MAX);
+		vec2 weightLength = computeWeightRayLength(reflDirPDF, V, shading_normal, roughness, NdotV, poisson[i].z);
+		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p_scaled).xyz, SPECULAR_CLAMPING_MAX);
 		computeWeightedVariance(pixelAreaStat, sampleColor, weightLength.x);
 
 		if (weightLength.x > 1.0e-6)
