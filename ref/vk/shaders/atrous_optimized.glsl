@@ -1,0 +1,226 @@
+#ifndef ATROUS_KERNEL
+	#define ATROUS_KERNEL 7
+#endif
+
+#ifndef STEP_SIZE
+	#define STEP_SIZE 1
+#endif
+
+#ifndef PHI_POS
+	#define PHI_POS 100.0
+#endif
+
+#ifndef PHI_NORMAL
+	#define PHI_NORMAL 0.5
+#endif
+
+#ifndef ROUGHNESS_THRESHOLD
+	#define ROUGHNESS_THRESHOLD 0.1
+#endif
+
+#ifndef VARIANCE_SCALE
+	#define VARIANCE_SCALE 350.0
+#endif
+
+#ifndef SRC_RADIANCE
+	#define SRC_RADIANCE indirect_specular
+#endif
+
+#ifndef OUT_RADIANCE
+	#define OUT_RADIANCE out_indirect_specular_denoised
+#endif
+
+#ifndef POSITION_T
+	#define POSITION_T position_t
+#endif
+
+#ifndef NORMALS_GS
+	#define NORMALS_GS normals_gs
+#endif
+
+#ifndef MATERIAL_RMXX
+	#define MATERIAL_RMXX material_rmxx
+#endif
+
+#include "debug.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define LOCAL_SZ_X 8
+#define LOCAL_SZ_Y 8
+
+layout(local_size_x = LOCAL_SZ_X, local_size_y = LOCAL_SZ_Y, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D OUT_RADIANCE;
+
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D SRC_RADIANCE;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D POSITION_T;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D NORMALS_GS;
+layout(set = 0, binding = 4, rgba8)   uniform readonly image2D MATERIAL_RMXX;
+
+layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
+
+#include "utils.glsl"
+#include "noise.glsl"
+#include "brdf.glsl"
+
+const int PADDING = ATROUS_KERNEL + 1;
+const int SHARED_W = LOCAL_SZ_X + 2 * PADDING;
+const int SHARED_H = LOCAL_SZ_Y + 2 * PADDING;
+const float EPS = 1e-5;
+
+struct TexelData {
+    vec3 pos;
+    vec3 normal;
+	vec3 radiance;
+    float roughness;
+	float luminance;
+    float variance;
+};
+
+shared TexelData s_tile[SHARED_H][SHARED_W];
+
+ivec2 clampCoord(ivec2 coord, ivec2 size) {
+    return clamp(coord, ivec2(0), size - ivec2(1));
+}
+
+TexelData loadTexel(ivec2 pix, ivec2 res) {
+    ivec2 p = clampCoord(pix, res);
+
+    TexelData t;
+    t.pos = imageLoad(POSITION_T, p).xyz;
+    t.normal = normalDecode(imageLoad(NORMALS_GS, p).zw);
+    t.roughness = imageLoad(MATERIAL_RMXX, p).r;
+    t.radiance = imageLoad(SRC_RADIANCE, p).rgb;
+	t.luminance = luminance(t.radiance);
+    t.variance = 0.0;
+
+    return t;
+}
+
+float computeVariance(int sx, int sy) {
+    float mean = 0.0;
+    float sqmean = 0.0;
+    int cnt = 0;
+    for (int oy = -1; oy <= 1; ++oy) {
+		for (int ox = -1; ox <= 1; ++ox) {
+			const int nx = sx + ox, ny = sy + oy;
+
+			if (nx >= 0 && nx < SHARED_W && ny >= 0 && ny < SHARED_H) {
+				float v = s_tile[ny][nx].luminance;
+
+				mean += v;
+				sqmean += v * v;
+				cnt++;
+			}
+		}
+	}
+
+    if (cnt == 0)
+		return 0.0;
+
+    mean /= float(cnt);
+    sqmean /= float(cnt);
+
+    return max(sqmean - mean * mean, 0.0);
+}
+
+void main() {
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+    const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 localID = ivec2(gl_LocalInvocationID.xy);
+    const ivec2 sharedOrigin = ivec2(gl_WorkGroupID.xy) * ivec2(LOCAL_SZ_X, LOCAL_SZ_Y) - ivec2(PADDING, PADDING);
+
+	if (sharedOrigin.x >= res.x || sharedOrigin.y >= res.x)
+		return;
+
+	// Fill shader memory (one thread reading 3x3 texels)
+
+    const int localThreadIndex = int(gl_LocalInvocationIndex);
+    const int localThreadCount = LOCAL_SZ_X * LOCAL_SZ_Y;
+    const int totalSharedCount = SHARED_W * SHARED_H;
+    for (int idx = localThreadIndex; idx < totalSharedCount; idx += localThreadCount) {
+        int sy = idx / SHARED_W;
+        int sx = idx - sy * SHARED_W;
+        ivec2 tex = sharedOrigin + ivec2(sx, sy) * STEP_SIZE;
+        s_tile[sy][sx] = loadTexel(tex, res);
+    }
+
+    memoryBarrierShared();
+    barrier();
+
+	// Calculate variance
+
+    for (int idx = localThreadIndex; idx < totalSharedCount; idx += localThreadCount) {
+        int sy = idx / SHARED_W;
+        int sx = idx - sy * SHARED_W;
+        s_tile[sy][sx].variance = computeVariance(sx, sy);
+    }
+
+    memoryBarrierShared();
+    barrier();
+
+    if (pix.x >= res.x || pix.y >= res.y)
+		return;
+
+	// Apply aTrous
+
+    const int centerSX = localID.x + PADDING;
+    const int centerSY = localID.y + PADDING;
+
+    TexelData center = s_tile[centerSY][centerSX];
+
+    vec3 accum = vec3(0.0);
+	float wsum = 0.0;
+    for (int ky = -ATROUS_KERNEL; ky <= ATROUS_KERNEL; ++ky) {
+    	for (int kx = -ATROUS_KERNEL; kx <= ATROUS_KERNEL; ++kx) {
+			const int sx = centerSX + kx;
+			const int sy = centerSY + ky;
+
+			if (sx < 0 || sy < 0 || sx >= SHARED_W || sy >= SHARED_H)
+				continue;
+
+			TexelData n = s_tile[sy][sx];
+
+			// Roughness edge stopping
+			if (abs(center.roughness - n.roughness) > ROUGHNESS_THRESHOLD)
+				continue;
+
+			// Weight shading normals
+			const vec3 sn_diff = center.normal - n.normal;
+			const float sn_dist2 = dot(sn_diff,sn_diff);
+			const float w_normal = min(exp(-(sn_dist2)/PHI_NORMAL), 1.0);
+			if (w_normal <= 0.0)
+				continue;
+
+			// Weight positions
+			// const vec3 p_diff = center.pos - n.pos;
+			// const float p_dist2 = dot(p_diff, p_diff);
+			// const float w_pos = min(exp(-(p_dist2)/PHI_POS), 1.0);
+			// if (w_pos <= 0.0)
+			// 	continue
+			
+			const float w_pos = 1.0;
+
+			// Weight luminance 
+			const float lumDiff = n.luminance - center.luminance;
+			const float lumSigma = sqrt(center.variance) + 1e-3;
+			const float w_lum = 1.0;//exp(- (lumDiff * lumDiff) / (2.0 * lumSigma * lumSigma + EPS));
+			const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
+			const float dist2 = float(kx*kx + ky*ky);
+			const float w_spatial = 1.0 / (1.0 + dist2);
+
+			float w = w_lum * w_var * w_spatial * w_normal * w_pos;
+			accum += n.radiance * w;
+			wsum += w;
+		}
+	}
+
+    vec3 result = accum / max(wsum, EPS);
+
+    imageStore(OUT_RADIANCE, pix, vec4(result, 1.0));
+}

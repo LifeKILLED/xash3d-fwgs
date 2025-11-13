@@ -7,8 +7,8 @@
 #include "ray_interop.h"
 #undef GLSL
 
-#define DIFFUSE_TEMPORAL_HISTORY_MIX_WEIGHT 0.8
-#define SPECULAR_TEMPORAL_HISTORY_MIX_WEIGHT 0.8
+#define DIFFUSE_TEMPORAL_HISTORY_MIX_WEIGHT 0.5
+#define SPECULAR_TEMPORAL_HISTORY_MIX_WEIGHT 0.5
 #define DIELECTRIC_SPECULAR_MULTIPLIER 0.02 // default value from pbr papers, but 0.04 in Unreal Engine
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -33,7 +33,7 @@ layout(set = 0, binding = 11) uniform UBO { UniformBuffer ubo; } ubo;
 
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse;
 layout(set = 0, binding = 13, rgba16f) uniform readonly image2D indirect_diffuse_atrous1;
-layout(set = 0, binding = 14, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D indirect_specular_denoised;
 layout(set = 0, binding = 15, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
 layout(set = 0, binding = 16, rgba32f) uniform readonly image2D reflection_direction_pdf;
 
@@ -117,7 +117,7 @@ Components dontBlurSamples(const ivec2 res, const ivec2 pix) {
 	}
 	c.direct_specular += imageLoad(light_poly_specular, p).rgb;
 	c.direct_specular += imageLoad(light_point_specular, p).rgb;
-	c.indirect_specular += imageLoad(indirect_specular_reconstructed, p).rgb;
+	c.indirect_specular += imageLoad(indirect_specular_denoised, p).rgb;
 	return c;
 }
 
@@ -163,7 +163,7 @@ Components boxBlurSamples(ivec2 res, ivec2 pix) {
 	BOX_BLUR(c.indirect_diffuse, indirect_diffuse, res, pix, INDIRECT_DIFFUSE_KERNEL);
 	}
 
-	BOX_BLUR(c.indirect_specular, indirect_specular_reconstructed, res, pix, INDIRECT_SPECULAR_KERNEL);
+	BOX_BLUR(c.indirect_specular, indirect_specular_denoised, res, pix, INDIRECT_SPECULAR_KERNEL);
 
 	return c;
 }
@@ -254,7 +254,7 @@ Components blurATrous(const ivec2 res, const ivec2 pix, vec3 pos, vec3 shading_n
 					const bool do_indirect = all(lessThan(p, res));
 					if (do_indirect) {
 						weight_total_indirect_specular += weight;
-						c.indirect_specular += restoreSpecular(imageLoad(indirect_specular_reconstructed, p).rgb, base_color, metalness) * weight;
+						c.indirect_specular += restoreSpecular(imageLoad(indirect_specular_denoised, p).rgb, base_color, metalness) * weight;
 					}
 				}
 			}
@@ -367,7 +367,7 @@ Components blurSamples(const ivec2 res, const ivec2 pix) {
 					// TODO indirect operates at different scale, do a separate pass
 					const float specular_scale = scale * normpdf(x, indirect_specular_sigma) * normpdf(y, indirect_specular_sigma);
 					indirect_specular_total += specular_scale;
-					c.indirect_specular += imageLoad(indirect_specular_reconstructed, p).rgb * specular_scale;
+					c.indirect_specular += imageLoad(indirect_specular_denoised, p).rgb * specular_scale;
 				}
 			}
 		}

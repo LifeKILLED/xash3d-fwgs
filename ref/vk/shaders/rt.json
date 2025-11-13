@@ -65,6 +65,9 @@
 	"spatial_reconstruction": {
 		"comp": "spatial_reconstruction"
 	},
+	"indirect_specular_atrous_pass1": {
+		"comp": "indirect_specular_atrous_pass1"
+	},
 	"denoiser": {
 		"comp": "denoiser"
 	},
