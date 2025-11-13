@@ -2,7 +2,7 @@
 // https://github.com/DiligentGraphics/DiligentEngine
 
 #ifndef SPATIAL_RECONSTRUCTION_RADIUS
-#define SPATIAL_RECONSTRUCTION_RADIUS 7.
+#define SPATIAL_RECONSTRUCTION_RADIUS 4.
 #endif
 
 #ifndef SPECULAR_INPUT_IMAGE
@@ -15,10 +15,8 @@
 
 #include "debug.glsl"
 
-#define SPECULAR_CLAMPING_MAX 1.2
-#define SPATIAL_RECONSTRUCTION_SAMPLES 8
-#define SPATIAL_RECONSTRUCTION_ROUGHNESS_FACTOR 5.
-#define SPATIAL_RECONSTRUCTION_SIGMA 0.9
+#define SPECULAR_CLAMPING_MAX 10.0
+#define SPATIAL_RECONSTRUCTION_SAMPLES 16
 #define INDIRECT_SCALE 2
 
 #define GLSL
@@ -37,7 +35,7 @@ layout(set = 0, binding = 3, rgba8) uniform readonly image2D material_rmxx;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D SPECULAR_INPUT_IMAGE;
 layout(set = 0, binding = 5, rgba32f) uniform readonly image2D reflection_direction_pdf;
 
-layout(set = 0, binding = 6) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
 
 #include "utils.glsl"
 #include "noise.glsl"
@@ -144,11 +142,6 @@ ivec2 clampScreenCoord(ivec2 pix, ivec2 res) {
 	return max(ivec2(0), min(ivec2(res - 1), pix));
 }
 
-
-float computeSpatialWeight(float texelDistance, float sigma) {
-	return exp(-(texelDistance) / (2.0 * sigma * sigma));
-}
-
 vec3 clampSpecular(vec3 specular, float maxLuminace) {
 	float lum = luminance(specular);
 	if (lum == 0.)
@@ -165,6 +158,8 @@ void main() {
 		return;
 	}
 
+	rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337 + 12;
+
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_SPATIAL_RECONSTRUCTION) == 0) {
 		imageStore(SPECULAR_OUTPUT_IMAGE, pix, imageLoad(SPECULAR_INPUT_IMAGE, pix));
 		return;
@@ -175,16 +170,23 @@ void main() {
 	const vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec3 position = imageLoad(position_t, pix * INDIRECT_SCALE).xyz;
 
-	// samples = 8, min distance = 0.5, average samples on radius = 2
 	vec3 poisson[SPATIAL_RECONSTRUCTION_SAMPLES];
-	poisson[0] = vec3(-0.4706069, -0.4427112, +0.6461146);
-	poisson[1] = vec3(-0.9057375, +0.3003471, +0.9542373);
-	poisson[2] = vec3(-0.3487388, +0.4037880, +0.5335386);
-	poisson[3] = vec3(+0.1023042, +0.6439373, +0.6520134);
-	poisson[4] = vec3(+0.5699277, +0.3513750, +0.6695386);
-	poisson[5] = vec3(+0.2939128, -0.1131226, +0.3149309);
-	poisson[6] = vec3(+0.7836658, -0.4208784, +0.8895339);
-	poisson[7] = vec3(+0.1564120, -0.8198990, +0.8346850);
+	poisson[0]  = vec3( 0.000000000,  0.000000000, 0.128544338);
+	poisson[1]  = vec3(-0.797630122,  0.623220526, 0.044399352);
+	poisson[2]  = vec3(-0.282518518,  0.028872056, 0.111670655);
+	poisson[3]  = vec3( 0.520033692,  0.179071984, 0.089961024);
+	poisson[4]  = vec3( 0.857848520,  0.407217906, 0.037285218);
+	poisson[5]  = vec3( 0.260589372, -0.961425346, 0.016540041);
+	poisson[6]  = vec3(-0.197658008,  0.629159807, 0.063970742);
+	poisson[7]  = vec3(-0.246892394, -0.927460750, 0.018080349);
+	poisson[8]  = vec3(-0.099761954, -0.393746506, 0.098064610);
+	poisson[9]  = vec3(-0.676933518, -0.107831894, 0.062739748);
+	poisson[10] = vec3( 0.289867508,  0.968136196, 0.014606041);
+	poisson[11] = vec3( 0.836644372, -0.218037444, 0.036161873);
+	poisson[12] = vec3(-0.499614432, -0.472562398, 0.061649521);
+	poisson[13] = vec3( 0.947539128, -0.810473276, 0.006911358);
+	poisson[14] = vec3( 0.310520506,  0.532561108, 0.060446005);
+	poisson[15] = vec3( 0.567593882, -0.598135228, 0.034960177);
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix * INDIRECT_SCALE, geometry_normal, shading_normal);
@@ -193,9 +195,6 @@ void main() {
 	float NdotV = saturate(dot(shading_normal, V));
 
 	float roughness = imageLoad(material_rmxx, pix * INDIRECT_SCALE).x;
-
-	float roughness_factor = saturate(float(SPATIAL_RECONSTRUCTION_ROUGHNESS_FACTOR) * roughness);
-	float radius = mix(0.0, SPATIAL_RECONSTRUCTION_RADIUS, roughness_factor);
 
 	PixelAreaStatistic pixelAreaStat;
 	pixelAreaStat.colorSum = vec4(0.0, 0.0, 0.0, 0.0);
@@ -208,13 +207,35 @@ void main() {
 	vec3 result_color = vec3(0.);
 	float weights_sum = 0.;
 
-	// TODO: Try to implement sampling from https://youtu.be/MyTOGHqyquU?t=1043
+	vec3 aabbMin = imageLoad(reflection_direction_pdf, pix).xyz;
+	vec3 aabbMax = aabbMin;
+	for(int x = -1; x <= 1; x++) {
+ 		for(int y = -1; y <= 1; y++) {
+ 			const ivec2 p = pix + ivec2(x, y);
+ 			if (any(greaterThanEqual(p, res)) || any(lessThan(p, ivec2(0)))) {
+ 				continue;
+ 			}
+			vec3 nearDir = imageLoad(reflection_direction_pdf, p).xyz;
+			aabbMin = min(aabbMin, nearDir);
+			aabbMax = max(aabbMax, nearDir);
+ 		}
+ 	}
+
+	vec2 axisX = normalize(vec2(rand01(), rand01()));
+	vec2 axisY = vec2(-axisX.y, axisX.x);
+ 
+ 	// TODO: Try to implement sampling from https://youtu.be/MyTOGHqyquU?t=1043
 	for (int i = 0; i < SPATIAL_RECONSTRUCTION_SAMPLES; i++)
 	{
-		ivec2 p = max(ivec2(0), min(ivec2(res) - ivec2(1), ivec2(pix + radius * poisson[i].xy))); 
+		vec2 offset = poisson[i].x * axisX + poisson[i].y * axisY;
+		ivec2 p = clampScreenCoord(ivec2(vec2(pix) + vec2(0.5) + SPATIAL_RECONSTRUCTION_RADIUS * offset), res); 
 
-		float weightS = computeSpatialWeight(poisson[i].z * poisson[i].z, SPATIAL_RECONSTRUCTION_SIGMA);
-		vec2 weightLength = computeWeightRayLength(p, V, shading_normal, roughness, NdotV, weightS);
+		vec3 reflDir = imageLoad(reflection_direction_pdf, p).xyz;
+		if (any(greaterThan(reflDir, aabbMax)) || any(lessThan(reflDir, aabbMin))) {
+			continue;
+		}
+
+		vec2 weightLength = computeWeightRayLength(p, V, shading_normal, roughness, NdotV, poisson[i].z);
 		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p).xyz, SPECULAR_CLAMPING_MAX);
 		computeWeightedVariance(pixelAreaStat, sampleColor, weightLength.x);
 
