@@ -68,6 +68,9 @@
 	"indirect_specular_atrous_pass1": {
 		"comp": "indirect_specular_atrous_pass1"
 	},
+	"temporal_reprojection": {
+		"comp": "temporal_reprojection"
+	},
 	"denoiser": {
 		"comp": "denoiser"
 	},

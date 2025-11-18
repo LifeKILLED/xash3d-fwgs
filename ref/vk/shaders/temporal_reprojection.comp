@@ -7,7 +7,7 @@
 #include "ray_interop.h"
 #undef GLSL
 
-const int INDIRECT_SCALE = 1;
+const int INDIRECT_SCALE = 2;
 
 #define MAX_SAMPLES_COUNT 8.
 
@@ -19,39 +19,37 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
-layout(set = 0, binding = 2, rgba16f) uniform image2D out_indirect_reprojected;
 
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_diffuse;
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_poly_specular;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D light_poly_diffuse;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_specular;
 
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_diffuse;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D light_point_specular;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffuse;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
 
-layout(set = 0, binding = 7, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 6, rgba8) uniform readonly image2D base_color_a;
 
-layout(set = 0, binding = 8, rgba32f) uniform readonly image2D position_t;
-layout(set = 0, binding = 9, rgba16f) uniform readonly image2D normals_gs;
-layout(set = 0, binding = 10, rgba8) uniform readonly image2D material_rmxx;
-layout(set = 0, binding = 11, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 9, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D geometry_prev_position;
 
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse;
-layout(set = 0, binding = 13, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
-layout(set = 0, binding = 14, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
-layout(set = 0, binding = 15, rgba32f) uniform readonly image2D reflection_direction_pdf;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D indirect_specular_prefilter;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
+layout(set = 0, binding = 13, rgba32f) uniform readonly image2D reflection_direction_pdf;
 
-layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_depth;
-layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_depth;
+layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_diffuse;
+layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_diffuse;
 
-layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_diffuse;
-layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_diffuse;
+layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_specular;
+layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_specular;
 
-layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_indirect;
-layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_indirect;
+layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_moments_ds;
+layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_moments_ds;
 
-layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_specular;
-layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_specular;
+layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_depth;
+layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_depth;
 
-layout(set = 0, binding = 24) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 22) uniform UBO { UniformBuffer ubo; } ubo;
 
 float luminance(vec3 rgb) { // TODO: include brdf.h
 	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
@@ -76,47 +74,68 @@ vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness
 	return mix(plasticSpecular, metalSpecular, metalness);
 }
 
-vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_avg, vec3 irradiance_history, vec3 irradiance_history_avg, float samples_count, float luminance_threshold)
+struct TemporalResult {
+    vec3 radiance;
+    float moment1;
+    float moment2;
+	float weight;
+};
+
+TemporalResult temporalAccumulationInit(vec3 currentSample) {
+	TemporalResult r;
+	r.radiance = currentSample;
+	r.moment1  = luminance(currentSample);
+	r.moment2  = r.moment1 * r.moment1;
+	r.weight = 0.0;
+	return r;
+}
+
+TemporalResult temporalAccumulation(vec3 currentSample, vec3 historyRadiance, float historyM1, float historyM2) {
+    float variance = max(historyM2 - historyM1 * historyM1, 0.0);
+    float sigma = sqrt(variance);
+
+    float k = 5.0; // TODO: move to ubo
+    float lo = historyM1 - k * sigma;
+    float hi = historyM1 + k * sigma;
+
+    float currLum = luminance(currentSample);
+    float clampedLum = currLum;//clamp(currLum, lo, hi);
+
+    float safe = (currLum > 1e-6) ? (clampedLum / currLum) : 1.0;
+    vec3 clampedColor = currentSample * safe;
+
+    float historyWeight = clamp(1.0 - sigma * 0.5, 0.05, 0.95);
+
+    vec3 newRadiance = mix(clampedColor, historyRadiance, historyWeight);
+
+    float newM1 = mix(clampedLum, historyM1, historyWeight);
+    float newM2 = mix(clampedLum * clampedLum, historyM2, historyWeight);
+
+    TemporalResult r;
+    r.radiance = newRadiance;
+    r.moment1  = newM1;
+    r.moment2  = newM2;
+	r.weight = historyWeight;
+    return r;
+}
+
+
+vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_history, float samples_count, float luminance_threshold)
 {
 	if (samples_count != 0.) {
 		const float blend_weight = 1. / (samples_count + 1.);
 
 		const vec3 irradiance_mixed = mix(irradiance_history, irradiance_src, blend_weight);
-		const vec3 irradiance_mixed_avg = mix(irradiance_history_avg, irradiance_avg, blend_weight);
 
-		//const float luminance_history = luminance(irradiance_history_avg);
-		//const float luminance_mixed = luminance(irradiance_mixed_avg);
-
-		//if (abs(luminance_history - luminance_mixed) < (luminance_threshold * luminance_history * blend_weight))
-			return vec4(irradiance_mixed, min(samples_count + 1., MAX_SAMPLES_COUNT));
+		return vec4(irradiance_mixed, min(samples_count + 1., MAX_SAMPLES_COUNT));
 	}
 
 	return vec4(irradiance_src, 1.);
 }
 
-#define AVERAGE_COLOR(average_color, image, pix, downscale) \
-{ \
- 	average_color = vec3(0.); \
- 	float samples_count = 0.; \
- 	for(int x = -AVERAGE_KERNEL; x <= AVERAGE_KERNEL; x++) { \
- 		for(int y = -AVERAGE_KERNEL; y <= AVERAGE_KERNEL; y++) { \
- 			const ivec2 p = pix / downscale + ivec2(x, y); \
- 			if (any(greaterThanEqual(p, res / downscale)) || any(lessThan(p, ivec2(0)))) { \
- 				continue; \
- 			} \
- 			/*average_color += imageLoad(image, p ).xyz;*/ \
-			average_color = max(average_color, imageLoad(image, p ).xyz); \
- 			samples_count += 1.; \
- 		} \
- 	} \
- 	/*if (samples_count != 0.)*/ \
- 		/*average_color /= samples_count;*/ \
-} \
-
 void main() {
-	const ivec2 res = ubo.ubo.res;
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
-	const ivec2 pix_indirect = pix / INDIRECT_SCALE;
 
 	if (any(greaterThanEqual(pix, res))) {
 		return;
@@ -134,48 +153,28 @@ void main() {
 	readNormals(pix, geometry_normal, shading_normal);
 
 	vec3 diffuse_src = imageLoad(light_poly_diffuse, pix).rgb +
-					   imageLoad(light_point_diffuse, pix).rgb;
+					   imageLoad(light_point_diffuse, pix).rgb +
+					   imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
 
-	vec3 specular_src = //imageLoad(light_poly_specular, pix).rgb +
-					   //imageLoad(light_point_specular, pix).rgb +
-					   imageLoad(indirect_specular_reconstructed, pix_indirect).rgb;
-
-	vec3 indirect_src = imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
-
-	// TODO: mix lights earlier for faster blur
-	vec3 diffuse_avg_poly, diffuse_avg_point;
-	AVERAGE_COLOR(diffuse_avg_poly, light_poly_diffuse, pix, 1);
-	AVERAGE_COLOR(diffuse_avg_point, light_point_diffuse, pix, 1);
-	vec3 diffuse_avg = diffuse_avg_poly + diffuse_avg_point;
-
-	vec3 specular_avg_poly, specular_avg_point, specular_avg_indirect;
-	AVERAGE_COLOR(specular_avg_poly, light_poly_specular, pix, 1);
-	AVERAGE_COLOR(specular_avg_point, light_point_specular, pix, 1);
-	AVERAGE_COLOR(specular_avg_indirect, indirect_specular_reconstructed, pix_indirect, 1);
-	vec3 specular_avg = specular_avg_poly + specular_avg_point +
-					    specular_avg_indirect;
-
-	vec3 indirect_avg;
-	AVERAGE_COLOR(indirect_avg, indirect_diffuse_denoised_by_sh, pix, 1);
-
-	// // DEBUG
-	// diffuse_src = diffuse_avg; 
-	// specular_src = specular_avg;
-	// indirect_src = indirect_avg;
+	vec3 specular_src = imageLoad(light_poly_specular, pix).rgb +
+					   imageLoad(light_point_specular, pix).rgb +
+					   imageLoad(indirect_specular_prefilter, pix).rgb;
 
 	vec3 history_diffuse = diffuse_src;
 	vec3 history_specular = specular_src;
-	vec3 history_indirect = indirect_src;
-	
-	vec3 history_diffuse_avg = diffuse_avg;
-	vec3 history_specular_avg = specular_avg;
-	vec3 history_indirect_avg = indirect_avg;
+	vec3 history_specular_parallax = specular_src;
 
 	float diffuse_samples_count = 1.;
 	float specular_samples_count = 1.;
-	float indirect_samples_count = 1.;
 
-	{/*
+	vec4 diffuse_result = vec4(diffuse_src, 0.0);
+	vec4 specular_result = vec4(specular_src, 0.0);
+	
+	TemporalResult d_tr = temporalAccumulationInit(diffuse_src);
+	TemporalResult s_tr = temporalAccumulationInit(specular_src);
+	vec4 moments_ds_result = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
+
+	{
 		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
 		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
 		const vec2 reproj_uv = clip_space.xy / clip_space.w;
@@ -184,26 +183,20 @@ void main() {
 		const float depth_nessesary = length(prev_position - prev_origin);
 		const float depth_treshold = 0.01 * clip_space.w;
 		float depth_offset_max = depth_treshold;
-		
+
 		if (any(greaterThanEqual(reproj_pix, ivec2(0))) && any(lessThan(reproj_pix, res))) {
 			const vec4 history_diffuse_samples = imageLoad( prev_temporal_diffuse, reproj_pix );
 			const vec4 history_specular_samples = imageLoad( prev_temporal_specular, reproj_pix );
-			const vec4 history_indirect_samples = imageLoad( prev_temporal_indirect, reproj_pix );
+			const vec4 moments_ds_history = imageLoad( prev_temporal_moments_ds, reproj_pix );
 			const float history_depth = imageLoad( prev_temporal_depth, reproj_pix ).r;
 
 			const float depth_offset = abs(history_depth - depth_nessesary);
 			if ( depth_offset < depth_offset_max ) {
-				history_diffuse = history_diffuse_samples.rgb;
-				diffuse_samples_count = history_diffuse_samples.w;
-				AVERAGE_COLOR(history_diffuse_avg, prev_temporal_diffuse, reproj_pix, 1);
-
-				history_specular = history_specular_samples.rgb;
-				specular_samples_count = history_specular_samples.w;
-				AVERAGE_COLOR(history_specular_avg, prev_temporal_specular, reproj_pix, 1);
-
-				history_indirect = history_indirect_samples.rgb;
-				indirect_samples_count = history_indirect_samples.w;
-				AVERAGE_COLOR(history_indirect_avg, prev_temporal_indirect, reproj_pix, 1);
+				d_tr = temporalAccumulation(diffuse_src.rgb, history_diffuse_samples.rgb, moments_ds_history.x, moments_ds_history.y);
+				s_tr = temporalAccumulation(specular_src.rgb, history_specular_samples.rgb, moments_ds_history.z, moments_ds_history.w);
+				diffuse_result = vec4(d_tr.radiance, 0.0);
+				specular_result = vec4(s_tr.radiance, 0.0);
+				moments_ds_result = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
 			}
 		}
 
@@ -251,41 +244,27 @@ void main() {
 			const ivec2 parallax_pix = ivec2((parallax_uv * 0.5 + vec2(0.5)) * vec2(res));
 
 			if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
-				const vec4 parallax_specular_samples = imageLoad( prev_temporal_specular, parallax_pix );
-				
-				vec3 parallax_specular_avg;
-				AVERAGE_COLOR(parallax_specular_avg, prev_temporal_specular, parallax_pix, 1);
+				const float forwardWeight = s_tr.weight;
 
-				const float weight = closestColorWeight(history_specular_avg, parallax_specular_avg, specular_avg);
-				if (weight == 1.0) {
-					// parallax reprojected color closer than simple reprojected, use it
-					history_specular = parallax_specular_samples.xyz;
-					history_specular_avg = parallax_specular_avg;
-					specular_samples_count = parallax_specular_samples.w;
+				const vec4 parallax_specular_samples = imageLoad( prev_temporal_specular, parallax_pix );
+				const vec4 parallax_moments_ds_history = imageLoad( prev_temporal_moments_ds, parallax_pix );
+
+				s_tr = temporalAccumulation(specular_src.rgb, parallax_specular_samples.rgb, parallax_moments_ds_history.z, parallax_moments_ds_history.w);
+
+				if (s_tr.weight > forwardWeight) {
+					// Parallax reprojection sample is better
+					specular_result = vec4(s_tr.radiance, 0.0);
+					moments_ds_result.zw = vec2(s_tr.moment1, s_tr.moment2);
 				}
 			}
-		}*/
+		}
 	}
 
-	vec4 diffuse_samples = mixIrradianceSamplesCount(diffuse_src, diffuse_avg, history_diffuse, history_diffuse_avg, diffuse_samples_count, LUMINANCE_THRESHOLD);
-	vec4 specular_samples = mixIrradianceSamplesCount(specular_src, specular_avg, history_specular, history_specular_avg, specular_samples_count, LUMINANCE_THRESHOLD);
-	vec4 indirect_samples = mixIrradianceSamplesCount(indirect_src, indirect_avg, history_indirect, history_indirect_avg, indirect_samples_count, LUMINANCE_THRESHOLD);
-
-	// imageStore(out_diffuse_reprojected, pix, vec4(diffuse_src, 0.));
-	// imageStore(out_specular_reprojected, pix, vec4(specular_src, 0.));
-	// imageStore(out_indirect_reprojected, pix, vec4(indirect_src, 0.));
-
-	// imageStore(out_temporal_depth, pix, vec4(0.)); // reserve other values
-	// imageStore(out_temporal_diffuse, pix, vec4(0.));
-	// imageStore(out_temporal_specular, pix, vec4(0.));
-	// imageStore(out_temporal_indirect, pix, vec4(0.));
-
-	imageStore(out_diffuse_reprojected, pix, diffuse_samples);
-	imageStore(out_specular_reprojected, pix, specular_samples);
-	imageStore(out_indirect_reprojected, pix, indirect_samples);
+	imageStore(out_diffuse_reprojected, pix, diffuse_result);
+	imageStore(out_specular_reprojected, pix, specular_result);
 	
 	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
-	imageStore(out_temporal_diffuse, pix, diffuse_samples);
-	imageStore(out_temporal_specular, pix, specular_samples);
-	imageStore(out_temporal_indirect, pix, indirect_samples);
+	imageStore(out_temporal_diffuse, pix, diffuse_result);
+	imageStore(out_temporal_specular, pix, specular_result);
+	imageStore(out_temporal_moments_ds, pix, moments_ds_result);
 }

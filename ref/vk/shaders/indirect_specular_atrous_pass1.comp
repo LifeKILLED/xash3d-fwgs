@@ -4,9 +4,9 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_ray_query: require
 
-#define ATROUS_KERNEL 4
+#define ATROUS_KERNEL 2
 
 #define SRC_RADIANCE indirect_specular_reconstructed
-#define OUT_RADIANCE out_indirect_specular_denoised
+#define OUT_RADIANCE out_indirect_specular_prefilter
 
 #include "atrous_optimized.glsl"
