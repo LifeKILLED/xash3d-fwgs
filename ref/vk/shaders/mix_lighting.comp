@@ -1,0 +1,93 @@
+#version 460
+#include "debug.glsl"
+#include "utils.glsl"
+#include "color_spaces.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+const int INDIRECT_SCALE = 2;
+
+#define MAX_SAMPLES_COUNT 8.
+
+const float LUMINANCE_THRESHOLD = 2.0;
+const float DIELECTRIC_SPECULAR_MULTIPLIER = 0.02; // default value from pbr papers, but 0.04 in Unreal Engine
+const int AVERAGE_KERNEL = 2; // big kernel not needed
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_mixed;
+layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_mixed;
+
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D light_poly_diffuse;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_specular;
+
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffuse;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
+
+layout(set = 0, binding = 6, rgba8) uniform readonly image2D base_color_a;
+
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 9, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D geometry_prev_position;
+
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
+
+layout(set = 0, binding = 22) uniform UBO { UniformBuffer ubo; } ubo;
+
+float luminance(vec3 rgb) { // TODO: include brdf.h
+	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
+float closestColorWeight(vec3 color1, vec3 color2, vec3 sampleColor) {
+    float dist1 = dot(color1 - sampleColor, color1 - sampleColor);
+    float dist2 = dot(color2 - sampleColor, color2 - sampleColor);
+    return (dist1 < dist2) ? 0.0 : 1.0;
+}
+
+vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness) {
+	// TODO: add fresnel and do like PBR
+	const vec3 plasticSpecular = decolorized_specular * DIELECTRIC_SPECULAR_MULTIPLIER;
+	const vec3 metalSpecular = decolorized_specular * base_color;
+	return mix(plasticSpecular, metalSpecular, metalness);
+}
+
+void main() {
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const vec3 origin = (ubo.ubo.inv_view * vec4(0., 0., 0., 1.)).xyz;
+
+	const vec3 position = imageLoad(position_t, pix).xyz;
+	const float depth = length(origin - position);
+
+	const vec3 base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+	const float metalness = imageLoad(material_rmxx, pix).g;
+
+	vec3 geometry_normal, shading_normal;
+	readNormals(pix, geometry_normal, shading_normal);
+
+	vec3 diffuse = imageLoad(light_poly_diffuse, pix).rgb +
+					   imageLoad(light_point_diffuse, pix).rgb +
+					   imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
+
+	vec3 specular = imageLoad(light_poly_specular, pix).rgb +
+					   imageLoad(light_point_specular, pix).rgb +
+					   imageLoad(indirect_specular_reconstructed, pix).rgb;
+
+	imageStore(out_diffuse_mixed, pix, vec4(diffuse, 0.0));
+	imageStore(out_specular_mixed, pix, vec4(specular, 0.0));
+}

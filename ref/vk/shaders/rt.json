@@ -65,8 +65,14 @@
 	"spatial_reconstruction": {
 		"comp": "spatial_reconstruction"
 	},
-	"indirect_specular_atrous_pass1": {
-		"comp": "indirect_specular_atrous_pass1"
+	"mix_lighting": {
+		"comp": "mix_lighting"
+	},
+	"atrous_diffuse": {
+		"comp": "atrous_diffuse"
+	},
+	"atrous_specular": {
+		"comp": "atrous_specular"
 	},
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"

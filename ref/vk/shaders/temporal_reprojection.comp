@@ -20,36 +20,31 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D light_poly_diffuse;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_specular;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_blured;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_blured;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffuse;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D base_color_a;
 
-layout(set = 0, binding = 6, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 5, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 7, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D geometry_prev_position;
 
-layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D normals_gs;
-layout(set = 0, binding = 9, rgba8) uniform readonly image2D material_rmxx;
-layout(set = 0, binding = 10, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 9, rgba32f) uniform readonly image2D reflection_direction_pdf;
 
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D indirect_specular_prefilter;
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
-layout(set = 0, binding = 13, rgba32f) uniform readonly image2D reflection_direction_pdf;
+layout(set = 0, binding = 10, rgba16f) uniform image2D out_temporal_diffuse;
+layout(set = 0, binding = 11, rgba16f) uniform image2D prev_temporal_diffuse;
 
-layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_diffuse;
-layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_diffuse;
+layout(set = 0, binding = 12, rgba16f) uniform image2D out_temporal_specular;
+layout(set = 0, binding = 13, rgba16f) uniform image2D prev_temporal_specular;
 
-layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_specular;
-layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_specular;
+layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_moments_ds;
+layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_moments_ds;
 
-layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_moments_ds;
-layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_moments_ds;
+layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_depth;
+layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_depth;
 
-layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_depth;
-layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_depth;
-
-layout(set = 0, binding = 22) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 18) uniform UBO { UniformBuffer ubo; } ubo;
 
 float luminance(vec3 rgb) { // TODO: include brdf.h
 	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
@@ -152,20 +147,8 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	vec3 diffuse_src = imageLoad(light_poly_diffuse, pix).rgb +
-					   imageLoad(light_point_diffuse, pix).rgb +
-					   imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
-
-	vec3 specular_src = imageLoad(light_poly_specular, pix).rgb +
-					   imageLoad(light_point_specular, pix).rgb +
-					   imageLoad(indirect_specular_prefilter, pix).rgb;
-
-	vec3 history_diffuse = diffuse_src;
-	vec3 history_specular = specular_src;
-	vec3 history_specular_parallax = specular_src;
-
-	float diffuse_samples_count = 1.;
-	float specular_samples_count = 1.;
+	vec3 diffuse_src = imageLoad(diffuse_blured, pix).rgb;
+	vec3 specular_src = imageLoad(specular_blured, pix).rgb;
 
 	vec4 diffuse_result = vec4(diffuse_src, 0.0);
 	vec4 specular_result = vec4(specular_src, 0.0);
