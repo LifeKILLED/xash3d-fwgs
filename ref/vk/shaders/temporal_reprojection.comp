@@ -85,6 +85,12 @@ struct TemporalResult {
 	float weight;
 };
 
+struct TemporalData {
+	TemporalResult diffuse;
+	TemporalResult specular;
+	vec4 moments_ds;
+};
+
 TemporalResult temporalAccumulationInit(vec3 currentSample) {
 	TemporalResult r;
 	r.radiance = currentSample;
@@ -136,6 +142,86 @@ vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_history, flo
 	return vec4(irradiance_src, 1.);
 }
 
+bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 reproj_uv, float depth_nessesary, float depth_threshold, inout TemporalData final, inout TemporalData fast) {
+	const ivec2 reproj_pix = ivec2(floor(reproj_uv));
+	const vec2 uvw = fract(reproj_uv);
+	const vec2 uv_src = (vec2(pix) - vec2(0.5)) / vec2(res);
+
+	if (any(lessThan(reproj_pix, ivec2(0))) && any(greaterThanEqual(reproj_pix, res)))
+		return false;
+
+	vec4 history_diffuse = vec4(0.);
+	vec4 history_specular = vec4(0.);
+	vec4 m_ds_history = vec4(0.);
+
+	vec4 history_diffuse_fast = vec4(0.);
+	vec4 history_specular_fast = vec4(0.);
+	vec4 m_ds_history_fast = vec4(0.);
+
+	float history_depth = 0.;
+
+	float bilinear_weights[4];
+
+	bool doBilinearFiltering = length((uv_src - reproj_uv) * vec2(res)) > 1.0;
+	if (doBilinearFiltering) {
+		bilinear_weights[0] = (1.0 - uvw.x) * (1.0 - uvw.y);
+		bilinear_weights[1] = uvw.x * (1.0 - uvw.y);
+		bilinear_weights[2] = (1.0 - uvw.x) * uvw.y;
+		bilinear_weights[3] = uvw.x * uvw.y;
+	} else {
+		bilinear_weights[0] = 1.0;
+		bilinear_weights[0] = bilinear_weights[0] = bilinear_weights[0] = 0.0;
+	}
+
+	float samples_weight = 0.0;
+	for (int x = 0; x <=1; ++x) {
+		for (int y = 0; y <=1; ++y) {
+			const float bilinear_weight = bilinear_weights[x + y*2];
+			if (bilinear_weight == 0.0)
+				continue;
+
+			const ivec2 p = reproj_pix + ivec2(x, y);
+			if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res)))
+				continue;
+
+			const float depth_sample = imageLoad( prev_temporal_depth, p ).r;
+			const float depth_diff = abs(depth_sample - depth_nessesary);
+
+			if ( depth_threshold == 0.0 || depth_diff < depth_threshold ) {
+				history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
+				history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
+				m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
+
+				history_diffuse_fast += imageLoad( prev_temporal_diffuse_fast, p ) * bilinear_weight;
+				history_specular_fast += imageLoad( prev_temporal_specular_fast, p ) * bilinear_weight;
+				m_ds_history_fast += imageLoad( prev_temporal_moments_ds_fast, p ) * bilinear_weight;
+
+				samples_weight += bilinear_weight;
+			}
+		}
+	}
+
+	if ( samples_weight != 0.0 ) {
+		history_diffuse /= samples_weight;
+		history_specular /= samples_weight;
+		m_ds_history /= samples_weight;
+
+		// fast		
+		fast.diffuse = temporalAccumulation(diffuse_src.rgb, history_diffuse_fast.rgb, m_ds_history_fast.x, m_ds_history_fast.y, 0.05, 0.5);
+		fast.specular = temporalAccumulation(specular_src.rgb, history_specular_fast.rgb, m_ds_history_fast.z, m_ds_history_fast.w, 0.05, 0.5);
+		fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
+
+		// final
+		final.diffuse = temporalAccumulation(fast.diffuse.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.8);
+		final.specular = temporalAccumulation(fast.specular.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.8);
+		final.moments_ds = vec4(final.diffuse.moment1, final.diffuse.moment2, final.specular.moment1, final.specular.moment2);
+
+		return true;
+	}
+
+	return false;
+}
+
 void main() {
 	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -161,96 +247,26 @@ void main() {
 	vec4 diffuse_result = vec4(diffuse_src, 0.0);
 	vec4 specular_result = vec4(specular_src, 0.0);
 	
-	TemporalResult d_tr = temporalAccumulationInit(diffuse_src);
-	TemporalResult s_tr = temporalAccumulationInit(specular_src);
-	vec4 m_ds = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
+	TemporalData fast;
+	fast.diffuse = temporalAccumulationInit(diffuse_src);
+	fast.specular = temporalAccumulationInit(specular_src);
+	fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
 
-	TemporalResult d_tr_fast = d_tr;
-	TemporalResult s_tr_fast = s_tr;
-	vec4 m_ds_fast = m_ds;
+	TemporalData final = fast;
 
 	{
 		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
 		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
 		const vec2 reproj_clip = clip_space.xy / clip_space.w;
 		const vec2 reproj_uv = (reproj_clip * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
-		const ivec2 reproj_pix = ivec2(floor(reproj_uv));
 		const vec3 prev_origin = (ubo.ubo.prev_inv_view * vec4(0., 0., 0., 1.)).xyz;
 		const float depth_nessesary = length(prev_position - prev_origin);
-		const float depth_treshold = 0.01 * clip_space.w;
+		const float depth_threshold = 0.01 * clip_space.w;
 
-		if (any(greaterThanEqual(reproj_pix, ivec2(0))) && any(lessThan(reproj_pix, res))) {
-
-			vec4 history_diffuse = vec4(0.);
-			vec4 history_specular = vec4(0.);
-			vec4 m_ds_history = vec4(0.);
-
-			vec4 history_diffuse_fast = vec4(0.);
-			vec4 history_specular_fast = vec4(0.);
-			vec4 m_ds_history_fast = vec4(0.);
-
-			float history_depth = 0.;
-
-			float bilinear_weights[4];
-
-			const vec2 uv_src = (vec2(pix) - vec2(0.5)) / vec2(res);
-			bool doBilinearFiltering = length((uv_src - reproj_uv) * vec2(res)) > 1.0;
-			if (doBilinearFiltering) {
-				const vec2 uvw = fract(reproj_uv);
-				bilinear_weights[0] = (1.0 - uvw.x) * (1.0 - uvw.y);
-				bilinear_weights[1] = uvw.x * (1.0 - uvw.y);
-				bilinear_weights[2] = (1.0 - uvw.x) * uvw.y;
-				bilinear_weights[3] = uvw.x * uvw.y;
-			} else {
-				bilinear_weights[0] = 1.0;
-				bilinear_weights[0] = bilinear_weights[0] = bilinear_weights[0] = 0.0;
-			}
-
-			float samples_weight = 0.0;
-			for (int x = 0; x <=1; ++x) {
-				for (int y = 0; y <=1; ++y) {
-					const float bilinear_weight = bilinear_weights[x + y*2];
-					if (bilinear_weight == 0.0)
-						continue;
-
-					const ivec2 p = reproj_pix + ivec2(x, y);
-					if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res)))
-						continue;
-
-					const float depth_sample = imageLoad( prev_temporal_depth, p ).r;
-					const float depth_diff = abs(depth_sample - depth_nessesary);
-
-					if ( depth_diff < depth_treshold ) {
-						history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
-						history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
-						m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
-
-						history_diffuse_fast += imageLoad( prev_temporal_diffuse_fast, p ) * bilinear_weight;
-						history_specular_fast += imageLoad( prev_temporal_specular_fast, p ) * bilinear_weight;
-						m_ds_history_fast += imageLoad( prev_temporal_moments_ds_fast, p ) * bilinear_weight;
-
-						samples_weight += bilinear_weight;
-					}
-				}
-			}
-
-			if ( samples_weight != 0.0 ) {
-				history_diffuse /= samples_weight;
-				history_specular /= samples_weight;
-				m_ds_history /= samples_weight;
-
-				// fast		
-				d_tr_fast = temporalAccumulation(diffuse_src.rgb, history_diffuse_fast.rgb, m_ds_history_fast.x, m_ds_history_fast.y, 0.05, 0.5);
-				s_tr_fast = temporalAccumulation(specular_src.rgb, history_specular_fast.rgb, m_ds_history_fast.z, m_ds_history_fast.w, 0.05, 0.5);
-				m_ds_fast = vec4(d_tr_fast.moment1, d_tr_fast.moment2, s_tr_fast.moment1, s_tr_fast.moment2);
-
-				// final
-				d_tr = temporalAccumulation(d_tr_fast.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.8);
-				s_tr = temporalAccumulation(s_tr_fast.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.8);
-				m_ds = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
-
-				diffuse_result = vec4(d_tr.radiance, 0.0);
-				specular_result = vec4(s_tr.radiance, 0.0);
+		if (any(greaterThanEqual(reproj_uv, vec2(0))) && any(lessThan(reproj_uv, vec2(res)))) {
+			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, depth_nessesary, depth_threshold, final, fast)) {
+				diffuse_result = vec4(final.diffuse.radiance, 0.0);
+				specular_result = vec4(final.specular.radiance, 0.0);
 			}
 		}
 
@@ -318,11 +334,11 @@ void main() {
 	imageStore(out_specular_reprojected, pix, specular_result);
 	
 	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
-	imageStore(out_temporal_diffuse, pix, vec4(d_tr.radiance, 0.0));
-	imageStore(out_temporal_specular, pix, vec4(s_tr.radiance, 0.0));
-	imageStore(out_temporal_moments_ds, pix, m_ds);
-	imageStore(out_temporal_diffuse_fast, pix, vec4(d_tr_fast.radiance, 0.0));
-	imageStore(out_temporal_specular_fast, pix, vec4(s_tr_fast.radiance, 0.0));
-	imageStore(out_temporal_moments_ds_fast, pix, m_ds_fast);
+	imageStore(out_temporal_diffuse, pix, vec4(final.diffuse.radiance, 0.0));
+	imageStore(out_temporal_specular, pix, vec4(final.specular.radiance, 0.0));
+	imageStore(out_temporal_moments_ds, pix, final.moments_ds);
+	imageStore(out_temporal_diffuse_fast, pix, vec4(fast.diffuse.radiance, 0.0));
+	imageStore(out_temporal_specular_fast, pix, vec4(fast.specular.radiance, 0.0));
+	imageStore(out_temporal_moments_ds_fast, pix, fast.moments_ds);
 
 }
