@@ -2,6 +2,7 @@
 #include "debug.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
+#include "brdf.h"
 
 #define GLSL
 #include "ray_interop.h"
@@ -88,9 +89,8 @@ struct Components {
 	vec3 direct_diffuse, direct_specular, indirect_diffuse, indirect_specular;
 };
 
-vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness) {
-	// TODO: add fresnel and do like PBR
-	const vec3 plasticSpecular = decolorized_specular * DIELECTRIC_SPECULAR_MULTIPLIER;
+vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float fresnel, float metalness) {
+	const vec3 plasticSpecular = decolorized_specular * mix(DIELECTRIC_SPECULAR_MULTIPLIER, 1.0, fresnel);
 	const vec3 metalSpecular = decolorized_specular * base_color;
 	return mix(plasticSpecular, metalSpecular, metalness);
 }
@@ -195,7 +195,12 @@ void main() {
 	vec3 colour = vec3(0.);
 
 	if (ubo.ubo.debug_display_only != DEBUG_DISPLAY_LIGHTING) {
-		colour = mixFinalColor(base_color, diffuse, restoreSpecular(specular, base_color, metalness), metalness);
+		 vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+		const vec3 V = normalize(origin - position);
+		const float NdotV = saturate(dot(shading_normal, V));
+		const float fresnel = evalFresnel(vec3(0), 0.7, NdotV).x;
+		specular = restoreSpecular(specular, base_color, fresnel, metalness);
+		colour = mixFinalColor(base_color, diffuse * (1.0 - fresnel), specular, metalness);
 	} else {
 		colour = diffuse + specular;
 	}

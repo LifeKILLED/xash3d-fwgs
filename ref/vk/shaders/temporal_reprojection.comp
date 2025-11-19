@@ -212,8 +212,8 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 		fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
 
 		// final
-		final.diffuse = temporalAccumulation(fast.diffuse.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.8);
-		final.specular = temporalAccumulation(fast.specular.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.8);
+		final.diffuse = temporalAccumulation(fast.diffuse.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.95);
+		final.specular = temporalAccumulation(fast.specular.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.95);
 		final.moments_ds = vec4(final.diffuse.moment1, final.diffuse.moment2, final.specular.moment1, final.specular.moment2);
 
 		return true;

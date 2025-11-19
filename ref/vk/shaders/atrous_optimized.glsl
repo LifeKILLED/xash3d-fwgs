@@ -18,6 +18,10 @@
 	#define ROUGHNESS_THRESHOLD 0.1
 #endif
 
+#ifndef METALNESS_THRESHOLD
+	#define METALNESS_THRESHOLD 0.2
+#endif
+
 #ifndef VARIANCE_SCALE
 	#define VARIANCE_SCALE 350.0
 #endif
@@ -87,6 +91,7 @@ struct TexelData {
     vec3 normal;
 	vec3 radiance;
     float roughness;
+    float metalness;
 #ifdef USE_VARIANCE
 	float luminance;
     float variance;
@@ -100,13 +105,16 @@ ivec2 clampCoord(ivec2 coord, ivec2 size) {
 }
 
 TexelData loadTexel(ivec2 pix, ivec2 res) {
-    ivec2 p = clampCoord(pix, res);
+    const ivec2 p = clampCoord(pix, res);
 
     TexelData t;
     t.pos = imageLoad(POSITION_T, p).xyz;
     t.normal = normalDecode(imageLoad(NORMALS_GS, p).zw);
-    t.roughness = imageLoad(MATERIAL_RMXX, p).r;
     t.radiance = imageLoad(SRC_RADIANCE, p).rgb;
+
+    const vec2 roughness_metalness = imageLoad(MATERIAL_RMXX, p).rg;
+	t.roughness = roughness_metalness.r;
+	t.metalness = roughness_metalness.g;
 
 #ifdef USE_VARIANCE
 	t.luminance = luminance(t.radiance);
@@ -206,6 +214,10 @@ void main() {
 
 			// Roughness edge stopping
 			if (abs(center.roughness - n.roughness) > ROUGHNESS_THRESHOLD)
+				continue;
+
+			// Metalness edge stopping
+			if (abs(center.metalness - n.metalness) > METALNESS_THRESHOLD)
 				continue;
 
 			// Weight shading normals
