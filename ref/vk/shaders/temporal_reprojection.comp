@@ -41,10 +41,19 @@ layout(set = 0, binding = 13, rgba16f) uniform image2D prev_temporal_specular;
 layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_moments_ds;
 layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_moments_ds;
 
-layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_depth;
-layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_depth;
+layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_diffuse_fast;
+layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_diffuse_fast;
 
-layout(set = 0, binding = 18) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_specular_fast;
+layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_specular_fast;
+
+layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_moments_ds_fast;
+layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_moments_ds_fast;
+
+layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_depth;
+layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_depth;
+
+layout(set = 0, binding = 24) uniform UBO { UniformBuffer ubo; } ubo;
 
 float luminance(vec3 rgb) { // TODO: include brdf.h
 	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
@@ -85,7 +94,7 @@ TemporalResult temporalAccumulationInit(vec3 currentSample) {
 	return r;
 }
 
-TemporalResult temporalAccumulation(vec3 currentSample, vec3 historyRadiance, float historyM1, float historyM2) {
+TemporalResult temporalAccumulation(vec3 currentSample, vec3 historyRadiance, float historyM1, float historyM2, float minBlend, float maxBlend) {
     float variance = max(historyM2 - historyM1 * historyM1, 0.0);
     float sigma = sqrt(variance);
 
@@ -99,7 +108,7 @@ TemporalResult temporalAccumulation(vec3 currentSample, vec3 historyRadiance, fl
     float safe = (currLum > 1e-6) ? (clampedLum / currLum) : 1.0;
     vec3 clampedColor = currentSample * safe;
 
-    float historyWeight = clamp(1.0 - sigma * 0.5, 0.05, 0.95);
+    float historyWeight = clamp(1.0 - sigma * 0.5, minBlend, maxBlend);
 
     vec3 newRadiance = mix(clampedColor, historyRadiance, historyWeight);
 
@@ -113,7 +122,6 @@ TemporalResult temporalAccumulation(vec3 currentSample, vec3 historyRadiance, fl
 	r.weight = historyWeight;
     return r;
 }
-
 
 vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_history, float samples_count, float luminance_threshold)
 {
@@ -155,99 +163,166 @@ void main() {
 	
 	TemporalResult d_tr = temporalAccumulationInit(diffuse_src);
 	TemporalResult s_tr = temporalAccumulationInit(specular_src);
-	vec4 moments_ds_result = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
+	vec4 m_ds = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
+
+	TemporalResult d_tr_fast = d_tr;
+	TemporalResult s_tr_fast = s_tr;
+	vec4 m_ds_fast = m_ds;
 
 	{
 		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
 		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
-		const vec2 reproj_uv = clip_space.xy / clip_space.w;
-		const ivec2 reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
+		const vec2 reproj_clip = clip_space.xy / clip_space.w;
+		const vec2 reproj_uv = (reproj_clip * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
+		const ivec2 reproj_pix = ivec2(floor(reproj_uv));
 		const vec3 prev_origin = (ubo.ubo.prev_inv_view * vec4(0., 0., 0., 1.)).xyz;
 		const float depth_nessesary = length(prev_position - prev_origin);
 		const float depth_treshold = 0.01 * clip_space.w;
-		float depth_offset_max = depth_treshold;
 
 		if (any(greaterThanEqual(reproj_pix, ivec2(0))) && any(lessThan(reproj_pix, res))) {
-			const vec4 history_diffuse_samples = imageLoad( prev_temporal_diffuse, reproj_pix );
-			const vec4 history_specular_samples = imageLoad( prev_temporal_specular, reproj_pix );
-			const vec4 moments_ds_history = imageLoad( prev_temporal_moments_ds, reproj_pix );
-			const float history_depth = imageLoad( prev_temporal_depth, reproj_pix ).r;
 
-			const float depth_offset = abs(history_depth - depth_nessesary);
-			if ( depth_offset < depth_offset_max ) {
-				d_tr = temporalAccumulation(diffuse_src.rgb, history_diffuse_samples.rgb, moments_ds_history.x, moments_ds_history.y);
-				s_tr = temporalAccumulation(specular_src.rgb, history_specular_samples.rgb, moments_ds_history.z, moments_ds_history.w);
+			vec4 history_diffuse = vec4(0.);
+			vec4 history_specular = vec4(0.);
+			vec4 m_ds_history = vec4(0.);
+
+			vec4 history_diffuse_fast = vec4(0.);
+			vec4 history_specular_fast = vec4(0.);
+			vec4 m_ds_history_fast = vec4(0.);
+
+			float history_depth = 0.;
+
+			float bilinear_weights[4];
+
+			const vec2 uv_src = (vec2(pix) - vec2(0.5)) / vec2(res);
+			bool doBilinearFiltering = length((uv_src - reproj_uv) * vec2(res)) > 1.0;
+			if (doBilinearFiltering) {
+				const vec2 uvw = fract(reproj_uv);
+				bilinear_weights[0] = (1.0 - uvw.x) * (1.0 - uvw.y);
+				bilinear_weights[1] = uvw.x * (1.0 - uvw.y);
+				bilinear_weights[2] = (1.0 - uvw.x) * uvw.y;
+				bilinear_weights[3] = uvw.x * uvw.y;
+			} else {
+				bilinear_weights[0] = 1.0;
+				bilinear_weights[0] = bilinear_weights[0] = bilinear_weights[0] = 0.0;
+			}
+
+			float samples_weight = 0.0;
+			for (int x = 0; x <=1; ++x) {
+				for (int y = 0; y <=1; ++y) {
+					const float bilinear_weight = bilinear_weights[x + y*2];
+					if (bilinear_weight == 0.0)
+						continue;
+
+					const ivec2 p = reproj_pix + ivec2(x, y);
+					if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res)))
+						continue;
+
+					const float depth_sample = imageLoad( prev_temporal_depth, p ).r;
+					const float depth_diff = abs(depth_sample - depth_nessesary);
+
+					if ( depth_diff < depth_treshold ) {
+						history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
+						history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
+						m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
+
+						history_diffuse_fast += imageLoad( prev_temporal_diffuse_fast, p ) * bilinear_weight;
+						history_specular_fast += imageLoad( prev_temporal_specular_fast, p ) * bilinear_weight;
+						m_ds_history_fast += imageLoad( prev_temporal_moments_ds_fast, p ) * bilinear_weight;
+
+						samples_weight += bilinear_weight;
+					}
+				}
+			}
+
+			if ( samples_weight != 0.0 ) {
+				history_diffuse /= samples_weight;
+				history_specular /= samples_weight;
+				m_ds_history /= samples_weight;
+
+				// fast		
+				d_tr_fast = temporalAccumulation(diffuse_src.rgb, history_diffuse_fast.rgb, m_ds_history_fast.x, m_ds_history_fast.y, 0.05, 0.5);
+				s_tr_fast = temporalAccumulation(specular_src.rgb, history_specular_fast.rgb, m_ds_history_fast.z, m_ds_history_fast.w, 0.05, 0.5);
+				m_ds_fast = vec4(d_tr_fast.moment1, d_tr_fast.moment2, s_tr_fast.moment1, s_tr_fast.moment2);
+
+				// final
+				d_tr = temporalAccumulation(d_tr_fast.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.8);
+				s_tr = temporalAccumulation(s_tr_fast.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.8);
+				m_ds = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
+
 				diffuse_result = vec4(d_tr.radiance, 0.0);
 				specular_result = vec4(s_tr.radiance, 0.0);
-				moments_ds_result = vec4(d_tr.moment1, d_tr.moment2, s_tr.moment1, s_tr.moment2);
 			}
 		}
 
-		// parallax reprojecting for specular
-		float average_ray_length = 0.;
-		float ray_length_samples_count = 0.;
-		const int AVERAGE_RAY_LENGTH_KERNEL = 1;
-		for(int x = -AVERAGE_RAY_LENGTH_KERNEL; x <=AVERAGE_RAY_LENGTH_KERNEL; x++) {
-			for(int y = -AVERAGE_RAY_LENGTH_KERNEL; y <=AVERAGE_RAY_LENGTH_KERNEL; y++) {
-				const ivec2 p = pix / INDIRECT_SCALE + ivec2(x, y);
-				if (any(greaterThanEqual(p, res / INDIRECT_SCALE)) || any(lessThan(p, ivec2(0)))) {
-					continue;
-				}
+		// // parallax reprojecting for specular
+		// float average_ray_length = 0.;
+		// float ray_length_samples_count = 0.;
+		// const int AVERAGE_RAY_LENGTH_KERNEL = 1;
+		// for(int x = -AVERAGE_RAY_LENGTH_KERNEL; x <=AVERAGE_RAY_LENGTH_KERNEL; x++) {
+		// 	for(int y = -AVERAGE_RAY_LENGTH_KERNEL; y <=AVERAGE_RAY_LENGTH_KERNEL; y++) {
+		// 		const ivec2 p = pix / INDIRECT_SCALE + ivec2(x, y);
+		// 		if (any(greaterThanEqual(p, res / INDIRECT_SCALE)) || any(lessThan(p, ivec2(0)))) {
+		// 			continue;
+		// 		}
 
-				average_ray_length += length(imageLoad( reflection_direction_pdf, p ).xyz);
-				ray_length_samples_count += 1.;
-			}
-		}
-		if (ray_length_samples_count > 0. && average_ray_length > 0.) {
-			average_ray_length /= ray_length_samples_count;
+		// 		average_ray_length += length(imageLoad( reflection_direction_pdf, p ).xyz);
+		// 		ray_length_samples_count += 1.;
+		// 	}
+		// }
+		// if (ray_length_samples_count > 0. && average_ray_length > 0.) {
+		// 	average_ray_length /= ray_length_samples_count;
 
-			//	origin (camera)
-			//	       []<          reflection destination
-			//		 	| \        (UwU) (reflected in
-			//			|   \     /  |    surface texel)
-			//			|     \ /    |
-			//	--------x------x-----x------------
-			//	origin on      ^   reflection on plane
-			//	   plane	   |
-			//				reflection center
-			//		(surface texel in current frame)
-			//	  (need to find this in previous frame)
-			//		
+		// 	//	origin (camera)
+		// 	//	       []<          reflection destination
+		// 	//		 	| \        (UwU) (reflected in
+		// 	//			|   \     /  |    surface texel)
+		// 	//			|     \ /    |
+		// 	//	--------x------x-----x------------
+		// 	//	origin on      ^   reflection on plane
+		// 	//	   plane	   |
+		// 	//				reflection center
+		// 	//		(surface texel in current frame)
+		// 	//	  (need to find this in previous frame)
+		// 	//		
 
-			const vec3 refl_position = reflect(normalize(position - origin), geometry_normal) * average_ray_length + position;
-			const float refl_distance_to_plane = dot(geometry_normal, refl_position - prev_position);
-			const vec3 refl_on_plane = refl_position - geometry_normal * refl_distance_to_plane;
-			const float prev_distance_to_plane = dot(geometry_normal, prev_origin - prev_position);
-			const vec3 prev_origin_on_plane = prev_origin - geometry_normal * prev_distance_to_plane;
-			const float refl_center = prev_distance_to_plane / (prev_distance_to_plane + refl_distance_to_plane);
-			const vec3 parallax_position = mix(prev_origin_on_plane, refl_on_plane, refl_center);
+		// 	const vec3 refl_position = reflect(normalize(position - origin), geometry_normal) * average_ray_length + position;
+		// 	const float refl_distance_to_plane = dot(geometry_normal, refl_position - prev_position);
+		// 	const vec3 refl_on_plane = refl_position - geometry_normal * refl_distance_to_plane;
+		// 	const float prev_distance_to_plane = dot(geometry_normal, prev_origin - prev_position);
+		// 	const vec3 prev_origin_on_plane = prev_origin - geometry_normal * prev_distance_to_plane;
+		// 	const float refl_center = prev_distance_to_plane / (prev_distance_to_plane + refl_distance_to_plane);
+		// 	const vec3 parallax_position = mix(prev_origin_on_plane, refl_on_plane, refl_center);
 
-			const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(parallax_position, 1.)).xyz, 1.);
-			const vec2 parallax_uv = clip_space.xy / clip_space.w;
-			const ivec2 parallax_pix = ivec2((parallax_uv * 0.5 + vec2(0.5)) * vec2(res));
+		// 	const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(parallax_position, 1.)).xyz, 1.);
+		// 	const vec2 parallax_uv = clip_space.xy / clip_space.w;
+		// 	const ivec2 parallax_pix = ivec2((parallax_uv * 0.5 + vec2(0.5)) * vec2(res));
 
-			if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
-				const float forwardWeight = s_tr.weight;
+		// 	if (any(greaterThanEqual(parallax_pix, ivec2(0))) && any(lessThan(parallax_pix, res))) {
+		// 		const float forwardWeight = s_tr.weight;
 
-				const vec4 parallax_specular_samples = imageLoad( prev_temporal_specular, parallax_pix );
-				const vec4 parallax_moments_ds_history = imageLoad( prev_temporal_moments_ds, parallax_pix );
+		// 		const vec4 parallax_specular_samples = imageLoad( prev_temporal_specular, parallax_pix );
+		// 		const vec4 parallax_moments_ds_history = imageLoad( prev_temporal_moments_ds, parallax_pix );
 
-				s_tr = temporalAccumulation(specular_src.rgb, parallax_specular_samples.rgb, parallax_moments_ds_history.z, parallax_moments_ds_history.w);
+		// 		s_tr = temporalAccumulation(specular_src.rgb, parallax_specular_samples.rgb, parallax_moments_ds_history.z, parallax_moments_ds_history.w, 1.0);
 
-				if (s_tr.weight > forwardWeight) {
-					// Parallax reprojection sample is better
-					specular_result = vec4(s_tr.radiance, 0.0);
-					moments_ds_result.zw = vec2(s_tr.moment1, s_tr.moment2);
-				}
-			}
-		}
+		// 		if (s_tr.weight > forwardWeight) {
+		// 			// Parallax reprojection sample is better
+		// 			specular_result = vec4(s_tr.radiance, 0.0);
+		// 			moments_ds_result.zw = vec2(s_tr.moment1, s_tr.moment2);
+		// 		}
+		// 	}
+		// }
 	}
 
 	imageStore(out_diffuse_reprojected, pix, diffuse_result);
 	imageStore(out_specular_reprojected, pix, specular_result);
 	
 	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
-	imageStore(out_temporal_diffuse, pix, diffuse_result);
-	imageStore(out_temporal_specular, pix, specular_result);
-	imageStore(out_temporal_moments_ds, pix, moments_ds_result);
+	imageStore(out_temporal_diffuse, pix, vec4(d_tr.radiance, 0.0));
+	imageStore(out_temporal_specular, pix, vec4(s_tr.radiance, 0.0));
+	imageStore(out_temporal_moments_ds, pix, m_ds);
+	imageStore(out_temporal_diffuse_fast, pix, vec4(d_tr_fast.radiance, 0.0));
+	imageStore(out_temporal_specular_fast, pix, vec4(s_tr_fast.radiance, 0.0));
+	imageStore(out_temporal_moments_ds_fast, pix, m_ds_fast);
+
 }

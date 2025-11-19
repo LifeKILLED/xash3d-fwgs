@@ -139,7 +139,7 @@ void main() {
 
 	Components c;
 	c.direct_diffuse = imageLoad(diffuse_reprojected, pix).rgb;
-	c.direct_specular = restoreSpecular(imageLoad(specular_reprojected, pix).rgb, base_color, metalness);
+	c.direct_specular = imageLoad(specular_reprojected, pix).rgb;
 	c.indirect_specular = vec3(0.); // TODO: remove
 	c.indirect_diffuse = vec3(0.); // TODO: remove
 
@@ -171,8 +171,8 @@ void main() {
 		return;
 	}
 
-	vec3 diffuse = c.direct_diffuse + c.indirect_diffuse;
-	vec3 specular = c.direct_specular + c.indirect_specular;
+	vec3 diffuse = c.direct_diffuse;// + c.indirect_diffuse;
+	vec3 specular = c.direct_specular;// + c.indirect_specular;
 
 #ifdef DEBUG_VALIDATE_EXTRA
 	if (IS_INVALIDV(diffuse)) {
@@ -199,6 +199,8 @@ void main() {
 	} else {
 		colour = diffuse + specular;
 	}
+
+	//colour = specular;
 
 	const vec4 legacy_blend = imageLoad(legacy_blend, pix);
 
