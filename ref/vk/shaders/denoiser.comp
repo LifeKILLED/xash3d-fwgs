@@ -195,7 +195,7 @@ void main() {
 	vec3 colour = vec3(0.);
 
 	if (ubo.ubo.debug_display_only != DEBUG_DISPLAY_LIGHTING) {
-		colour = mixFinalColor(base_color, diffuse, specular, metalness);
+		colour = mixFinalColor(base_color, diffuse, restoreSpecular(specular, base_color, metalness), metalness);
 	} else {
 		colour = diffuse + specular;
 	}

@@ -61,6 +61,31 @@ vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness
 	return mix(plasticSpecular, metalSpecular, metalness);
 }
 
+vec4 fixNaN(vec4 v)
+{
+    return vec4(
+        isnan(v.x) ? 0.0 : v.x,
+        isnan(v.y) ? 0.0 : v.y,
+        isnan(v.z) ? 0.0 : v.z,
+        isnan(v.w) ? 0.0 : v.w
+    );
+}
+
+vec4 invColor(vec4 v)
+{
+    return vec4(
+        v.x == 0.0 ? 0.0 : 1.0 / v.x,
+        v.y == 0.0 ? 0.0 : 1.0 / v.y,
+        v.z == 0.0 ? 0.0 : 1.0 / v.z,
+        v.w == 0.0 ? 0.0 : 1.0 / v.w
+    );
+}
+
+vec4 fixRadiance(vec4 v)
+{
+	return max(vec4(0.0), fixNaN(v));
+}
+
 void main() {
 	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -79,14 +104,18 @@ void main() {
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
+	
+	vec3 invertedColor = invColor(vec4(base_color, 0.0)).rgb;
+	
+	vec3 fixSpecLights = mix(vec3(1.0 / 0.04), invertedColor, metalness);
 
-	vec3 diffuse = imageLoad(light_poly_diffuse, pix).rgb +
-					   imageLoad(light_point_diffuse, pix).rgb +
-					   imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
+	vec3 diffuse =  fixRadiance(imageLoad(light_poly_diffuse, pix)).rgb +
+					fixRadiance(imageLoad(light_point_diffuse, pix)).rgb +
+					fixRadiance(imageLoad(indirect_diffuse_denoised_by_sh, pix)).rgb;
 
-	vec3 specular = imageLoad(light_poly_specular, pix).rgb +
-					   imageLoad(light_point_specular, pix).rgb +
-					   imageLoad(indirect_specular_reconstructed, pix).rgb;
+	vec3 specular = fixRadiance(imageLoad(light_poly_specular, pix)).rgb * fixSpecLights +
+					fixRadiance(imageLoad(light_point_specular, pix)).rgb * fixSpecLights +
+					fixRadiance(imageLoad(indirect_specular_reconstructed, pix)).rgb;
 
 	imageStore(out_diffuse_mixed, pix, vec4(diffuse, 0.0));
 	imageStore(out_specular_mixed, pix, vec4(specular, 0.0));
