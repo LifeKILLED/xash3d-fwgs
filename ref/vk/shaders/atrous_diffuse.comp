@@ -4,7 +4,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_ray_query: require
 
-#define ATROUS_KERNEL 2
+#define ATROUS_KERNEL 3
+#define DISABLE_VARIANCE 1
 
 #define SRC_RADIANCE diffuse_mixed
 #define OUT_RADIANCE out_diffuse_blured

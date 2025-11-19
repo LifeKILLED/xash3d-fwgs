@@ -42,6 +42,10 @@
 	#define MATERIAL_RMXX material_rmxx
 #endif
 
+#ifndef DISABLE_VARIANCE
+	#define USE_VARIANCE
+#endif
+
 #include "debug.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
@@ -68,7 +72,12 @@ layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 #include "noise.glsl"
 #include "brdf.glsl"
 
-const int PADDING = ATROUS_KERNEL + 1;
+#ifdef USE_VARIANCE
+	const int PADDING = ATROUS_KERNEL + 1;
+#else
+	const int PADDING = ATROUS_KERNEL;
+#endif
+
 const int SHARED_W = LOCAL_SZ_X + 2 * PADDING;
 const int SHARED_H = LOCAL_SZ_Y + 2 * PADDING;
 const float EPS = 1e-5;
@@ -78,8 +87,10 @@ struct TexelData {
     vec3 normal;
 	vec3 radiance;
     float roughness;
+#ifdef USE_VARIANCE
 	float luminance;
     float variance;
+#endif
 };
 
 shared TexelData s_tile[SHARED_H][SHARED_W];
@@ -96,12 +107,16 @@ TexelData loadTexel(ivec2 pix, ivec2 res) {
     t.normal = normalDecode(imageLoad(NORMALS_GS, p).zw);
     t.roughness = imageLoad(MATERIAL_RMXX, p).r;
     t.radiance = imageLoad(SRC_RADIANCE, p).rgb;
+
+#ifdef USE_VARIANCE
 	t.luminance = luminance(t.radiance);
     t.variance = 0.0;
+#endif
 
     return t;
 }
 
+#ifdef USE_VARIANCE
 float computeVariance(int sx, int sy) {
     float mean = 0.0;
     float sqmean = 0.0;
@@ -128,6 +143,7 @@ float computeVariance(int sx, int sy) {
 
     return max(sqmean - mean * mean, 0.0);
 }
+#endif
 
 void main() {
 	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
@@ -150,6 +166,7 @@ void main() {
         s_tile[sy][sx] = loadTexel(tex, res);
     }
 
+#ifdef USE_VARIANCE
     memoryBarrierShared();
     barrier();
 
@@ -160,6 +177,7 @@ void main() {
         int sx = idx - sy * SHARED_W;
         s_tile[sy][sx].variance = computeVariance(sx, sy);
     }
+#endif
 
     memoryBarrierShared();
     barrier();
@@ -207,6 +225,7 @@ void main() {
 			const float w_pos = 1.0;
 
 			// Weight luminance 
+#ifdef USE_VARIANCE
 			const float lumDiff = n.luminance - center.luminance;
 			const float lumSigma = sqrt(center.variance) + 1e-3;
 			const float w_lum = 1.0;//exp(- (lumDiff * lumDiff) / (2.0 * lumSigma * lumSigma + EPS));
@@ -215,6 +234,10 @@ void main() {
 			const float w_spatial = 1.0 / (1.0 + dist2);
 
 			float w = w_lum * w_var * w_spatial * w_normal * w_pos;
+#else
+			float w = w_normal * w_pos;
+#endif
+
 			accum += n.radiance * w;
 			wsum += w;
 		}
