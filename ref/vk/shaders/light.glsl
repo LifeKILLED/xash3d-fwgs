@@ -6,6 +6,7 @@ const float shadow_offset_fudge = .1;
 
 #include "brdf.glsl"
 #include "light_common.glsl"
+#include "lighting_utils.glsl"
 
 #if LIGHT_POLYGON
 #include "light_polygon.glsl"
@@ -166,9 +167,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, Mater
 		color *= one_over_pdf;
 
 		vec3 ldiffuse, lspecular;
-		evalSplitBRDF(N, light_dir, view_dir, material, ldiffuse, lspecular);
-		ldiffuse *= color;
-		lspecular *= color;
+		evalLightLobes(N, view_dir, light_dir, color, material.roughness, ldiffuse, lspecular);
 
 		// TODO does this make sense for diffuse-vs-specular bounce modes?
 		const vec3 combined = ldiffuse + lspecular;

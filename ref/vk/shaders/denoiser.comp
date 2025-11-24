@@ -3,6 +3,7 @@
 #include "utils.glsl"
 #include "color_spaces.glsl"
 #include "brdf.h"
+#include "lighting_utils.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -106,7 +107,10 @@ void main() {
 	const vec3 position = imageLoad(position_t, pix).xyz;
 
 	const vec3 base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
-	const float metalness = imageLoad(material_rmxx, pix).g;
+
+	const vec4 material_rmxx_sample = imageLoad(material_rmxx, pix);
+	const float roughness = material_rmxx_sample.r;
+	const float metalness = material_rmxx_sample.g;
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
@@ -195,12 +199,16 @@ void main() {
 	vec3 colour = vec3(0.);
 
 	if (ubo.ubo.debug_display_only != DEBUG_DISPLAY_LIGHTING) {
-		 vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+		vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 		const vec3 V = normalize(origin - position);
-		const float NdotV = saturate(dot(shading_normal, V));
-		const float fresnel = evalFresnel(vec3(0), 0.7, NdotV).x;
-		specular = restoreSpecular(specular, base_color, fresnel, metalness);
-		colour = mixFinalColor(base_color, diffuse * (1.0 - fresnel), specular, metalness);
+		colour.rgb = composePBRFromLobes(
+				diffuse,
+				specular,
+				base_color,
+				metalness,
+				roughness,
+				shading_normal,
+				V);
 	} else {
 		colour = diffuse + specular;
 	}
