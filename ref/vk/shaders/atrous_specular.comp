@@ -6,6 +6,7 @@
 
 #define ATROUS_KERNEL 2
 #define DISABLE_VARIANCE 1
+#define MIRROR_FIX 1
 
 #define SRC_RADIANCE specular_mixed
 #define OUT_RADIANCE out_specular_blured
