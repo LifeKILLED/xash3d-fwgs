@@ -6,6 +6,7 @@
 #include "debug.glsl"
 #include "noise.glsl"
 #include "utils.glsl"
+#include "lighting_utils.glsl"
 
 #define DO_ALL_IN_CLUSTER 1
 
@@ -208,11 +209,10 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 		return;
 
 	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-	evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
-	const float estimate = light_sample_dir.w;
-	const vec3 emissive = poly.emissive * estimate;
-	diffuse += emissive * poly_diffuse;
-	specular += emissive * poly_specular;
+
+	evalLightLobes(N, view_dir, light_sample_dir.xyz, poly.emissive * light_sample_dir.w, material.roughness, poly_diffuse, poly_specular);
+	diffuse += poly_diffuse;
+	specular += poly_specular;
 }
 
 #if 0
@@ -272,15 +272,13 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 			continue;
 
 		const float dist = - plane_dist / dot(light_sample_dir.xyz, poly.plane.xyz);
-		const vec3 emissive = poly.emissive;
+		//const vec3 emissive = poly.emissive;
 
 		if (!shadowed(P, light_sample_dir.xyz, dist)) {
-			//const float estimate = total_contrib;
-			const float estimate = light_sample_dir.w;
 			vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-			evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
-			diffuse += emissive * estimate * poly_diffuse;
-			specular += emissive * estimate * poly_specular;
+			evalLightLobes(N, view_dir, light_sample_dir.xyz, poly.emissive * light_sample_dir.w, material.roughness, poly_diffuse, poly_specular);
+			diffuse += poly_diffuse;
+			specular += poly_specular;
 
 #ifdef DEBUG_VALIDATE_EXTRA
 			if (IS_INVALIDV(specular) || any(lessThan(specular,vec3(0.)))) {
@@ -345,9 +343,9 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 	const PolygonLight poly = lights.m.polygons[selected - 1];
 	const vec3 emissive = poly.emissive;
 	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-	evalSplitBRDF(N, normalize(poly.center-P), view_dir, material, poly_diffuse, poly_specular);
-	diffuse += emissive * total_contrib;
-	specular += emissive * total_contrib;
+	evalLightLobes(N, view_dir, normalize(poly.center-P), poly.emissive, material.roughness, poly_diffuse, poly_specular);
+	diffuse += poly_diffuse;
+	specular += poly_specular;
 #else
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 	const PolygonLight poly = lights.m.polygons[selected - 1];
@@ -364,12 +362,10 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 
 	//if (true) {//!shadowed(P, light_sample_dir.xyz, dist)) {
 	if (!shadowed(P, light_sample_dir.xyz, dist)) {
-		//const float estimate = total_contrib;
-		const float estimate = light_sample_dir.w;
 		vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-		evalSplitBRDF(N, light_sample_dir.xyz, view_dir, material, poly_diffuse, poly_specular);
-		diffuse += emissive * estimate;
-		specular += emissive * estimate;
+		evalLightLobes(N, view_dir, light_sample_dir.xyz, poly.emissive * light_sample_dir.w, material.roughness, poly_diffuse, poly_specular);
+		diffuse += poly_diffuse;
+		specular += poly_specular;
 	}
 #endif
 #endif

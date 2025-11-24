@@ -5,6 +5,7 @@
 #extension GL_EXT_ray_query: require
 
 #include "debug.glsl"
+#include "lighting_utils.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -216,7 +217,14 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 				lspecular = vec3(0.);
 			}
 
-			hit_color = mixFinalColor(payload.base_color_a.rgb, ldiffuse, lspecular, hit_material.metalness);
+			hit_color = composePBRFromLobes(
+				ldiffuse,
+				lspecular,
+				payload.base_color_a.rgb,
+				hit_material.metalness,
+				hit_material.roughness,
+				hit_shading_normal,
+				-bounce_direction);
 		} /* if (did_hit) */ else {
 			// not hit -- hit sky
 			hit_color = payload.emissive.rgb;

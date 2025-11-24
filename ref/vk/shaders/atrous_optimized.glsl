@@ -100,6 +100,9 @@ struct TexelData {
 
 shared TexelData s_tile[SHARED_H][SHARED_W];
 
+float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }
+float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
+
 ivec2 clampCoord(ivec2 coord, ivec2 size) {
     return clamp(coord, ivec2(0), size - ivec2(1));
 }
@@ -200,6 +203,14 @@ void main() {
 
     TexelData center = s_tile[centerSY][centerSX];
 
+#ifdef MIRROR_FIX
+	if (center.roughness == 0.0) {
+		imageStore(OUT_RADIANCE, pix, vec4(center.radiance, 1.0));
+		return;
+	}
+
+#endif
+
     vec3 accum = vec3(0.0);
 	float wsum = 0.0;
     for (int ky = -ATROUS_KERNEL; ky <= ATROUS_KERNEL; ++ky) {
@@ -236,6 +247,8 @@ void main() {
 			
 			const float w_pos = 1.0;
 
+			const float w_sigma = normpdf(float(kx), ATROUS_KERNEL) * normpdf(float(ky), ATROUS_KERNEL);
+
 			// Weight luminance 
 #ifdef USE_VARIANCE
 			const float lumDiff = n.luminance - center.luminance;
@@ -245,9 +258,9 @@ void main() {
 			const float dist2 = float(kx*kx + ky*ky);
 			const float w_spatial = 1.0 / (1.0 + dist2);
 
-			float w = w_lum * w_var * w_spatial * w_normal * w_pos;
+			float w = w_lum * w_var * w_spatial * w_normal * w_pos * w_sigma;
 #else
-			float w = w_normal * w_pos;
+			float w = w_normal * w_pos * w_sigma;
 #endif
 
 			accum += n.radiance * w;

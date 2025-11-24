@@ -27,29 +27,10 @@ layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_specul
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffuse;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
 
-layout(set = 0, binding = 6, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
 
-layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
-layout(set = 0, binding = 8, rgba16f) uniform readonly image2D normals_gs;
-layout(set = 0, binding = 9, rgba8) uniform readonly image2D material_rmxx;
-layout(set = 0, binding = 10, rgba32f) uniform readonly image2D geometry_prev_position;
-
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
-layout(set = 0, binding = 12, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
-
-layout(set = 0, binding = 22) uniform UBO { UniformBuffer ubo; } ubo;
-
-void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
-	const vec4 n = imageLoad(normals_gs, uv);
-	geometry_normal = normalDecode(n.xy);
-	shading_normal = normalDecode(n.zw);
-}
-
-float closestColorWeight(vec3 color1, vec3 color2, vec3 sampleColor) {
-    float dist1 = dot(color1 - sampleColor, color1 - sampleColor);
-    float dist2 = dot(color2 - sampleColor, color2 - sampleColor);
-    return (dist1 < dist2) ? 0.0 : 1.0;
-}
+layout(set = 0, binding = 8) uniform UBO { UniformBuffer ubo; } ubo;
 
 vec4 fixNaN(vec4 v)
 {
@@ -84,32 +65,12 @@ void main() {
 		return;
 	}
 
-	const vec3 origin = (ubo.ubo.inv_view * vec4(0., 0., 0., 1.)).xyz;
-
-	const vec3 position = imageLoad(position_t, pix).xyz;
-	const float depth = length(origin - position);
-
-	const vec3 base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
-	const float metalness = imageLoad(material_rmxx, pix).g;
-
-	vec3 geometry_normal, shading_normal;
-	readNormals(pix, geometry_normal, shading_normal);
-	
-	vec3 invertedColor = invColor(vec4(base_color, 0.0)).rgb;
-
-	const vec3 V = normalize(origin - position);
-	const float NdotV = saturate(dot(shading_normal, V));
-
-	const float fresnel = evalFresnel(vec3(0), 0.7, NdotV).x;
-	const float dielectricSpecScale = mix(0.04, 1.0, fresnel);
-	vec3 fixSpecLights = mix(vec3(1.0 / dielectricSpecScale), invertedColor, metalness);
-
 	vec3 diffuse =  fixRadiance(imageLoad(light_poly_diffuse, pix)).rgb +
 					fixRadiance(imageLoad(light_point_diffuse, pix)).rgb +
 					fixRadiance(imageLoad(indirect_diffuse_denoised_by_sh, pix)).rgb;
 
-	vec3 specular = fixRadiance(imageLoad(light_poly_specular, pix)).rgb * fixSpecLights +
-					fixRadiance(imageLoad(light_point_specular, pix)).rgb * fixSpecLights +
+	vec3 specular = fixRadiance(imageLoad(light_poly_specular, pix)).rgb +
+					fixRadiance(imageLoad(light_point_specular, pix)).rgb +
 					fixRadiance(imageLoad(indirect_specular_reconstructed, pix)).rgb;
 
 	imageStore(out_diffuse_mixed, pix, vec4(diffuse, 0.0));
