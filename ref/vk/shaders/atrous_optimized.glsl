@@ -174,6 +174,24 @@ vec3 intersectplane(vec3 ro, vec3 rd, vec3 p0, vec3 pn) {
     return ro + rd * t;
 }
 
+vec3 planarOffset(ivec2 pix, ivec2 offset, vec3 centerPos, vec3 centerNormal, mat4 invProj, mat4 invView) {
+    vec2 uv = (vec2(pix + offset) + 0.5) / vec2(ubo.ubo.res.xy * ubo.ubo.resScale);
+    vec3 ro = rayOrigin(invView);
+    vec3 rd = rayDirFromUV(uv, invProj, invView);
+    return intersectplane(ro, rd, centerPos, centerNormal);
+}
+
+void computeDdXY(ivec2 pix, vec3 centerPos, vec3 centerNormal, mat4 invProj, mat4 invView, out vec3 ddx, out vec3 ddy, out float depthThreshold) {
+    vec3 posR = planarOffset(pix, ivec2(STEP_SIZE,0), centerPos, centerNormal, invProj, invView);
+    vec3 posL = planarOffset(pix, ivec2(-STEP_SIZE,0), centerPos, centerNormal, invProj, invView);
+    ddx = 0.5 * (posR - posL);
+    depthThreshold = length(ddx);
+
+    vec3 posU = planarOffset(pix, ivec2(0,STEP_SIZE), centerPos, centerNormal, invProj, invView);
+    vec3 posD = planarOffset(pix, ivec2(0,-STEP_SIZE), centerPos, centerNormal, invProj, invView);
+    ddy = 0.5 * (posU - posD);
+}
+
 void main() {
 	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
     const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
@@ -221,12 +239,17 @@ void main() {
 
     TexelData center = s_tile[centerSY][centerSX];
 
+    vec3 center_geom_normal = normalDecode(imageLoad(NORMALS_GS, pix).xy);
+
+    vec3 ddx, ddy;
+    float depthThreshold;
+    computeDdXY(pix, center.pos, center_geom_normal, ubo.ubo.inv_proj, ubo.ubo.inv_view, ddx, ddy, depthThreshold);
+
 #ifdef MIRROR_FIX
 	if (center.roughness == 0.0) {
 		imageStore(OUT_RADIANCE, pix, vec4(center.radiance, 1.0));
 		return;
 	}
-
 #endif
 
     vec3 accum = vec3(0.0);
@@ -242,7 +265,7 @@ void main() {
 			TexelData n = s_tile[sy][sx];
 
 			// Roughness edge stopping
-			if (abs(center.roughness - n.roughness) > ROUGHNESS_THRESHOLD)
+            if (abs(center.roughness - n.roughness) > ROUGHNESS_THRESHOLD)
 				continue;
 
 			// Metalness edge stopping
@@ -250,45 +273,33 @@ void main() {
 				continue;
 
 			// Weight shading normals
-            const vec3 sn_diff = center.normal - n.normal;
+			const vec3 sn_diff = center.normal - n.normal;
 			const float sn_dist2 = dot(sn_diff,sn_diff);
 			const float w_normal = min(exp(-(sn_dist2)/PHI_NORMAL), 1.0);
 			if (w_normal <= 0.0)
 				continue;
-            
-            // Weight diff
-            vec3 planeOrigin = center.pos;
-            vec3 planeNormal = center.normal;
 
-            ivec2 nPix = pix + ivec2(kx * STEP_SIZE, ky * STEP_SIZE);
-            vec2 uv = (vec2(nPix) + 0.5) / vec2(res);
-
-            vec3 ro = rayOrigin(ubo.ubo.prev_inv_view);
-            vec3 rd = rayDirFromUV(uv, ubo.ubo.prev_inv_proj, ubo.ubo.prev_inv_view);
-
-            vec3 idealPos = intersectplane(ro, rd, planeOrigin, planeNormal);
-
+            // Edge pos
+            vec3 idealPos = center.pos + ddx * float(kx) + ddy * float(ky);
             vec3 planarDiff = n.pos - idealPos;
             float planarDist2 = dot(planarDiff, planarDiff);
-
-            float w_pos = exp(-planarDist2 / PHI_POS);
+            float w_pos = exp(-planarDist2 / (depthThreshold * depthThreshold));
             if (w_pos <= 0.001)
                 continue;
 
 			const float w_sigma = normpdf(float(kx), ATROUS_KERNEL) * normpdf(float(ky), ATROUS_KERNEL);
+            float w = w_normal * w_pos * w_sigma;
 
 			// Weight luminance 
 #ifdef USE_VARIANCE
             const float lumDiff = n.luminance - center.luminance;
 			const float lumSigma = sqrt(center.variance) + 1e-3;
             const float w_lum = 1.0;//exp(- (lumDiff * lumDiff) / (2.0 * lumSigma * lumSigma + EPS));
-            const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
+			const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
 			const float dist2 = float(kx*kx + ky*ky);
 			const float w_spatial = 1.0 / (1.0 + dist2);
 
-			float w = w_lum * w_var * w_spatial * w_normal * w_pos * w_sigma;
-#else
-			float w = w_normal * w_pos * w_sigma;
+			w *= w_lum * w_var * w_spatial;
 #endif
 
 			accum += n.radiance * w;
@@ -297,6 +308,5 @@ void main() {
 	}
 
     vec3 result = accum / max(wsum, EPS);
-
     imageStore(OUT_RADIANCE, pix, vec4(result, 1.0));
 }
