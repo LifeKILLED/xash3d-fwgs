@@ -238,9 +238,14 @@ void main() {
 		ivec2 p_scaled = p / UPSCALE_SCALE;
 
 		vec4 reflDirPDF = imageLoad(reflection_direction_pdf, p_scaled);
-		if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin))) {
+		if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin)))
 			continue;
-		}
+
+		vec3 geometry_normal_curr, shading_normal_curr;
+		readNormals(p, geometry_normal_curr, shading_normal_curr);
+
+		if (dot(normalize(reflDirPDF.xyz), geometry_normal_curr) < 0.0)
+			continue;
 
 		vec2 weightLength = computeWeightRayLength(reflDirPDF, V, shading_normal, roughness, NdotV, poisson[i].z);
 		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p_scaled).xyz, SPECULAR_CLAMPING_MAX);
