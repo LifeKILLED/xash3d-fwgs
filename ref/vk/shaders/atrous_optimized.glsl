@@ -156,6 +156,24 @@ float computeVariance(int sx, int sy) {
 }
 #endif
 
+vec3 rayDirFromUV(vec2 uv, mat4 invProj, mat4 invView) {
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec4 clip = vec4(ndc, 1.0, 1.0);
+    vec4 view = invProj * clip;
+    view /= view.w;
+    return normalize((invView * vec4(view.xyz, 0.0)).xyz);
+}
+
+vec3 rayOrigin(mat4 invView) {
+    return (invView * vec4(0,0,0,1)).xyz;
+}
+
+vec3 intersectplane(vec3 ro, vec3 rd, vec3 p0, vec3 pn) {
+    float d = dot(rd, pn);
+    float t = dot(p0 - ro, pn) / d;
+    return ro + rd * t;
+}
+
 void main() {
 	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
     const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
@@ -232,29 +250,39 @@ void main() {
 				continue;
 
 			// Weight shading normals
-			const vec3 sn_diff = center.normal - n.normal;
+            const vec3 sn_diff = center.normal - n.normal;
 			const float sn_dist2 = dot(sn_diff,sn_diff);
 			const float w_normal = min(exp(-(sn_dist2)/PHI_NORMAL), 1.0);
 			if (w_normal <= 0.0)
 				continue;
+            
+            // Weight diff
+            vec3 planeOrigin = center.pos;
+            vec3 planeNormal = center.normal;
 
-			// Weight positions
-			// const vec3 p_diff = center.pos - n.pos;
-			// const float p_dist2 = dot(p_diff, p_diff);
-			// const float w_pos = min(exp(-(p_dist2)/PHI_POS), 1.0);
-			// if (w_pos <= 0.0)
-			// 	continue
-			
-			const float w_pos = 1.0;
+            ivec2 nPix = pix + ivec2(kx * STEP_SIZE, ky * STEP_SIZE);
+            vec2 uv = (vec2(nPix) + 0.5) / vec2(res);
+
+            vec3 ro = rayOrigin(ubo.ubo.prev_inv_view);
+            vec3 rd = rayDirFromUV(uv, ubo.ubo.prev_inv_proj, ubo.ubo.prev_inv_view);
+
+            vec3 idealPos = intersectplane(ro, rd, planeOrigin, planeNormal);
+
+            vec3 planarDiff = n.pos - idealPos;
+            float planarDist2 = dot(planarDiff, planarDiff);
+
+            float w_pos = exp(-planarDist2 / PHI_POS);
+            if (w_pos <= 0.001)
+                continue;
 
 			const float w_sigma = normpdf(float(kx), ATROUS_KERNEL) * normpdf(float(ky), ATROUS_KERNEL);
 
 			// Weight luminance 
 #ifdef USE_VARIANCE
-			const float lumDiff = n.luminance - center.luminance;
+            const float lumDiff = n.luminance - center.luminance;
 			const float lumSigma = sqrt(center.variance) + 1e-3;
-			const float w_lum = 1.0;//exp(- (lumDiff * lumDiff) / (2.0 * lumSigma * lumSigma + EPS));
-			const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
+            const float w_lum = 1.0;//exp(- (lumDiff * lumDiff) / (2.0 * lumSigma * lumSigma + EPS));
+            const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
 			const float dist2 = float(kx*kx + ky*ky);
 			const float w_spatial = 1.0 / (1.0 + dist2);
 
