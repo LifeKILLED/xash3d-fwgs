@@ -15,6 +15,12 @@ const float LUMINANCE_THRESHOLD = 2.0;
 const float DIELECTRIC_SPECULAR_MULTIPLIER = 0.02; // default value from pbr papers, but 0.04 in Unreal Engine
 const int AVERAGE_KERNEL = 2; // big kernel not needed
 
+// ----- new tweak constants (you may want to move to UBO) -----
+const float NORMAL_DOT_REJECT = 0.75;      // if dot(currentShading, prevShading) < this -> reject sample
+const float NORMAL_THRESHOLD_SCALE = 4.0;  // how much grow depth_threshold when normals disagree (multiplier)
+const float DDX_DDY_SCALE = 1.0;           // scale applied to measured ddx/ddy distances
+// ------------------------------------------------------------
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
@@ -53,7 +59,10 @@ layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_moments_ds_
 layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_depth;
 layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_depth;
 
-layout(set = 0, binding = 24) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 24, rgba16f) uniform image2D out_temporal_normals_gs;
+layout(set = 0, binding = 25, rgba16f) uniform image2D prev_temporal_normals_gs;
+
+layout(set = 0, binding = 26) uniform UBO { UniformBuffer ubo; } ubo;
 
 float luminance(vec3 rgb) { // TODO: include brdf.h
 	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
@@ -65,10 +74,16 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	shading_normal = normalDecode(n.zw);
 }
 
+void readNormalsPrev(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
+	const vec4 n = imageLoad(prev_temporal_normals_gs, uv);
+	geometry_normal = normalDecode(n.xy);
+	shading_normal = normalDecode(n.zw);
+}
+
 float closestColorWeight(vec3 color1, vec3 color2, vec3 sampleColor) {
-    float dist1 = dot(color1 - sampleColor, color1 - sampleColor);
-    float dist2 = dot(color2 - sampleColor, color2 - sampleColor);
-    return (dist1 < dist2) ? 0.0 : 1.0;
+	float dist1 = dot(color1 - sampleColor, color1 - sampleColor);
+	float dist2 = dot(color2 - sampleColor, color2 - sampleColor);
+	return (dist1 < dist2) ? 0.0 : 1.0;
 }
 
 vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness) {
@@ -79,9 +94,9 @@ vec3 restoreSpecular(vec3 decolorized_specular, vec3 base_color, float metalness
 }
 
 struct TemporalResult {
-    vec3 radiance;
-    float moment1;
-    float moment2;
+	vec3 radiance;
+	float moment1;
+	float moment2;
 	float weight;
 };
 
@@ -101,32 +116,32 @@ TemporalResult temporalAccumulationInit(vec3 currentSample) {
 }
 
 TemporalResult temporalAccumulation(vec3 currentSample, vec3 historyRadiance, float historyM1, float historyM2, float minBlend, float maxBlend) {
-    float variance = max(historyM2 - historyM1 * historyM1, 0.0);
-    float sigma = sqrt(variance);
+	float variance = max(historyM2 - historyM1 * historyM1, 0.0);
+	float sigma = sqrt(variance);
 
-    float k = 5.0; // TODO: move to ubo
-    float lo = historyM1 - k * sigma;
-    float hi = historyM1 + k * sigma;
+	float k = 5.0; // TODO: move to ubo
+	float lo = historyM1 - k * sigma;
+	float hi = historyM1 + k * sigma;
 
-    float currLum = luminance(currentSample);
-    float clampedLum = currLum;//clamp(currLum, lo, hi);
+	float currLum = luminance(currentSample);
+	float clampedLum = currLum;//clamp(currLum, lo, hi);
 
-    float safe = (currLum > 1e-6) ? (clampedLum / currLum) : 1.0;
-    vec3 clampedColor = currentSample * safe;
+	float safe = (currLum > 1e-6) ? (clampedLum / currLum) : 1.0;
+	vec3 clampedColor = currentSample * safe;
 
-    float historyWeight = clamp(1.0 - sigma * 0.5, minBlend, maxBlend);
+	float historyWeight = clamp(1.0 - sigma * 0.5, minBlend, maxBlend);
 
-    vec3 newRadiance = mix(clampedColor, historyRadiance, historyWeight);
+	vec3 newRadiance = mix(clampedColor, historyRadiance, historyWeight);
 
-    float newM1 = mix(clampedLum, historyM1, historyWeight);
-    float newM2 = mix(clampedLum * clampedLum, historyM2, historyWeight);
+	float newM1 = mix(clampedLum, historyM1, historyWeight);
+	float newM2 = mix(clampedLum * clampedLum, historyM2, historyWeight);
 
-    TemporalResult r;
-    r.radiance = newRadiance;
-    r.moment1  = newM1;
-    r.moment2  = newM2;
+	TemporalResult r;
+	r.radiance = newRadiance;
+	r.moment1  = newM1;
+	r.moment2  = newM2;
 	r.weight = historyWeight;
-    return r;
+	return r;
 }
 
 vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_history, float samples_count, float luminance_threshold)
@@ -142,7 +157,44 @@ vec4 mixIrradianceSamplesCount(vec3 irradiance_src, vec3 irradiance_history, flo
 	return vec4(irradiance_src, 1.);
 }
 
-bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 reproj_uv, float depth_nessesary, float depth_threshold, inout TemporalData final, inout TemporalData fast) {
+vec3 reconstructViewRay(vec2 uv, mat4 invProj, mat4 invView)
+{
+    // uv in [0..1]
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec4 clipPos = vec4(ndc, 1.0, 1.0);
+
+    vec4 viewPos = invProj * clipPos;
+    viewPos /= viewPos.w;
+
+    vec3 worldDir = normalize((invView * vec4(viewPos.xyz, 0.0)).xyz);
+    vec3 worldOrigin = (invView * vec4(0,0,0,1)).xyz;
+
+    return worldDir;
+}
+
+vec3 rayPlaneIntersection(vec3 rayOrigin, vec3 rayDir, vec3 planeOrigin, vec3 planeNormal)
+{
+    float denom = dot(rayDir, planeNormal);
+    float t = dot(planeOrigin - rayOrigin, planeNormal) / denom;
+    return rayOrigin + rayDir * t;
+}
+
+vec3 computeNeighborOnPreviousPlane(
+    ivec2 pN,
+    vec3  prevPos, 
+    vec3  prevN,
+    ivec2 prevResolution,
+    mat4  prevInvProj,
+    mat4  prevInvView)
+{
+    vec2 uv = (vec2(pN) + 0.5) / vec2(prevResolution);
+    vec3 rayDir = reconstructViewRay(uv, prevInvProj, prevInvView);
+    vec3 rayOrigin = (prevInvView * vec4(0,0,0,1)).xyz;
+
+    return rayPlaneIntersection(rayOrigin, rayDir, prevPos, prevN);
+}
+
+bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 reproj_uv, vec3 geometry_normal_curr, float depth_nessesary, float depth_threshold, inout TemporalData final, inout TemporalData fast) {
 	const ivec2 reproj_pix = ivec2(floor(reproj_uv));
 	const vec2 uvw = fract(reproj_uv);
 	const vec2 uv_src = (vec2(pix) - vec2(0.5)) / vec2(res);
@@ -187,7 +239,30 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 			const float depth_sample = imageLoad( prev_temporal_depth, p ).r;
 			const float depth_diff = abs(depth_sample - depth_nessesary);
 
-			if ( depth_threshold == 0.0 || depth_diff < depth_threshold ) {
+			vec3 geometry_normal_prev; vec3 shading_normal_prev;
+			readNormalsPrev(p, geometry_normal_prev, shading_normal_prev);
+
+			float ndot_geometry = clamp(dot(geometry_normal_curr, geometry_normal_prev), -1.0, 1.0);
+			if (ndot_geometry < NORMAL_DOT_REJECT)
+				continue;
+
+			vec3 prevPos = imageLoad(geometry_prev_position, p).rgb;
+
+			ivec2 pR = clamp(p + ivec2(1,0), ivec2(0), res - ivec2(1));
+			ivec2 pU = clamp(p + ivec2(0,1), ivec2(0), res - ivec2(1));
+
+			vec3 prevPosR = computeNeighborOnPreviousPlane(pR, prevPos, geometry_normal_prev, res, ubo.ubo.prev_inv_proj, ubo.ubo.prev_inv_view);
+			vec3 prevPosU = computeNeighborOnPreviousPlane(pU, prevPos, geometry_normal_prev, res, ubo.ubo.prev_inv_proj, ubo.ubo.prev_inv_view);
+
+			float ddx = length(prevPosR - prevPos);
+			float ddy = length(prevPosU - prevPos);
+			
+			float geomThresh = max(ddx, ddy) * DDX_DDY_SCALE;
+
+			float normalFactor = mix(1.0, NORMAL_THRESHOLD_SCALE, 1.0 - clamp(ndot_geometry, 0.0, 1.0));
+			float adaptiveDepthThreshold = max(depth_threshold * normalFactor, geomThresh);
+
+			if ( depth_threshold == 0.0 || depth_diff < adaptiveDepthThreshold ) {
 				history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
 				history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
 				m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
@@ -264,7 +339,7 @@ void main() {
 		const float depth_threshold = 0.01 * clip_space.w;
 
 		if (any(greaterThanEqual(reproj_uv, vec2(0))) && any(lessThan(reproj_uv, vec2(res)))) {
-			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, depth_nessesary, depth_threshold, final, fast)) {
+			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, geometry_normal, depth_nessesary, depth_threshold, final, fast)) {
 				diffuse_result = vec4(final.diffuse.radiance, 0.0);
 				specular_result = vec4(final.specular.radiance, 0.0);
 			}
@@ -321,7 +396,7 @@ void main() {
 
 				TemporalData final_parallax = fast_parallax;
 
-				if (reproject(diffuse_src, specular_src, pix, res, parallax_uv, 0.0, 0.0, final_parallax, fast_parallax)) {
+				if (reproject(diffuse_src, specular_src, pix, res, parallax_uv, geometry_normal, 0.0, 0.0, final_parallax, fast_parallax)) {
 					const float lum_src = fast.specular.moment1;
 					const float lum_basic = final.specular.moment1;
 					const float lum_parallax = final_parallax.specular.moment1;
@@ -359,5 +434,5 @@ void main() {
 	imageStore(out_temporal_diffuse_fast, pix, vec4(fast.diffuse.radiance, 0.0));
 	imageStore(out_temporal_specular_fast, pix, vec4(fast.specular.radiance, 0.0));
 	imageStore(out_temporal_moments_ds_fast, pix, fast.moments_ds);
-
+	imageStore(out_temporal_normals_gs, pix, imageLoad(normals_gs, pix));
 }
