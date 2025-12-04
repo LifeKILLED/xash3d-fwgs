@@ -60,6 +60,106 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	shading_normal = normalDecode(n.zw);
 }
 
+// TODO: use helpers from brdf.h
+
+const float PI = 3.14159265358979323846;
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    float f = pow(1.0 - cosTheta, 5.0);
+    return F0 + (1.0 - F0) * f;
+}
+
+float D_GGX(float NdotH, float alpha)
+{
+    float a2 = alpha * alpha;
+    float denom = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+    denom = PI * denom * denom;
+    return a2 / denom;
+}
+
+float G_SchlickGGX(float NdotV, float k)
+{
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+vec3 sampleGGXHemisphere(float u1, float u2, float alpha)
+{
+    float a2 = alpha * alpha;
+
+    float phi = 2.0 * PI * u2;
+    float cosTheta = sqrt( (1.0 - u1) / (1.0 + (a2 - 1.0) * u1) ); // derived for GGX
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+
+    vec3 H;
+    H.x = sinTheta * cos(phi);
+    H.y = sinTheta * sin(phi);
+    H.z = cosTheta; // z is N-up in tangent space
+    return normalize(H);
+}
+
+void buildTangentBasis(vec3 N, out vec3 T, out vec3 B)
+{
+    // Stable orthonormal basis
+    if (abs(N.z) < 0.9999) {
+        T = normalize(cross(vec3(0.0, 0.0, 1.0), N));
+    } else {
+        T = normalize(cross(vec3(0.0, 1.0, 0.0), N));
+    }
+    B = cross(N, T);
+}
+
+int reflectionGetSample(vec3 V, in vec3 N, float roughness, in float metalness, vec2 rnd, out vec3 direction, out float pdf)
+{
+    // Ensure normalized inputs
+    vec3 Vn = normalize(V);
+    vec3 Nn = normalize(N);
+
+    // alpha for GGX
+    float alpha = max(0.001, roughness * roughness);
+
+    // Build tangent-to-world basis (N is z)
+    vec3 T, B;
+    buildTangentBasis(Nn, T, B);
+
+	// Nonlinear warp for more concentration in center of direction ---
+	float warp = mix(0.3, 1.0, roughness); // tune
+	float u1w = pow(rnd.x, warp);
+	float jacobian = warp * pow(rnd.x, warp - 1.0);
+
+    // Sample half-vector H in tangent-space using GGX with the two blue-noise values
+    vec3 H_tangent = sampleGGXHemisphere(1.0 - u1w, rnd.y, alpha);
+
+    // Transform H to world space
+    vec3 H = normalize(H_tangent.x * T + H_tangent.y * B + H_tangent.z * Nn);
+
+    // Make sure H is in the same hemisphere as N
+    if (dot(H, Nn) < 0.0)
+        H = -H;
+
+    // Outgoing direction: reflect incoming vector (-V) around H
+    // GLSL reflect(I, N) assumes I is incident direction (pointing *toward* surface), so use -V.
+    vec3 R = reflect(-Vn, H);
+    R = normalize(R);
+
+    // Compute true PDF for sampling this outgoing direction given we sampled H using D(H) and then mapped to R:
+    // pdf(H) = D(H) * |dot(N, H)|   / (normalization = 1)  (but classic GGX sampler already samples H with that D-weight)
+    // Mapping from H to reflected direction R has Jacobian |dH/dR| = 1 / (4 * |dot(V, H)|)
+    // So: pdf_true(R) = pdf_H(H) * (1 / (4 * |dot(V,H)|))
+    float NdotH = max(0.0, dot(Nn, H));
+    float VdotH = max(1e-6, abs(dot(Vn, H))); // avoid division by zero
+    float D = D_GGX(NdotH, alpha);
+
+    // pdf_H for microfacet half-vector sampling is D * NdotH (over the hemisphere)
+    float pdf_H = D * NdotH;
+
+    direction = -R;
+
+	pdf = (pdf_H / (4.0 * VdotH)) / jacobian;
+
+	return BRDF_TYPE_SPECULAR;
+}
+
 bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload) {
 	rayQueryEXT rq;
 	const uint flags = 0
@@ -123,7 +223,7 @@ const vec3 kThrougputExtinctionThreshold = vec3(1e-3);
 const float kRayNormalOffsetFudge = .01;
 
 ivec2 pix;
-void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, inout vec3 diffuse, inout vec3 specular, inout vec3 first_bounce_direction) {
+void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, bool isReflection, inout vec3 diffuse, inout vec3 specular, inout vec3 first_bounce_direction, inout float pdf) {
 	vec3 throughput = vec3(1.);
 
 	// TODO split into two distinct passes, see #734
@@ -134,7 +234,10 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 
 		// TODO blue noise
 		const vec2 rnd = vec2(rand01(), rand01());
-		const int brdf_type = brdfGetSample(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal/* TODO, mat.base_color_a.a*/, bounce_direction, throughput);
+
+		const int brdf_type = isReflection ? 
+			reflectionGetSample(direction, mat.shading_normal, mat.prop.roughness, mat.prop.metalness, rnd, bounce_direction, pdf) :
+			brdfGetSample(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal/* TODO, mat.base_color_a.a*/, bounce_direction, throughput);
 
 		if (brdf_type == BRDF_TYPE_NONE)
 			return;
@@ -221,7 +324,7 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 				hit_material.roughness,
 				hit_shading_normal,
 				-bounce_direction);
-		} /* if (did_hit) */ else {
+			} /* if (did_hit) */ else {
 			// not hit -- hit sky
 			hit_color = payload.emissive.rgb;
 		}
@@ -275,6 +378,7 @@ void main() {
 	const vec4 pos_t = imageLoad(position_t, pix * INDIRECT_SCALE);
 	vec3 diffuse = vec3(0.), specular = vec3(0.);
 	vec3 first_bounce_direction = vec3(0.), reflection_direction = vec3(0.);
+	float reflPdf = 1.0;
 	if (pos_t.w > 0.) {
 		const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 		const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
@@ -301,7 +405,7 @@ void main() {
 			mat.prop.roughness = material_data.r;
 		}
 
-		computeBounces(mat, pos_t.xyz, direction, kMaxBounces, diffuse, specular, first_bounce_direction);
+		computeBounces(mat, pos_t.xyz, direction, kMaxBounces, false, diffuse, specular, first_bounce_direction, reflPdf);
 
 		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_ONLY_DIFFUSE_GI) != 0) {
 			diffuse += specular;
@@ -312,11 +416,12 @@ void main() {
 			specular = vec3(0.);
 
 			mat.prop.base_color = vec3(1.);
-			mat.prop.metalness = 1.0;
+			//mat.prop.metalness = 1.0;
+			mat.prop.metalness = material_data.g;
 			mat.prop.roughness = material_data.r;
 
 			vec3 unusedDiffuse = vec3(0.);
-			computeBounces(mat, pos_t.xyz, direction, 1, unusedDiffuse, specular, reflection_direction);
+			computeBounces(mat, pos_t.xyz, direction, 1, true, unusedDiffuse, specular, reflection_direction, reflPdf);
 		}
 	}
 
@@ -342,5 +447,5 @@ void main() {
 	imageStore(out_indirect_diffuse, pix, vec4(diffuse, 0.f));
 	imageStore(out_indirect_specular, pix, vec4(specular, 0.f));
 	imageStore(out_first_bounce_direction, pix, vec4(first_bounce_direction, 0.f)); // for spherical harmonics denoising
-	imageStore(out_reflection_direction_pdf, pix, vec4(reflection_direction, 0.f)); // TODO: calculate specular pdf in w for spatial reconstruction
+	imageStore(out_reflection_direction_pdf, pix, vec4(reflection_direction, reflPdf)); // TODO: calculate specular pdf in w for spatial reconstruction
 }
