@@ -1,0 +1,20 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define INPUT_RADIANCE specular_mixed
+#define INPUT_RADIANCE_BLURRED specular_blured_more
+
+#define OUTPUT_RADIANCE out_specular_asvgf
+
+#define TEMPORAL_POSTFIX _specular_asvgf
+
+#define FIREFLY_CLAMP  1.2
+
+#define MAX_ALPHA      0.5
+#define MIN_ALPHA      0.02
+#define HISTORY_MAX    128.0
+
+#define FIRST_FRAMES_COUNT 3
+#define VARIANCE_BLUR_FACTOR 0.3
+
+#include "asvgf_reprojection.glsl"

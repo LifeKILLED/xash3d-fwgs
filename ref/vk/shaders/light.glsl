@@ -17,7 +17,7 @@ const float shadow_offset_fudge = .1;
 // 1. Spherical lights
 // 2. Spotlights
 // 3. Env|dir lights
-void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
+void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, MaterialProperties material, vec3 rnd, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 
 	//diffuse = vec3(1.);//float(lights.m.num_point_lights) / 64.);
@@ -38,9 +38,6 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, Mater
 		const vec3 spotlight_dir = lights.m.point_lights[i].dir_stopdot2.xyz;
 		const bool is_environment = (lights.m.point_lights[i].environment != 0);
 
-		// TODO blue noise
-		const vec2 rnd = vec2(rand01(), rand01());
-
 		vec3 light_dir;
 		vec3 color = lights.m.point_lights[i].color_stopdot.rgb;
 		float light_dist = 0.;
@@ -49,7 +46,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, Mater
 			// Environment/directional light
 			// FIXME extract, it is rather different from other point/sphere/spotlights
 			const float cos_theta_max = lights.m.point_lights[i].dir_stopdot2.a;
-			const vec3 dir_sample_z = sampleConeZ(rnd, cos_theta_max);
+			const vec3 dir_sample_z = sampleConeZ(rnd.xy, cos_theta_max);
 			light_dir = normalize(orthonormalBasisZ(spotlight_dir) * dir_sample_z);
 
 			// If light sample is below horizon, skip
@@ -103,7 +100,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, Mater
 #endif
 
 			// Sample on the visible disc
-			const vec3 dir_sample_z = sampleConeZ(rnd, cos_theta_max);
+			const vec3 dir_sample_z = sampleConeZ(rnd.xy, cos_theta_max);
 			const mat3 basis = orthonormalBasisZ(light_dir / light_dist);
 			light_dir = normalize(basis * dir_sample_z);
 			//light_dir = normalize(light_dir);
@@ -188,7 +185,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, Mater
 }
 #endif
 
-void computeLighting(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material, out vec3 diffuse, out vec3 specular) {
+void computeLighting(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material, vec3 rnd, out vec3 diffuse, out vec3 specular) {
 	diffuse = specular = vec3(0.);
 
 	// No direct lighting for white furnace mode. The only light sources is no-hit|SURF_SKY bounce indirect light.
@@ -226,12 +223,12 @@ void computeLighting(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material,
 	//C += .3 * fract(vec3(light_cell) / 4.);
 
 #if LIGHT_POLYGON
-	sampleEmissiveSurfaces(P, N, view_dir, material, cluster_index, diffuse, specular);
+	sampleEmissiveSurfaces(P, N, view_dir, material, cluster_index, rnd, diffuse, specular);
 #endif
 
 #if LIGHT_POINT
 	vec3 ldiffuse = vec3(0.), lspecular = vec3(0.);
-	computePointLights(P, N, cluster_index, view_dir, material, ldiffuse, lspecular);
+	computePointLights(P, N, cluster_index, view_dir, material, rnd, ldiffuse, lspecular);
 	diffuse += ldiffuse;
 	specular += lspecular;
 #endif

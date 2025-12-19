@@ -345,7 +345,7 @@ vec3 SampleGGXReflection ( vec3 i , vec2 alpha , vec2 rand ) {
 #define BRDF_TYPE_DIFFUSE 1
 #define BRDF_TYPE_SPECULAR 2
 
-int brdfGetSample(vec2 rnd, MaterialProperties material, vec3 view, vec3 geometry_normal, vec3 shading_normal, /*float alpha, */out vec3 out_direction, inout vec3 inout_throughput) {
+int brdfGetSample(vec2 rnd, float brdfRnd, MaterialProperties material, vec3 view, vec3 geometry_normal, vec3 shading_normal, /*float alpha, */out vec3 out_direction, inout vec3 inout_throughput) {
 #if 1
 	// See SELECTING BRDF LOBES in 14.3.6 RT Gems 2
 	// TODO DRY brdfComputeGltfModel
@@ -358,7 +358,7 @@ int brdfGetSample(vec2 rnd, MaterialProperties material, vec3 view, vec3 geometr
 	const float est_diff = (1. - fresnel_factor) * (1. - material.metalness);
 
 	const float specular_probability = clamp(est_spec / (est_spec + est_diff), 0., 1.);
-	const int brdf_type = (rand01() > specular_probability) ? BRDF_TYPE_DIFFUSE : BRDF_TYPE_SPECULAR;
+	const int brdf_type = (brdfRnd > specular_probability) ? BRDF_TYPE_DIFFUSE : BRDF_TYPE_SPECULAR;
 
 	if (brdf_type == BRDF_TYPE_DIFFUSE) {
 #if defined(BRDF_COMPARE) && defined(TEST_LOCAL_FRAME)
@@ -438,6 +438,22 @@ if (g_mat_gltf2) {
 
 	return true;
 #endif
+}
+
+int brdfGetSample(vec2 rnd, MaterialProperties material, vec3 view, vec3 geometry_normal, vec3 shading_normal, /*float alpha, */out vec3 out_direction, inout vec3 inout_throughput) {
+	return brdfGetSample(rnd, rand01(), material, view, geometry_normal, geometry_normal, out_direction, inout_throughput); // fallback to heometry normal sample
+}
+
+int brdfGetSampleGuaranted(vec2 rnd, MaterialProperties material, vec3 view, vec3 geometry_normal, vec3 shading_normal, /*float alpha, */out vec3 out_direction, inout vec3 inout_throughput) {
+	float brdfRnd = rand01();
+
+	for (int retries_count = 0; retries_count < 2; retries_count++) {
+		const int brdfType = brdfGetSample(rnd, brdfRnd, material, view, geometry_normal, shading_normal, out_direction, inout_throughput);
+		if (brdfType != BRDF_TYPE_NONE)
+			return brdfType;
+	}
+
+	return brdfGetSample(rnd, brdfRnd, material, view, geometry_normal, geometry_normal, out_direction, inout_throughput); // fallback to heometry normal sample
 }
 
 #endif //ifndef BRDF_GLSL_INCLUDED

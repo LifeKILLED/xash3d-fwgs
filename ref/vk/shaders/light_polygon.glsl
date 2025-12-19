@@ -34,7 +34,7 @@ SampleContext buildSampleContext(vec3 position, vec3 normal, vec3 view_dir) {
 	return ctx;
 }
 
-vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly) {
+vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
@@ -45,7 +45,7 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly)
 		v[i] = lights.m.polygon_vertices[vertices_offset + i].xyz;
 	}
 
-	vec2 rnd = vec2(sqrt(rand01()), rand01());
+	vec2 rnd = vec2(sqrt(rnd_values.x), rnd_values.y);
 	rnd.y *= rnd.x;
 	rnd.x = 1.f - rnd.x;
 
@@ -65,13 +65,13 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly)
 	return vec4(light_dir_n, contrib);
 }
 
-vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly) {
+vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
 	uint selected = 0;
 	float total_contrib = 0.;
-	float eps1 = rand01();
+	float eps1 = rnd_values.z;
 	vec3 v[3];
 	v[0] = normalize(lights.m.polygon_vertices[vertices_offset + 0].xyz - P);
 	v[1] = normalize(lights.m.polygon_vertices[vertices_offset + 1].xyz - P);
@@ -117,7 +117,7 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 	if (selected == 0)
 		return vec4(0.);
 
-	vec2 rnd = vec2(sqrt(rand01()), rand01());
+	vec2 rnd = vec2(sqrt(rnd_values.x), rnd_values.y);
 	rnd.y *= rnd.x;
 	rnd.x = 1.f - rnd.x;
 
@@ -130,7 +130,7 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 	return vec4(light_dir_n, total_contrib);
 }
 
-vec4 getPolygonLightSampleProjected(vec3 view_dir, SampleContext ctx, const PolygonLight poly) {
+vec4 getPolygonLightSampleProjected(vec3 view_dir, SampleContext ctx, const PolygonLight poly, vec3 rnd_values) {
 	vec3 clipped[MAX_POLYGON_VERTEX_COUNT];
 
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
@@ -158,13 +158,13 @@ vec4 getPolygonLightSampleProjected(vec3 view_dir, SampleContext ctx, const Poly
 	if (contrib <= 0.f)
 		return vec4(0.f);
 
-	vec2 rnd = vec2(rand01(), rand01());
+	vec2 rnd = vec2(rnd_values.x, rnd_values.y);
 	const vec3 light_dir = (transpose(ctx.world_to_shading) * sample_projected_solid_angle_polygon(sap, rnd)).xyz;
 
 	return vec4(light_dir, contrib);
 }
 
-vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const PolygonLight poly) {
+vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const PolygonLight poly, vec3 rnd) {
 	vec3 clipped[MAX_POLYGON_VERTEX_COUNT];
 
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
@@ -186,19 +186,18 @@ vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const 
 	if (contrib <= 0.f)
 		return vec4(0.f);
 
-	vec2 rnd = vec2(rand01(), rand01());
-	const vec3 light_dir = sample_solid_angle_polygon(sap, rnd).xyz;
+	const vec3 light_dir = sample_solid_angle_polygon(sap, rnd.xy).xyz;
 
 	return vec4(light_dir, contrib);
 }
 
-void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleContext ctx, in MaterialProperties material, in PolygonLight poly, inout vec3 diffuse, inout vec3 specular) {
+void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleContext ctx, in MaterialProperties material, in PolygonLight poly, in vec3 rnd, inout vec3 diffuse, inout vec3 specular) {
 	// TODO cull by poly plane
 
 #ifdef PROJECTED
-	const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
+	const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rnd);
 #else
-	const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
+	const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly, rnd);
 #endif
 	if (light_sample_dir.w <= 0.)
 		return;
@@ -217,7 +216,7 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 
 #if 0
 // Sample random one
-void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
+void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material, uint cluster_index, vec3 rnd, inout vec3 diffuse, inout vec3 specular) {
 	const uint num_polygons = uint(light_grid.clusters_[cluster_index].num_polygons);
 
 	if (num_polygons == 0)
@@ -227,7 +226,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 
 	const PolygonLight poly = lights.m.polygons[selected];
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
-	sampleSinglePolygonLight(P, N, view_dir, ctx, material, poly, diffuse, specular);
+	sampleSinglePolygonLight(P, N, view_dir, ctx, material, poly, rnd, diffuse, specular);
 
 	const float sampling_factor = float(num_polygons);
 	diffuse *= sampling_factor;
@@ -235,7 +234,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 }
 
 #elif 1
-void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material, uint cluster_index, inout vec3 diffuse, inout vec3 specular) {
+void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties material, uint cluster_index, vec3 rnd, inout vec3 diffuse, inout vec3 specular) {
 #if DO_ALL_IN_CLUSTER
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 
@@ -259,13 +258,13 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 			continue;
 
 #ifdef PROJECTED
-		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rnd);
 #elif defined(SOLID)
-		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly, rnd);
 #elif defined(SIMPLE_SOLID)
-		const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSimpleSolid(P, view_dir, poly, rnd);
 #else
-		const vec4 light_sample_dir = getPolygonLightSampleSimple(P, view_dir, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSimple(P, view_dir, poly, rnd);
 #endif
 
 		if (light_sample_dir.w <= 0.)
@@ -350,9 +349,9 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 	const PolygonLight poly = lights.m.polygons[selected - 1];
 #ifdef PROJECTED
-		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rnd);
 #else
-		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly);
+		const vec4 light_sample_dir = getPolygonLightSampleSolid(P, view_dir, ctx, poly, rnd);
 #endif
 	if (light_sample_dir.w <= 0.)
 		return;

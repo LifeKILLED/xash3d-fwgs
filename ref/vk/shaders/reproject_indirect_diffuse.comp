@@ -1,0 +1,19 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define INPUT_RADIANCE indirect_diffuse_denoised_by_sh
+
+#define OUTPUT_RADIANCE out_indirect_diffuse_asvgf
+
+#define TEMPORAL_POSTFIX _indirect_diffuse_asvgf
+
+#define FIREFLY_CLAMP  1.2
+
+#define MAX_ALPHA      0.4
+#define MIN_ALPHA      0.02
+#define HISTORY_MAX    64.0
+
+#define FIRST_FRAMES_COUNT 4
+#define VARIANCE_BLUR_FACTOR 0.1
+
+#include "asvgf_reprojection.glsl"

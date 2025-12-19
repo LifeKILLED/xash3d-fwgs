@@ -19,26 +19,31 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D out_final_image;
 
 layout(set = 0, binding = 1, rgba8) uniform readonly image2D base_color_a;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_reprojected;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_reprojected;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_asvgf;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_atrous;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D emissive;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D indirect_diffuse_asvgf;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D indirect_specular_atrous;
 
-layout(set = 0, binding = 5, rgba32f) uniform readonly image2D position_t;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D normals_gs;
-layout(set = 0, binding = 7, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D emissive;
 
-layout(set = 0, binding = 8) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 9, rgba8) uniform readonly image2D material_rmxx;
+
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D frame_blue_noise;
+
+layout(set = 0, binding = 10) uniform UBO { UniformBuffer ubo; } ubo;
 
 //#define DEBUG_NOISE
 #ifdef DEBUG_NOISE
-layout(set = 0, binding = 9) uniform sampler3D blue_noise_texture;
+layout(set = 0, binding = 11) uniform sampler3D blue_noise_texture;
 #include "bluenoise.glsl"
 #endif
 
-layout(set = 0, binding = 10, rgba16f) uniform readonly image2D legacy_blend;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D legacy_blend;
 
-//layout(set = 0, binding = 11) uniform sampler2D textures[MAX_TEXTURES];
+//layout(set = 0, binding = 13) uniform sampler2D textures[MAX_TEXTURES];
 
 #include "atrous.glsl"
 
@@ -142,10 +147,10 @@ void main() {
 #endif
 
 	Components c;
-	c.direct_diffuse = imageLoad(diffuse_reprojected, pix).rgb;
-	c.direct_specular = imageLoad(specular_reprojected, pix).rgb;
-	c.indirect_specular = vec3(0.); // TODO: remove
-	c.indirect_diffuse = vec3(0.); // TODO: remove
+	c.direct_diffuse = imageLoad(diffuse_asvgf, pix).rgb;
+	c.direct_specular = imageLoad(specular_atrous, pix).rgb;
+	c.indirect_specular = imageLoad(indirect_specular_atrous, pix).rgb;
+	c.indirect_diffuse = imageLoad(indirect_diffuse_asvgf, pix).rgb;
 
 	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DISABLED) {
 		// Skip
@@ -175,8 +180,8 @@ void main() {
 		return;
 	}
 
-	vec3 diffuse = c.direct_diffuse;// + c.indirect_diffuse;
-	vec3 specular = c.direct_specular;// + c.indirect_specular;
+	vec3 diffuse = c.direct_diffuse + c.indirect_diffuse;
+	vec3 specular = c.direct_specular + c.indirect_specular;
 
 #ifdef DEBUG_VALIDATE_EXTRA
 	if (IS_INVALIDV(diffuse)) {
@@ -214,6 +219,8 @@ void main() {
 	}
 
 	//colour = specular;
+
+	//colour = imageLoad(frame_blue_noise, pix / 2).xyz;
 
 	const vec4 legacy_blend = imageLoad(legacy_blend, pix);
 
