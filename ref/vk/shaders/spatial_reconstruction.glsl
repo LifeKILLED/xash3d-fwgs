@@ -19,7 +19,7 @@
 
 #include "debug.glsl"
 
-#define SPECULAR_CLAMPING_MAX 2.0
+#define SPECULAR_CLAMPING_MAX 1.3
 #define SPATIAL_RECONSTRUCTION_SAMPLES 16
 
 #define GLSL

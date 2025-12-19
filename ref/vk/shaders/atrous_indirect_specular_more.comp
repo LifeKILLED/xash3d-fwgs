@@ -5,7 +5,7 @@
 #define DISABLE_VARIANCE 1
 #define MIRROR_FIX 1
 
-#define SRC_RADIANCE indirect_specular_blured
+#define SRC_RADIANCE indirect_specular_reconstructed
 #define OUT_RADIANCE out_indirect_specular_blured_more
 
 #include "atrous_optimized.glsl"

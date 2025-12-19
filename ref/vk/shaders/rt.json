@@ -1,4 +1,7 @@
 {
+	// "init_blue_noise": {
+	// 	"comp": "init_blue_noise"
+	// },
 	"primary_ray": {
 		/*
 		"rgen": "ray_primary",
@@ -71,11 +74,8 @@
 	"atrous_diffuse": {
 		"comp": "atrous_diffuse"
 	},
-	"atrous_specular": {
-		"comp": "atrous_specular"
-	},
-	"atrous_indirect_specular": {
-		"comp": "atrous_indirect_specular"
+	"atrous_specular_more": {
+		"comp": "atrous_specular_more"
 	},
 	"atrous_indirect_specular_more": {
 		"comp": "atrous_indirect_specular_more"
@@ -94,6 +94,12 @@
 	},
 	"reproject_indirect_specular": {
 		"comp": "reproject_indirect_specular"
+	},
+	"atrous_specular": {
+		"comp": "atrous_specular"
+	},
+	"atrous_indirect_specular": {
+		"comp": "atrous_indirect_specular"
 	},
 	"denoiser": {
 		"comp": "denoiser"

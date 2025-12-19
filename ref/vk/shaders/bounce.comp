@@ -332,7 +332,8 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 			break;
 		}
 #endif
-			computeLighting(hit_pos, hit_shading_normal, -bounce_direction, hit_material, ldiffuse, lspecular);
+			vec3 rnd = vec3(rand01(), rand01(), rand01());
+			computeLighting(hit_pos, hit_shading_normal, -bounce_direction, hit_material, rnd, ldiffuse, lspecular);
 
 			if (IS_INVALIDV(ldiffuse)) {
 #ifdef SHADER_DEBUG_ENABLE

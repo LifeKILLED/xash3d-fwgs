@@ -58,7 +58,14 @@ void main() {
 				__LINE__, PRIVEC3(pos_t.xyz), PRIVEC3(geometry_normal), PRIVEC4(packed_normal));
 		} else
 #endif
-		computeLighting(pos_t.xyz + geometry_normal * .001, shading_normal, -direction, material, diffuse, specular);
+
+#ifdef BLUE_NOISE_LIGHT_SAMPLING
+		vec3 rnd = imageLoad(frame_blue_noise, pix).xyz;
+#else
+		vec3 rnd = vec3(rand01(), rand01(), rand01());
+#endif
+
+		computeLighting(pos_t.xyz + geometry_normal * .001, shading_normal, -direction, material, rnd, diffuse, specular);
 	}
 
 	DEBUG_VALIDATE_RANGE_VEC3("direct.diffuse", diffuse, 0., 1e6);
