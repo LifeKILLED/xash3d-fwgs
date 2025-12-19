@@ -315,7 +315,8 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 			break;
 		const bool did_hit = getHit(pos, bounce_direction, payload);
 		MaterialProperties hit_material;
-		const vec3 hit_pos = payload.hit_t.xyz;
+		const vec3 hit_geo_normal = normalDecode(payload.normals_gs.xy);
+		const vec3 hit_pos = payload.hit_t.xyz + hit_geo_normal * 0.001;
 		const vec3 hit_shading_normal = normalDecode(payload.normals_gs.zw);
 		if (did_hit) {
 			vec3 ldiffuse = vec3(0.);
