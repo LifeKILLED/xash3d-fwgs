@@ -109,55 +109,88 @@ void buildTangentBasis(vec3 N, out vec3 T, out vec3 B)
     B = cross(N, T);
 }
 
-int reflectionGetSample(vec3 V, in vec3 N, float roughness, in float metalness, vec2 rnd, out vec3 direction, out float pdf)
+bool reflectionSampleOnce(
+    vec3 Vn, vec3 Nn,
+    float roughness, float metalness,
+    vec2 rnd,
+    out vec3 outDir,
+    out float outPdf)
 {
-    // Ensure normalized inputs
-    vec3 Vn = normalize(V);
-    vec3 Nn = normalize(N);
+	if (roughness <= 0.001) {
+		outDir = reflect(-Vn, Nn);
+		outPdf = 1.0;
+	}
 
-    // alpha for GGX
     float alpha = max(0.001, roughness * roughness);
 
-    // Build tangent-to-world basis (N is z)
     vec3 T, B;
     buildTangentBasis(Nn, T, B);
 
-	// Nonlinear warp for more concentration in center of direction ---
-	float warp = mix(0.3, 1.0, roughness); // tune
-	float u1w = pow(rnd.x, warp);
-	float jacobian = warp * pow(rnd.x, warp - 1.0);
+    float warp = mix(0.3, 1.0, roughness);
+    float u1w = pow(rnd.x, warp);
+    float jacobian = warp * pow(rnd.x, warp - 1.0);
 
-    // Sample half-vector H in tangent-space using GGX with the two blue-noise values
     vec3 H_tangent = sampleGGXHemisphere(1.0 - u1w, rnd.y, alpha);
-
-    // Transform H to world space
     vec3 H = normalize(H_tangent.x * T + H_tangent.y * B + H_tangent.z * Nn);
 
-    // Make sure H is in the same hemisphere as N
     if (dot(H, Nn) < 0.0)
         H = -H;
 
-    // Outgoing direction: reflect incoming vector (-V) around H
-    // GLSL reflect(I, N) assumes I is incident direction (pointing *toward* surface), so use -V.
-    vec3 R = reflect(-Vn, H);
-    R = normalize(R);
+    vec3 R = normalize(reflect(-Vn, H));
 
-    // Compute true PDF for sampling this outgoing direction given we sampled H using D(H) and then mapped to R:
-    // pdf(H) = D(H) * |dot(N, H)|   / (normalization = 1)  (but classic GGX sampler already samples H with that D-weight)
-    // Mapping from H to reflected direction R has Jacobian |dH/dR| = 1 / (4 * |dot(V, H)|)
-    // So: pdf_true(R) = pdf_H(H) * (1 / (4 * |dot(V,H)|))
     float NdotH = max(0.0, dot(Nn, H));
-    float VdotH = max(1e-6, abs(dot(Vn, H))); // avoid division by zero
+    float VdotH = max(1e-6, abs(dot(Vn, H)));
     float D = D_GGX(NdotH, alpha);
 
-    // pdf_H for microfacet half-vector sampling is D * NdotH (over the hemisphere)
     float pdf_H = D * NdotH;
+    outPdf = (pdf_H / (4.0 * VdotH)) / jacobian;
+    outDir = -R;
 
-    direction = -R;
+    return true;
+}
 
-	pdf = (pdf_H / (4.0 * VdotH)) / jacobian;
+int reflectionGetSample(
+    vec3 V, vec3 N,
+    float roughness, float metalness,
+    vec2 rnd,
+    out vec3 direction,
+    out float pdf)
+{
+    vec3 Nn = normalize(N);
+    vec3 Vn = normalize(V);
 
-	return BRDF_TYPE_SPECULAR;
+    const int MAX_RETRIES = 6;
+    vec3 dir;
+    float dPdf;
+
+    vec2 seed = rnd;
+
+    for (int i = 0; i < MAX_RETRIES; i++)
+    {
+        // one GGX sample
+        reflectionSampleOnce(Vn, Nn, roughness, metalness, seed, dir, dPdf);
+
+        // hemisphere check on GEOMETRIC normal
+        if (dot(dir, Nn) > 0.0)
+        {
+            direction = dir;
+            pdf = dPdf;
+            return BRDF_TYPE_SPECULAR;
+        }
+
+        // generate new randoms (simple hash)
+        seed = vec2(
+            fract(seed.x * 17.371 + float(i) * 0.73),
+            fract(seed.y * 43.17 + float(i) * 0.12)
+        );
+    }
+
+    // Fallback: geometric perfect reflection
+    direction = normalize(reflect(-Vn, Nn));
+    direction = normalize(direction);
+    pdf = 1.0; // safe nonzero value
+
+    return BRDF_TYPE_SPECULAR;
 }
 
 bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload) {
@@ -237,7 +270,7 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 
 		const int brdf_type = isReflection ? 
 			reflectionGetSample(direction, mat.shading_normal, mat.prop.roughness, mat.prop.metalness, rnd, bounce_direction, pdf) :
-			brdfGetSample(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal/* TODO, mat.base_color_a.a*/, bounce_direction, throughput);
+			brdfGetSampleGuaranted(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal/* TODO, mat.base_color_a.a*/, bounce_direction, throughput);
 
 		if (brdf_type == BRDF_TYPE_NONE)
 			return;

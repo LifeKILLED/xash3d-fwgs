@@ -238,8 +238,8 @@ void main() {
 		ivec2 p_scaled = p / UPSCALE_SCALE;
 
 		vec4 reflDirPDF = imageLoad(reflection_direction_pdf, p_scaled);
-		if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin)))
-			continue;
+		//if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin)))
+		//	continue;
 
 		vec3 geometry_normal_curr, shading_normal_curr;
 		readNormals(p, geometry_normal_curr, shading_normal_curr);
