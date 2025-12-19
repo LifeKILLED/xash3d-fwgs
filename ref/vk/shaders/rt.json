@@ -77,6 +77,12 @@
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
 	},
+	"reproject_diffuse": {
+		"comp": "reproject_diffuse"
+	},
+	"reproject_specular": {
+		"comp": "reproject_specular"
+	},
 	"denoiser": {
 		"comp": "denoiser"
 	},

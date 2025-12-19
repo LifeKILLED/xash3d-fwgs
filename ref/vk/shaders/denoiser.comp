@@ -19,8 +19,8 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D out_final_image;
 
 layout(set = 0, binding = 1, rgba8) uniform readonly image2D base_color_a;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_reprojected;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_reprojected;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_asvgf_raw;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_asvgf_raw;
 
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D emissive;
 
@@ -142,8 +142,8 @@ void main() {
 #endif
 
 	Components c;
-	c.direct_diffuse = imageLoad(diffuse_reprojected, pix).rgb;
-	c.direct_specular = imageLoad(specular_reprojected, pix).rgb;
+	c.direct_diffuse = imageLoad(diffuse_asvgf_raw, pix).rgb;
+	c.direct_specular = imageLoad(specular_asvgf_raw, pix).rgb;
 	c.indirect_specular = vec3(0.); // TODO: remove
 	c.indirect_diffuse = vec3(0.); // TODO: remove
 

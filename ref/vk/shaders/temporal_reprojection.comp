@@ -23,8 +23,8 @@ const float DDX_DDY_SCALE = 1.0;           // scale applied to measured ddx/ddy 
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
-layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
+//layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
+//layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
 
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_blured;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_blured;
@@ -38,23 +38,23 @@ layout(set = 0, binding = 8, rgba32f) uniform readonly image2D geometry_prev_pos
 
 layout(set = 0, binding = 9, rgba32f) uniform readonly image2D reflection_direction_pdf;
 
-layout(set = 0, binding = 10, rgba16f) uniform image2D out_temporal_diffuse;
-layout(set = 0, binding = 11, rgba16f) uniform image2D prev_temporal_diffuse;
+// layout(set = 0, binding = 10, rgba16f) uniform image2D out_temporal_diffuse;
+// layout(set = 0, binding = 11, rgba16f) uniform image2D prev_temporal_diffuse;
 
-layout(set = 0, binding = 12, rgba16f) uniform image2D out_temporal_specular;
-layout(set = 0, binding = 13, rgba16f) uniform image2D prev_temporal_specular;
+// layout(set = 0, binding = 12, rgba16f) uniform image2D out_temporal_specular;
+// layout(set = 0, binding = 13, rgba16f) uniform image2D prev_temporal_specular;
 
-layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_moments_ds;
-layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_moments_ds;
+// layout(set = 0, binding = 14, rgba16f) uniform image2D out_temporal_moments_ds;
+// layout(set = 0, binding = 15, rgba16f) uniform image2D prev_temporal_moments_ds;
 
-layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_diffuse_fast;
-layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_diffuse_fast;
+// layout(set = 0, binding = 16, rgba16f) uniform image2D out_temporal_diffuse_fast;
+// layout(set = 0, binding = 17, rgba16f) uniform image2D prev_temporal_diffuse_fast;
 
-layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_specular_fast;
-layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_specular_fast;
+// layout(set = 0, binding = 18, rgba16f) uniform image2D out_temporal_specular_fast;
+// layout(set = 0, binding = 19, rgba16f) uniform image2D prev_temporal_specular_fast;
 
-layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_moments_ds_fast;
-layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_moments_ds_fast;
+// layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_moments_ds_fast;
+// layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_moments_ds_fast;
 
 layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_depth;
 layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_depth;
@@ -62,7 +62,9 @@ layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_depth;
 layout(set = 0, binding = 24, rgba16f) uniform image2D out_temporal_normals_gs;
 layout(set = 0, binding = 25, rgba16f) uniform image2D prev_temporal_normals_gs;
 
-layout(set = 0, binding = 26) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 26, rgba16f) uniform image2D out_reprojection_uv;
+
+layout(set = 0, binding = 27) uniform UBO { UniformBuffer ubo; } ubo;
 
 float luminance(vec3 rgb) { // TODO: include brdf.h
 	return dot(rgb, vec3(0.2126f, 0.7152f, 0.0722f));
@@ -194,7 +196,7 @@ vec3 computeNeighborOnPreviousPlane(
     return rayPlaneIntersection(rayOrigin, rayDir, prevPos, prevN);
 }
 
-bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 reproj_uv, vec3 geometry_normal_curr, float depth_nessesary, float depth_threshold, inout TemporalData final, inout TemporalData fast) {
+bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 reproj_uv, vec3 geometry_normal_curr, float depth_nessesary, float depth_threshold, inout TemporalData final, inout TemporalData fast, inout vec2 reprojection_uv) {
 	const ivec2 reproj_pix = ivec2(floor(reproj_uv));
 	const vec2 uvw = fract(reproj_uv);
 	const vec2 uv_src = (vec2(pix) - vec2(0.5)) / vec2(res);
@@ -209,6 +211,8 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 	vec4 history_diffuse_fast = vec4(0.);
 	vec4 history_specular_fast = vec4(0.);
 	vec4 m_ds_history_fast = vec4(0.);
+
+	float better_reproj_uv_weight = 0.0;
 
 	float history_depth = 0.;
 
@@ -263,15 +267,20 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 			float adaptiveDepthThreshold = max(depth_threshold * normalFactor, geomThresh);
 
 			if ( depth_threshold == 0.0 || depth_diff < adaptiveDepthThreshold ) {
-				history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
-				history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
-				m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
+				// history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
+				// history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
+				// m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
 
-				history_diffuse_fast += imageLoad( prev_temporal_diffuse_fast, p ) * bilinear_weight;
-				history_specular_fast += imageLoad( prev_temporal_specular_fast, p ) * bilinear_weight;
-				m_ds_history_fast += imageLoad( prev_temporal_moments_ds_fast, p ) * bilinear_weight;
+				// history_diffuse_fast += imageLoad( prev_temporal_diffuse_fast, p ) * bilinear_weight;
+				// history_specular_fast += imageLoad( prev_temporal_specular_fast, p ) * bilinear_weight;
+				// m_ds_history_fast += imageLoad( prev_temporal_moments_ds_fast, p ) * bilinear_weight;
 
-				samples_weight += bilinear_weight;
+				// samples_weight += bilinear_weight;
+
+				if (bilinear_weight > better_reproj_uv_weight) {
+					better_reproj_uv_weight = bilinear_weight;
+					reprojection_uv = vec2(p);
+				}
 			}
 		}
 	}
@@ -329,6 +338,8 @@ void main() {
 
 	TemporalData final = fast;
 
+	vec2 reprojection_uv = vec2(-1.0);
+
 	{
 		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
 		const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(prev_position, 1.)).xyz, 1.);
@@ -339,100 +350,104 @@ void main() {
 		const float depth_threshold = 0.01 * clip_space.w;
 
 		if (any(greaterThanEqual(reproj_uv, vec2(0))) && any(lessThan(reproj_uv, vec2(res)))) {
-			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, geometry_normal, depth_nessesary, depth_threshold, final, fast)) {
+			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, geometry_normal, depth_nessesary, depth_threshold, final, fast, reprojection_uv)) {
 				diffuse_result = vec4(final.diffuse.radiance, 0.0);
 				specular_result = vec4(final.specular.radiance, 0.0);
 			}
 		}
 
-		// parallax reprojecting for specular
-		float average_ray_length = 0.;
-		float ray_length_samples_count = 0.;
-		const int AVERAGE_RAY_LENGTH_KERNEL = 1;
-		for(int x = -AVERAGE_RAY_LENGTH_KERNEL; x <=AVERAGE_RAY_LENGTH_KERNEL; x++) {
-			for(int y = -AVERAGE_RAY_LENGTH_KERNEL; y <=AVERAGE_RAY_LENGTH_KERNEL; y++) {
-				const ivec2 p = pix / INDIRECT_SCALE + ivec2(x, y);
-				if (any(greaterThanEqual(p, res / INDIRECT_SCALE)) || any(lessThan(p, ivec2(0)))) {
-					continue;
+		if (false) {
+			// parallax reprojecting for specular
+			float average_ray_length = 0.;
+			float ray_length_samples_count = 0.;
+			const int AVERAGE_RAY_LENGTH_KERNEL = 1;
+			for(int x = -AVERAGE_RAY_LENGTH_KERNEL; x <=AVERAGE_RAY_LENGTH_KERNEL; x++) {
+				for(int y = -AVERAGE_RAY_LENGTH_KERNEL; y <=AVERAGE_RAY_LENGTH_KERNEL; y++) {
+					const ivec2 p = pix / INDIRECT_SCALE + ivec2(x, y);
+					if (any(greaterThanEqual(p, res / INDIRECT_SCALE)) || any(lessThan(p, ivec2(0)))) {
+						continue;
+					}
+
+					average_ray_length += length(imageLoad( reflection_direction_pdf, p ).xyz);
+					ray_length_samples_count += 1.;
 				}
-
-				average_ray_length += length(imageLoad( reflection_direction_pdf, p ).xyz);
-				ray_length_samples_count += 1.;
 			}
-		}
-		if (ray_length_samples_count > 0. && average_ray_length > 0.) {
-			average_ray_length /= ray_length_samples_count;
+			if (ray_length_samples_count > 0. && average_ray_length > 0.) {
+				average_ray_length /= ray_length_samples_count;
 
-			//	origin (camera)
-			//	       []<          reflection destination
-			//		 	| \        (UwU) (reflected in
-			//			|   \     /  |    surface texel)
-			//			|     \ /    |
-			//	--------x------x-----x------------
-			//	origin on      ^   reflection on plane
-			//	   plane	   |
-			//				reflection center
-			//		(surface texel in current frame)
-			//	  (need to find this in previous frame)
-			//		
+				//	origin (camera)
+				//	       []<          reflection destination
+				//		 	| \        (UwU) (reflected in
+				//			|   \     /  |    surface texel)
+				//			|     \ /    |
+				//	--------x------x-----x------------
+				//	origin on      ^   reflection on plane
+				//	   plane	   |
+				//				reflection center
+				//		(surface texel in current frame)
+				//	  (need to find this in previous frame)
+				//		
 
-			const vec3 refl_position = reflect(normalize(position - origin), geometry_normal) * average_ray_length + position;
-			const float refl_distance_to_plane = dot(geometry_normal, refl_position - prev_position);
-			const vec3 refl_on_plane = refl_position - geometry_normal * refl_distance_to_plane;
-			const float prev_distance_to_plane = dot(geometry_normal, prev_origin - prev_position);
-			const vec3 prev_origin_on_plane = prev_origin - geometry_normal * prev_distance_to_plane;
-			const float refl_center = prev_distance_to_plane / (prev_distance_to_plane + refl_distance_to_plane);
-			const vec3 parallax_position = mix(prev_origin_on_plane, refl_on_plane, refl_center);
+				const vec3 refl_position = reflect(normalize(position - origin), geometry_normal) * average_ray_length + position;
+				const float refl_distance_to_plane = dot(geometry_normal, refl_position - prev_position);
+				const vec3 refl_on_plane = refl_position - geometry_normal * refl_distance_to_plane;
+				const float prev_distance_to_plane = dot(geometry_normal, prev_origin - prev_position);
+				const vec3 prev_origin_on_plane = prev_origin - geometry_normal * prev_distance_to_plane;
+				const float refl_center = prev_distance_to_plane / (prev_distance_to_plane + refl_distance_to_plane);
+				const vec3 parallax_position = mix(prev_origin_on_plane, refl_on_plane, refl_center);
 
-			const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(parallax_position, 1.)).xyz, 1.);
-			const vec2 parallax_clip = clip_space.xy / clip_space.w;
-			const vec2 parallax_uv = (parallax_clip * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
+				const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(parallax_position, 1.)).xyz, 1.);
+				const vec2 parallax_clip = clip_space.xy / clip_space.w;
+				const vec2 parallax_uv = (parallax_clip * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
 
-			if (any(greaterThanEqual(parallax_uv, vec2(0))) && any(lessThan(parallax_uv, vec2(res)))) {
-				TemporalData fast_parallax;
-				fast.diffuse = temporalAccumulationInit(diffuse_src);
-				fast.specular = temporalAccumulationInit(specular_src);
-				fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
+				if (any(greaterThanEqual(parallax_uv, vec2(0))) && any(lessThan(parallax_uv, vec2(res)))) {
+					TemporalData fast_parallax;
+					fast.diffuse = temporalAccumulationInit(diffuse_src);
+					fast.specular = temporalAccumulationInit(specular_src);
+					fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
 
-				TemporalData final_parallax = fast_parallax;
+					TemporalData final_parallax = fast_parallax;
 
-				if (reproject(diffuse_src, specular_src, pix, res, parallax_uv, geometry_normal, 0.0, 0.0, final_parallax, fast_parallax)) {
-					const float lum_src = fast.specular.moment1;
-					const float lum_basic = final.specular.moment1;
-					const float lum_parallax = final_parallax.specular.moment1;
+					if (reproject(diffuse_src, specular_src, pix, res, parallax_uv, geometry_normal, 0.0, 0.0, final_parallax, fast_parallax, reprojection_uv)) {
+						const float lum_src = fast.specular.moment1;
+						const float lum_basic = final.specular.moment1;
+						const float lum_parallax = final_parallax.specular.moment1;
 
-					const float basic_diff = abs(lum_basic - lum_src);
-					const float parallax_diff = abs(lum_parallax - lum_src);
-					const float lum_diff = basic_diff - parallax_diff;
+						const float basic_diff = abs(lum_basic - lum_src);
+						const float parallax_diff = abs(lum_parallax - lum_src);
+						const float lum_diff = basic_diff - parallax_diff;
 
-					if (lum_diff > 0.0) {
-						float parallax_weight = 1.0;
-						if (lum_basic > 0.0) {
-							parallax_weight = clamp(lum_diff * 2.0 / lum_basic, 0.0, 1.0); 
+						if (lum_diff > 0.0) {
+							float parallax_weight = 1.0;
+							if (lum_basic > 0.0) {
+								parallax_weight = clamp(lum_diff * 2.0 / lum_basic, 0.0, 1.0); 
+							}
+
+							fast.specular.radiance = mix(fast.specular.radiance, fast_parallax.specular.radiance, parallax_weight);
+							fast.moments_ds.zw = mix(fast.moments_ds.zw, fast_parallax.moments_ds.zw, parallax_weight);
+
+							final.specular.radiance = mix(final.specular.radiance, final_parallax.specular.radiance, parallax_weight);
+							final.moments_ds.zw = mix(final.moments_ds.zw, final_parallax.moments_ds.zw, parallax_weight);
+
+							specular_result = mix(specular_result, vec4(final_parallax.specular.radiance, 0.0), parallax_weight);
 						}
-
-						fast.specular.radiance = mix(fast.specular.radiance, fast_parallax.specular.radiance, parallax_weight);
-						fast.moments_ds.zw = mix(fast.moments_ds.zw, fast_parallax.moments_ds.zw, parallax_weight);
-
-						final.specular.radiance = mix(final.specular.radiance, final_parallax.specular.radiance, parallax_weight);
-						final.moments_ds.zw = mix(final.moments_ds.zw, final_parallax.moments_ds.zw, parallax_weight);
-
-						specular_result = mix(specular_result, vec4(final_parallax.specular.radiance, 0.0), parallax_weight);
 					}
 				}
 			}
 		}
 	}
 
-	imageStore(out_diffuse_reprojected, pix, diffuse_result);
-	imageStore(out_specular_reprojected, pix, specular_result);
-	
+	// imageStore(out_diffuse_reprojected, pix, diffuse_result);
+	// imageStore(out_specular_reprojected, pix, specular_result);
+
+	imageStore(out_reprojection_uv, pix, vec4(reprojection_uv, 0.0, 0.0));
+
 	imageStore(out_temporal_depth, pix, vec4(depth, 0., 0., 0.)); // reserve other values
-	imageStore(out_temporal_diffuse, pix, vec4(final.diffuse.radiance, 0.0));
-	imageStore(out_temporal_specular, pix, vec4(final.specular.radiance, 0.0));
-	imageStore(out_temporal_moments_ds, pix, final.moments_ds);
-	imageStore(out_temporal_diffuse_fast, pix, vec4(fast.diffuse.radiance, 0.0));
-	imageStore(out_temporal_specular_fast, pix, vec4(fast.specular.radiance, 0.0));
-	imageStore(out_temporal_moments_ds_fast, pix, fast.moments_ds);
+	// imageStore(out_temporal_diffuse, pix, vec4(final.diffuse.radiance, 0.0));
+	// imageStore(out_temporal_specular, pix, vec4(final.specular.radiance, 0.0));
+	// imageStore(out_temporal_moments_ds, pix, final.moments_ds);
+	// imageStore(out_temporal_diffuse_fast, pix, vec4(fast.diffuse.radiance, 0.0));
+	// imageStore(out_temporal_specular_fast, pix, vec4(fast.specular.radiance, 0.0));
+	// imageStore(out_temporal_moments_ds_fast, pix, fast.moments_ds);
 	imageStore(out_temporal_normals_gs, pix, imageLoad(normals_gs, pix));
 }
