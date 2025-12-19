@@ -34,8 +34,12 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set=0, binding=0, rgba16f) uniform writeonly image2D OUTPUT_RADIANCE;
+
 layout(set=0, binding=1, rgba16f) uniform readonly  image2D INPUT_RADIANCE;
+
+#ifdef INPUT_RADIANCE_BLURRED
 layout(set=0, binding=2, rgba16f) uniform readonly  image2D INPUT_RADIANCE_BLURRED;
+#endif
 
 layout(set=0, binding=3, rgba16f) uniform readonly  image2D reprojection_uv;
 
@@ -109,7 +113,12 @@ void main()
 	}
 
     vec3 raw = imageLoad(INPUT_RADIANCE, p).rgb;
+
+#ifdef INPUT_RADIANCE_BLURRED
     vec3 blur = imageLoad(INPUT_RADIANCE_BLURRED, p).rgb;
+#else
+    vec3 blur = raw;
+#endif
 
     // stronger firefly rejection
     vec3 raw_ff = reject_firefly(raw, blur);

@@ -74,6 +74,9 @@
 	"atrous_specular": {
 		"comp": "atrous_specular"
 	},
+	"atrous_indirect_specular": {
+		"comp": "atrous_indirect_specular"
+	},
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
 	},
@@ -82,6 +85,12 @@
 	},
 	"reproject_specular": {
 		"comp": "reproject_specular"
+	},
+	"reproject_indirect_diffuse": {
+		"comp": "reproject_indirect_diffuse"
+	},
+	"reproject_indirect_specular": {
+		"comp": "reproject_indirect_specular"
 	},
 	"denoiser": {
 		"comp": "denoiser"
