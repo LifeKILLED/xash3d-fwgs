@@ -33,17 +33,19 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(set=0,binding=0,rgba16f) uniform writeonly image2D OUTPUT_RADIANCE;
-layout(set=0,binding=1,rgba16f) uniform readonly  image2D INPUT_RADIANCE;
-layout(set=0,binding=2,rgba16f) uniform readonly  image2D INPUT_RADIANCE_BLURRED;
+layout(set=0, binding=0, rgba16f) uniform writeonly image2D OUTPUT_RADIANCE;
+layout(set=0, binding=1, rgba16f) uniform readonly  image2D INPUT_RADIANCE;
+layout(set=0, binding=2, rgba16f) uniform readonly  image2D INPUT_RADIANCE_BLURRED;
 
-layout(set=0,binding=3,rgba16f) uniform readonly  image2D reprojection_uv;
+layout(set=0, binding=3, rgba16f) uniform readonly  image2D reprojection_uv;
 
-layout(set=0,binding=4,rgba32f) uniform image2D PREV_RADIANCE;
-layout(set=0,binding=5,rgba32f) uniform image2D PREV_MOMENTS;
+layout(set=0, binding=4, rgba32f) uniform image2D PREV_RADIANCE;
+layout(set=0, binding=5, rgba32f) uniform image2D PREV_MOMENTS;
 
-layout(set=0,binding=6,rgba32f) uniform image2D NEXT_RADIANCE;
-layout(set=0,binding=7,rgba32f) uniform image2D NEXT_MOMENTS;
+layout(set=0, binding=6, rgba32f) uniform image2D NEXT_RADIANCE;
+layout(set=0, binding=7, rgba32f) uniform image2D NEXT_MOMENTS;
+
+layout(set = 0, binding = 8) uniform UBO { UniformBuffer ubo; } ubo;
 
 //---------------------------------------------------------
 // CONFIG
@@ -99,7 +101,12 @@ vec3 reject_firefly(vec3 raw, vec3 blur)
 
 void main()
 {
-    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+
+    if (any(greaterThanEqual(p, res))) {
+		return;
+	}
 
     vec3 raw = imageLoad(INPUT_RADIANCE, p).rgb;
     vec3 blur = imageLoad(INPUT_RADIANCE_BLURRED, p).rgb;
