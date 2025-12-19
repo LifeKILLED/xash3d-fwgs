@@ -1,8 +1,8 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define INPUT_RADIANCE indirect_specular_reconstructed
-#define INPUT_RADIANCE_BLURRED indirect_specular_blured
+#define INPUT_RADIANCE indirect_specular_blured
+#define INPUT_RADIANCE_BLURRED indirect_specular_blured_more
 
 #define OUTPUT_RADIANCE out_indirect_specular_asvgf
 

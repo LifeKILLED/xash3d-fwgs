@@ -26,8 +26,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 //layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_reprojected;
 //layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_reprojected;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_blured;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_blured;
+// layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_blured;
+// layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_blured;
 
 layout(set = 0, binding = 4, rgba8) uniform readonly image2D base_color_a;
 
@@ -291,14 +291,14 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 		m_ds_history /= samples_weight;
 
 		// fast		
-		fast.diffuse = temporalAccumulation(diffuse_src.rgb, history_diffuse_fast.rgb, m_ds_history_fast.x, m_ds_history_fast.y, 0.05, 0.5);
-		fast.specular = temporalAccumulation(specular_src.rgb, history_specular_fast.rgb, m_ds_history_fast.z, m_ds_history_fast.w, 0.05, 0.5);
-		fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
+		// fast.diffuse = temporalAccumulation(diffuse_src.rgb, history_diffuse_fast.rgb, m_ds_history_fast.x, m_ds_history_fast.y, 0.05, 0.5);
+		// fast.specular = temporalAccumulation(specular_src.rgb, history_specular_fast.rgb, m_ds_history_fast.z, m_ds_history_fast.w, 0.05, 0.5);
+		// fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
 
-		// final
-		final.diffuse = temporalAccumulation(fast.diffuse.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.95);
-		final.specular = temporalAccumulation(fast.specular.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.95);
-		final.moments_ds = vec4(final.diffuse.moment1, final.diffuse.moment2, final.specular.moment1, final.specular.moment2);
+		// // final
+		// final.diffuse = temporalAccumulation(fast.diffuse.radiance.rgb, history_diffuse.rgb, m_ds_history.x, m_ds_history.y, 0.2, 0.95);
+		// final.specular = temporalAccumulation(fast.specular.radiance.rgb, history_specular.rgb, m_ds_history.z, m_ds_history.w, 0.2, 0.95);
+		// final.moments_ds = vec4(final.diffuse.moment1, final.diffuse.moment2, final.specular.moment1, final.specular.moment2);
 
 		return true;
 	}
@@ -325,16 +325,18 @@ void main() {
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
 
-	vec3 diffuse_src = imageLoad(diffuse_blured, pix).rgb;
-	vec3 specular_src = imageLoad(specular_blured, pix).rgb;
+	vec3 diffuse_src = vec3(0.), specular_src = vec3(0.); // TODO: remove
 
-	vec4 diffuse_result = vec4(diffuse_src, 0.0);
-	vec4 specular_result = vec4(specular_src, 0.0);
+	// vec3 diffuse_src = imageLoad(diffuse_blured, pix).rgb;
+	// vec3 specular_src = imageLoad(specular_blured, pix).rgb;
+
+	// vec4 diffuse_result = vec4(diffuse_src, 0.0);
+	// vec4 specular_result = vec4(specular_src, 0.0);
 	
 	TemporalData fast;
-	fast.diffuse = temporalAccumulationInit(diffuse_src);
-	fast.specular = temporalAccumulationInit(specular_src);
-	fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
+	// fast.diffuse = temporalAccumulationInit(diffuse_src);
+	// fast.specular = temporalAccumulationInit(specular_src);
+	// fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
 
 	TemporalData final = fast;
 
@@ -351,8 +353,8 @@ void main() {
 
 		if (any(greaterThanEqual(reproj_uv, vec2(0))) && any(lessThan(reproj_uv, vec2(res)))) {
 			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, geometry_normal, depth_nessesary, depth_threshold, final, fast, reprojection_uv)) {
-				diffuse_result = vec4(final.diffuse.radiance, 0.0);
-				specular_result = vec4(final.specular.radiance, 0.0);
+				// diffuse_result = vec4(final.diffuse.radiance, 0.0);
+				// specular_result = vec4(final.specular.radiance, 0.0);
 			}
 		}
 
@@ -402,35 +404,35 @@ void main() {
 
 				if (any(greaterThanEqual(parallax_uv, vec2(0))) && any(lessThan(parallax_uv, vec2(res)))) {
 					TemporalData fast_parallax;
-					fast.diffuse = temporalAccumulationInit(diffuse_src);
-					fast.specular = temporalAccumulationInit(specular_src);
-					fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
+					// fast.diffuse = temporalAccumulationInit(diffuse_src);
+					// fast.specular = temporalAccumulationInit(specular_src);
+					// fast.moments_ds = vec4(fast.diffuse.moment1, fast.diffuse.moment2, fast.specular.moment1, fast.specular.moment2);
 
 					TemporalData final_parallax = fast_parallax;
 
 					if (reproject(diffuse_src, specular_src, pix, res, parallax_uv, geometry_normal, 0.0, 0.0, final_parallax, fast_parallax, reprojection_uv)) {
-						const float lum_src = fast.specular.moment1;
-						const float lum_basic = final.specular.moment1;
-						const float lum_parallax = final_parallax.specular.moment1;
+						// const float lum_src = fast.specular.moment1;
+						// const float lum_basic = final.specular.moment1;
+						// const float lum_parallax = final_parallax.specular.moment1;
 
-						const float basic_diff = abs(lum_basic - lum_src);
-						const float parallax_diff = abs(lum_parallax - lum_src);
-						const float lum_diff = basic_diff - parallax_diff;
+						// const float basic_diff = abs(lum_basic - lum_src);
+						// const float parallax_diff = abs(lum_parallax - lum_src);
+						// const float lum_diff = basic_diff - parallax_diff;
 
-						if (lum_diff > 0.0) {
-							float parallax_weight = 1.0;
-							if (lum_basic > 0.0) {
-								parallax_weight = clamp(lum_diff * 2.0 / lum_basic, 0.0, 1.0); 
-							}
+						// if (lum_diff > 0.0) {
+						// 	float parallax_weight = 1.0;
+						// 	if (lum_basic > 0.0) {
+						// 		parallax_weight = clamp(lum_diff * 2.0 / lum_basic, 0.0, 1.0); 
+						// 	}
 
-							fast.specular.radiance = mix(fast.specular.radiance, fast_parallax.specular.radiance, parallax_weight);
-							fast.moments_ds.zw = mix(fast.moments_ds.zw, fast_parallax.moments_ds.zw, parallax_weight);
+						// 	fast.specular.radiance = mix(fast.specular.radiance, fast_parallax.specular.radiance, parallax_weight);
+						// 	fast.moments_ds.zw = mix(fast.moments_ds.zw, fast_parallax.moments_ds.zw, parallax_weight);
 
-							final.specular.radiance = mix(final.specular.radiance, final_parallax.specular.radiance, parallax_weight);
-							final.moments_ds.zw = mix(final.moments_ds.zw, final_parallax.moments_ds.zw, parallax_weight);
+						// 	final.specular.radiance = mix(final.specular.radiance, final_parallax.specular.radiance, parallax_weight);
+						// 	final.moments_ds.zw = mix(final.moments_ds.zw, final_parallax.moments_ds.zw, parallax_weight);
 
-							specular_result = mix(specular_result, vec4(final_parallax.specular.radiance, 0.0), parallax_weight);
-						}
+						// 	specular_result = mix(specular_result, vec4(final_parallax.specular.radiance, 0.0), parallax_weight);
+						// }
 					}
 				}
 			}

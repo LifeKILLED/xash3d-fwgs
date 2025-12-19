@@ -287,7 +287,8 @@ void main() {
             if (w_pos <= 0.001)
                 continue;
 
-			const float w_sigma = normpdf(float(kx), ATROUS_KERNEL) * normpdf(float(ky), ATROUS_KERNEL);
+			//const float w_sigma = normpdf(float(kx), ATROUS_KERNEL) * normpdf(float(ky), ATROUS_KERNEL);
+            const float w_sigma = 1.0f;
             float w = w_normal * w_pos * w_sigma;
 
 			// Weight luminance 

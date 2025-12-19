@@ -77,6 +77,9 @@
 	"atrous_indirect_specular": {
 		"comp": "atrous_indirect_specular"
 	},
+	"atrous_indirect_specular_more": {
+		"comp": "atrous_indirect_specular_more"
+	},
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
 	},
