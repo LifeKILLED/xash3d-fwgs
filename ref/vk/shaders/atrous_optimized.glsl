@@ -11,7 +11,7 @@
 #endif
 
 #ifndef PHI_NORMAL
-	#define PHI_NORMAL 0.5
+	#define PHI_NORMAL 0.2
 #endif
 
 #ifndef ROUGHNESS_THRESHOLD
