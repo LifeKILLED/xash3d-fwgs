@@ -24,8 +24,11 @@
 
 #define PREV_RADIANCE TEMPORAL_JOIN(prev_temporal_radiance, TEMPORAL_POSTFIX)
 #define PREV_MOMENTS  TEMPORAL_JOIN(prev_temporal_moments,  TEMPORAL_POSTFIX)
+#define PREV_TREMOR   TEMPORAL_JOIN(prev_temporal_tremor,   TEMPORAL_POSTFIX)
 #define NEXT_RADIANCE TEMPORAL_JOIN(out_temporal_radiance,  TEMPORAL_POSTFIX)
 #define NEXT_MOMENTS  TEMPORAL_JOIN(out_temporal_moments,   TEMPORAL_POSTFIX)
+#define NEXT_TREMOR   TEMPORAL_JOIN(out_temporal_tremor,    TEMPORAL_POSTFIX)
+
 
 //---------------------------------------------------------
 // CONFIG
@@ -44,12 +47,12 @@
 
 // History / first frame
 #define FIRST_FRAMES_COUNT 1
-#define HISTORY_MAX 64.0
+#define HISTORY_MAX 8.0
 
 // Noise / variance
 #define VARIANCE_BLUR_FACTOR 0.1
 #define TREMOR_VARIANCE_MULT 0.4
-#define NOISE_ALPHA_MULT 0.25
+#define NOISE_ALPHA_MULT 0.5
 
 // Temporal tuning
 #define ALPHA_GLOBAL_MULT 0.5
@@ -58,17 +61,11 @@
 
 // Smart tremor parameters
 #define TREMOR_AMPLITUDE_THRESHOLD 0.2
-#define TREMOR_ALPHA_MULT 0.5
-#define TREMOR_HISTORY_FRAMES 4
+#define TREMOR_ALPHA_MULT 0.2
+#define TREMOR_HISTORY_FRAMES 3
 #define TREMOR_CONTINUITY_THRESHOLD 0.08
 #define TREMOR_SMOOTH_FACTOR 0.3
 #define TREMOR_DEVIATION_THRESHOLD 0.03
-
-// Soft extreme luminance reset (log-space)
-#define SOFT_EXTREME_LOW 0.2
-#define SOFT_EXTREME_HIGH 5.0
-#define SOFT_EXTREME_MAX 10.0
-#define SOFT_EXTREME_SPEED_MULT 10.0
 
 //---------------------------------------------------------
 // UTIL
@@ -153,23 +150,13 @@ void main()
         vec4 mm = imageLoad(PREV_MOMENTS, rp);
         histC = hc.rgb; m1 = mm.r; m2 = mm.g; m3 = mm.b; H = mm.a;
 
-        // Logarithmic luminance difference for soft extreme reset
-        float histL = dec(m1);
-        float logDelta = log(rawL+EPS) - log(histL+EPS);
-
-        float extremeAlphaBright = smoothstep(log(SOFT_EXTREME_HIGH), log(SOFT_EXTREME_MAX), logDelta);
-        float extremeAlphaDark   = smoothstep(log(SOFT_EXTREME_LOW), log(SOFT_EXTREME_LOW*2.0), -logDelta);
-        float extremeAlpha = clamp(extremeAlphaBright + extremeAlphaDark, 0.0, 1.0);
-
-        // Normal reset factor
+        // Soft reset
         float rawLb = safeLum(blur);
         bool reset_noisy = rawL > rawLb * FIREFLY_CLAMP*2.0;
-        float lumRatio = clamp(rawL/(histL+EPS),0.0,SOFT_EXTREME_MAX);
-        float reset_strength = max(reset_noisy?1.0:0.0, smoothstep(0.2,2.0,max(lumRatio,1.0/lumRatio)));
+        float lumRatio = clamp(rawL/(dec(m1)+EPS),0.0,10.0);
+        float lightChange = smoothstep(0.2,2.0,max(lumRatio,1.0/lumRatio));
+        float reset_strength = max(lightChange, reset_noisy?1.0:0.0);
         float resetAlpha = clamp(reset_strength,0.0,1.0)*RESET_ALPHA_MULT;
-
-        // Combine reset and extreme speed for bright pixels
-        resetAlpha = max(resetAlpha, extremeAlpha * SOFT_EXTREME_SPEED_MULT);
 
         histC = mix(histC, raw_ff, resetAlpha);
         m1    = mix(m1, enc(rawL), resetAlpha);
@@ -189,14 +176,14 @@ void main()
     variance = max(variance, tremorVar*TREMOR_VARIANCE_MULT);
 
     //---------------------------------------------------------
-    // SMART TREMOR DETECTION WITH FLICKER-LIMIT
+    // SMART TREMOR DETECTION USING CURVE DEVIATION
     //---------------------------------------------------------
     vec4 prevDeltas = imageLoad(PREV_TREMOR, p);
-    float deltaL = log(rawL+EPS) - log(predL+EPS);
+    float deltaL = rawL - predL;
 
     float deltas[4] = float[4](deltaL, prevDeltas.r, prevDeltas.g, prevDeltas.b);
 
-    // Compute linear trend and deviation
+    // Compute linear trend: slope = (delta3 - delta0)/3
     float slope = (deltas[3]-deltas[0])/3.0;
     float intercept = deltas[0];
     float maxDev = 0.0;
@@ -207,15 +194,9 @@ void main()
         maxDev = max(maxDev, dev);
     }
 
-    // Tremor factor only for flickering
     float tremorFactor = 0.0;
     if(maxDev > TREMOR_DEVIATION_THRESHOLD && abs(deltaL)<TREMOR_AMPLITUDE_THRESHOLD)
         tremorFactor = TREMOR_ALPHA_MULT;
-
-    // Flicker-limited smooth reset factor
-    float smoothness = 1.0 - max(abs(deltas[0]-deltas[1]), abs(deltas[1]-deltas[2])) / (TREMOR_AMPLITUDE_THRESHOLD*2.0);
-    smoothness = clamp(smoothness, 0.0, 1.0);
-    float smoothResetFactor = smoothness * (1.0 - tremorFactor);
 
     //---------------------------------------------------------
     // Noise factor
@@ -243,18 +224,18 @@ void main()
         alpha = mix(MIN_ALPHA,MAX_ALPHA,v);
     }
 
+    // Light motion response
     float resp_raw_hist = length(raw_ff - predicted);
-    float lumDiff = abs(log(rawL+EPS)-log(predL+EPS));
+    float lumDiff = abs(rawL - predL)/max(predL,0.001);
     float resp = clamp(resp_raw_hist*2.0 + lumDiff*4.0,0.0,1.0);
     float alpha_resp = 1.0 - exp(-resp*6.0);
 
     alpha = max(alpha, alpha_resp*MAX_ALPHA);
     alpha = mix(alpha, MAX_ALPHA, noiseFactor*NOISE_ALPHA_MULT);
 
-    // Apply tremor damping, flicker-limited smooth reset, and global alpha
+    // Apply tremor damping
     alpha *= (1.0 - tremorFactor);
     alpha = clamp(alpha, MIN_ALPHA, MAX_ALPHA);
-    alpha = max(alpha, MAX_ALPHA * smoothResetFactor);
     alpha *= ALPHA_GLOBAL_MULT;
 
     //---------------------------------------------------------
