@@ -71,15 +71,33 @@
 	"mix_lighting": {
 		"comp": "mix_lighting"
 	},
+	"direct_diffuse_filter_pass1": {
+		"comp": "direct_diffuse_filter_pass1"
+	},
+	"direct_diffuse_filter_pass2": {
+		"comp": "direct_diffuse_filter_pass2"
+	},
+	"direct_specular_filter_pass1": {
+		"comp": "direct_specular_filter_pass1"
+	},
+	"direct_specular_filter_pass2": {
+		"comp": "direct_specular_filter_pass2"
+	},
+	"indirect_specular_filter_pass1": {
+		"comp": "indirect_specular_filter_pass1"
+	},
+	"indirect_specular_filter_pass2": {
+		"comp": "indirect_specular_filter_pass2"
+	},
 	"atrous_diffuse": {
 		"comp": "atrous_diffuse"
 	},
-	"atrous_specular_more": {
-		"comp": "atrous_specular_more"
-	},
-	"atrous_indirect_specular_more": {
-		"comp": "atrous_indirect_specular_more"
-	},
+	// "atrous_specular_more": {
+	// 	"comp": "atrous_specular_more"
+	// },
+	// "atrous_indirect_specular_more": {
+	// 	"comp": "atrous_indirect_specular_more"
+	// },
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
 	},

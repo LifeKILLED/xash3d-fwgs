@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define INPUT_RADIANCE diffuse_blured
+#define INPUT_RADIANCE diffuse_pre_filtered
 
 #define OUTPUT_RADIANCE out_diffuse_asvgf
 
