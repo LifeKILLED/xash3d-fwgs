@@ -7,13 +7,13 @@
 
 #define TEMPORAL_POSTFIX _indirect_diffuse_asvgf
 
-#define FIREFLY_CLAMP  1.2
+// #define FIREFLY_CLAMP  1.2
 
-#define MAX_ALPHA      0.4
-#define MIN_ALPHA      0.02
-#define HISTORY_MAX    64.0
+// #define MAX_ALPHA      0.4
+// #define MIN_ALPHA      0.02
+// #define HISTORY_MAX    64.0
 
-#define FIRST_FRAMES_COUNT 4
-#define VARIANCE_BLUR_FACTOR 0.1
+// #define FIRST_FRAMES_COUNT 4
+// #define VARIANCE_BLUR_FACTOR 0.1
 
 #include "asvgf_reprojection.glsl"
