@@ -1,10 +1,10 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define INPUT_RADIANCE specular_pre_filtered
+#define INPUT_RADIANCE specular_atrous
 
 //#define INPUT_RADIANCE specular_mixed
-//#define INPUT_RADIANCE_BLURRED specular_pre_filtered
+//#define INPUT_RADIANCE_BLURRED specular_atrous
 
 #define OUTPUT_RADIANCE out_specular_asvgf
 

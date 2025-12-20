@@ -50,6 +50,19 @@
 	#define USE_VARIANCE
 #endif
 
+//--------------------------------------------------------------
+// New macros for your features
+//--------------------------------------------------------------
+
+// Firefly removal algorithms
+#define FIREFLY_ALGORYTHM_A   // median/sigma-range rejection
+// #define FIREFLY_ALGORYTHM_B   // sigma-clipping rejection
+
+// Variance-guided smoothing
+#define SMOOTH_ALGORYTHM_C    // variance boosts blur
+// #define SMOOTH_ALGORYTHM_D    // variance relaxes edge-stopping
+
+
 #include "debug.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
@@ -202,7 +215,6 @@ void main() {
 		return;
 
 	// Fill shader memory (one thread reading 3x3 texels)
-
     const int localThreadIndex = int(gl_LocalInvocationIndex);
     const int localThreadCount = LOCAL_SZ_X * LOCAL_SZ_Y;
     const int totalSharedCount = SHARED_W * SHARED_H;
@@ -218,7 +230,6 @@ void main() {
     barrier();
 
 	// Calculate variance
-
     for (int idx = localThreadIndex; idx < totalSharedCount; idx += localThreadCount) {
         int sy = idx / SHARED_W;
         int sx = idx - sy * SHARED_W;
@@ -233,7 +244,6 @@ void main() {
 		return;
 
 	// Apply aTrous
-
     const int centerSX = localID.x + PADDING;
     const int centerSY = localID.y + PADDING;
 
@@ -254,6 +264,7 @@ void main() {
 
     vec3 accum = vec3(0.0);
 	float wsum = 0.0;
+
     for (int ky = -ATROUS_KERNEL; ky <= ATROUS_KERNEL; ++ky) {
     	for (int kx = -ATROUS_KERNEL; kx <= ATROUS_KERNEL; ++kx) {
 			const int sx = centerSX + kx;
@@ -287,21 +298,57 @@ void main() {
             if (w_pos <= 0.001)
                 continue;
 
-			//const float w_sigma = normpdf(float(kx), ATROUS_KERNEL) * normpdf(float(ky), ATROUS_KERNEL);
-            const float w_sigma = 1.0f;
+			const float w_sigma = 1.0f;
             float w = w_normal * w_pos * w_sigma;
 
-			// Weight luminance 
 #ifdef USE_VARIANCE
-            const float lumDiff = n.luminance - center.luminance;
-			const float lumSigma = sqrt(center.variance) + 1e-3;
-            const float w_lum = 1.0;//exp(- (lumDiff * lumDiff) / (2.0 * lumSigma * lumSigma + EPS));
-			const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
-			const float dist2 = float(kx*kx + ky*ky);
-			const float w_spatial = 1.0 / (1.0 + dist2);
+            // const float lumDiff = n.luminance - center.luminance;
+			// const float lumSigma = sqrt(center.variance) + 1e-3;
+            // const float w_lum = 1.0;
+			// const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
+			// const float dist2 = float(kx*kx + ky*ky);
+			// const float w_spatial = 1.0 / (1.0 + dist2);
 
-			w *= w_lum * w_var * w_spatial;
+			// w *= w_lum * w_var * w_spatial;
+
+#ifdef FIREFLY_ALGORYTHM_A
+            {
+                float mu = center.luminance;
+                float sigma = sqrt(center.variance) + 1e-5;
+                const float k = 3.0;
+
+                if (abs(n.luminance - mu) > k * sigma)
+                    continue;
+            }
 #endif
+
+#ifdef FIREFLY_ALGORYTHM_B
+            {
+                float mu = center.luminance;
+                float sigma = sqrt(center.variance) + 1e-5;
+                const float k = 2.5;
+
+                if (abs(n.luminance - mu) > k * sigma)
+                    continue;
+            }
+#endif
+
+#ifdef SMOOTH_ALGORYTHM_C
+            {
+                float boost = 1.0 + center.variance * VARIANCE_SCALE;
+                w *= clamp(boost, 1.0, 8.0);
+            }
+#endif // SMOOTH_ALGORYTHM_C
+
+#ifdef SMOOTH_ALGORYTHM_D
+            {
+                float factor = clamp(center.variance * VARIANCE_SCALE, 0.0, 1.0);
+                float relax = mix(1.0, 0.2, factor);
+                w *= relax;
+            }
+#endif // SMOOTH_ALGORYTHM_D
+
+#endif // USE_VARIANCE
 
 			accum += n.radiance * w;
 			wsum += w;
