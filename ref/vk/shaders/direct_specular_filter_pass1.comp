@@ -1,9 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define INPUT_RADIANCE specular_mixed
-
-#define TEMP_RADIANCE_POSTFIX specular
+#define IN_RADIANCE specular_mixed
 
 #define POSITION_T position_t
 #define NORMALS_GS normals_gs
@@ -11,4 +9,5 @@
 
 #include "filter_params_specular.glsl"
 
-#include "lighting_filter_pass1.glsl"
+#define HORIZONTAL 1
+#include "bidirectional_filter.glsl"
