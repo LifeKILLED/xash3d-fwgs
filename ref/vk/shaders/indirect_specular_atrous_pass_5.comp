@@ -1,0 +1,13 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define IN_RADIANCE radiance_atrous_ping
+
+#define OUTPUT_RADIANCE out_indirect_specular_pre_atrous
+
+#define POSITION_T position_t
+#define NORMALS_GS normals_gs
+#define MATERIAL_RMXX material_rmxx
+
+#define ATROUS_STEP 16
+#include "atrous_multipass.glsl"

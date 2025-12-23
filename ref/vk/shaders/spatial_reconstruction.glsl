@@ -17,9 +17,11 @@
 	#define UPSCALE_SCALE 2
 #endif
 
+#define INCREASE_AABB_MULTIPLIER 0.5
+
 #include "debug.glsl"
 
-#define SPECULAR_CLAMPING_MAX 1.3
+#define SPECULAR_CLAMPING_MAX 3.0
 #define SPATIAL_RECONSTRUCTION_SAMPLES 16
 
 #define GLSL
@@ -227,6 +229,10 @@ void main() {
  		}
  	}
 
+	vec3 aabbScale = aabbMax - aabbMin;
+	aabbMax += aabbScale * INCREASE_AABB_MULTIPLIER;
+	aabbMin -= aabbScale * INCREASE_AABB_MULTIPLIER;
+
 	vec2 axisX = normalize(vec2(rand01(), rand01())) * SPATIAL_RECONSTRUCTION_RADIUS;
 	vec2 axisY = vec2(-axisX.y, axisX.x);
  
@@ -238,8 +244,8 @@ void main() {
 		ivec2 p_scaled = p / UPSCALE_SCALE;
 
 		vec4 reflDirPDF = imageLoad(reflection_direction_pdf, p_scaled);
-		//if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin)))
-		//	continue;
+		if (any(greaterThan(reflDirPDF.xyz, aabbMax)) || any(lessThan(reflDirPDF.xyz, aabbMin)))
+			continue;
 
 		vec3 geometry_normal_curr, shading_normal_curr;
 		readNormals(p, geometry_normal_curr, shading_normal_curr);

@@ -89,14 +89,32 @@
 	"direct_specular_atrous": {
 	 	"comp": "direct_specular_atrous"
 	},
-	"indirect_specular_filter_pass1": {
-		"comp": "indirect_specular_filter_pass1"
+	// "indirect_specular_atrous_pass_0": {
+	//  	"comp": "indirect_specular_atrous_pass_0"
+	// },
+	// "indirect_specular_atrous_pass_1": {
+	//  	"comp": "indirect_specular_atrous_pass_1"
+	// },
+	// "indirect_specular_atrous_pass_2": {
+	//  	"comp": "indirect_specular_atrous_pass_2"
+	// },
+	// "indirect_specular_atrous_pass_3": {
+	//  	"comp": "indirect_specular_atrous_pass_3"
+	// },
+	// "indirect_specular_atrous_pass_4": {
+	//  	"comp": "indirect_specular_atrous_pass_4"
+	// },
+	// "indirect_specular_atrous_pass_5": {
+	//  	"comp": "indirect_specular_atrous_pass_5"
+	// },
+	"indirect_specular_pre_filter_pass1": {
+		"comp": "indirect_specular_pre_filter_pass1"
 	},
-	"indirect_specular_filter_pass2": {
-		"comp": "indirect_specular_filter_pass2"
+	"indirect_specular_pre_filter_pass2": {
+		"comp": "indirect_specular_pre_filter_pass2"
 	},
-	"indirect_specular_atrous": {
-	 	"comp": "indirect_specular_atrous"
+	"indirect_specular_pre_atrous": {
+		"comp": "indirect_specular_pre_atrous"
 	},
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
@@ -112,6 +130,15 @@
 	},
 	"reproject_indirect_specular": {
 		"comp": "reproject_indirect_specular"
+	},
+	"indirect_specular_post_filter_pass1": {
+		"comp": "indirect_specular_post_filter_pass1"
+	},
+	"indirect_specular_post_filter_pass2": {
+		"comp": "indirect_specular_post_filter_pass2"
+	},
+	"indirect_specular_post_atrous": {
+		"comp": "indirect_specular_post_atrous"
 	},
 	"denoiser": {
 		"comp": "denoiser"
