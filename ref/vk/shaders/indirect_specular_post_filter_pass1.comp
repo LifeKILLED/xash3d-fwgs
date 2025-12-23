@@ -7,7 +7,7 @@
 #define NORMALS_GS normals_gs
 #define MATERIAL_RMXX material_rmxx
 
-#include "filter_params_indirect_specular.glsl"
+#include "filter_params_indirect_specular_post.glsl"
 
 #define HORIZONTAL 1
 #include "bidirectional_filter.glsl"

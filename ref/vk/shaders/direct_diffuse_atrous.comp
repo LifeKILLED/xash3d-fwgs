@@ -3,6 +3,7 @@
 
 #define ATROUS_KERNEL 3
 //#define DISABLE_VARIANCE 1
+#define SIGMA_ALLWAYS_ONE 1
 
 #define SRC_RADIANCE diffuse_pre_filtered
 #define OUT_RADIANCE out_diffuse_atrous

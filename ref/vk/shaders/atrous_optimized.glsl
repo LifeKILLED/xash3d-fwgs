@@ -300,7 +300,13 @@ void main() {
             if (w_pos <= 0.001)
                 continue;
 
+#ifdef SIGMA_ALLWAYS_ONE
 			const float w_sigma = 1.0f;
+#else
+            const float sigma = ATROUS_KERNEL / 2.;
+			const float w_sigma = normpdf(kx, sigma) * normpdf(ky, sigma);
+#endif
+
             float w = w_normal * w_pos * w_sigma;
 
 #ifdef USE_VARIANCE
