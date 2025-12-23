@@ -43,11 +43,11 @@
 #define MIN_ALPHA 0.01
 #define MAX_ALPHA 0.25
 
-#define FIREFLY_CLAMP 1.2
+#define FIREFLY_CLAMP 1.5
 
 // History / first frame
 #define FIRST_FRAMES_COUNT 1
-#define HISTORY_MAX 8.0
+#define HISTORY_MAX 64.0
 
 // Noise / variance
 #define VARIANCE_BLUR_FACTOR 0.1
@@ -60,7 +60,7 @@
 #define DELTA_CLAMP 0.5
 
 // Smart tremor parameters
-#define TREMOR_AMPLITUDE_THRESHOLD 0.2
+#define TREMOR_AMPLITUDE_THRESHOLD 0.4
 #define TREMOR_ALPHA_MULT 0.2
 #define TREMOR_HISTORY_FRAMES 3
 #define TREMOR_CONTINUITY_THRESHOLD 0.08
