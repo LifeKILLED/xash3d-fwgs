@@ -16,11 +16,6 @@
 // #define SIGMA_P 4.0        // position similarity
 // #define SIGMA_R 0.2        // roughness similarity
 
-#define TEMP_JOIN(a, b)       TEMP_JOIN_EXPAND(a, b)
-#define TEMP_JOIN_EXPAND(a,b) a##b
-
-#define TEMP_RADIANCE TEMPORAL_JOIN(temp_filter_radiance_, TEMP_RADIANCE_POSTFIX)
-
 layout(local_size_x = 16, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform readonly image2D radiance_temp;
@@ -54,9 +49,17 @@ void main() {
 	if (any(greaterThanEqual(pix, res)))
 		return;
 
+    float R0 = imageLoad(MATERIAL_RMXX, pix).x;
+
+#if MIRROR_FIX
+    if (R0 < 0.02) {
+        imageStore(OUT_RADIANCE,  pix, imageLoad(radiance_temp, pix));
+        return;
+    }
+#endif
+
     vec3 P0  = imageLoad(POSITION_T,  pix).xyz;
     vec3 N0  = normalDecode(imageLoad(NORMALS_GS, pix).zw);
-    float R0 = imageLoad(MATERIAL_RMXX, pix).x;
 
     // === neighbors for gradient ===
     vec3 Px = imageLoad(POSITION_T, clampedPix(pix + ivec2(1,0), res)).xyz;

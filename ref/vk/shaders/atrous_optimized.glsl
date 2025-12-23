@@ -51,17 +51,19 @@
 #endif
 
 //--------------------------------------------------------------
-// New macros for your features
+// Variants
 //--------------------------------------------------------------
-
 // Firefly removal algorithms
 #define FIREFLY_ALGORYTHM_A   // median/sigma-range rejection
 // #define FIREFLY_ALGORYTHM_B   // sigma-clipping rejection
 
 // Variance-guided smoothing
-#define SMOOTH_ALGORYTHM_C    // variance boosts blur
+ #define SMOOTH_ALGORYTHM_C    // variance boosts blur
 // #define SMOOTH_ALGORYTHM_D    // variance relaxes edge-stopping
 
+#define FIREFLY_KILL_1   // median replacement
+//#define FIREFLY_KILL_2   // clamp to neighborhood
+//#define FIREFLY_KILL_3   // variance-aware override
 
 #include "debug.glsl"
 #include "utils.glsl"
@@ -128,9 +130,9 @@ TexelData loadTexel(ivec2 pix, ivec2 res) {
     t.normal = normalDecode(imageLoad(NORMALS_GS, p).zw);
     t.radiance = imageLoad(SRC_RADIANCE, p).rgb;
 
-    const vec2 roughness_metalness = imageLoad(MATERIAL_RMXX, p).rg;
-	t.roughness = roughness_metalness.r;
-	t.metalness = roughness_metalness.g;
+    vec2 rm = imageLoad(MATERIAL_RMXX, p).rg;
+	t.roughness = rm.r;
+	t.metalness = rm.g;
 
 #ifdef USE_VARIANCE
 	t.luminance = luminance(t.radiance);
@@ -226,7 +228,7 @@ void main() {
     }
 
 #ifdef USE_VARIANCE
-    memoryBarrierShared();
+    //memoryBarrierShared();
     barrier();
 
 	// Calculate variance
@@ -237,7 +239,7 @@ void main() {
     }
 #endif
 
-    memoryBarrierShared();
+    //memoryBarrierShared();
     barrier();
 
     if (pix.x >= res.x || pix.y >= res.y)
@@ -356,5 +358,70 @@ void main() {
 	}
 
     vec3 result = accum / max(wsum, EPS);
+
+#ifdef AGGRESSIVE_KILL_FIREFLYES
+
+    //memoryBarrierShared();
+    barrier();
+
+	s_tile[centerSY][centerSX].radiance = center.radiance = result; 
+	s_tile[centerSY][centerSX].luminance = center.luminance = luminance(result);
+
+    //memoryBarrierShared();
+    barrier();
+
+    // --------------------------------------------------
+    // FIRELY KILL PASSES (POST)
+    // --------------------------------------------------
+
+#ifdef FIREFLY_KILL_1
+    float neighLum[9];
+    int c=0;
+    for(int y=-1;y<=1;y++) {
+		for(int x=-1;x<=1;x++){
+			neighLum[c++]=s_tile[centerSY+y][centerSX+x].luminance;
+		}
+	}
+    for(int i=0;i<9;i++) {
+		for(int j=i+1;j<9;j++) {
+			if(neighLum[j]<neighLum[i]) {
+				float t=neighLum[i];
+				neighLum[i]=neighLum[j];
+				neighLum[j]=t;
+			}
+		}
+	}
+    float med=neighLum[4];
+    if(center.luminance>med*4.0)
+        result*=med/max(center.luminance,EPS);
+#endif
+
+#ifdef FIREFLY_KILL_2
+    float minL=1e20,maxL=0;
+    for(int y=-1;y<=1;y++)
+    for(int x=-1;x<=1;x++){
+        float l=s_tile[centerSY+y][centerSX+x].luminance;
+        minL=min(minL,l);
+        maxL=max(maxL,l);
+    }
+    float cl=clamp(center.luminance,minL,maxL);
+    result*=cl/max(center.luminance,EPS);
+#endif
+
+#ifdef FIREFLY_KILL_3
+    if(center.variance>0.02 && center.luminance>2.0*sqrt(center.variance)){
+        vec3 avg=vec3(0);
+        int cc=0;
+        for(int y=-1;y<=1;y++)
+        for(int x=-1;x<=1;x++){
+            avg+=s_tile[centerSY+y][centerSX+x].radiance;
+            cc++;
+        }
+        result=avg/float(cc);
+    }
+#endif
+
+#endif // #ifdef AGGRESSIVE_KILL_FIREFLYES
+
     imageStore(OUT_RADIANCE, pix, vec4(result, 1.0));
 }

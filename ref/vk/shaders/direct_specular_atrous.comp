@@ -4,6 +4,7 @@
 #define ATROUS_KERNEL 3
 //#define DISABLE_VARIANCE 1
 #define MIRROR_FIX 1
+#define AGGRESSIVE_KILL_FIREFLYES 1
 
 #define SRC_RADIANCE specular_pre_filtered
 #define OUT_RADIANCE out_specular_atrous

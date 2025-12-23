@@ -1,9 +1,10 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define ATROUS_KERNEL 3
+#define ATROUS_KERNEL 4
 //#define DISABLE_VARIANCE 1
 #define MIRROR_FIX 1
+#define AGGRESSIVE_KILL_FIREFLYES 1
 
 #define SRC_RADIANCE indirect_specular_pre_filtered
 #define OUT_RADIANCE out_indirect_specular_atrous
