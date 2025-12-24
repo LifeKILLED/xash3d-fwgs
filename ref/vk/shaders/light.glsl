@@ -164,7 +164,7 @@ void computePointLights(vec3 P, vec3 N, uint cluster_index, vec3 view_dir, Mater
 		color *= one_over_pdf;
 
 		vec3 ldiffuse, lspecular;
-		evalLightLobes(N, view_dir, light_dir, color, material.roughness, ldiffuse, lspecular);
+		evalDecolorizedBRDF(N, light_dir, view_dir, color, material, ldiffuse, lspecular);
 
 		// TODO does this make sense for diffuse-vs-specular bounce modes?
 		const vec3 combined = ldiffuse + lspecular;

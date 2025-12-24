@@ -209,7 +209,7 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 
 	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
 
-	evalLightLobes(N, view_dir, light_sample_dir.xyz, poly.emissive * light_sample_dir.w, material.roughness, poly_diffuse, poly_specular);
+	evalDecolorizedBRDF(N, light_sample_dir.xyz, view_dir, poly.emissive * light_sample_dir.w, material, poly_diffuse, poly_specular);
 	diffuse += poly_diffuse;
 	specular += poly_specular;
 }
@@ -275,7 +275,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 
 		if (!shadowed(P, light_sample_dir.xyz, dist)) {
 			vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-			evalLightLobes(N, view_dir, light_sample_dir.xyz, poly.emissive * light_sample_dir.w, material.roughness, poly_diffuse, poly_specular);
+			evalDecolorizedBRDF(N, light_sample_dir.xyz, view_dir, poly.emissive * light_sample_dir.w, material, poly_diffuse, poly_specular);
 			diffuse += poly_diffuse;
 			specular += poly_specular;
 
@@ -342,7 +342,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 	const PolygonLight poly = lights.m.polygons[selected - 1];
 	const vec3 emissive = poly.emissive;
 	vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-	evalLightLobes(N, view_dir, normalize(poly.center-P), poly.emissive, material.roughness, poly_diffuse, poly_specular);
+	evalDecolorizedBRDF(N, normalize(poly.center-P), view_dir, poly.emissive, material, poly_diffuse, poly_specular);
 	diffuse += poly_diffuse;
 	specular += poly_specular;
 #else
@@ -362,7 +362,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 	//if (true) {//!shadowed(P, light_sample_dir.xyz, dist)) {
 	if (!shadowed(P, light_sample_dir.xyz, dist)) {
 		vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
-		evalLightLobes(N, view_dir, light_sample_dir.xyz, poly.emissive * light_sample_dir.w, material.roughness, poly_diffuse, poly_specular);
+		evalDecolorizedBRDF(N, light_sample_dir.xyz, view_dir, poly.emissive * light_sample_dir.w, material, poly_diffuse, poly_specular);
 		diffuse += poly_diffuse;
 		specular += poly_specular;
 	}

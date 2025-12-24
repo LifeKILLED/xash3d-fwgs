@@ -2,6 +2,7 @@
 #define BRDF_GLSL_INCLUDED
 
 #include "debug.glsl"
+#include "noise.glsl"
 
 // TODO math|common.glsl
 const float kPi = 3.1415926;
@@ -185,6 +186,86 @@ void brdfComputeGltfModel(vec3 N, vec3 L, vec3 V, MaterialProperties material, o
 		debugPrintfEXT("%s:%d INVALID out_specular=(%f,%f,%f)", __FILE__, __LINE__, PRIVEC3(out_specular));
 	}
 #endif
+}
+
+// TODO: add this in brdf.h or search same function
+
+#ifndef CONST_PI
+	#define CONST_PI 3.14159265358979323846
+#endif
+
+float G_Smith_BRDF(float NoV, float NoL, float alpha)
+{
+    float k = (alpha + 1.0);
+    k = (k * k) / 8.0;
+
+    float gV = NoV / (NoV * (1.0 - k) + k);
+    float gL = NoL / (NoL * (1.0 - k) + k);
+
+    return gV * gL;
+}
+
+float lambertBRDF()
+{
+    return 1.0 / CONST_PI;
+}
+
+float D_GGX_BRDF(float NoH, float alpha)
+{
+    float a2 = alpha * alpha;
+    float d  = (NoH * NoH) * (a2 - 1.0) + 1.0;
+    return a2 / (CONST_PI * d * d);
+}
+
+vec3 fresnelSchlick_BRDF(vec3 F0, float cosTheta)
+{
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+vec3 calculateDiffuseColor(vec3 base_color, float metalness) {
+	return base_color * (1.0 - metalness);
+}
+
+vec3 calculateSpecularColor(vec3 base_color, float metalness) {
+	return mix(vec3(0.04), base_color, metalness);
+}
+
+vec3 mixDecolorizedBRDF(vec3 base_color, float metalness, vec3 diffuse, vec3 specular) {
+    return diffuse * calculateDiffuseColor(base_color, metalness) +
+		   specular * calculateSpecularColor(base_color, metalness);
+}
+
+void evalDecolorizedBRDF(vec3 N, vec3 L, vec3 V, vec3 radiance, MaterialProperties material, out vec3 out_diffuse, out vec3 out_specular) {
+	out_diffuse = vec3(0.);
+	out_specular = vec3(0.);
+
+    float alpha = max(0.001, material.roughness * material.roughness);
+    float NoV   = saturate(dot(N, V));
+
+	float NoL = saturate(dot(N, L));
+	if (NoL <= 0.0)
+		return;
+
+	vec3 H  = normalize(V + L);
+	float NoH = saturate(dot(N, H));
+	float VoH = saturate(dot(V, H));
+
+	// --- Fresnel ---
+	vec3 specularColor = calculateSpecularColor(material.base_color, material.metalness);
+
+	vec3  F_rgb    = fresnelSchlick_BRDF(specularColor, VoH);
+	float F_energy = luminance(F_rgb);   // energy only
+
+	// --- Diffuse energy ---
+	float diffuseBRDF = lambertBRDF();
+	out_diffuse = radiance * NoL * diffuseBRDF;
+
+	// --- Specular energy ---
+	float D = D_GGX_BRDF(NoH, alpha);
+	float G = G_Smith_BRDF(NoV, NoL, alpha);
+
+	float specBRDF = (D * G) / max(4.0 * NoV * NoL, 1e-5);
+	out_specular = radiance * NoL * specBRDF;
 }
 
 void evalSplitBRDF(vec3 N, vec3 L, vec3 V, MaterialProperties material, out vec3 out_diffuse, out vec3 out_specular) {

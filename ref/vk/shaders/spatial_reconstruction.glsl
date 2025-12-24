@@ -20,6 +20,9 @@
 #define INCREASE_AABB_MULTIPLIER 0.5
 
 #include "debug.glsl"
+#include "utils.glsl"
+#include "noise.glsl"
+#include "brdf.glsl"
 
 #define SPECULAR_CLAMPING_MAX 3.0
 #define SPATIAL_RECONSTRUCTION_SAMPLES 16
@@ -36,15 +39,12 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D SPECULAR_OUTPUT_IMAGE;
 
 layout(set = 0, binding = 1, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 2, rgba16f) uniform readonly image2D normals_gs;
-layout(set = 0, binding = 3, rgba8) uniform readonly image2D material_rmxx;
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D SPECULAR_INPUT_IMAGE;
-layout(set = 0, binding = 5, rgba32f) uniform readonly image2D reflection_direction_pdf;
+layout(set = 0, binding = 3, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D SPECULAR_INPUT_IMAGE;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D reflection_direction_pdf;
 
 layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
-
-#include "utils.glsl"
-#include "noise.glsl"
-#include "brdf.glsl"
 
 #ifndef PI
 	#define PI 3.14 // FIXME please
@@ -202,7 +202,13 @@ void main() {
 	vec3 V = normalize(origin - position);
 	float NdotV = saturate(dot(shading_normal, V));
 
-	float roughness = imageLoad(material_rmxx, pix).x;
+	vec3 base_color = imageLoad(material_rmxx, pix).rgb;
+	vec2 rm = imageLoad(material_rmxx, pix).xy;
+
+	MaterialProperties material;
+	material.base_color = base_color;
+	material.roughness = rm.x;
+	material.metalness = rm.y;
 
 	PixelAreaStatistic pixelAreaStat;
 	pixelAreaStat.colorSum = vec4(0.0, 0.0, 0.0, 0.0);
@@ -253,8 +259,15 @@ void main() {
 		if (dot(normalize(reflDirPDF.xyz), geometry_normal_curr) < 0.0)
 			continue;
 
-		vec2 weightLength = computeWeightRayLength(reflDirPDF, V, shading_normal, roughness, NdotV, poisson[i].z);
-		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p_scaled).xyz, SPECULAR_CLAMPING_MAX);
+		vec2 weightLength = computeWeightRayLength(reflDirPDF, V, shading_normal, material.roughness, NdotV, poisson[i].z);
+		vec3 sampleColor = imageLoad(SPECULAR_INPUT_IMAGE, p_scaled).xyz;
+
+		// TODO: try to apply brdf from lobe
+		// vec3 dummyDiffuse = vec3(0.);
+		// evalDecolorizedBRDF(shading_normal, reflDirPDF.rgb, V, sampleColor, material, dummyDiffuse, sampleColor);
+
+		clampSpecular(sampleColor, SPECULAR_CLAMPING_MAX);
+
 		computeWeightedVariance(pixelAreaStat, sampleColor, weightLength.x);
 
 		if (weightLength.x > 1.0e-6)

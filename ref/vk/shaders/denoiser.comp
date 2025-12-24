@@ -2,7 +2,7 @@
 #include "debug.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
-#include "brdf.h"
+#include "brdf.glsl"
 #include "lighting_utils.glsl"
 
 #define GLSL
@@ -204,16 +204,7 @@ void main() {
 	vec3 colour = vec3(0.);
 
 	if (ubo.ubo.debug_display_only != DEBUG_DISPLAY_LIGHTING) {
-		vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
-		const vec3 V = normalize(origin - position);
-		colour.rgb = composePBRFromLobes(
-				diffuse,
-				specular,
-				base_color,
-				metalness,
-				roughness,
-				shading_normal,
-				V);
+		colour.rgb = mixDecolorizedBRDF(base_color, metalness, diffuse, specular);
 	} else {
 		colour = diffuse + specular;
 	}
