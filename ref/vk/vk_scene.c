@@ -10,7 +10,7 @@
 #include "vk_core.h"
 #include "vk_sprite.h"
 #include "vk_beams.h"
-#include "vk_decals.h"
+#include "r_decals.h"
 #include "vk_light.h"
 #include "vk_rtx.h"
 #include "r_textures.h"
@@ -155,7 +155,7 @@ static void reloadPatches( void ) {
 	loadMap(map, force_reload);
 }
 
-cl_entity_t* VK_GetEntityByIndex(int index)
+cl_entity_t* R_GetEntityByIndex(int index)
 {
 	if (index > 0 && index < globals.max_entities)
 		return globals.entities + index;
@@ -163,7 +163,7 @@ cl_entity_t* VK_GetEntityByIndex(int index)
 	return NULL;
 }
 
-model_t* VK_ModelHandle(int index)
+model_t* R_ModelHandle(int index)
 {
 	if (index > 0 && index < gp_cl->nummodels)
 		return gp_cl->models[index];
@@ -171,7 +171,7 @@ model_t* VK_ModelHandle(int index)
 	return NULL;
 }
 
-void VK_InitModelsPolys ( void )
+void R_InitModelsPolys ( void )
 {
 	// copypaste from GL_BuildLightmaps
 	int	i, j = 0;
@@ -179,7 +179,7 @@ void VK_InitModelsPolys ( void )
 
 	for( i = 0; i < gp_cl->nummodels; i++ )
 	{
-		if(( m = VK_ModelHandle( i + 1 )) == NULL )
+		if(( m = R_ModelHandle( i + 1 )) == NULL )
 			continue;
 
 		if( m->name[0] == '*' || m->type != mod_brush )
@@ -196,7 +196,7 @@ void VK_InitModelsPolys ( void )
 			if( m->surfaces[j].flags & SURF_DRAWTURB )
 				continue;
 
-			VK_BuildPolygonFromSurface( m, m->surfaces + j );
+			R_BuildPolygonFromSurface( m, m->surfaces + j );
 		}
 	}
 }
@@ -272,7 +272,7 @@ void R_NewMap( void ) {
 	// Make sure that EntityData doesn't accidentally reference old pointers.
 	VK_EntityDataClear();
 
-	VK_ClearDecals();
+	R_ClearDecals();
 
 	RT_FrameDiscontinuity();
 
@@ -287,7 +287,7 @@ void R_NewMap( void ) {
 
 	R_StudioResetPlayerModels();
 
-	VK_InitModelsPolys();
+	R_InitModelsPolys();
 }
 
 qboolean R_AddEntity( struct cl_entity_s *clent, int type )

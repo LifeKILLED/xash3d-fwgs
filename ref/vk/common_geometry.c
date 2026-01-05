@@ -202,12 +202,12 @@ void GL_SubdivideSurface( model_t *loadmodel, msurface_t *fa )
 
 /*
 ================
-VK_LightmapCoord
+R_LightmapCoord
 
 Total copypaste of R_LightmapCoord from gl_rsurf.c
 ================
 */
-void VK_LightmapCoord( const vec3_t v, const msurface_t *surf, const float sample_size, vec2_t coords )
+void R_LightmapCoord( const vec3_t v, const msurface_t *surf, const float sample_size, vec2_t coords )
 {
 	const mextrasurf_t *info = surf->info;
 	float s, t;
@@ -251,13 +251,13 @@ static void R_TextureCoord( const vec3_t v, const msurface_t *surf, vec2_t coord
 
 /*
 ================
-VK_BuildPolygonFromSurface
+R_BuildPolygonFromSurface
 
 Init surf->polys for decals
 Adapted copypaste of GL_BuildPolygonFromSurface
 ================
 */
-int VK_BuildPolygonFromSurface( model_t *mod, msurface_t *fa )
+int R_BuildPolygonFromSurface( model_t *mod, msurface_t *fa )
 {
 	int		i, lnumverts, nColinElim = 0;
 	float		sample_size;
@@ -299,7 +299,7 @@ int VK_BuildPolygonFromSurface( model_t *mod, msurface_t *fa )
 	{
 		R_GetEdgePosition( mod, fa, i, poly->verts[i] );
 		R_TextureCoord( poly->verts[i], fa, &poly->verts[i][3] );
-		VK_LightmapCoord( poly->verts[i], fa, sample_size, &poly->verts[i][5] );
+		R_LightmapCoord( poly->verts[i], fa, sample_size, &poly->verts[i][5] );
 	}
 
 	// remove co-linear points - Ed

@@ -59,8 +59,7 @@ enum {
 	kVkPipeline_A_1_R,    // blend: src*a + dst, depth test
 	kVkPipeline_AT,       // no blend, depth RW, alpha test
 	kVkPipeline_1_1_R,    // blend: src + dst, depth test
-	kVkPipeline_Decal,    // blend: src*a + dst*(1-a), depth test
-
+	kVkPipeline_Decal, 	  // copy of kVkPipeline_A_1mA_R but for separated decal material
 	kVkPipeline_COUNT,
 };
 
@@ -335,7 +334,7 @@ static qboolean createPipelines( void )
 				return false;
 		}
 
-		{
+				{
 			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_TRUE;
