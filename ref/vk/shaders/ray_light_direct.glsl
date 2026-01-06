@@ -3,8 +3,11 @@
 
 #include "ray_kusochki.glsl"
 #include "color_spaces.glsl"
+#include "poisson-disk-8x8.glsl"
 
 #include "light.glsl"
+
+#define POISSON_NOISE_DITHER_SCALE 0.25
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(normals_gs, uv);
@@ -59,11 +62,14 @@ void main() {
 		} else
 #endif
 
-#ifdef BLUE_NOISE_LIGHT_SAMPLING
-		vec3 rnd = imageLoad(frame_blue_noise, pix).xyz;
-#else
-		vec3 rnd = vec3(rand01(), rand01(), rand01());
-#endif
+	const vec2 poissonNoiseDither = mix(getPoissonQuad8x8(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+	const vec3 rnd = vec3(poissonNoiseDither, rand01());
+
+// #ifdef BLUE_NOISE_LIGHT_SAMPLING
+// 		vec3 rnd = imageLoad(frame_blue_noise, pix).xyz;
+// #else
+// 		vec3 rnd = vec3(rand01(), rand01(), rand01());
+// #endif
 
 		computeLighting(pos_t.xyz + geometry_normal * .001, shading_normal, -direction, material, rnd, diffuse, specular);
 	}

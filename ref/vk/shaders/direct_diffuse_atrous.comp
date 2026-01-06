@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define ATROUS_KERNEL 3
+#define ATROUS_KERNEL 2
 //#define DISABLE_VARIANCE 1
 #define SIGMA_ALLWAYS_ONE 1
 

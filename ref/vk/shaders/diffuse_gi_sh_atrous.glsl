@@ -1,10 +1,10 @@
 
 #ifndef KERNEL_X
-#define KERNEL_X 1
+#define KERNEL_X 2
 #endif
 
 #ifndef KERNEL_Y
-#define KERNEL_Y 1
+#define KERNEL_Y 2
 #endif
 
 
@@ -86,7 +86,7 @@ void main() {
 //			weight *= (GI_DOWNSAMPLE * GI_DOWNSAMPLE);
 //		#endif
 
-//			const float sigma = KERNEL_X / 2.;
+			const float sigma = KERNEL_X / 2.;
 //			const float weight = normpdf(x, sigma) * normpdf(y, sigma) * gi_depth_factor * normals_factor;
 
 			gi_sh1 += current_gi_sh1 * weight;

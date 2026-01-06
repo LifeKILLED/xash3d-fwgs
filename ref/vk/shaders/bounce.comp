@@ -6,6 +6,7 @@
 
 #include "debug.glsl"
 #include "lighting_utils.glsl"
+#include "poisson-disk-8x8.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -48,6 +49,8 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #define LIGHT_POLYGON 1
 #define LIGHT_POINT 1
+
+#define POISSON_NOISE_DITHER_SCALE 0.1
 
 #include "light.glsl"
 
@@ -263,11 +266,13 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 	// TODO split into two distinct passes, see #734
 	int first_brdf_type = BRDF_TYPE_NONE;
 
+	const vec2 poissonNoiseDither = mix(getPoissonQuad8x8(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+
 	for (int i = 0; i < bouncesCount; ++i) {
 		vec3 bounce_direction;
 
-		// TODO blue noise
-		const vec2 rnd = vec2(rand01(), rand01());
+		// stable noise for first bounce
+		const vec2 rnd = (i == 0) ? poissonNoiseDither : vec2(rand01(), rand01());
 
 		const int brdf_type = isReflection ? 
 			reflectionGetSample(direction, mat.shading_normal, mat.prop.roughness, mat.prop.metalness, rnd, bounce_direction, pdf) :

@@ -1,7 +1,7 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 
-#define OFFSET ivec2(32, 32)
+#define OFFSET ivec2(16, 16)
 
 #define INPUT_GI_1 sh1_ping
 #define INPUT_GI_2 sh2_ping
