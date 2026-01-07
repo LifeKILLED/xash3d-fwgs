@@ -34,8 +34,7 @@ vec2 getPoissonDisk8x8(ivec2 pix) {
         -0.5911991274545101,0.560810922992953,0.14666676551268498,-0.11081472410650739
     };
 
-    ivec2 coord = pix % 8;
-    int index = (coord.x + coord.y * 8) * 2;
+    int index = ((pix.x & 7) + ((pix.y & 7) << 3)) << 1;
     return vec2(poisson_disk_8x8[index], poisson_disk_8x8[index + 1]);
 }
 
@@ -75,8 +74,7 @@ vec2 getPoissonQuad8x8(ivec2 pix) {
         0.9715249989995753,-0.16820855818322067,0.13319618343046358,-0.3614736468333295
     };
 
-    ivec2 coord = pix % 8;
-    int index = (coord.x + coord.y * 8) * 2;
+    int index = ((pix.x & 7) + ((pix.y & 7) << 3)) << 1;
     return vec2(poisson_quad_8x8[index], poisson_quad_8x8[index + 1]);
 }
 
