@@ -34,6 +34,20 @@ SampleContext buildSampleContext(vec3 position, vec3 normal, vec3 view_dir) {
 	return ctx;
 }
 
+vec4 getPolygonLightSampleStupid(vec3 P, const PolygonLight poly)
+{
+	// diffuse is ok but specular is broken
+    vec3 dir = poly.center - P;
+    float dist2 = dot(dir, dir);
+    float dist = sqrt(dist2);
+    vec3 L = dir / max(dist, 1e-6); // normalized direction
+
+    float cos_theta = max(dot(-L, poly.plane.xyz), 0.0);
+    float weight = poly.area * cos_theta / max(dist2, 1e-6);
+
+    return vec4(dir, weight * 0.4); // WTD: 0.4 for same intensity with other samplings
+}
+
 vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
@@ -62,7 +76,7 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly,
 	}
 #endif
 
-	return vec4(light_dir_n, contrib);
+	return vec4(light_dir_n, contrib * 0.5); // WTF: 0.5 for same intensity with other samplings
 }
 
 vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
@@ -277,7 +291,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 			vec3 poly_diffuse = vec3(0.), poly_specular = vec3(0.);
 			evalDecolorizedBRDF(N, light_sample_dir.xyz, view_dir, poly.emissive * light_sample_dir.w, material, poly_diffuse, poly_specular);
 			diffuse += poly_diffuse;
-			specular += poly_specular;
+			specular += poly_specular * 2.0;
 
 #ifdef DEBUG_VALIDATE_EXTRA
 			if (IS_INVALIDV(specular) || any(lessThan(specular,vec3(0.)))) {

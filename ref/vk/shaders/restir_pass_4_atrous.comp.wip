@@ -1,0 +1,68 @@
+#version 460
+layout(local_size_x=8, local_size_y=8) in;
+#include "restir_common.glsl"
+
+layout(binding=1, rgba16f) uniform image2D inDiffuse;
+layout(binding=2, rgba16f) uniform image2D inSpecular;
+layout(binding=3, r16f)    uniform image2D varDiffuse;
+layout(binding=4, r16f)    uniform image2D varSpecular;
+layout(binding=5, rgba16f) uniform image2D gPos;
+layout(binding=6, rgba16f) uniform image2D gNorm;
+layout(binding=7, rgba16f) uniform image2D gView;
+
+layout(binding=8, rgba16f) uniform image2D outDiffuse;
+layout(binding=9, rgba16f) uniform image2D outSpecular;
+
+const ivec2 KERNEL[9] = ivec2[](
+    ivec2(-1,-1), ivec2(0,-1), ivec2(1,-1),
+    ivec2(-1, 0), ivec2(0, 0), ivec2(1, 0),
+    ivec2(-1, 1), ivec2(0, 1), ivec2(1, 1)
+);
+const float KERNEL_WEIGHT[9] = float[](1,2,1,2,4,2,1,2,1);
+
+float edgeWeight(vec3 cPos, vec3 cNorm, float cRough, vec3 nPos, vec3 nNorm, float nRough,
+                 float sigmaP, float sigmaN, float sigmaR)
+{
+    float wp = length(cPos - nPos) / sigmaP;
+    float wn = acos(clamp(dot(cNorm,nNorm),0,1)) / sigmaN;
+    float wr = abs(cRough - nRough) / sigmaR;
+    return exp(-(wp + wn + wr));
+}
+
+vec3 atrousFilter(ivec2 px, bool isSpecular, float sigmaP, float sigmaN, float sigmaR)
+{
+    vec3 cPos = imageLoad(gPos, px).xyz;
+    vec3 cNorm = normalize(imageLoad(gNorm, px).xyz);
+    float cRough = imageLoad(gView, px).w;
+
+    vec3 accum = vec3(0); float weightSum=0;
+
+    for(int i=0;i<9;i++){
+        ivec2 nPx = px + KERNEL[i];
+        vec3 nCol = isSpecular ? imageLoad(inSpecular,nPx).rgb : imageLoad(inDiffuse,nPx).rgb;
+        float var = isSpecular ? imageLoad(varSpecular,nPx).r : imageLoad(varDiffuse,nPx).r;
+
+        vec3 nPos = imageLoad(gPos,nPx).xyz;
+        vec3 nNorm = normalize(imageLoad(gNorm,nPx).xyz);
+        float nRough = imageLoad(gView,nPx).w;
+
+        float w = KERNEL_WEIGHT[i] * edgeWeight(cPos,cNorm,cRough,nPos,nNorm,nRough,sigmaP,sigmaN,sigmaR)
+                  / max(var,1e-4);
+
+        accum += nCol*w;
+        weightSum += w;
+    }
+
+    return accum / max(weightSum,1e-5);
+}
+
+void main(){
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    float sigmaP=0.1, sigmaN=0.1, sigmaR=0.05;
+
+    vec3 fD = atrousFilter(px,false,sigmaP,sigmaN,sigmaR);
+    vec3 fS = atrousFilter(px,true,sigmaP,sigmaN,sigmaR);
+
+    imageStore(outDiffuse, px, vec4(fD,1));
+    imageStore(outSpecular, px, vec4(fS,1));
+}

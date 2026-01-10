@@ -65,11 +65,11 @@ void main() {
 		return;
 	}
 
-	vec3 diffuse =  fixRadiance(imageLoad(light_poly_diffuse, pix)).rgb +
-					fixRadiance(imageLoad(light_point_diffuse, pix)).rgb;
+	vec3 diffuse =  fixRadiance(imageLoad(light_poly_diffuse, pix)).rgb;// +
+					//fixRadiance(imageLoad(light_point_diffuse, pix)).rgb;
 
-	vec3 specular = fixRadiance(imageLoad(light_poly_specular, pix)).rgb +
-					fixRadiance(imageLoad(light_point_specular, pix)).rgb;
+	vec3 specular = fixRadiance(imageLoad(light_poly_specular, pix)).rgb;// +
+					//fixRadiance(imageLoad(light_point_specular, pix)).rgb;
 
 	imageStore(out_diffuse_mixed, pix, vec4(diffuse, 0.0));
 	imageStore(out_specular_mixed, pix, vec4(specular, 0.0));
