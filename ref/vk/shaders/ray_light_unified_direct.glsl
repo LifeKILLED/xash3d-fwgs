@@ -60,7 +60,7 @@ void main() {
 		const vec3 geometry_normal = normalDecode(packed_normal.xy);
 		const vec3 shading_normal = normalDecode(packed_normal.zw);
 
-		const vec2 poissonNoiseDither = mix(getPoissonQuad8x8(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+		const vec2 poissonNoiseDither = mix(getPoissonCoord(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
 		const vec3 rnd = vec3(poissonNoiseDither, rand01());
 
 		LightResult r = calculateUnifiedLight(

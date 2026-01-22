@@ -32,12 +32,15 @@
 //		"inherit": "light_direct",
 //		"rgen": "ray_light_direct_point"
 //	},
-	"light_direct_poly": {
-		"comp": "ray_light_direct_poly"
+	"ray_light_unified_direct": {
+		"comp": "ray_light_unified_direct"
 	},
-	"light_direct_point": {
-		"comp": "ray_light_direct_point"
-	},
+	// "light_direct_poly": {
+	// 	"comp": "ray_light_direct_poly"
+	// },
+	// "light_direct_point": {
+	// 	"comp": "ray_light_direct_point"
+	// },
 	"bounce": {
 		"comp": "bounce"
 	},
