@@ -148,7 +148,7 @@ uint get6bitIndex(uint packed, int i) {
 
 // Convert ivec2 (0-7,0-7) to 0-63 index using bitshift
 int texelToIndex(ivec2 texel) {
-    return (texel.y << 3) | texel.x; // y*8 + x
+    return ((texel.y & 7) << 3) | (texel.x & 7); // y*8 + x
 }
 
 // Get poisson coordinate for texel
