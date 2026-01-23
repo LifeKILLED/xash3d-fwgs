@@ -63,7 +63,7 @@ void main() {
 		const vec2 poissonNoiseDither = mix(getPoissonCoord(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
 		const vec3 rnd = vec3(poissonNoiseDither, rand01());
 
-		LightResult r = calculateUnifiedLight(
+		LightResult r = calculateUnifiedLightImportance(
     		pos_t.xyz + geometry_normal * .001,
 			shading_normal,
 			-direction,

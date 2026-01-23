@@ -27,8 +27,8 @@ layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_specul
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffuse;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
 
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D indirect_specular_reconstructed;
-layout(set = 0, binding = 7, rgba16f) uniform readonly image2D indirect_diffuse_denoised_by_sh;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D indirect_specular;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D indirect_diffuse;
 
 layout(set = 0, binding = 8) uniform UBO { UniformBuffer ubo; } ubo;
 
