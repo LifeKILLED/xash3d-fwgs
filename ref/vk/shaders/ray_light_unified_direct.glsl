@@ -13,6 +13,7 @@
 
 //#include "light.glsl"
 
+#define UNIFIED_LIGHTS_IMPORTANCE 1
 #include "lights_unified.glsl"
 
 #define POISSON_NOISE_DITHER_SCALE 0.25
@@ -70,7 +71,8 @@ void main() {
     		material,
 			rnd,
 			true,
-			true);
+			true,
+			pix);
 
 		diffuse += r.diffuse;
 		specular += r.specular;
