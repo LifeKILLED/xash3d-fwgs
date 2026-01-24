@@ -1,3 +1,5 @@
+#ifndef POISSON_DISK_8X8_SRC
+#define POISSON_DISK_8X8_SRC 1
 
 float getPoissonCoord(uint index) {
     const float poisson8x8coordinates[128] = float[128](
@@ -181,3 +183,19 @@ vec2[10] getPoissonNeighbors(ivec2 texel) {
     }
     return neighbors;
 }
+
+ivec2[10] getPoissonNeighborsPix(ivec2 texel) {
+    ivec2 neighbors[10];
+    uint idx = texelToIndex(texel);
+    for(int i=0;i<10;i++){
+        uint packed = getPoissonNeighborEncoded((idx<<1) + (i<5?0:1));
+        int localIdx = i<5 ? i : i-5;
+        uint neighbor = get6bitIndex(packed, localIdx);
+        uint neighbor_x = neighbor & 7; // % 8
+        uint neighbor_y = (neighbor - neighbor_x) >> 3; // divide by 8
+        neighbors[i] = ivec2(neighbor_x, neighbor_y);
+    }
+    return neighbors;
+}
+
+#endif // POISSON_DISK_8X8_SRC
