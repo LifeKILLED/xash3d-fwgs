@@ -19,6 +19,7 @@ const float shadow_offset_fudge = .1;
 #include "light_common.glsl"
 #include "lighting_utils.glsl"
 #include "light_polygon.glsl"
+#include "poisson-disk-8x8.glsl"
 
 #define EPSILON 1e-4
 
@@ -125,7 +126,7 @@ LightResult evalUnifiedLight(
                             uint(light_grid.clusters_[cluster_index].polygons[pick - num_point]) :
                             pick - num_point;
 
-        r.light_id = idx_poly + num_point;
+        r.light_id = idx_poly + lights.m.num_point_lights;
 
         PolygonLight poly = lights.m.polygons[idx_poly];
 		const float plane_dist = dot(poly.plane, vec4(P, 1.f));
@@ -221,6 +222,24 @@ struct LightRandomPickData {
     uint pick_id;
 };
 
+void updatePickData(vec3 radiance, uint light_id, inout LightRandomPickData data, bool pick_pass) {
+    float weight = luminance(radiance);
+    data.weights_sum += weight;
+
+    if (pick_pass) {
+        if (weight > 0.0 && data.pick_id == -1 && data.pick_random <= data.weights_sum) {
+            data.pick_id = light_id;
+            data.pdf = weight / data.pdf_sum;
+        }
+    }
+}
+
+void endOfWeightPass(float rnd, inout LightRandomPickData data) {
+    data.pick_random = rnd * data.weights_sum;
+    data.pdf_sum = data.weights_sum;
+    data.weights_sum = 0.0;
+}
+
 #ifdef UNIFIED_LIGHTS_IMPORTANCE
 
 #define PASS_WEIGHTS_SUM 0
@@ -255,45 +274,26 @@ LightResult calculateUnifiedLightImportance(
 
                     LightResult l = evalUnifiedLight(P, N, V, material, light_id, sampling_rand, eval_brdf, false, true);
 
-                    float diff_weight = luminance(l.diffuse);
-                    diff_pick.weights_sum += diff_weight;
-
-                    float spec_weight = luminance(l.specular);
-                    spec_pick.weights_sum += spec_weight;
-
-                    if (pass == PASS_RUSSIAN_ROULETTE) {
-                        if (diff_weight > 0.0 && diff_pick.pick_id == -1 && diff_pick.pick_random <= diff_pick.weights_sum) {
-                            diff_pick.pick_id = light_id;
-                            diff_pick.pdf = diff_weight / diff_pick.pdf_sum;
-                        }
-
-                        if (spec_weight > 0.0 && spec_pick.pick_id == -1 && spec_pick.pick_random <= spec_pick.weights_sum) {
-                            spec_pick.pick_id = light_id;
-                            spec_pick.pdf = spec_weight / spec_pick.pdf_sum;
-                        }
-                    }
+                    bool pick_pass = pass == PASS_RUSSIAN_ROULETTE;
+                    updatePickData(l.diffuse, l.light_id, diff_pick, pick_pass);
+                    updatePickData(l.specular, l.light_id, spec_pick, pick_pass);
                 }
 
                 if (pass == PASS_WEIGHTS_SUM) {
                     const float rnd = rand01();
-                    diff_pick.pick_random = rnd * diff_pick.weights_sum;
-                    diff_pick.pdf_sum = diff_pick.weights_sum;
-                    diff_pick.weights_sum = 0.0;
-
-                    spec_pick.pick_random = rnd * spec_pick.weights_sum;
-                    spec_pick.pdf_sum = spec_pick.weights_sum;
-                    spec_pick.weights_sum = 0.0;
+                    endOfWeightPass(rnd, diff_pick);
+                    endOfWeightPass(rnd, spec_pick);
                 }
             }
         }
 
         if (diff_pick.pick_id != -1 && diff_pick.pdf > 0.0) {
-            LightResult l = evalUnifiedLight(P, N, V, material, diff_pick.pick_id, sampling_rand, eval_brdf, true, true);
+            LightResult l = evalUnifiedLight(P, N, V, material, diff_pick.pick_id, sampling_rand, eval_brdf, true, false);
             r.diffuse += l.diffuse / diff_pick.pdf;
         }
 
         if (spec_pick.pick_id != -1 && spec_pick.pdf > 0.0) {
-            LightResult l = evalUnifiedLight(P, N, V, material, spec_pick.pick_id, sampling_rand, eval_brdf, true, true);
+            LightResult l = evalUnifiedLight(P, N, V, material, spec_pick.pick_id, sampling_rand, eval_brdf, true, false);
             r.specular += l.specular / spec_pick.pdf;
         }
     }
