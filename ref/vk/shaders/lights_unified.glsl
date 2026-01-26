@@ -46,9 +46,15 @@ uint getLightClusterIndex(vec3 P) {
     return cluster_index;
 }
 
-uint getUnifiedLightsCount(uint cluster_index) {
+uint getLightsCountInCluster(uint cluster_index) {
     uint num_point = uint(light_grid.clusters_[cluster_index].num_point_lights);
     uint num_poly  = uint(light_grid.clusters_[cluster_index].num_polygons);
+    return num_point + num_poly;
+}
+
+uint getLightsCountTotal() {
+    uint num_point = uint(lights.m.num_point_lights);
+    uint num_poly  = uint(lights.m.num_polygons);
     return num_point + num_poly;
 }
 
@@ -178,7 +184,7 @@ LightResult evalRandomUnifiedLight(
     bool enable_shadow)
 {
     uint cluster_index = getLightClusterIndex(P);
-    uint total = getUnifiedLightsCount(cluster_index);
+    uint total = getLightsCountInCluster(cluster_index);
     
     if(total == 0) {
         return LightResult(vec3(0.0), vec3(0.0), -1);
@@ -197,7 +203,7 @@ LightResult calculateUnifiedLight(
     bool enable_shadow)
 {
 	uint cluster_index = getLightClusterIndex(P);
-    uint total = getUnifiedLightsCount(cluster_index);
+    uint total = getLightsCountInCluster(cluster_index);
     
     LightResult r = LightResult(vec3(0.0), vec3(0.0), -1);
 
@@ -253,7 +259,7 @@ LightResult calculateUnifiedLightImportance(
     ivec2 pix)
 {
 	uint cluster_index = getLightClusterIndex(P);
-    uint total = getUnifiedLightsCount(cluster_index);
+    uint total = getLightsCountInCluster(cluster_index);
     
     LightResult r = LightResult(vec3(0.0), vec3(0.0), -1);
 
@@ -312,7 +318,7 @@ LightResult calculateUnifiedLightsRandom(
     bool enable_shadow)
 {
 	uint cluster_index = getLightClusterIndex(P);
-    uint total = getUnifiedLightsCount(cluster_index);
+    uint total = getLightsCountInCluster(cluster_index);
     
     LightResult r = LightResult(vec3(0.0), vec3(0.0), -1);
 
