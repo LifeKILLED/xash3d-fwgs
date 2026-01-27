@@ -32,66 +32,72 @@
 //		"inherit": "light_direct",
 //		"rgen": "ray_light_direct_point"
 //	},
-	"ray_light_unified_direct": {
-		"comp": "ray_light_unified_direct"
+	"bounce": {
+		"comp": "bounce"
 	},
+	"temporal_reprojection": {
+		"comp": "temporal_reprojection"
+	},
+	"restir_pass_1_init": {
+		"comp": "restir_pass_1_init"
+	},
+	// "ray_light_unified_direct": {
+	// 	"comp": "ray_light_unified_direct"
+	// },
 	// "light_direct_poly": {
 	// 	"comp": "ray_light_direct_poly"
 	// },
 	// "light_direct_point": {
 	// 	"comp": "ray_light_direct_point"
 	// },
-	"bounce": {
-		"comp": "bounce"
-	},
-	"indiff_at1": {
-		"comp": "indirect_diffuse_atrous1"
-	},
-	"indiff_sh_init": {
-		"comp": "diffuse_gi_sh_denoise_init"
-	},
-	"indiff_sh_pass1": {
-		"comp": "diffuse_gi_sh_denoise_pass_1"
-	},
-	"indiff_sh_pass2": {
-		"comp": "diffuse_gi_sh_denoise_pass_2"
-	},
-	"indiff_sh_pass3": {
-		"comp": "diffuse_gi_sh_denoise_pass_3"
-	},
-	"indiff_sh_pass4": {
-		"comp": "diffuse_gi_sh_denoise_pass_4"
-	},
-	"indiff_sh_pass5": {
-		"comp": "diffuse_gi_sh_denoise_pass_5"
-	},
-	"indiff_sh_save": {
-		"comp": "diffuse_gi_sh_denoise_save"
-	},
-	"spatial_reconstruction": {
-		"comp": "spatial_reconstruction"
-	},
-	"mix_lighting": {
-		"comp": "mix_lighting"
-	},
-	"direct_diffuse_filter_pass1": {
-		"comp": "direct_diffuse_filter_pass1"
-	},
-	"direct_diffuse_filter_pass2": {
-		"comp": "direct_diffuse_filter_pass2"
-	},
-	"direct_diffuse_atrous": {
-	 	"comp": "direct_diffuse_atrous"
-	 },
-	"direct_specular_filter_pass1": {
-		"comp": "direct_specular_filter_pass1"
-	},
-	"direct_specular_filter_pass2": {
-		"comp": "direct_specular_filter_pass2"
-	},
-	"direct_specular_atrous": {
-	 	"comp": "direct_specular_atrous"
-	},
+	// "indiff_at1": {
+	// 	"comp": "indirect_diffuse_atrous1"
+	// },
+	// "indiff_sh_init": {
+	// 	"comp": "diffuse_gi_sh_denoise_init"
+	// },
+	// "indiff_sh_pass1": {
+	// 	"comp": "diffuse_gi_sh_denoise_pass_1"
+	// },
+	// "indiff_sh_pass2": {
+	// 	"comp": "diffuse_gi_sh_denoise_pass_2"
+	// },
+	// "indiff_sh_pass3": {
+	// 	"comp": "diffuse_gi_sh_denoise_pass_3"
+	// },
+	// "indiff_sh_pass4": {
+	// 	"comp": "diffuse_gi_sh_denoise_pass_4"
+	// },
+	// "indiff_sh_pass5": {
+	// 	"comp": "diffuse_gi_sh_denoise_pass_5"
+	// },
+	// "indiff_sh_save": {
+	// 	"comp": "diffuse_gi_sh_denoise_save"
+	// },
+	// "spatial_reconstruction": {
+	// 	"comp": "spatial_reconstruction"
+	// },
+	// "mix_lighting": {
+	// 	"comp": "mix_lighting"
+	// },
+	// "direct_diffuse_filter_pass1": {
+	// 	"comp": "direct_diffuse_filter_pass1"
+	// },
+	// "direct_diffuse_filter_pass2": {
+	// 	"comp": "direct_diffuse_filter_pass2"
+	// },
+	// "direct_diffuse_atrous": {
+	//  	"comp": "direct_diffuse_atrous"
+	//  },
+	// "direct_specular_filter_pass1": {
+	// 	"comp": "direct_specular_filter_pass1"
+	// },
+	// "direct_specular_filter_pass2": {
+	// 	"comp": "direct_specular_filter_pass2"
+	// },
+	// "direct_specular_atrous": {
+	//  	"comp": "direct_specular_atrous"
+	// },
 	// "indirect_specular_atrous_pass_0": {
 	//  	"comp": "indirect_specular_atrous_pass_0"
 	// },
@@ -110,39 +116,36 @@
 	// "indirect_specular_atrous_pass_5": {
 	//  	"comp": "indirect_specular_atrous_pass_5"
 	// },
-	"indirect_specular_pre_filter_pass1": {
-		"comp": "indirect_specular_pre_filter_pass1"
-	},
-	"indirect_specular_pre_filter_pass2": {
-		"comp": "indirect_specular_pre_filter_pass2"
-	},
-	"indirect_specular_pre_atrous": {
-		"comp": "indirect_specular_pre_atrous"
-	},
-	"temporal_reprojection": {
-		"comp": "temporal_reprojection"
-	},
-	"reproject_diffuse": {
-		"comp": "reproject_diffuse"
-	},
-	"reproject_specular": {
-		"comp": "reproject_specular"
-	},
-	"reproject_indirect_diffuse": {
-		"comp": "reproject_indirect_diffuse"
-	},
-	"reproject_indirect_specular": {
-		"comp": "reproject_indirect_specular"
-	},
-	"indirect_specular_post_filter_pass1": {
-		"comp": "indirect_specular_post_filter_pass1"
-	},
-	"indirect_specular_post_filter_pass2": {
-		"comp": "indirect_specular_post_filter_pass2"
-	},
-	"indirect_specular_post_atrous": {
-		"comp": "indirect_specular_post_atrous"
-	},
+	// "indirect_specular_pre_filter_pass1": {
+	// 	"comp": "indirect_specular_pre_filter_pass1"
+	// },
+	// "indirect_specular_pre_filter_pass2": {
+	// 	"comp": "indirect_specular_pre_filter_pass2"
+	// },
+	// "indirect_specular_pre_atrous": {
+	// 	"comp": "indirect_specular_pre_atrous"
+	// },
+	// "reproject_diffuse": {
+	// 	"comp": "reproject_diffuse"
+	// },
+	// "reproject_specular": {
+	// 	"comp": "reproject_specular"
+	// },
+	// "reproject_indirect_diffuse": {
+	// 	"comp": "reproject_indirect_diffuse"
+	// },
+	// "reproject_indirect_specular": {
+	// 	"comp": "reproject_indirect_specular"
+	// },
+	// "indirect_specular_post_filter_pass1": {
+	// 	"comp": "indirect_specular_post_filter_pass1"
+	// },
+	// "indirect_specular_post_filter_pass2": {
+	// 	"comp": "indirect_specular_post_filter_pass2"
+	// },
+	// "indirect_specular_post_atrous": {
+	// 	"comp": "indirect_specular_post_atrous"
+	// },
 	"denoiser": {
 		"comp": "denoiser"
 	},

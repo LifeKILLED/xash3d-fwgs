@@ -263,6 +263,8 @@ ivec2 pix;
 void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, bool isReflection, inout vec3 diffuse, inout vec3 specular, inout vec3 first_bounce_direction, inout float pdf) {
 	vec3 throughput = vec3(1.);
 
+	return;
+
 	// TODO split into two distinct passes, see #734
 	int first_brdf_type = BRDF_TYPE_NONE;
 

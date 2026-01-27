@@ -1,0 +1,199 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query: require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_control_flow_attributes2 : require
+
+#define DIFFUSE_CHANGE_THRESHOLD 0.7
+#define SPECULAR_CHANGE_THRESHOLD 0.7
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#include "utils.glsl"
+#include "noise.glsl"
+#include "debug.glsl"
+#include "color_spaces.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+
+layout (set = 0, binding = 7) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout (set = 0, binding = 8, align = 1) readonly buffer UBOLightClusters {
+	LightCluster clusters_[MAX_LIGHT_CLUSTERS];
+} light_grid;
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
+//layout(set = 0, binding = 14, rgba32f) uniform readonly image2D frame_blue_noise;
+
+layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_restir_diffuse;
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_restir_specular;
+
+layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+
+// restir
+layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_res_diffuse;
+layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_res_specular;
+layout(set = 0, binding=17, rgba32f) uniform image2D out_temporal_res_diffuse;
+layout(set = 0, binding=18, rgba32f) uniform image2D out_temporal_res_specular;
+
+layout(set = 0, binding = 19, rgba16f) uniform image2D reprojection_uv;
+
+#define RAY_QUERY
+
+#define LIGHT_POINT 1
+#define LIGHT_POLYGON 1
+
+#define POISSON_NOISE_DITHER_SCALE 0.1
+
+#include "ray_kusochki.glsl"
+#include "poisson-disk-8x8.glsl"
+
+#include "lights_unified.glsl"
+
+#include "restir_common.glsl"
+
+const ivec2 OFFSETS[4] = ivec2[](ivec2(1,0), ivec2(-1,0),
+                                  ivec2(0,1), ivec2(0,-1));
+
+float lightChangeConf(vec3 cur, vec3 prev) {
+    float diff = length(cur-prev) / max(length(prev),1e-4);
+    return exp(-diff*4.0);
+}
+
+float lightChangeConf(float cur, float prev) {
+    float diff = abs(cur - prev) / max(prev,1e-4);
+    return exp(-diff*4.0);
+}
+
+void main(){
+#ifdef RAY_TRACE
+	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
+	const ivec2 pix = ivec2(gl_LaunchIDEXT.xy);
+#elif defined(RAY_QUERY)
+	const ivec2 pix = ivec2(gl_GlobalInvocationID);
+	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+	const vec2 uv = (gl_GlobalInvocationID.xy + .5) / res * 2. - 1.;
+#else
+#error You have two choices here. Ray trace, or Rake Yuri. So what it's gonna be, huh? Choose wisely.
+#endif
+
+	// FIXME incorrect for reflection/refraction
+	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
+    const vec3 V = -direction;
+
+	const vec4 material_data = imageLoad(material_rmxx, pix);
+
+	MaterialProperties material;
+	material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+    material.roughness = material_data.r;
+	material.metalness = material_data.g;
+
+    const vec4 packed_normal = imageLoad(normals_gs, pix);
+    const vec3 geometry_normal = normalDecode(packed_normal.xy);
+    const vec3 shading_normal = normalDecode(packed_normal.zw);
+    const vec3 N = shading_normal;
+
+	const vec4 pos_t = imageLoad(position_t, pix);
+    const vec3 P = pos_t.xyz + geometry_normal * .001;
+
+    // --- Temporal reuse ---
+    ivec2 prevPx = ivec2(imageLoad(reprojection_uv, pix).xy);
+
+    vec3 sampling_rand_curr = vec3(0.);
+    vec3 sampling_rand_prev = vec3(0.);
+
+    {
+        rand01_state = ubo.ubo.random_seed - 1 + pix.x * 1833 + pix.y * 31337;
+        const vec2 poissonNoiseDither = mix(getPoissonCoord(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+        sampling_rand_curr = vec3(poissonNoiseDither, rand01());
+    }
+
+    {
+        rand01_state = ubo.ubo.random_seed + prevPx.x * 1833 + prevPx.y * 31337;
+        const vec2 poissonNoiseDither = mix(getPoissonCoord(prevPx) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+        sampling_rand_prev = vec3(poissonNoiseDither, rand01());
+    }
+
+    rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
+
+    Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, prevPx));
+    Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, prevPx));
+
+    float changeDiffuse = 0.;
+    float changeSpecular = 0.;
+
+    {
+        LightResult l = evalUnifiedLight(P, N, V, material, prevDiffuse.lightIndex, sampling_rand_prev, true, false, false);
+        changeDiffuse = lightChangeConf(luminance(l.diffuse), prevDiffuse.W);
+    }
+
+    {
+        LightResult l = evalUnifiedLight(P, N, V, material, prevSpec.lightIndex, sampling_rand_prev, true, false, false);
+        changeSpecular = lightChangeConf(luminance(l.specular), prevSpec.W);
+    }
+
+    Reservoir rDiffuse = Reservoir(0, 0, 0, 0);
+    Reservoir rSpec = Reservoir(0, 0, 0, 0);
+
+    if (changeDiffuse > DIFFUSE_CHANGE_THRESHOLD)
+        rDiffuse = prevDiffuse;
+
+    if (changeSpecular > SPECULAR_CHANGE_THRESHOLD)
+        rSpec = prevSpec;
+
+    // --- Spatial reuse (previous frame neighbors) ---
+    // for(int x=-2; x<=2; x++){
+    //     for(int y=-2; y<=2; y++){
+    //         ivec2 nPx = min(ivec2(0, 0), max(res, prevPx + ivec2(x, y)));
+    //         Reservoir nD = loadReservoir(imageLoad(prev_temporal_res_diffuse, nPx));
+    //         Reservoir nS = loadReservoir(imageLoad(prev_temporal_res_specular, nPx));
+    //         reservoirUpdate(rDiffuse, nD.lightIndex, nD.weightSum, rand01());
+    //         reservoirUpdate(rSpec, nS.lightIndex, nS.weightSum, rand01());
+    //     }
+    // }
+
+    // --- New candidates (N=8) ---
+    for(int i=0;i<16;i++){
+        LightResult l = evalRandomUnifiedLight(P, N, V, material, sampling_rand_curr, rand01(), true, false);
+        float wDiffuse = luminance(l.diffuse);
+        float wSpec = luminance(l.specular);
+        reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
+        reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
+    }
+
+    vec3 diffuse = vec3(0.);
+    vec3 specular = vec3(0.);
+
+    {
+        LightResult l = evalUnifiedLight(P, N, V, material, rDiffuse.lightIndex, sampling_rand_curr, true, true, false);
+        diffuse = l.diffuse;
+    }
+
+    {
+        LightResult l = evalUnifiedLight(P, N, V, material, rSpec.lightIndex, sampling_rand_curr, true, true, false);
+        specular = l.specular;
+    }
+
+    imageStore(out_restir_diffuse, pix, vec4(diffuse, changeDiffuse));
+    imageStore(out_restir_specular, pix, vec4(specular, changeSpecular));
+
+    imageStore(out_temporal_res_diffuse, pix, vec4(float(rDiffuse.lightIndex), rDiffuse.weightSum, rDiffuse.W, rDiffuse.M));
+    imageStore(out_temporal_res_specular, pix, vec4(float(rSpec.lightIndex), rSpec.weightSum, rSpec.W, rSpec.M));
+}
