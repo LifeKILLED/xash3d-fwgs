@@ -5,8 +5,11 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_control_flow_attributes2 : require
 
-#define DIFFUSE_CHANGE_THRESHOLD 0.7
-#define SPECULAR_CHANGE_THRESHOLD 0.7
+#define CANDIDATES_COUNT 16
+#define CANDIDATES_RAYS false
+#define CHANGING_THRESHOLD 0.3
+#define POISSON_NOISE_DITHER_SCALE 0.1
+#define ANIMATE_PATTERN true
 
 #define GLSL
 #include "ray_interop.h"
@@ -55,8 +58,6 @@ layout(set = 0, binding = 19, rgba16f) uniform image2D reprojection_uv;
 
 #define LIGHT_POINT 1
 #define LIGHT_POLYGON 1
-
-#define POISSON_NOISE_DITHER_SCALE 0.1
 
 #include "ray_kusochki.glsl"
 #include "poisson-disk-8x8.glsl"
@@ -119,15 +120,20 @@ void main(){
     vec3 sampling_rand_curr = vec3(0.);
     vec3 sampling_rand_prev = vec3(0.);
 
+    uint rnd_seed = ANIMATE_PATTERN ? ubo.ubo.random_seed : 0;
     {
-        rand01_state = ubo.ubo.random_seed - 1 + pix.x * 1833 + pix.y * 31337;
-        const vec2 poissonNoiseDither = mix(getPoissonCoord(pix) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+        uint seed = rnd_seed;
+        vec2 poisson_coord = getPoissonCoord(pix + ivec2(int(seed), int(seed>>3)));
+        rand01_state = seed + pix.x * 1833 + pix.y * 31337;
+        const vec2 poissonNoiseDither = mix(poisson_coord * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
         sampling_rand_curr = vec3(poissonNoiseDither, rand01());
     }
 
     {
-        rand01_state = ubo.ubo.random_seed + prevPx.x * 1833 + prevPx.y * 31337;
-        const vec2 poissonNoiseDither = mix(getPoissonCoord(prevPx) * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+        uint seed = rnd_seed - 1;
+        vec2 poisson_coord = getPoissonCoord(prevPx + ivec2(int(seed), int(seed>>3)));
+        rand01_state = seed + prevPx.x * 1833 + prevPx.y * 31337;
+        const vec2 poissonNoiseDither = mix(poisson_coord * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
         sampling_rand_prev = vec3(poissonNoiseDither, rand01());
     }
 
@@ -140,22 +146,22 @@ void main(){
     float changeSpecular = 0.;
 
     {
-        LightResult l = evalUnifiedLight(P, N, V, material, prevDiffuse.lightIndex, sampling_rand_prev, true, false, false);
+        LightResult l = evalUnifiedLight(P, N, V, material, prevDiffuse.lightIndex, sampling_rand_prev, true, CANDIDATES_RAYS, false);
         changeDiffuse = lightChangeConf(luminance(l.diffuse), prevDiffuse.W);
     }
 
     {
-        LightResult l = evalUnifiedLight(P, N, V, material, prevSpec.lightIndex, sampling_rand_prev, true, false, false);
+        LightResult l = evalUnifiedLight(P, N, V, material, prevSpec.lightIndex, sampling_rand_prev, true, CANDIDATES_RAYS, false);
         changeSpecular = lightChangeConf(luminance(l.specular), prevSpec.W);
     }
 
     Reservoir rDiffuse = Reservoir(0, 0, 0, 0);
     Reservoir rSpec = Reservoir(0, 0, 0, 0);
 
-    if (changeDiffuse > DIFFUSE_CHANGE_THRESHOLD)
+    if (rand01() * CHANGING_THRESHOLD < changeDiffuse)
         rDiffuse = prevDiffuse;
 
-    if (changeSpecular > SPECULAR_CHANGE_THRESHOLD)
+    if (rand01() * CHANGING_THRESHOLD < changeSpecular)
         rSpec = prevSpec;
 
     // --- Spatial reuse (previous frame neighbors) ---
@@ -170,8 +176,8 @@ void main(){
     // }
 
     // --- New candidates (N=8) ---
-    for(int i=0;i<16;i++){
-        LightResult l = evalRandomUnifiedLight(P, N, V, material, sampling_rand_curr, rand01(), true, false);
+    for(int i=0;i<CANDIDATES_COUNT;i++){
+        LightResult l = evalRandomUnifiedLight(P, N, V, material, sampling_rand_curr, rand01(), true, CANDIDATES_RAYS);
         float wDiffuse = luminance(l.diffuse);
         float wSpec = luminance(l.specular);
         reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
@@ -181,14 +187,17 @@ void main(){
     vec3 diffuse = vec3(0.);
     vec3 specular = vec3(0.);
 
+    //uint cluster_index = getLightClusterIndex(P);
+    //uint total = getLightsCountInCluster(cluster_index);
+    float pdf = 1.0f;//float(total) / float(CANDIDATES_COUNT);
     {
         LightResult l = evalUnifiedLight(P, N, V, material, rDiffuse.lightIndex, sampling_rand_curr, true, true, false);
-        diffuse = l.diffuse;
+        diffuse = l.diffuse * pdf;
     }
 
     {
         LightResult l = evalUnifiedLight(P, N, V, material, rSpec.lightIndex, sampling_rand_curr, true, true, false);
-        specular = l.specular;
+        specular = l.specular * pdf;
     }
 
     imageStore(out_restir_diffuse, pix, vec4(diffuse, changeDiffuse));
