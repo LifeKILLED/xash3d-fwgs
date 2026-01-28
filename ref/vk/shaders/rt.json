@@ -38,8 +38,11 @@
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
 	},
-	"restir_pass_1_init": {
-		"comp": "restir_pass_1_init"
+	"restir_lighting_direct": {
+		"comp": "restir_lighting_direct"
+	},
+	"restir_asvgf_direct": {
+		"comp": "restir_asvgf_direct"
 	},
 	// "ray_light_unified_direct": {
 	// 	"comp": "ray_light_unified_direct"
