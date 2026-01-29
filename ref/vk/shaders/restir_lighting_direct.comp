@@ -78,6 +78,15 @@ float lightChangeConf2(float cur, float prev) {
     return min(lightChangeConf(cur, prev), lightChangeConf(prev, cur));
 }
 
+vec3 samplingRandom(ivec2 pix, bool previous)
+{
+    uint seed = ANIMATE_PATTERN ? (previous ? ubo.ubo.random_seed : ubo.ubo.random_seed - 1) : 0;
+    vec2 poisson_coord = getPoissonCoord(pix + ivec2(int(seed), int(seed>>3)));
+    rand01_state = seed + pix.x * 1833 + pix.y * 31337;
+    const vec2 poissonNoiseDither = mix(poisson_coord * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
+    return vec3(poissonNoiseDither, rand01());
+}
+
 void main(){
 #ifdef RAY_TRACE
 	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
@@ -118,33 +127,16 @@ void main(){
 
     ivec2 prevPx = ivec2(imageLoad(reprojection_uv, pix).xy);
 
-    vec3 sampling_rand_curr = vec3(0.);
-    vec3 sampling_rand_prev = vec3(0.);
-
-    uint rnd_seed = ANIMATE_PATTERN ? ubo.ubo.random_seed : 0;
-    {
-        uint seed = rnd_seed;
-        vec2 poisson_coord = getPoissonCoord(pix + ivec2(int(seed), int(seed>>3)));
-        rand01_state = seed + pix.x * 1833 + pix.y * 31337;
-        const vec2 poissonNoiseDither = mix(poisson_coord * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
-        sampling_rand_curr = vec3(poissonNoiseDither, rand01());
-    }
-
-    {
-        uint seed = rnd_seed - 1;
-        vec2 poisson_coord = getPoissonCoord(prevPx + ivec2(int(seed), int(seed>>3)));
-        rand01_state = seed + prevPx.x * 1833 + prevPx.y * 31337;
-        const vec2 poissonNoiseDither = mix(poisson_coord * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
-        sampling_rand_prev = vec3(poissonNoiseDither, rand01());
-    }
+    vec3 sampling_rand_curr = samplingRandom(pix, false);
+    vec3 sampling_rand_prev = samplingRandom(prevPx, true);
 
     rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
 
     float changeDiffuse = 0.;
     float changeSpecular = 0.;
 
-    Reservoir rDiffuse = Reservoir(0, 0, 0, 0);
-    Reservoir rSpec = Reservoir(0, 0, 0, 0);
+    Reservoir rDiffuse = Reservoir(0, 0, 0, 0, 0);
+    Reservoir rSpec = Reservoir(0, 0, 0, 0, 0);
 
     if (prevPx.x >= 0) {
 
@@ -153,14 +145,12 @@ void main(){
 
         {
             LightResult l = evalUnifiedLight(P, N, V, material, prevDiffuse.lightIndex, sampling_rand_prev, true, CANDIDATES_RAYS, false);
-            float w = luminance(l.diffuse);
-            changeDiffuse = lightChangeConf2(w, prevDiffuse.w_y);
+            changeDiffuse = restirConfidence(prevDiffuse, luminance(l.diffuse));
         }
 
         {
             LightResult l = evalUnifiedLight(P, N, V, material, prevSpec.lightIndex, sampling_rand_prev, true, CANDIDATES_RAYS, false);
-            float w = luminance(l.specular);
-            changeSpecular = lightChangeConf2(w, prevSpec.w_y);
+            changeSpecular = restirConfidence(prevSpec, luminance(l.specular));
         }
 
         if (rand01() * CHANGING_THRESHOLD < changeDiffuse && prevDiffuse.w_sum > 0.0)
@@ -186,12 +176,14 @@ void main(){
         LightResult l = evalUnifiedLight(P, N, V, material, rDiffuse.lightIndex, sampling_rand_curr, true, true, false);
         const float normalization = rDiffuse.w_sum / max(rDiffuse.M * rDiffuse.w_y, 1e-6);
         diffuse = l.diffuse * pdf_mult * normalization;
+        restirUpdateDeath(rDiffuse);
     }
 
     {
         LightResult l = evalUnifiedLight(P, N, V, material, rSpec.lightIndex, sampling_rand_curr, true, true, false);
         const float normalization = rSpec.w_sum / max(rSpec.M * rSpec.w_y, 1e-6);
         specular = l.specular * pdf_mult * normalization;
+        restirUpdateDeath(rSpec);
     }
 
     imageStore(out_restir_diffuse, pix, vec4(diffuse, changeDiffuse));

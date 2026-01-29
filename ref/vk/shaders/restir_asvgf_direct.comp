@@ -8,18 +8,21 @@
 #include "ray_interop.h"
 #undef GLSL
 
+#define VARIANCE_MIN 0.5
+#define VARIANCE_MAX 1.0
+#define MAX_RESTIR_NORM 8.0
+#define MIN_ALPHA 0.05
+
 #include "utils.glsl"
 #include "noise.glsl"
-#include "debug.glsl"
 #include "color_spaces.glsl"
-
 #include "restir_common.glsl"
 
 layout(local_size_x=8, local_size_y=8) in;
 
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_diffuse_asvgf;
 layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
-  
+
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D restir_diffuse;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D restir_specular;
 
@@ -32,16 +35,25 @@ layout(set = 0, binding = 9, rgba16f) uniform readonly image2D reprojection_uv;
 
 layout(set = 0, binding = 10) uniform UBO { UniformBuffer ubo; } ubo;
 
-void processLobeTemporal(in vec3 curr, in vec3 hist, float conf, out vec3 outColor, out float outVar, out float length, float prev_length){
-    length = prev_length + 1.0;
-    length = mix(1.0, length, smoothstep(0.0, 0.5, conf));
-    float alpha = 1.0 / length;
+void processLobeTemporal(
+    vec3 curr,
+    vec3 hist,
+    float conf,
+    out vec3 outColor,
+    out float outVar,
+    out float length,
+    float prev_length
+){
+    length = mix(1.0, prev_length + 1.0, smoothstep(0.0, 0.3, conf));
+    float alpha = max(MIN_ALPHA, 1.0 / length);
+
     outColor = mix(hist, curr, alpha);
-    vec3 dx = curr - hist; vec3 dy = curr - hist;
-    outVar = dot(dx,dx) + dot(dy,dy);
+
+    vec3 d = curr - hist;
+    outVar = clamp(dot(d, d), VARIANCE_MIN, VARIANCE_MAX);
 }
 
-void main(){
+void main() {
     const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 
@@ -66,21 +78,34 @@ void main(){
     float variance_specular = 1.0;
     float history_length_specular = 1.0;
 
-    if (prev_pix.x >= 0) {
-        vec4 prev_diffuse_history_length = imageLoad(prev_temporal_asvgf_diffuse, prev_pix);
-        vec3 prev_diffuse = prev_diffuse_history_length.rgb;
-        float prev_diffuse_length = prev_diffuse_history_length.w;
-        processLobeTemporal(curr_diffuse, prev_diffuse, conf_diffuse, diffuse, variance_diffuse, history_length_diffuse, prev_diffuse_length);
+    vec3 prev_diff = curr_diffuse;
+    vec3 prev_spec = curr_specular;
+    float prev_len_diff = 0.0;
+    float prev_len_spec = 0.0;
 
-        vec4 prev_specular_history_length = imageLoad(prev_temporal_asvgf_specular, prev_pix);
-        vec3 prev_specular = prev_specular_history_length.rgb;
-        float prev_specular_length = prev_specular_history_length.w;
-        processLobeTemporal(curr_specular, prev_specular, conf_specular, specular, variance_specular, history_length_specular, prev_specular_length);
+    if (prev_pix.x >= 0) {
+        vec4 pd = imageLoad(prev_temporal_asvgf_diffuse, prev_pix);
+        vec4 ps = imageLoad(prev_temporal_asvgf_specular, prev_pix);
+        prev_diff = pd.rgb;
+        prev_len_diff = pd.w;
+        prev_spec = ps.rgb;
+        prev_len_spec = ps.w;
     }
 
-    imageStore(out_diffuse_asvgf, pix, vec4(diffuse, variance_diffuse));
-    imageStore(out_temporal_asvgf_diffuse, pix, vec4(diffuse, history_length_diffuse));
+    vec3 out_diff = vec3(0.);
+    vec3 out_spec = vec3(0.);
+    float var_diff = 0., var_spec = 0.;
+    float len_diff = 0., len_spec = 0.;
 
-    imageStore(out_specular_asvgf, pix, vec4(specular, variance_specular));
-    imageStore(out_temporal_asvgf_specular, pix, vec4(specular, history_length_specular));
+    processLobeTemporal(curr_diffuse, prev_diff, conf_diffuse,
+                        out_diff, var_diff, len_diff, prev_len_diff);
+
+    processLobeTemporal(curr_specular, prev_spec, conf_specular,
+                        out_spec, var_spec, len_spec, prev_len_spec);
+ 
+    imageStore(out_diffuse_asvgf, pix, vec4(out_diff, var_diff));
+    imageStore(out_temporal_asvgf_diffuse, pix, vec4(out_diff, len_diff));
+
+    imageStore(out_specular_asvgf, pix, vec4(out_spec, var_spec));
+    imageStore(out_temporal_asvgf_specular, pix, vec4(out_spec, len_spec));
 }
