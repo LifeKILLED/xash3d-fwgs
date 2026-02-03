@@ -16,7 +16,6 @@
 #include "utils.glsl"
 #include "noise.glsl"
 #include "color_spaces.glsl"
-#include "restir_common.glsl"
 
 layout(local_size_x=8, local_size_y=8) in;
 

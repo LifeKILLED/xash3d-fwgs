@@ -1,3 +1,6 @@
+#ifndef LIGHTS_UNIFIED_GLSL
+#define LIGHTS_UNIFIED_GLSL
+
 #include "debug.glsl"
 
 const float color_culling_threshold = 0;//600./color_factor;
@@ -56,6 +59,44 @@ uint getLightsCountTotal() {
     uint num_point = uint(lights.m.num_point_lights);
     uint num_poly  = uint(lights.m.num_polygons);
     return num_point + num_poly;
+}
+
+uint decodeHistoryLightId(float encoded_id, out bool out_of_bound) {
+    bool is_polygonal = encoded_id > 0.0;
+    if (is_polygonal) { // polygonal light
+        uint id = uint(encoded_id);
+        if (id >= lights.m.num_polygons) {
+            out_of_bound = true;
+            return 0;
+        } else {
+            out_of_bound = false;
+            return id + lights.m.num_point_lights;
+        }
+    } else { // point light
+        int raw_id = -1 - int(encoded_id); // from negative value
+        // HACK: invert pointlights order because flashlight is first
+        // and indices are broken after removing flashlight from array.
+        int id = int(lights.m.num_point_lights) - raw_id;
+        if (id >= int(lights.m.num_point_lights) || id < 0) {
+            out_of_bound = true;
+            return 0;
+        } else {
+            out_of_bound = false;
+            return uint(id);
+        }
+    }
+}
+
+float encodeHistoryLightId(uint unified_id) {
+    bool is_point = unified_id < lights.m.num_point_lights;
+    if (is_point) { // point light
+        // HACK: invert pointlights order because flashlight is first
+        // and indices are broken after removing flashlight from array.
+        uint id = lights.m.num_point_lights - unified_id;
+        return float(-1 - id); // encode in negative value
+    } else { // polygon light
+        return unified_id - lights.m.num_point_lights;
+    }
 }
 
 LightResult evalUnifiedLight(
@@ -185,7 +226,7 @@ LightResult evalRandomUnifiedLight(
 {
     uint cluster_index = getLightClusterIndex(P);
     uint total = getLightsCountInCluster(cluster_index);
-    
+
     if(total == 0) {
         return LightResult(vec3(0.0), vec3(0.0), -1);
     }
@@ -335,3 +376,5 @@ LightResult calculateUnifiedLightsRandom(
 
     return r;
 }
+
+#endif // LIGHTS_UNIFIED_GLSL
