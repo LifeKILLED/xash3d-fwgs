@@ -24,7 +24,7 @@ const float shadow_offset_fudge = .1;
 #include "light_polygon.glsl"
 #include "poisson-disk-8x8.glsl"
 
-#define EPSILON 1e-4
+#define EPSILON 1e-2
 
 float fbool(bool b) { return b ? 1.0 : 0.0; }
 
@@ -154,7 +154,7 @@ LightResult evalUnifiedLight(
             vec3 Lc = toL / max(sqrt(dist2), EPSILON);
             L = normalize(orthonormalBasisZ(Lc) * sampleConeZ(rnd.xy, sqrt(max(0.0, 1.0 - pl.origin_r2.w / max(dist2,EPSILON)))));
             //L = toL; // simple
-            dist = length(L) - EPSILON;
+            dist = length(toL);
 
             // spot attenuation
             float spot_dot = dot(L, pl.dir_stopdot2.xyz);
@@ -194,7 +194,7 @@ LightResult evalUnifiedLight(
 
         bool shadow_vis = false;
         if (enable_shadow) {
-           shadow_vis = shadowed(P, L, dist);
+           shadow_vis = shadowed(P, L, max(0.0, dist - EPSILON));
         }
 
         if (!shadow_vis) {

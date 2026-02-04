@@ -5,7 +5,7 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_control_flow_attributes2 : require
 
-#define CANDIDATES_COUNT 4
+#define CANDIDATES_COUNT 8
 #define CANDIDATES_RAYS false
 #define CONFIDENCE_THRESHOLD 1.0
 #define POISSON_NOISE_DITHER_SCALE 0.1
@@ -39,8 +39,8 @@ layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
 //layout(set = 0, binding = 14, rgba32f) uniform readonly image2D frame_blue_noise;
 
-layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_restir_diffuse;
-layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_restir_specular;
+layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_diffuse_direct_restir;
+layout(set = 0, binding = 23, rgba16f) uniform writeonly image2D out_specular_direct_restir;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -50,10 +50,12 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 // restir
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_res_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_res_specular;
-layout(set = 0, binding=17, rgba32f) uniform image2D out_temporal_res_diffuse;
-layout(set = 0, binding=18, rgba32f) uniform image2D out_temporal_res_specular;
+layout(set = 0, binding=17, rgba16f) uniform image2D prev_temporal_res_norm_mat;
+layout(set = 0, binding=18, rgba32f) uniform image2D out_temporal_res_diffuse;
+layout(set = 0, binding=19, rgba32f) uniform image2D out_temporal_res_specular;
+layout(set = 0, binding=20, rgba16f) uniform image2D out_temporal_res_norm_mat;
 
-layout(set = 0, binding = 19, rgba16f) uniform image2D reprojection_uv;
+layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 
 #define RAY_QUERY
 
@@ -82,12 +84,46 @@ Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProper
 
     conf = restirConfidence(r, luminance(isSpecular ? l.specular : l.diffuse));
 
-    // if (rand01() * CONFIDENCE_THRESHOLD > conf) { // use killing by confidence inside restirConfidence?
-    //     conf = 0.0;
-    //     return reservoirInit();
-    // }
+    if (conf < rand01()) { // use killing by confidence inside restirConfidence?
+        conf = 0.0;
+        return reservoirInit();
+    }
 
     return r;
+}
+
+vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, vec3 rnd, bool isSpecular, float pdf_mult)
+{
+    if (r.w_sum == 0.0)
+        return vec3(0.0);
+
+    {
+        // update weight 
+
+        MaterialProperties weight_mat = material;
+        weight_mat.base_color = vec3(1.0);
+        weight_mat.metalness = 0.5;
+
+        LightResult l = evalUnifiedLight(P, N, V, weight_mat, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+        
+        float curr_y = luminance(isSpecular ? l.specular : l.diffuse);
+
+        r.w_sum += -r.w_y + curr_y;
+        r.w_y = curr_y;
+
+        if (curr_y == 0.0)
+            return vec3(0.0);
+    }
+
+    {
+        // final shading with shadow
+
+        LightResult l = evalUnifiedLight(P, N, V, material, r.lightIndex, rnd, true, true, false);
+
+        vec3 irradiance = isSpecular ? l.specular : l.diffuse;
+
+        return irradiance * pdf_mult * r.w_sum / (r.M * r.w_y);
+    }
 }
 
 void main(){
@@ -113,9 +149,11 @@ void main(){
 	const vec4 material_data = imageLoad(material_rmxx, pix);
 
 	MaterialProperties material;
-	material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+
+    // data for candidates
+	material.base_color = vec3(1.0);
     material.roughness = material_data.r;
-	material.metalness = material_data.g;
+	material.metalness = 0.5;
 
     const vec4 packed_normal = imageLoad(normals_gs, pix);
     const vec3 geometry_normal = normalDecode(packed_normal.xy);
@@ -125,8 +163,9 @@ void main(){
 	const vec4 pos_t = imageLoad(position_t, pix);
     const vec3 P = pos_t.xyz + geometry_normal * .001;
 
-	const uint cluster_index = getLightClusterIndex(P);
-    const float pdf_mult = float(getLightsCountInCluster(cluster_index));
+    const uint cluster_index = getLightClusterIndex(P);
+    const uint total = getLightsCountInCluster(cluster_index);
+    const float pdf_mult = float(total);
 
     ivec2 prevPx = ivec2(imageLoad(reprojection_uv, pix).xy);
 
@@ -135,52 +174,85 @@ void main(){
 
     rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
 
-    float confDiffuse = 1.;
-    float confSpecular = 1.;
+    float confDiffuse = 0.;
+    float confSpecular = 0.;
 
     Reservoir rDiffuse = Reservoir(0, 0, 0, 0, 0);
     Reservoir rSpec = Reservoir(0, 0, 0, 0, 0);
 
-    if (prevPx.x >= 0) {
+    if (prevPx.x >= 0 && total > 0) { // avoid reprojection if have no visible lights
+        const vec4 prev_norm_mat = imageLoad(prev_temporal_res_norm_mat, pix);
+
+        const vec3 prev_N = normalDecode(prev_norm_mat.xy);
+
+        bool out_of_bound = true;
+
         {
-            const Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, prevPx));
-            rDiffuse = reprojectReservoir(prevDiffuse, P, N, V, material, sampling_rand_prev, false, confDiffuse);
+            Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, prevPx), out_of_bound);
+            if (!out_of_bound)
+                rDiffuse = reprojectReservoir(prevDiffuse, P, prev_N, V, material, sampling_rand_prev, false, confDiffuse);
         }
         {
-            const Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, prevPx));
-            rSpec = reprojectReservoir(prevSpec, P, N, V, material, sampling_rand_prev, true, confSpecular);
+            Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, prevPx), out_of_bound);
+            if (!out_of_bound)
+                rSpec = reprojectReservoir(prevSpec, P, prev_N, V, material, sampling_rand_prev, true, confSpecular);
         }
     }
 
-    // --- New candidates (N=8) ---
-    for(int i=0;i<CANDIDATES_COUNT;i++){
-        LightResult l = evalRandomUnifiedLight(P, N, V, material, sampling_rand_curr, rand01(), CANDIDATES_BRDF, CANDIDATES_RAYS);
-        float wDiffuse = luminance(l.diffuse);
-        float wSpec = luminance(l.specular);
-        reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
-        reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
+    if(total > 0) {
+        const bool iterate_all = total <= CANDIDATES_COUNT;
+
+        const uint first_light_id = uint(rand01() * float(total));
+        
+        LightRandomPickData diff_pick = LightRandomPickData(0,0,0,0,0,-1);
+        LightRandomPickData spec_pick = LightRandomPickData(0,0,0,0,0,-1);
+
+        for (uint i = 0; i < CANDIDATES_COUNT; i++) { // always fixed cycle
+            const bool out_of_bounds = iterate_all && i >= total;
+            if (!out_of_bounds) {
+                const uint light_id = iterate_all ? i : (first_light_id + i) % total;
+
+                const LightResult l = evalUnifiedLight(P, N, V, material, light_id, sampling_rand_curr, CANDIDATES_BRDF, CANDIDATES_RAYS, true);
+
+                const float wDiffuse = luminance(l.diffuse);
+                const float wSpec = luminance(l.specular);
+                
+                reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
+                reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
+            }
+        }
     }
 
     vec3 diffuse = vec3(0.);
     vec3 specular = vec3(0.);
 
-    {
-        LightResult l = evalUnifiedLight(P, N, V, material, rDiffuse.lightIndex, sampling_rand_curr, true, true, false);
-        const float normalization = rDiffuse.w_sum / max(rDiffuse.M * rDiffuse.w_y, 1e-6);
-        diffuse = l.diffuse * pdf_mult * normalization;
-    }
+    // final shading parameters
+	material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+    material.roughness = material_data.r;
+    material.metalness = material_data.g;
 
-    {
-        LightResult l = evalUnifiedLight(P, N, V, material, rSpec.lightIndex, sampling_rand_curr, true, true, false);
-        const float normalization = rSpec.w_sum / max(rSpec.M * rSpec.w_y, 1e-6);
-        specular = l.specular * pdf_mult * normalization;
-    }
+    diffuse = finalShading(rDiffuse, P, N, V, material, sampling_rand_curr, false, pdf_mult);
+    specular = finalShading(rSpec, P, N, V, material, sampling_rand_curr, true, pdf_mult);
 
-    //imageStore(out_restir_diffuse, pix, vec4(vec3(confDiffuse, 0.0, 1.0 - confDiffuse), confDiffuse)); // debug confidence
+    // if (rDiffuse.w_y > 0.0) {
+    //     LightResult l = evalUnifiedLight(P, N, V, material, rDiffuse.lightIndex, sampling_rand_curr, true, false, false);
+    //     diffuse = l.diffuse * pdf_mult * rDiffuse.w_sum / (rDiffuse.M * rDiffuse.w_y);
+    // }
 
-    imageStore(out_restir_diffuse, pix, vec4(diffuse, confDiffuse));
-    imageStore(out_restir_specular, pix, vec4(specular, confSpecular));
+    // if (rSpec.w_y > 0.0) {
+    //     LightResult l = evalUnifiedLight(P, N, V, material, rSpec.lightIndex, sampling_rand_curr, true, false, false);
+    //     specular = l.specular * pdf_mult * rSpec.w_sum / (rSpec.M * rSpec.w_y);
+    // }
+
+    //imageStore(out_diffuse_direct_restir, pix, vec4(debug_color, confDiffuse)); // debug diffuse confidence
+    //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(confDiffuse, 0.0, 1.0 - confDiffuse), confDiffuse)); // debug diffuse confidence
+    //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(confSpecular, 0.0, 1.0 - confSpecular), confDiffuse)); // debug specular confidence
+
+    imageStore(out_diffuse_direct_restir, pix, vec4(diffuse, confDiffuse));
+    imageStore(out_specular_direct_restir, pix, vec4(specular, confSpecular));
+    //imageStore(out_specular_direct_restir, pix, vec4(vec3(0.0), confSpecular));
 
     imageStore(out_temporal_res_diffuse, pix, saveReservoir(rDiffuse));
     imageStore(out_temporal_res_specular, pix, saveReservoir(rSpec));
+    imageStore(out_temporal_res_norm_mat, pix, vec4(normalEncode(shading_normal), material.roughness, material.metalness));
 }

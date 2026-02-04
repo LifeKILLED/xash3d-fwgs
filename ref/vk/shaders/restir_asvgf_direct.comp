@@ -22,8 +22,8 @@ layout(local_size_x=8, local_size_y=8) in;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_diffuse_asvgf;
 layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D restir_diffuse;
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D restir_specular;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_restir;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_restir;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
@@ -61,13 +61,13 @@ void main() {
 
     const ivec2 prev_pix = ivec2(imageLoad(reprojection_uv, pix).xy);
 
-    const vec4 diffuse_conf = imageLoad(restir_diffuse, pix);
+    const vec4 diffuse_conf = imageLoad(diffuse_direct_restir, pix);
     const vec3 curr_diffuse = diffuse_conf.rgb;
-    const float conf_diffuse = diffuse_conf.w;
+    const float conf_diffuse = 1.0;//diffuse_conf.w;
 
-    vec4 specular_conf = imageLoad(restir_specular, pix);
+    vec4 specular_conf = imageLoad(specular_direct_restir, pix);
     vec3 curr_specular = specular_conf.rgb;
-    float conf_specular = specular_conf.w;
+    float conf_specular = 1.0;//specular_conf.w;
 
     vec3 diffuse = curr_diffuse;
     float variance_diffuse = 1.0;
