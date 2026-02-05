@@ -99,9 +99,164 @@ float encodeHistoryLightId(uint unified_id) {
     }
 }
 
+struct LightSamplingData {
+    vec3 L;
+    float dist;
+    vec3 emissive_color;
+    float geom_weight;
+};
+
+LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rnd)
+{
+    LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
+
+    l.emissive_color = pl.color_stopdot.rgb;
+
+    vec3 toL = pl.origin_r2.xyz - P;
+    float dist2 = dot(toL,toL);
+
+    if(pl.environment != 0)
+    {
+        // environment/directional light
+        l.L = normalize(orthonormalBasisZ(pl.dir_stopdot2.xyz) * sampleConeZ(rnd.xy, pl.dir_stopdot2.a));
+        //l.L = pl.dir_stopdot2.xyz;
+        l.dist = 10000.;
+
+        l.geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a);
+    }
+    else
+    {
+        // spherical / point light
+        vec3 Lc = toL / max(sqrt(dist2), EPSILON);
+        l.L = normalize(orthonormalBasisZ(Lc) * sampleConeZ(rnd.xy, sqrt(max(0.0, 1.0 - pl.origin_r2.w / max(dist2,EPSILON)))));
+        //L = toL; // simple
+        l.dist = length(toL);
+
+        // spot attenuation
+        float spot_dot = dot(l.L, pl.dir_stopdot2.xyz);
+        float stopdot2 = pl.dir_stopdot2.a;
+        float stopdot  = pl.color_stopdot.a;
+        float spot_att = 1.0;
+        if(spot_dot < stopdot) {
+            spot_att = (spot_dot - stopdot2) / (stopdot - stopdot2);
+        }
+        l.geom_weight = 2.0 * kPi * (1.0 - sqrt(max(0.0,1.0 - pl.origin_r2.w / max(dist2,EPSILON)))) * spot_att;
+    }
+
+    return l;
+}
+
+LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, vec3 V, SampleContext ctx, vec3 rnd)
+{
+    LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
+
+    const float plane_dist = dot(poly.plane, vec4(P, 1.f));
+
+    if (plane_dist > 0.) {
+        //const vec4 s = getPolygonLightSampleProjected(V, ctx, poly, rnd); // slow and noisy
+        //const vec4 s = getPolygonLightSampleSolid(P, V, ctx, poly, rnd); // slow
+        const vec4 s = getPolygonLightSampleSimpleSolid(P, V, poly, rnd); // so so
+        //const vec4 s = getPolygonLightSampleSimple(P, V, poly, rnd); // not so fast and bad
+        //const vec4 s = getPolygonLightSampleStupid(P, poly); // poor
+        l.dist = - plane_dist / dot(s.xyz, poly.plane.xyz);
+        l.L = s.xyz;
+        l.geom_weight = s.w;
+        l.emissive_color = poly.emissive;
+    }
+
+    return l;
+}
+
+void unifiedLightFinalShading(
+    inout LightResult r,
+    LightSamplingData l,
+    vec3 P, vec3 N, vec3 V,
+    MaterialProperties material,
+    bool eval_brdf,
+    bool enable_shadow)
+{
+    if (l.geom_weight > 0.0) {
+
+        bool shadow_vis = false;
+        if (enable_shadow) {
+           shadow_vis = shadowed(P, l.L, max(0.0, l.dist - EPSILON));
+        }
+
+        if (!shadow_vis) {
+            if (eval_brdf) {
+                vec3 d, s;
+                evalDecolorizedBRDF(N, l.L, V, l.emissive_color * l.geom_weight, material, d, s);
+                r.diffuse  = d;
+                r.specular = s;
+            } else {
+                float lum = luminance(l.emissive_color);
+                float spec_weight = specularWeight(N, l.L, V, material.roughness);
+                r.diffuse  = vec3(l.geom_weight * lum);
+                r.specular = vec3(spec_weight * l.geom_weight * lum);
+            }
+        }
+    }
+}
+
+bool isFlashlightOrSky(uint light_id, vec3 origin, vec3 P, bool use_clusters)
+{
+	uint cluster_index = getLightClusterIndex(P);
+
+    uint num_point = use_clusters ?
+                        uint(light_grid.clusters_[cluster_index].num_point_lights) :
+                        lights.m.num_point_lights;
+
+    bool is_point = light_id < num_point;
+
+    if(is_point)
+    {
+        uint idx_point = use_clusters ? 
+                            uint(light_grid.clusters_[cluster_index].point_lights[light_id]) :
+                            light_id;
+
+        PointLight pl = lights.m.point_lights[idx_point];
+        return pl.environment != 0 || pl.flashlight != 0;
+    }
+
+    return false;
+}
+
+LightResult sampleFlashlightAndSky(
+    vec3 P, vec3 N, vec3 V,
+    MaterialProperties material,
+    vec3 rnd,
+    vec3 origin,
+    bool eval_brdf,
+    bool enable_shadow)
+{
+	uint cluster_index = getLightClusterIndex(P);
+
+    LightResult result = LightResult(vec3(0.0), vec3(0.0), 0);
+
+    uint num_point = uint(light_grid.clusters_[cluster_index].num_point_lights);
+
+    for (uint i = 0; i < num_point; i++) {
+        if (isFlashlightOrSky(i, origin, P, true)) { // all checks is in this function
+
+            uint idx_point = uint(light_grid.clusters_[cluster_index].point_lights[i]);
+
+            LightSamplingData l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd);
+            
+            LightResult r = LightResult(vec3(0.0), vec3(0.0), 0);
+            unifiedLightFinalShading(r, l, P, N, V, material, eval_brdf, enable_shadow);
+
+            result.diffuse += r.diffuse;
+            result.specular += r.specular;
+        }
+    }
+
+    return result;
+}
+
 LightResult evalUnifiedLight(
     vec3 P, vec3 N, vec3 V,
     MaterialProperties material,
+    SampleContext ctx,
     uint pick,
     vec3 rnd,
     bool eval_brdf,
@@ -121,10 +276,8 @@ LightResult evalUnifiedLight(
     // ------------------------------------------------------
     // compute L and geom_weight inside if (only for memory)
     // ------------------------------------------------------
-    vec3 L;
-    float dist;
-    vec3 emissive_color;
-    float geom_weight;
+    
+    LightSamplingData l;
 
     if(is_point)
     {
@@ -134,38 +287,7 @@ LightResult evalUnifiedLight(
 
         r.light_id = idx_point;
 
-        PointLight pl = lights.m.point_lights[idx_point];
-        emissive_color = pl.color_stopdot.rgb;
-        vec3 toL = pl.origin_r2.xyz - P;
-        float dist2 = dot(toL,toL);
-
-        if(pl.environment != 0)
-        {
-            // environment/directional light
-            L = normalize(orthonormalBasisZ(pl.dir_stopdot2.xyz) * sampleConeZ(rnd.xy, pl.dir_stopdot2.a));
-            //L = pl.dir_stopdot2.xyz;
-            dist = 10000.;
-
-            geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a);
-        }
-        else
-        {
-            // spherical / point light
-            vec3 Lc = toL / max(sqrt(dist2), EPSILON);
-            L = normalize(orthonormalBasisZ(Lc) * sampleConeZ(rnd.xy, sqrt(max(0.0, 1.0 - pl.origin_r2.w / max(dist2,EPSILON)))));
-            //L = toL; // simple
-            dist = length(toL);
-
-            // spot attenuation
-            float spot_dot = dot(L, pl.dir_stopdot2.xyz);
-            float stopdot2 = pl.dir_stopdot2.a;
-            float stopdot  = pl.color_stopdot.a;
-            float spot_att = 1.0;
-            if(spot_dot < stopdot) {
-                spot_att = (spot_dot - stopdot2) / (stopdot - stopdot2);
-            }
-            geom_weight = 2.0 * kPi * (1.0 - sqrt(max(0.0,1.0 - pl.origin_r2.w / max(dist2,EPSILON)))) * spot_att;
-        }
+        l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd);
     }
     else
     {
@@ -175,42 +297,10 @@ LightResult evalUnifiedLight(
 
         r.light_id = idx_poly + lights.m.num_point_lights;
 
-        PolygonLight poly = lights.m.polygons[idx_poly];
-		const float plane_dist = dot(poly.plane, vec4(P, 1.f));
-		
-        vec4 s = vec4(0.);
-        if (plane_dist > 0.) {
-            s = getPolygonLightSampleSimpleSolid(P, V, poly, rnd);
-            //vec4 s = getPolygonLightSampleSimple(P, V, poly, rnd);
-            //vec4 s = getPolygonLightSampleStupid(P, poly);
-            dist = - plane_dist / dot(s.xyz, poly.plane.xyz);
-            L = s.xyz;
-        }
-        geom_weight = s.w;
-        emissive_color = poly.emissive;
+        l = calculatePolygonLightSamplingData(lights.m.polygons[idx_poly], P, V, ctx, rnd);		
     }
 
-    if (geom_weight > 0.0) {
-
-        bool shadow_vis = false;
-        if (enable_shadow) {
-           shadow_vis = shadowed(P, L, max(0.0, dist - EPSILON));
-        }
-
-        if (!shadow_vis) {
-            if (eval_brdf) {
-                vec3 d, s;
-                evalDecolorizedBRDF(N, L, V, emissive_color * geom_weight, material, d, s);
-                r.diffuse  = d;
-                r.specular = s;
-            } else {
-                float lum = luminance(emissive_color);
-                float spec_weight = specularWeight(N, L, V, material.roughness);
-                r.diffuse  = vec3(geom_weight * lum);
-                r.specular = vec3(spec_weight * geom_weight * lum);
-            }
-        }
-    }
+    unifiedLightFinalShading(r, l, P, N, V, material, eval_brdf, enable_shadow);
 
     return r;
 }
@@ -219,6 +309,7 @@ LightResult evalUnifiedLight(
 LightResult evalRandomUnifiedLight(
     vec3 P, vec3 N, vec3 V,
     MaterialProperties material,
+    SampleContext ctx,
     vec3 sampling_rand,
     float pick_random,
     bool eval_brdf,
@@ -233,12 +324,13 @@ LightResult evalRandomUnifiedLight(
 
     uint pick = min(uint(pick_random * float(total)), total - 1u);
 
-    return evalUnifiedLight(P, N, V, material, pick, sampling_rand, eval_brdf, enable_shadow, true);
+    return evalUnifiedLight(P, N, V, material, ctx, pick, sampling_rand, eval_brdf, enable_shadow, true);
 }
 
 LightResult calculateUnifiedLight(
     vec3 P, vec3 N, vec3 V,
     MaterialProperties material,
+    SampleContext ctx,
     vec3 sampling_rand,
     bool eval_brdf,
     bool enable_shadow)
@@ -252,7 +344,7 @@ LightResult calculateUnifiedLight(
         return r;
 
     for (uint i = 0; i < total; i++) {
-        LightResult l = evalUnifiedLight(P, N, V, material, i, sampling_rand, eval_brdf, enable_shadow, true);    
+        LightResult l = evalUnifiedLight(P, N, V, material, ctx, i, sampling_rand, eval_brdf, enable_shadow, true);    
         r.diffuse += l.diffuse;
         r.specular += l.specular;
     }
@@ -294,6 +386,7 @@ void endOfWeightPass(float rnd, inout LightRandomPickData data) {
 LightResult calculateUnifiedLightImportance(
     vec3 P, vec3 N, vec3 V,
     MaterialProperties material,
+    SampleContext ctx,
     vec3 sampling_rand,
     bool eval_brdf,
     bool enable_shadow,
@@ -319,7 +412,7 @@ LightResult calculateUnifiedLightImportance(
                 if (!out_of_bounds) {
                     uint light_id = iterate_all ? i : (first_light_id + i) % total;
 
-                    LightResult l = evalUnifiedLight(P, N, V, material, light_id, sampling_rand, eval_brdf, false, true);
+                    LightResult l = evalUnifiedLight(P, N, V, material, ctx, light_id, sampling_rand, eval_brdf, false, true);
 
                     bool pick_pass = pass == PASS_RUSSIAN_ROULETTE;
                     updatePickData(l.diffuse, l.light_id, diff_pick, pick_pass);
@@ -335,12 +428,12 @@ LightResult calculateUnifiedLightImportance(
         }
 
         if (diff_pick.pick_id != -1 && diff_pick.pdf > 0.0) {
-            LightResult l = evalUnifiedLight(P, N, V, material, diff_pick.pick_id, sampling_rand, eval_brdf, true, false);
+            LightResult l = evalUnifiedLight(P, N, V, material, ctx, diff_pick.pick_id, sampling_rand, eval_brdf, true, false);
             r.diffuse += l.diffuse / diff_pick.pdf;
         }
 
         if (spec_pick.pick_id != -1 && spec_pick.pdf > 0.0) {
-            LightResult l = evalUnifiedLight(P, N, V, material, spec_pick.pick_id, sampling_rand, eval_brdf, true, false);
+            LightResult l = evalUnifiedLight(P, N, V, material, ctx, spec_pick.pick_id, sampling_rand, eval_brdf, true, false);
             r.specular += l.specular / spec_pick.pdf;
         }
     }
@@ -354,6 +447,7 @@ LightResult calculateUnifiedLightImportance(
 LightResult calculateUnifiedLightsRandom(
     vec3 P, vec3 N, vec3 V,
     MaterialProperties material,
+    SampleContext ctx,
     vec3 sampling_rand,
     bool eval_brdf,
     bool enable_shadow)
@@ -369,7 +463,7 @@ LightResult calculateUnifiedLightsRandom(
     float pdf = float(total) / float(RANDOM_LIGHTS_COUNT);
 
     for (uint i = 0; i < RANDOM_LIGHTS_COUNT; i++) {
-        LightResult l = evalRandomUnifiedLight(P, N, V, material, sampling_rand, rand01(), eval_brdf, enable_shadow);
+        LightResult l = evalRandomUnifiedLight(P, N, V, material, ctx, sampling_rand, rand01(), eval_brdf, enable_shadow);
         r.diffuse += l.diffuse * pdf;
         r.specular += l.specular * pdf;
     }

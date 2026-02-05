@@ -7,7 +7,7 @@
 #define MAX_AGE 255u
 #define MAX_RESTIR_NORM 8.0
 #define MAX_CONSTANT_DEATH_FRAMES 120.0
-#define MAX_RESERVOIR_HISTORY_FRAMES 8
+#define MAX_RESERVOIR_HISTORY_FRAMES 64
 
 struct Reservoir {
     uint  lightIndex; // выбранный свет

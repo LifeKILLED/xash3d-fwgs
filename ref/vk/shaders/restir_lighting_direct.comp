@@ -5,12 +5,14 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_control_flow_attributes2 : require
 
-#define CANDIDATES_COUNT 8
+#define CANDIDATES_COUNT 16
 #define CANDIDATES_RAYS false
 #define CONFIDENCE_THRESHOLD 1.0
 #define POISSON_NOISE_DITHER_SCALE 0.1
 #define ANIMATE_PATTERN true
 #define CANDIDATES_BRDF true
+#define CANDIDATES_CLUSTERS true
+#define FINAL_RAYS true
 
 #define GLSL
 #include "ray_interop.h"
@@ -78,9 +80,12 @@ vec3 samplingRandom(ivec2 pix, bool previous)
     return vec3(poissonNoiseDither, rand01());
 }
 
-Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, vec3 rnd, bool isSpecular, out float conf)
+Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, vec3 origin, bool isSpecular, out float conf)
 {
-    LightResult l = evalUnifiedLight(P, N, V, material, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+    if (isFlashlightOrSky(r.lightIndex, origin, P, false))
+        return reservoirInit();
+
+    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
 
     conf = restirConfidence(r, luminance(isSpecular ? l.specular : l.diffuse));
 
@@ -92,7 +97,7 @@ Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProper
     return r;
 }
 
-vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, vec3 rnd, bool isSpecular, float pdf_mult)
+vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, bool isSpecular, float pdf_mult)
 {
     if (r.w_sum == 0.0)
         return vec3(0.0);
@@ -100,11 +105,7 @@ vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties 
     {
         // update weight 
 
-        MaterialProperties weight_mat = material;
-        weight_mat.base_color = vec3(1.0);
-        weight_mat.metalness = 0.5;
-
-        LightResult l = evalUnifiedLight(P, N, V, weight_mat, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+        LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
         
         float curr_y = luminance(isSpecular ? l.specular : l.diffuse);
 
@@ -118,7 +119,7 @@ vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties 
     {
         // final shading with shadow
 
-        LightResult l = evalUnifiedLight(P, N, V, material, r.lightIndex, rnd, true, true, false);
+        LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, true, FINAL_RAYS, false);
 
         vec3 irradiance = isSpecular ? l.specular : l.diffuse;
 
@@ -143,17 +144,16 @@ void main(){
 
 	// FIXME incorrect for reflection/refraction
 	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
+    const vec3 origin    = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
 	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
     const vec3 V = -direction;
 
 	const vec4 material_data = imageLoad(material_rmxx, pix);
 
 	MaterialProperties material;
-
-    // data for candidates
-	material.base_color = vec3(1.0);
+	material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
     material.roughness = material_data.r;
-	material.metalness = 0.5;
+    material.metalness = material_data.g;
 
     const vec4 packed_normal = imageLoad(normals_gs, pix);
     const vec3 geometry_normal = normalDecode(packed_normal.xy);
@@ -163,9 +163,17 @@ void main(){
 	const vec4 pos_t = imageLoad(position_t, pix);
     const vec3 P = pos_t.xyz + geometry_normal * .001;
 
-    const uint cluster_index = getLightClusterIndex(P);
-    const uint total = getLightsCountInCluster(cluster_index);
-    const float pdf_mult = float(total);
+    uint total = getLightsCountTotal();
+    float pdf_mult = float(total);
+
+    if (CANDIDATES_CLUSTERS) {
+        const uint cluster_index = getLightClusterIndex(P);
+        const uint total_in_cluster = getLightsCountInCluster(cluster_index);
+
+        pdf_mult = float(total_in_cluster);
+
+        total = total_in_cluster;
+    }
 
     ivec2 prevPx = ivec2(imageLoad(reprojection_uv, pix).xy);
 
@@ -176,6 +184,8 @@ void main(){
 
     float confDiffuse = 0.;
     float confSpecular = 0.;
+
+    const SampleContext ctx = buildSampleContext(P, N, V);
 
     Reservoir rDiffuse = Reservoir(0, 0, 0, 0, 0);
     Reservoir rSpec = Reservoir(0, 0, 0, 0, 0);
@@ -190,12 +200,12 @@ void main(){
         {
             Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, prevPx), out_of_bound);
             if (!out_of_bound)
-                rDiffuse = reprojectReservoir(prevDiffuse, P, prev_N, V, material, sampling_rand_prev, false, confDiffuse);
+                rDiffuse = reprojectReservoir(prevDiffuse, P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
         }
         {
             Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, prevPx), out_of_bound);
             if (!out_of_bound)
-                rSpec = reprojectReservoir(prevSpec, P, prev_N, V, material, sampling_rand_prev, true, confSpecular);
+                rSpec = reprojectReservoir(prevSpec, P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
         }
     }
 
@@ -212,13 +222,15 @@ void main(){
             if (!out_of_bounds) {
                 const uint light_id = iterate_all ? i : (first_light_id + i) % total;
 
-                const LightResult l = evalUnifiedLight(P, N, V, material, light_id, sampling_rand_curr, CANDIDATES_BRDF, CANDIDATES_RAYS, true);
+                if (!isFlashlightOrSky(light_id, origin, P, CANDIDATES_CLUSTERS)) {
+                    const LightResult l = evalUnifiedLight(P, N, V, material, ctx, light_id, sampling_rand_curr, CANDIDATES_BRDF, CANDIDATES_RAYS, CANDIDATES_CLUSTERS);
 
-                const float wDiffuse = luminance(l.diffuse);
-                const float wSpec = luminance(l.specular);
-                
-                reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
-                reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
+                    const float wDiffuse = luminance(l.diffuse);
+                    const float wSpec = luminance(l.specular);
+                    
+                    reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
+                    reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
+                }
             }
         }
     }
@@ -226,23 +238,14 @@ void main(){
     vec3 diffuse = vec3(0.);
     vec3 specular = vec3(0.);
 
-    // final shading parameters
-	material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
-    material.roughness = material_data.r;
-    material.metalness = material_data.g;
+    diffuse = finalShading(rDiffuse, P, N, V, material, ctx, sampling_rand_curr, false, pdf_mult);
+    specular = finalShading(rSpec, P, N, V, material, ctx, sampling_rand_curr, true, pdf_mult);
 
-    diffuse = finalShading(rDiffuse, P, N, V, material, sampling_rand_curr, false, pdf_mult);
-    specular = finalShading(rSpec, P, N, V, material, sampling_rand_curr, true, pdf_mult);
-
-    // if (rDiffuse.w_y > 0.0) {
-    //     LightResult l = evalUnifiedLight(P, N, V, material, rDiffuse.lightIndex, sampling_rand_curr, true, false, false);
-    //     diffuse = l.diffuse * pdf_mult * rDiffuse.w_sum / (rDiffuse.M * rDiffuse.w_y);
-    // }
-
-    // if (rSpec.w_y > 0.0) {
-    //     LightResult l = evalUnifiedLight(P, N, V, material, rSpec.lightIndex, sampling_rand_curr, true, false, false);
-    //     specular = l.specular * pdf_mult * rSpec.w_sum / (rSpec.M * rSpec.w_y);
-    // }
+    {
+        LightResult l = sampleFlashlightAndSky(P, N, V, material, sampling_rand_curr, origin, true, FINAL_RAYS);
+        diffuse += l.diffuse;
+        specular += l.specular;
+    }
 
     //imageStore(out_diffuse_direct_restir, pix, vec4(debug_color, confDiffuse)); // debug diffuse confidence
     //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(confDiffuse, 0.0, 1.0 - confDiffuse), confDiffuse)); // debug diffuse confidence

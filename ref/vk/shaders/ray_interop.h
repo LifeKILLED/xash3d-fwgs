@@ -138,7 +138,8 @@ struct PointLight {
 
 	// TODO move to either dedicated array, or section of array (by-index type delimiter)
 	uint environment; // Is directional-only environment light
-	PAD(3)
+	uint flashlight; // Is directional-only environment light
+	PAD(2)
 };
 
 struct PolygonLight {
