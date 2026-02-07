@@ -5,14 +5,17 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_control_flow_attributes2 : require
 
-#define CANDIDATES_COUNT 16
+#define CANDIDATES_COUNT 24
 #define CANDIDATES_RAYS false
 #define CONFIDENCE_THRESHOLD 1.0
-#define POISSON_NOISE_DITHER_SCALE 0.1
+#define POISSON_NOISE_DITHER_SCALE 0.0
 #define ANIMATE_PATTERN true
 #define CANDIDATES_BRDF true
-#define CANDIDATES_CLUSTERS true
-#define FINAL_RAYS true
+#define CANDIDATES_CLUSTERS false
+#define FINAL_RAYS false
+
+#define RESERVOIR_LIFETIME_MIN 64
+#define RESERVOIR_LIFETIME_MAX 1024
 
 #define GLSL
 #include "ray_interop.h"
@@ -41,8 +44,8 @@ layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
 //layout(set = 0, binding = 14, rgba32f) uniform readonly image2D frame_blue_noise;
 
-layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_diffuse_direct_restir;
-layout(set = 0, binding = 23, rgba16f) uniform writeonly image2D out_specular_direct_restir;
+layout(set = 0, binding = 22, rgba32f) uniform writeonly image2D out_diffuse_direct_restir;
+layout(set = 0, binding = 23, rgba32f) uniform writeonly image2D out_specular_direct_restir;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -53,6 +56,7 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_res_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_res_specular;
 layout(set = 0, binding=17, rgba16f) uniform image2D prev_temporal_res_norm_mat;
+
 layout(set = 0, binding=18, rgba32f) uniform image2D out_temporal_res_diffuse;
 layout(set = 0, binding=19, rgba32f) uniform image2D out_temporal_res_specular;
 layout(set = 0, binding=20, rgba16f) uniform image2D out_temporal_res_norm_mat;
@@ -64,12 +68,14 @@ layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 #define LIGHT_POINT 1
 #define LIGHT_POLYGON 1
 
+#define DISABLE_RAYS 1
+
 #include "ray_kusochki.glsl"
 #include "poisson-disk-8x8.glsl"
 #include "restir_common.glsl"
 
 const ivec2 OFFSETS[4] = ivec2[](ivec2(1,0), ivec2(-1,0),
-                                  ivec2(0,1), ivec2(0,-1));
+                                 ivec2(0,1), ivec2(0,-1));
 
 vec3 samplingRandom(ivec2 pix, bool previous)
 {
@@ -83,48 +89,25 @@ vec3 samplingRandom(ivec2 pix, bool previous)
 Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, vec3 origin, bool isSpecular, out float conf)
 {
     if (isFlashlightOrSky(r.lightIndex, origin, P, false))
-        return reservoirInit();
+        return reservoirInit(0.0);
 
     LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
 
-    conf = restirConfidence(r, luminance(isSpecular ? l.specular : l.diffuse));
+    updateRestirConfidence(r, luminance(isSpecular ? l.specular : l.diffuse));
 
-    if (conf < rand01()) { // use killing by confidence inside restirConfidence?
-        conf = 0.0;
-        return reservoirInit();
+    float kill_rnd = rand01();
+
+    bool kill_by_confidence = r.conf < kill_rnd * 0.5;
+    if (kill_by_confidence) {
+        return reservoirInit(0.0);
+    }
+
+    bool kill_by_lifetime = r.M > (RESERVOIR_LIFETIME_MIN + uint(kill_rnd * RESERVOIR_LIFETIME_MAX));
+    if (kill_by_lifetime) {
+         return reservoirInit(1.0);
     }
 
     return r;
-}
-
-vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, bool isSpecular, float pdf_mult)
-{
-    if (r.w_sum == 0.0)
-        return vec3(0.0);
-
-    {
-        // update weight 
-
-        LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
-        
-        float curr_y = luminance(isSpecular ? l.specular : l.diffuse);
-
-        r.w_sum += -r.w_y + curr_y;
-        r.w_y = curr_y;
-
-        if (curr_y == 0.0)
-            return vec3(0.0);
-    }
-
-    {
-        // final shading with shadow
-
-        LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, true, FINAL_RAYS, false);
-
-        vec3 irradiance = isSpecular ? l.specular : l.diffuse;
-
-        return irradiance * pdf_mult * r.w_sum / (r.M * r.w_y);
-    }
 }
 
 void main(){
@@ -187,22 +170,22 @@ void main(){
 
     const SampleContext ctx = buildSampleContext(P, N, V);
 
-    Reservoir rDiffuse = Reservoir(0, 0, 0, 0, 0);
-    Reservoir rSpec = Reservoir(0, 0, 0, 0, 0);
+    Reservoir rDiffuse = reservoirInit(0.0);
+    Reservoir rSpec = reservoirInit(0.0);
 
     if (prevPx.x >= 0 && total > 0) { // avoid reprojection if have no visible lights
         const vec4 prev_norm_mat = imageLoad(prev_temporal_res_norm_mat, pix);
 
         const vec3 prev_N = normalDecode(prev_norm_mat.xy);
 
-        bool out_of_bound = true;
-
         {
+            bool out_of_bound;
             Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, prevPx), out_of_bound);
             if (!out_of_bound)
                 rDiffuse = reprojectReservoir(prevDiffuse, P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
         }
         {
+            bool out_of_bound;
             Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, prevPx), out_of_bound);
             if (!out_of_bound)
                 rSpec = reprojectReservoir(prevSpec, P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
@@ -238,22 +221,8 @@ void main(){
     vec3 diffuse = vec3(0.);
     vec3 specular = vec3(0.);
 
-    diffuse = finalShading(rDiffuse, P, N, V, material, ctx, sampling_rand_curr, false, pdf_mult);
-    specular = finalShading(rSpec, P, N, V, material, ctx, sampling_rand_curr, true, pdf_mult);
-
-    {
-        LightResult l = sampleFlashlightAndSky(P, N, V, material, sampling_rand_curr, origin, true, FINAL_RAYS);
-        diffuse += l.diffuse;
-        specular += l.specular;
-    }
-
-    //imageStore(out_diffuse_direct_restir, pix, vec4(debug_color, confDiffuse)); // debug diffuse confidence
-    //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(confDiffuse, 0.0, 1.0 - confDiffuse), confDiffuse)); // debug diffuse confidence
-    //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(confSpecular, 0.0, 1.0 - confSpecular), confDiffuse)); // debug specular confidence
-
-    imageStore(out_diffuse_direct_restir, pix, vec4(diffuse, confDiffuse));
-    imageStore(out_specular_direct_restir, pix, vec4(specular, confSpecular));
-    //imageStore(out_specular_direct_restir, pix, vec4(vec3(0.0), confSpecular));
+    imageStore(out_diffuse_direct_restir, pix, saveReservoir(rDiffuse));
+    imageStore(out_specular_direct_restir, pix, saveReservoir(rSpec));
 
     imageStore(out_temporal_res_diffuse, pix, saveReservoir(rDiffuse));
     imageStore(out_temporal_res_specular, pix, saveReservoir(rSpec));

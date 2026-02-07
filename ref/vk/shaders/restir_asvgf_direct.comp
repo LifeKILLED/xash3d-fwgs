@@ -11,7 +11,9 @@
 #define VARIANCE_MIN 0.5
 #define VARIANCE_MAX 1.0
 #define MAX_RESTIR_NORM 8.0
-#define MIN_ALPHA 0.05
+#define MIN_ALPHA 0.02
+
+#define CONF_KERNEL 2
 
 #include "utils.glsl"
 #include "noise.glsl"
@@ -22,8 +24,8 @@ layout(local_size_x=8, local_size_y=8) in;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_diffuse_asvgf;
 layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_restir;
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_restir;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
@@ -43,9 +45,14 @@ void processLobeTemporal(
     out float length,
     float prev_length
 ){
-    length = mix(1.0, prev_length + 1.0, smoothstep(0.0, 0.3, conf));
+    length = prev_length + 1.0;
+
+    float nonlinear_conf = smoothstep(0.5, 1.0, conf);//pow(smoothstep(0.0, 1.0, conf), 0.3);
+    length = mix(1.0, length, nonlinear_conf);
+
     float alpha = max(MIN_ALPHA, 1.0 / length);
 
+    //outColor = vec3(nonlinear_conf); // debug
     outColor = mix(hist, curr, alpha);
 
     vec3 d = curr - hist;
@@ -61,13 +68,26 @@ void main() {
 
     const ivec2 prev_pix = ivec2(imageLoad(reprojection_uv, pix).xy);
 
-    const vec4 diffuse_conf = imageLoad(diffuse_direct_restir, pix);
-    const vec3 curr_diffuse = diffuse_conf.rgb;
-    const float conf_diffuse = 1.0;//diffuse_conf.w;
+    const vec3 curr_diffuse = imageLoad(diffuse_direct, pix).rgb;
+    const vec3 curr_specular = imageLoad(specular_direct, pix).rgb;
 
-    vec4 specular_conf = imageLoad(specular_direct_restir, pix);
-    vec3 curr_specular = specular_conf.rgb;
-    float conf_specular = 1.0;//specular_conf.w;
+    float conf_weight = 0.0;
+    float conf_diffuse = 0.0;
+    float conf_specular = 0.0;
+    for (int x = -CONF_KERNEL; x <= CONF_KERNEL; x++) {
+        for (int y = -CONF_KERNEL; y <= CONF_KERNEL; y++) {
+            const ivec2 p = pix + ivec2(x, y);
+            if (all(greaterThanEqual(p, ivec2(0.))) && all(lessThan(p, res))) {
+                conf_weight += 1.0;
+                conf_diffuse += imageLoad(diffuse_direct, p).w;
+                conf_specular += imageLoad(specular_direct, p).w;
+            }
+        }
+    }
+    if (conf_weight > 0.0) {
+        conf_diffuse /= conf_weight;
+        conf_specular /= conf_weight;
+    }
 
     vec3 diffuse = curr_diffuse;
     float variance_diffuse = 1.0;
@@ -100,7 +120,7 @@ void main() {
                         out_diff, var_diff, len_diff, prev_len_diff);
 
     processLobeTemporal(curr_specular, prev_spec, conf_specular,
-                        out_spec, var_spec, len_spec, prev_len_spec);
+                       out_spec, var_spec, len_spec, prev_len_spec);
  
     imageStore(out_diffuse_asvgf, pix, vec4(out_diff, var_diff));
     imageStore(out_temporal_asvgf_diffuse, pix, vec4(out_diff, len_diff));

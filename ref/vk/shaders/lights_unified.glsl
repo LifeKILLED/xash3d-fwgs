@@ -62,7 +62,7 @@ uint getLightsCountTotal() {
 }
 
 uint decodeHistoryLightId(float encoded_id, out bool out_of_bound) {
-    bool is_polygonal = encoded_id > 0.0;
+    bool is_polygonal = encoded_id >= 0.0;
     if (is_polygonal) { // polygonal light
         uint id = uint(encoded_id);
         if (id >= lights.m.num_polygons) {
@@ -73,10 +73,10 @@ uint decodeHistoryLightId(float encoded_id, out bool out_of_bound) {
             return id + lights.m.num_point_lights;
         }
     } else { // point light
-        int raw_id = -1 - int(encoded_id); // from negative value
+        int raw_id = -int(encoded_id) - 1; // from negative value
         // HACK: invert pointlights order because flashlight is first
         // and indices are broken after removing flashlight from array.
-        int id = int(lights.m.num_point_lights) - raw_id;
+        int id = (int(lights.m.num_point_lights) - 1) - raw_id;
         if (id >= int(lights.m.num_point_lights) || id < 0) {
             out_of_bound = true;
             return 0;
@@ -92,10 +92,10 @@ float encodeHistoryLightId(uint unified_id) {
     if (is_point) { // point light
         // HACK: invert pointlights order because flashlight is first
         // and indices are broken after removing flashlight from array.
-        uint id = lights.m.num_point_lights - unified_id;
-        return float(-1 - id); // encode in negative value
+        uint id = (lights.m.num_point_lights - 1) - unified_id;
+        return float(-int(id) - 1); // encode in negative value
     } else { // polygon light
-        return unified_id - lights.m.num_point_lights;
+        return float(unified_id - lights.m.num_point_lights);
     }
 }
 
@@ -120,7 +120,7 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
         // environment/directional light
         l.L = normalize(orthonormalBasisZ(pl.dir_stopdot2.xyz) * sampleConeZ(rnd.xy, pl.dir_stopdot2.a));
         //l.L = pl.dir_stopdot2.xyz;
-        l.dist = 10000.;
+        l.dist = -10000.; // sky distance is negative
 
         l.geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a);
     }
@@ -138,7 +138,7 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
         float stopdot  = pl.color_stopdot.a;
         float spot_att = 1.0;
         if(spot_dot < stopdot) {
-            spot_att = (spot_dot - stopdot2) / (stopdot - stopdot2);
+            spot_att = max(0.0, (spot_dot - stopdot2) / (stopdot - stopdot2));
         }
         l.geom_weight = 2.0 * kPi * (1.0 - sqrt(max(0.0,1.0 - pl.origin_r2.w / max(dist2,EPSILON)))) * spot_att;
     }
@@ -153,12 +153,15 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
     const float plane_dist = dot(poly.plane, vec4(P, 1.f));
 
     if (plane_dist > 0.) {
-        //const vec4 s = getPolygonLightSampleProjected(V, ctx, poly, rnd); // slow and noisy
+#ifdef PROJECTED_LIGHT_SAMPLED_UNIFIED
+        const vec4 s = getPolygonLightSampleProjected(V, ctx, poly, rnd); // slow and noisy
+#else
         //const vec4 s = getPolygonLightSampleSolid(P, V, ctx, poly, rnd); // slow
         const vec4 s = getPolygonLightSampleSimpleSolid(P, V, poly, rnd); // so so
         //const vec4 s = getPolygonLightSampleSimple(P, V, poly, rnd); // not so fast and bad
         //const vec4 s = getPolygonLightSampleStupid(P, poly); // poor
-        l.dist = - plane_dist / dot(s.xyz, poly.plane.xyz);
+#endif
+        l.dist = max(0.0, -plane_dist / dot(s.xyz, poly.plane.xyz));
         l.L = s.xyz;
         l.geom_weight = s.w;
         l.emissive_color = poly.emissive;
@@ -178,9 +181,12 @@ void unifiedLightFinalShading(
     if (l.geom_weight > 0.0) {
 
         bool shadow_vis = false;
-        if (enable_shadow) {
-           shadow_vis = shadowed(P, l.L, max(0.0, l.dist - EPSILON));
+
+#ifndef DISABLE_RAYS
+        if (enable_shadow && l.dist > 0.0) {
+            shadow_vis = shadowed(P, l.L, max(0.0, l.dist - EPSILON));
         }
+#endif
 
         if (!shadow_vis) {
             if (eval_brdf) {
@@ -227,24 +233,46 @@ LightResult sampleFlashlightAndSky(
     vec3 rnd,
     vec3 origin,
     bool eval_brdf,
-    bool enable_shadow)
+    bool enable_shadow,
+    bool use_clusters)
 {
 	uint cluster_index = getLightClusterIndex(P);
 
     LightResult result = LightResult(vec3(0.0), vec3(0.0), 0);
+    LightSamplingData sky = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
 
-    uint num_point = uint(light_grid.clusters_[cluster_index].num_point_lights);
+    uint num_point = use_clusters ?
+                        uint(light_grid.clusters_[cluster_index].num_point_lights) :
+                        lights.m.num_point_lights;
 
     for (uint i = 0; i < num_point; i++) {
-        if (isFlashlightOrSky(i, origin, P, true)) { // all checks is in this function
-
-            uint idx_point = uint(light_grid.clusters_[cluster_index].point_lights[i]);
+        if (isFlashlightOrSky(i, origin, P, use_clusters)) { // all checks is in this function
+            
+            uint idx_point = use_clusters ?
+                                uint(light_grid.clusters_[cluster_index].point_lights[i]) :
+                                i;
 
             LightSamplingData l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd);
-            
-            LightResult r = LightResult(vec3(0.0), vec3(0.0), 0);
-            unifiedLightFinalShading(r, l, P, N, V, material, eval_brdf, enable_shadow);
 
+            bool need_to_separate_sky = enable_shadow && l.dist < 0.0;
+            if (need_to_separate_sky) { // calculate sky shadow outside of loop for better perfomance
+                sky = l;
+            } else {                
+                LightResult r = LightResult(vec3(0.0), vec3(0.0), 0);
+                unifiedLightFinalShading(r, l, P, N, V, material, eval_brdf, enable_shadow);
+                
+                result.diffuse += r.diffuse;
+                result.specular += r.specular;
+            }
+        }
+    }
+
+    if (enable_shadow && sky.dist < 0.0) {
+        if (!shadowedSky(P, sky.L)) {
+
+            LightResult r = LightResult(vec3(0.0), vec3(0.0), 0);
+            unifiedLightFinalShading(r, sky, P, N, V, material, eval_brdf, false);
+            
             result.diffuse += r.diffuse;
             result.specular += r.specular;
         }

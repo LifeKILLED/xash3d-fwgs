@@ -38,8 +38,11 @@
 	"temporal_reprojection": {
 		"comp": "temporal_reprojection"
 	},
-	"restir_lighting_direct": {
-		"comp": "restir_lighting_direct"
+	"restir_direct_candidates": {
+		"comp": "restir_direct_candidates"
+	},
+	"restir_direct_lighting": {
+		"comp": "restir_direct_lighting"
 	},
 	"restir_asvgf_direct": {
 		"comp": "restir_asvgf_direct"
