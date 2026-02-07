@@ -7,12 +7,11 @@
 
 #define CANDIDATES_COUNT 24
 #define CANDIDATES_RAYS false
-#define CONFIDENCE_THRESHOLD 1.0
-#define POISSON_NOISE_DITHER_SCALE 0.0
+#define CONFIDENCE_THRESHOLD 0.3
+#define POISSON_NOISE_DITHER_SCALE 0.1
 #define ANIMATE_PATTERN true
 #define CANDIDATES_BRDF true
 #define CANDIDATES_CLUSTERS false
-#define FINAL_RAYS false
 
 #define RESERVOIR_LIFETIME_MIN 64
 #define RESERVOIR_LIFETIME_MAX 1024
@@ -97,7 +96,7 @@ Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProper
 
     float kill_rnd = rand01();
 
-    bool kill_by_confidence = r.conf < kill_rnd * 0.5;
+    bool kill_by_confidence = r.conf < kill_rnd * CONFIDENCE_THRESHOLD;
     if (kill_by_confidence) {
         return reservoirInit(0.0);
     }

@@ -21,14 +21,14 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_mixed;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_mixed;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D light_poly_diffuse;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D light_poly_specular;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_asvgf;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_asvgf;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D light_point_diffuse;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D light_point_specular;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D diffuse_direct_fs;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D specular_direct_fs;
 
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D indirect_specular;
-layout(set = 0, binding = 7, rgba16f) uniform readonly image2D indirect_diffuse;
+// layout(set = 0, binding = 6, rgba16f) uniform readonly image2D indirect_specular;
+// layout(set = 0, binding = 7, rgba16f) uniform readonly image2D indirect_diffuse;
 
 layout(set = 0, binding = 8) uniform UBO { UniformBuffer ubo; } ubo;
 
@@ -65,11 +65,11 @@ void main() {
 		return;
 	}
 
-	vec3 diffuse =  fixRadiance(imageLoad(light_poly_diffuse, pix)).rgb;// +
-					//fixRadiance(imageLoad(light_point_diffuse, pix)).rgb;
+	vec3 diffuse =  fixRadiance(imageLoad(diffuse_asvgf, pix)).rgb +
+					fixRadiance(imageLoad(diffuse_direct_fs, pix)).rgb;
 
-	vec3 specular = fixRadiance(imageLoad(light_poly_specular, pix)).rgb;// +
-					//fixRadiance(imageLoad(light_point_specular, pix)).rgb;
+	vec3 specular = fixRadiance(imageLoad(specular_asvgf, pix)).rgb +
+					fixRadiance(imageLoad(specular_direct_fs, pix)).rgb;
 
 	imageStore(out_diffuse_mixed, pix, vec4(diffuse, 0.0));
 	imageStore(out_specular_mixed, pix, vec4(specular, 0.0));

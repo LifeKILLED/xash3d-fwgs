@@ -103,7 +103,46 @@
 	// },
 	// "direct_specular_atrous": {
 	//  	"comp": "direct_specular_atrous"
-	// },
+	// },	
+	"mix_lighting": {
+		"comp": "mix_lighting"
+	},
+	"direct_diffuse_atrous_pass_0": {
+	 	"comp": "direct_diffuse_atrous_pass_0"
+	},
+	"direct_diffuse_atrous_pass_1": {
+	 	"comp": "direct_diffuse_atrous_pass_1"
+	},
+	"direct_diffuse_atrous_pass_2": {
+	 	"comp": "direct_diffuse_atrous_pass_2"
+	},
+	"direct_diffuse_atrous_pass_3": {
+	 	"comp": "direct_diffuse_atrous_pass_3"
+	},
+	"direct_diffuse_atrous_pass_4": {
+	 	"comp": "direct_diffuse_atrous_pass_4"
+	},
+	"direct_diffuse_atrous_pass_5": {
+	 	"comp": "direct_diffuse_atrous_pass_5"
+	},
+	"direct_specular_atrous_pass_0": {
+	 	"comp": "direct_specular_atrous_pass_0"
+	},
+	"direct_specular_atrous_pass_1": {
+	 	"comp": "direct_specular_atrous_pass_1"
+	},
+	"direct_specular_atrous_pass_2": {
+	 	"comp": "direct_specular_atrous_pass_2"
+	},
+	"direct_specular_atrous_pass_3": {
+	 	"comp": "direct_specular_atrous_pass_3"
+	},
+	"direct_specular_atrous_pass_4": {
+	 	"comp": "direct_specular_atrous_pass_4"
+	},
+	"direct_specular_atrous_pass_5": {
+	 	"comp": "direct_specular_atrous_pass_5"
+	},
 	// "indirect_specular_atrous_pass_0": {
 	//  	"comp": "indirect_specular_atrous_pass_0"
 	// },
