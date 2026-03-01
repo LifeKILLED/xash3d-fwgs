@@ -4,6 +4,7 @@
 #include "lights_unified.glsl"
 
 #define MIN_RESTIR_WEIGHT 1e-4
+#define MAX_RESTIR_WEIGHT 0.02
 
 #define CONF_STORE_MULT 0.98
 
@@ -32,7 +33,7 @@ void reservoirUpdate(
     float w_src,
     float xi
 ){
-    float w = max(w_src, MIN_RESTIR_WEIGHT);
+    float w = clamp(w_src, MIN_RESTIR_WEIGHT, MAX_RESTIR_WEIGHT);
 
     r.M += 1.0;
     r.w_sum += w;
@@ -79,7 +80,7 @@ void updateRestirConfidence(
 ){
     float prevLo = r.w_y;
 
-    float currLo = max(currLoSrc, MIN_RESTIR_WEIGHT);
+    float currLo = clamp(currLoSrc, MIN_RESTIR_WEIGHT, MAX_RESTIR_WEIGHT);
 
     float diff = abs(currLo - prevLo);
     float scale = max(currLo, prevLo);
