@@ -19,6 +19,8 @@
 #define ANIMATE_PATTERN true
 #define FINAL_RAYS true
 
+//#define RANDOM_POISSON_SAMPLING 1
+
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
@@ -77,11 +79,15 @@ const ivec2 OFFSETS[4] = ivec2[](ivec2(1,0), ivec2(-1,0),
 
 vec3 samplingRandom(ivec2 pix, bool previous)
 {
+#ifdef RANDOM_POISSON_SAMPLING
     uint seed = ANIMATE_PATTERN ? (previous ? ubo.ubo.random_seed : ubo.ubo.random_seed - 1) : 0;
     vec2 poisson_coord = getPoissonCoord(pix + ivec2(int(seed), int(seed>>3)));
     rand01_state = seed + pix.x * 1833 + pix.y * 31337;
     const vec2 poissonNoiseDither = mix(poisson_coord * 0.5 + vec2(0.5), vec2(rand01(),rand01()), POISSON_NOISE_DITHER_SCALE);
     return vec3(poissonNoiseDither, rand01());
+#else
+    return vec3(rand01(), rand01(), rand01());
+#endif
 }
 
 vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, bool isSpecular, float pdf_mult)
@@ -135,9 +141,15 @@ void main(){
     uint total = getLightsCountTotal();
     float pdf_mult = float(total);
 
+#ifndef RANDOM_POISSON_SAMPLING
+    rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
+#endif
+
     vec3 sampling_rand_curr = samplingRandom(pix, false);
 
+#ifdef RANDOM_POISSON_SAMPLING
     rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
+#endif
 
     float confDiffuse = 0.;
     float confSpecular = 0.;
