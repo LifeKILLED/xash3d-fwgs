@@ -208,11 +208,11 @@ void main(){
         specular_conf /= specular_w;
     }
 
-    // {
-    //     LightResult l = sampleFlashlightAndSky(P, N, V, material, sampling_rand_curr, origin, true, FINAL_RAYS, false);
-    //     diffuse_fs += l.diffuse;
-    //     specular_fs += l.specular;
-    // }
+    {
+        LightResult l = sampleFlashlightAndSky(P, N, V, material, sampling_rand_curr, origin, true, FINAL_RAYS, false);
+        diffuse_fs += l.diffuse;
+        specular_fs += l.specular;
+    }
 
     //imageStore(out_diffuse_direct, pix, vec4(vec3(rDiffuse.conf, 0.0, 1.0 - rDiffuse.conf), rDiffuse.conf)); // debug diffuse confidence
     //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(rSpec.conf, 0.0, 1.0 - rSpec.conf), rSpec.conf)); // debug specular confidence
