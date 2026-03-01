@@ -12,6 +12,7 @@
 #define ANIMATE_PATTERN true
 #define CANDIDATES_BRDF true
 #define CANDIDATES_CLUSTERS false
+#define MIN_CANDIDATE_ROUGHNESS 0.1
 
 #define RESERVOIR_LIFETIME_MIN 64
 #define RESERVOIR_LIFETIME_MAX 1024
@@ -146,7 +147,7 @@ void main(){
 
 	MaterialProperties material;
 	material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
-    material.roughness = material_data.r;
+    material.roughness = mix(MIN_CANDIDATE_ROUGHNESS, 1.0, material_data.r); // hack for larger specular area
     material.metalness = material_data.g;
 
     const vec4 packed_normal = imageLoad(normals_gs, pix);
