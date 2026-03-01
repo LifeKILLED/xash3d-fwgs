@@ -16,6 +16,9 @@
 #define RESERVOIR_LIFETIME_MIN 64
 #define RESERVOIR_LIFETIME_MAX 1024
 
+#define STUPID_POLYGON_SAMPLING 1
+#define STUPID_POINT_LIGHT_SAMPLING 1
+
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL

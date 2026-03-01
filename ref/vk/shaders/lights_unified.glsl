@@ -118,8 +118,11 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
     if(pl.environment != 0)
     {
         // environment/directional light
+#ifdef STUPID_POINT_LIGHT_SAMPLING
+        l.L = pl.dir_stopdot2.xyz;
+#else
         l.L = normalize(orthonormalBasisZ(pl.dir_stopdot2.xyz) * sampleConeZ(rnd.xy, pl.dir_stopdot2.a));
-        //l.L = pl.dir_stopdot2.xyz;
+#endif
         l.dist = -10000.; // sky distance is negative
 
         l.geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a);
@@ -127,9 +130,12 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
     else
     {
         // spherical / point light
+#ifdef STUPID_POINT_LIGHT_SAMPLING
+        l.L = normalize(toL); // simple
+#else
         vec3 Lc = toL / max(sqrt(dist2), EPSILON);
         l.L = normalize(orthonormalBasisZ(Lc) * sampleConeZ(rnd.xy, sqrt(max(0.0, 1.0 - pl.origin_r2.w / max(dist2,EPSILON)))));
-        //L = toL; // simple
+#endif
         l.dist = length(toL);
 
         // spot attenuation
@@ -156,10 +162,14 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
 #ifdef PROJECTED_LIGHT_SAMPLED_UNIFIED
         const vec4 s = getPolygonLightSampleProjected(V, ctx, poly, rnd); // slow and noisy
 #else
+#ifdef STUPID_POLYGON_SAMPLING
+        //const vec4 s = getPolygonLightSampleStupid(P, poly); // poor
+        const vec4 s = getPolygonLightSampleSimple(P, V, poly, vec3(0.5, 0.5, 0.5)); // not so fast and bad
+#else
         //const vec4 s = getPolygonLightSampleSolid(P, V, ctx, poly, rnd); // slow
         const vec4 s = getPolygonLightSampleSimpleSolid(P, V, poly, rnd); // so so
         //const vec4 s = getPolygonLightSampleSimple(P, V, poly, rnd); // not so fast and bad
-        //const vec4 s = getPolygonLightSampleStupid(P, poly); // poor
+#endif
 #endif
         l.dist = max(0.0, -plane_dist / dot(s.xyz, poly.plane.xyz));
         l.L = s.xyz;

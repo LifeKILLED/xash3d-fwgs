@@ -13,7 +13,7 @@
 #define MAX_RESTIR_NORM 8.0
 #define MIN_ALPHA 0.02
 
-#define CONF_KERNEL 2
+#define CONF_KERNEL 0
 
 #include "utils.glsl"
 #include "noise.glsl"
@@ -57,6 +57,8 @@ void processLobeTemporal(
 
     vec3 d = curr - hist;
     outVar = clamp(dot(d, d), VARIANCE_MIN, VARIANCE_MAX);
+
+    outColor = curr; // debug current frame
 }
 
 void main() {

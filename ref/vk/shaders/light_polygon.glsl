@@ -42,7 +42,7 @@ vec4 getPolygonLightSampleStupid(vec3 P, const PolygonLight poly)
     float dist = sqrt(dist2);
     vec3 L = dir / max(dist, 1e-6); // normalized direction
 
-    float cos_theta = max(dot(-L, poly.plane.xyz), 0.0);
+    float cos_theta = max(dot(normalize(poly.plane.xyz), -L), 0.0);
     float weight = poly.area * cos_theta / max(dist2, 1e-6);
 
     return vec4(dir, weight * 0.4); // WTD: 0.4 for same intensity with other samplings

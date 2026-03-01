@@ -3,6 +3,8 @@
 
 #include "lights_unified.glsl"
 
+#define MIN_RESTIR_WEIGHT 1e-4
+
 #define CONF_STORE_MULT 0.98
 
 struct Reservoir {
@@ -27,11 +29,10 @@ Reservoir reservoirInit(float conf)
 void reservoirUpdate(
     inout Reservoir r,
     uint lightIndex,
-    float w,
+    float w_src,
     float xi
 ){
-    if (w <= 0.0)
-        return;
+    float w = max(w_src, MIN_RESTIR_WEIGHT);
 
     r.M += 1.0;
     r.w_sum += w;
@@ -74,14 +75,16 @@ vec4 saveReservoir(Reservoir r)
 
 void updateRestirConfidence(
     inout Reservoir r,
-    float currLo
+    float currLoSrc
 ){
     float prevLo = r.w_y;
 
-    float diff = abs(currLo - prevLo);
-    float scale = max(max(currLo, prevLo), 1e-3);
+    float currLo = max(currLoSrc, MIN_RESTIR_WEIGHT);
 
-    r.conf = clamp(1.0 - (diff / scale), 0.0, 1.0);
+    float diff = abs(currLo - prevLo);
+    float scale = max(currLo, prevLo);
+
+    r.conf = scale > 0.0 ? clamp(1.0 - (diff / scale), 0.0, 1.0) : 0.0;
 }
 
 #endif // RESTIR_COMMON_GLSL
