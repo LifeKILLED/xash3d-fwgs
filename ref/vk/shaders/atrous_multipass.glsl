@@ -26,29 +26,30 @@
 // Variance is stored in normalized form: var / (mean^2 + eps).
 #define VARIANCE_MIN 0.0
 #define VARIANCE_MAX 0.25
+#define VARIANCE_RADIUS 2
 
-#ifndef SHADING_NORMAL_EDGE_POWER
-#define SHADING_NORMAL_EDGE_POWER 2.0
+#ifndef POSITION_PLANE_THRESHOLD
+#define POSITION_PLANE_THRESHOLD 0.010
 #endif
 
-#ifndef SHADING_NORMAL_DOT_TIGHT
-#define SHADING_NORMAL_DOT_TIGHT 0.30
+#ifndef POSITION_DIST2_THRESHOLD
+#define POSITION_DIST2_THRESHOLD 0.0004
 #endif
 
-#ifndef SHADING_NORMAL_DOT_RELAXED
-#define SHADING_NORMAL_DOT_RELAXED 0.12
+#ifndef ROUGHNESS_DIFF_THRESHOLD
+#define ROUGHNESS_DIFF_THRESHOLD 0.12
 #endif
 
-#ifndef GEOM_NORMAL_EDGE_POWER
-#define GEOM_NORMAL_EDGE_POWER 2.5
+#ifndef VARIANCE_REL_DIFF_THRESHOLD
+#define VARIANCE_REL_DIFF_THRESHOLD 0.80
 #endif
 
-#ifndef GEOM_NORMAL_DOT_TIGHT
-#define GEOM_NORMAL_DOT_TIGHT 0.45
+#ifndef SHADING_NORMAL_DOT_THRESHOLD
+#define SHADING_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
-#ifndef GEOM_NORMAL_DOT_RELAXED
-#define GEOM_NORMAL_DOT_RELAXED 0.20
+#ifndef GEOM_NORMAL_DOT_THRESHOLD
+#define GEOM_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
 //---------------------------------------------------------
@@ -90,44 +91,29 @@ layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
 //---------------------------------------------------------
 float safeLum(vec3 c) { return max(luminance(c), 1e-4); }
 
-float wNormal(vec3 a, vec3 b, float relax, float dotTight, float dotRelaxed, float edgePower)
+float wNormalThreshold(vec3 a, vec3 b, float dotThreshold)
 {
     float nd = max(dot(a, b), 0.0);
-    float threshold = mix(dotTight, dotRelaxed, clamp(relax - 1.0, 0.0, 1.0));
-    float w = smoothstep(threshold, 1.0, nd);
-    return pow(w, edgePower);
+    return step(dotThreshold, nd);
 }
 
-float wPosition(vec3 centerPos, vec3 samplePos, vec3 geomNorm, float stepScale, float relax)
+float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float dist2Threshold)
 {
-    // Scale-invariant metric: robust when engine units are not meters.
-    vec3 d = samplePos - centerPos;
-    float centerDist = max(length(centerPos), 1.0);
-
-    // Distance from sample point to plane that passes through centerPos with geomNorm normal.
-    float planeDist = abs(dot(d, geomNorm));
-    float nPlaneDist = planeDist / centerDist;
-    float sigmaPlane = max(0.0015 * stepScale * relax, 1e-4);
-    float wPlane = exp(-nPlaneDist / sigmaPlane);
-
-    // Keep base distance gating for depth discontinuities, but allow plane-consistent samples.
-    float nEuclidDist = length(d) / centerDist;
-    float sigmaEuclid = max(0.0025 * stepScale * relax, 1e-4);
-    float wEuclid = exp(-nEuclidDist / sigmaEuclid);
-
-    return max(wPlane, wEuclid);
+    // Hard gates are significantly cheaper than exponential weights.
+    float nPlaneDist = abs(dot(d, geomNorm)) * invCenterDist;
+    float nDist2 = dot(d, d) * (invCenterDist * invCenterDist);
+    return step(nPlaneDist, planeThreshold) * step(nDist2, dist2Threshold);
 }
 
 float wRoughness(float a, float b, float relax)
 {
-    float d = abs(a - b);
-    return 1.0 / (1.0 + d * (12.0 / relax));
+    return step(abs(a - b), ROUGHNESS_DIFF_THRESHOLD * relax);
 }
 
 float wVariance(float a, float b)
 {
     float d = abs(a - b) / max(max(a, b), 1e-4);
-    return 1.0 / (1.0 + d * 6.0);
+    return step(d, VARIANCE_REL_DIFF_THRESHOLD);
 }
 
 //---------------------------------------------------------
@@ -145,9 +131,10 @@ void main()
     float m2 = 0.0;
     float w = 0.0;
 
-    // Keep variance pass compact and cache-friendly: fixed 3x3 footprint.
-    for (int y = -1; y <= 1; y++) {
-        for (int x = -1; x <= 1; x++) {
+    // 5x5 moments for more stable variance.
+    // Single path for all invocations to avoid warp divergence on borders.
+    for (int y = -VARIANCE_RADIUS; y <= VARIANCE_RADIUS; y++) {
+        for (int x = -VARIANCE_RADIUS; x <= VARIANCE_RADIUS; x++) {
             ivec2 q = clamp(p + ivec2(x, y), ivec2(0), res - 1);
             float L = safeLum(imageLoad(IN_RADIANCE, q).rgb);
             m1 += L;
@@ -198,6 +185,9 @@ void main()
 #endif
     int step = ATROUS_STEP;
     float stepScale = float(ATROUS_STEP);
+    float invCenterDist = 1.0 / max(length(P0), 1.0);
+    float planeThreshold = POSITION_PLANE_THRESHOLD * stepScale * relax;
+    float dist2Threshold = POSITION_DIST2_THRESHOLD * stepScale * stepScale * relax * relax;
 
     vec3 sumC = vec3(0.0);
     float sumW = 0.0;
@@ -206,38 +196,36 @@ void main()
     {
         ivec2 q = clamp(p + KERNEL3[i] * step, ivec2(0), res - 1);
 
-        vec3 c = imageLoad(IN_RADIANCE, q).rgb;
         vec4 normalsQ = imageLoad(NORMALS_GS, q);
         vec3 G1 = normalDecode(normalsQ.xy);
         vec3 N1 = normalDecode(normalsQ.zw);
+        float wnShading = wNormalThreshold(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
+        float wnGeom = wNormalThreshold(geomNorm, G1, GEOM_NORMAL_DOT_THRESHOLD);
+        if (wnShading == 0.0 || wnGeom == 0.0) {
+            continue;
+        }
+
         vec3 P1 = imageLoad(POSITION_T, q).xyz;
+        float wPos = wPositionGate(P1 - P0, geomNorm, invCenterDist, planeThreshold, dist2Threshold);
+        if (wPos == 0.0) {
+            continue;
+        }
+
         float R1 = imageLoad(MATERIAL_RMXX, q).x;
+        float wR = wRoughness(R0, R1, relax);
+        if (wR == 0.0) {
+            continue;
+        }
+
         float V1 = imageLoad(atrous_variance, q).r;
+        float wV = wVariance(V0, V1);
+        if (wV == 0.0) {
+            continue;
+        }
 
         float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
-        float wnShading = wNormal(
-            N0,
-            N1,
-            relax,
-            SHADING_NORMAL_DOT_TIGHT,
-            SHADING_NORMAL_DOT_RELAXED,
-            SHADING_NORMAL_EDGE_POWER
-        );
-        float wnGeom = wNormal(
-            geomNorm,
-            G1,
-            relax,
-            GEOM_NORMAL_DOT_TIGHT,
-            GEOM_NORMAL_DOT_RELAXED,
-            GEOM_NORMAL_EDGE_POWER
-        );
-        float w =
-              spatialW
-            * wnShading
-            * wnGeom
-            * wPosition(P0, P1, geomNorm, stepScale, relax)
-            * wRoughness(R0, R1, relax)
-            * wVariance(V0, V1);
+        float w = spatialW * wnShading * wnGeom * wPos * wR * wV;
+        vec3 c = imageLoad(IN_RADIANCE, q).rgb;
 
         sumC += c * w;
         sumW += w;
