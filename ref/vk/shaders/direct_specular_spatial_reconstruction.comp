@@ -2,7 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define OUTPUT_DIRECT out_specular_direct_reconstructed
-#define INPUT_DIRECT specular_direct
+#define INPUT_DIRECT specular_direct_shadowed
 #define INPUT_LIGHTDIR specular_direct_lightdir
 
 #include "direct_specular_atrous_config.glsl"

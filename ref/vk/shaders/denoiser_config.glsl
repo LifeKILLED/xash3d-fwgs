@@ -11,11 +11,11 @@
 #endif
 
 #ifndef DENOISER_ENABLE_REPROJECTION
-#define DENOISER_ENABLE_REPROJECTION 1
+#define DENOISER_ENABLE_REPROJECTION 0
 #endif
 
 #ifndef DENOISER_ENABLE_ATROUS
-#define DENOISER_ENABLE_ATROUS 1
+#define DENOISER_ENABLE_ATROUS 0
 #endif
 
 // Per-lobe max allowed a-trous step; larger steps are bypassed.

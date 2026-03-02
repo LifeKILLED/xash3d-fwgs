@@ -28,8 +28,6 @@ layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_reconstructed;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_reconstructed;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D restir_diffuse_shadows;
-layout(set = 0, binding = 6, rgba16f) uniform readonly image2D restir_specular_shadows;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
@@ -74,12 +72,8 @@ void main() {
 
     const ivec2 prev_pix = ivec2(imageLoad(reprojection_uv, pix).xy);
 
-    const vec3 curr_diffuse_raw = imageLoad(diffuse_direct_reconstructed, pix).rgb;
-    const vec3 curr_specular_raw = imageLoad(specular_direct_reconstructed, pix).rgb;
-    float shadow_diffuse = clamp(imageLoad(restir_diffuse_shadows, pix).r, -1.0, 1.0);
-    float shadow_specular = clamp(imageLoad(restir_specular_shadows, pix).r, -1.0, 1.0);
-    const vec3 curr_diffuse = abs(curr_diffuse_raw) * shadow_diffuse;
-    const vec3 curr_specular = abs(curr_specular_raw) * shadow_specular;
+    const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
+    const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
 
     if (DENOISER_ENABLE_REPROJECTION == 0) {
         imageStore(out_diffuse_asvgf, pix, vec4(curr_diffuse, VARIANCE_MIN));
