@@ -486,6 +486,9 @@ class Resources:
 			self.producer = None
 
 		def checkSameTypeNode(self, node):
+			if node is None:
+				return
+
 			if not self.type:
 				self.type = node.getType()
 				return
@@ -524,7 +527,7 @@ class Binding:
 	WRITE_BIT = 0x80000000
 	CREATE_BIT = 0x40000000
 
-	def __init__(self, node):
+	def __init__(self, node, shader_name = None):
 		self.write = node.name.startswith('out_')
 		self.create = self.write
 		self.index = node.binding
@@ -532,10 +535,31 @@ class Binding:
 		self.stages = 0
 
 		prev_name = removeprefix(node.name, 'prev_') if node.name.startswith('prev_') else None
-		prev_resource_index = resources.getIndex(prev_name, None) if prev_name else None
+		try:
+			prev_resource_index = resources.getIndex(prev_name, None) if prev_name else None
+		except Exception as e:
+			print('sebastian debug: shader=%s binding=%s ds=%s prev_name=%s node_name=%s' % (
+				shader_name if shader_name else '<unknown>',
+				self.index,
+				self.descriptor_set,
+				prev_name,
+				node.name
+			))
+			raise
 
 		resource_name = removeprefix(node.name, 'out_') if self.write else node.name
-		self.__resource_index = resources.getIndex(resource_name, node, prev_resource_index)
+		try:
+			self.__resource_index = resources.getIndex(resource_name, node, prev_resource_index)
+		except Exception as e:
+			print('sebastian debug: shader=%s binding=%s ds=%s resource_name=%s node_name=%s prev_name=%s' % (
+				shader_name if shader_name else '<unknown>',
+				self.index,
+				self.descriptor_set,
+				resource_name,
+				node.name,
+				prev_name
+			))
+			raise
 
 		if prev_resource_index is not None:
 			self.create = True
@@ -617,7 +641,7 @@ class Shader:
 		for node in spirv.nodes:
 			if node.binding == None or node.descriptor_set == None:
 				continue
-			bindings.append(Binding(node))
+			bindings.append(Binding(node, self.name))
 
 		self.__bindings = bindings
 		return self.__bindings
