@@ -12,8 +12,14 @@
 #define ANIMATE_PATTERN true
 #define CANDIDATES_BRDF true
 #define CANDIDATES_CLUSTERS false
-#define STABLE_CANDIDATE_START 1
-#define REPROJECTION_EXTRA_RANDOM_TEXELS 1.0
+
+#define STABLE_START_CANDIDATES 0
+#define RANDOM_START_CANDIDATES 1
+#define FULL_RANDOM_CANDIDATES 2
+
+#define CANDIDATE_ID_SAMPLING_MODE RANDOM_START_CANDIDATES
+
+#define REPROJECTION_EXTRA_RANDOM_TEXELS 2.0
 #define MIN_CANDIDATE_ROUGHNESS 0.1
 
 #define RESERVOIR_LIFETIME_MIN 64
@@ -101,7 +107,7 @@ uint getBayer4x4Value(ivec2 pix)
     return BAYER_4X4[iy * 4u + ix];
 }
 
-ivec2 pickReprojectedPixel(vec2 reproj_uv, ivec2 res, ivec2 pix)
+vec2 getNoisyReprojectionUv(vec2 reproj_uv, ivec2 res, ivec2 pix)
 {
     if (REPROJECTION_EXTRA_RANDOM_TEXELS > 0.0) {
         const uint rx_hash = xxhash32(uvec3(uint(pix.x), uint(pix.y), ubo.ubo.frame_counter ^ 0x68bc21ebu));
@@ -111,51 +117,26 @@ ivec2 pickReprojectedPixel(vec2 reproj_uv, ivec2 res, ivec2 pix)
         reproj_uv += jitter;
         reproj_uv = clamp(reproj_uv, vec2(0.0), vec2(res) - vec2(1.001));
     }
+    return reproj_uv;
+}
 
+bool gatherReprojectedNeighbors(vec2 reproj_uv, ivec2 res, out ivec2 taps[4], out float weights[4])
+{
     if (any(lessThan(reproj_uv, vec2(0.0))) || any(greaterThanEqual(reproj_uv, vec2(res)))) {
-        return ivec2(-1);
+        return false;
     }
 
-    const ivec2 base = ivec2(floor(reproj_uv));
-    const vec2 frac_uv = fract(reproj_uv);
-
-    float weights[4];
-    weights[0] = (1.0 - frac_uv.x) * (1.0 - frac_uv.y);
-    weights[1] = frac_uv.x * (1.0 - frac_uv.y);
-    weights[2] = (1.0 - frac_uv.x) * frac_uv.y;
-    weights[3] = frac_uv.x * frac_uv.y;
-
-    ivec2 taps[4];
-    taps[0] = base + ivec2(0, 0);
-    taps[1] = base + ivec2(1, 0);
-    taps[2] = base + ivec2(0, 1);
-    taps[3] = base + ivec2(1, 1);
-
-    float weight_sum = 0.0;
     for (int i = 0; i < 4; ++i) {
-        if (any(lessThan(taps[i], ivec2(0))) || any(greaterThanEqual(taps[i], res))) {
-            weights[i] = 0.0;
-        }
-        weight_sum += weights[i];
+        weights[i] = 1.0;
     }
 
-    if (weight_sum <= 0.0) {
-        return ivec2(-1);
-    }
+    const ivec2 center = ivec2(floor(reproj_uv + vec2(0.5)));
+    taps[0] = center + OFFSETS[0];
+    taps[1] = center + OFFSETS[1];
+    taps[2] = center + OFFSETS[2];
+    taps[3] = center + OFFSETS[3];
 
-    const float xi = uintToFloat01(xxhash32(uvec3(uint(pix.x), uint(pix.y), ubo.ubo.frame_counter ^ 0x9e3779b9u)));
-    float accum = 0.0;
-    for (int i = 0; i < 4; ++i) {
-        if (weights[i] <= 0.0) {
-            continue;
-        }
-        accum += weights[i] / weight_sum;
-        if (xi <= accum) {
-            return taps[i];
-        }
-    }
-
-    return taps[0];
+    return true;
 }
 
 vec3 samplingRandom(ivec2 pix, bool previous)
@@ -247,11 +228,7 @@ void main(){
     rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
 #endif
 
-    const vec2 prevPxUv = imageLoad(reprojection_uv, pix).xy;
-    ivec2 prevPx = pickReprojectedPixel(prevPxUv, res, pix);
-
     vec3 sampling_rand_curr = samplingRandom(pix, false);
-    vec3 sampling_rand_prev = samplingRandom(prevPx, true);
 
 #ifdef RANDOM_POISSON_SAMPLING
     rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
@@ -265,30 +242,128 @@ void main(){
     Reservoir rDiffuse = reservoirInit(0.0);
     Reservoir rSpec = reservoirInit(0.0);
 
-    if (prevPx.x >= 0 && total > 0) { // avoid reprojection if have no visible lights
+    const vec2 prevPxUv = imageLoad(reprojection_uv, pix).xy;
+    const vec2 prevPxUvNoisy = getNoisyReprojectionUv(prevPxUv, res, pix);
+    const ivec2 center_prev_px = ivec2(floor(prevPxUvNoisy + vec2(0.5)));
+
+    ivec2 reproj_taps[4];
+    float reproj_weights[4];
+    const bool has_reprojected_neighbors = gatherReprojectedNeighbors(prevPxUvNoisy, res, reproj_taps, reproj_weights);
+
+    if (has_reprojected_neighbors && total > 0) { // avoid reprojection if have no visible lights
         const vec4 prev_norm_mat = imageLoad(prev_temporal_res_norm_mat, pix);
 
         const vec3 prev_N = normalDecode(prev_norm_mat.xy);
 
         {
-            bool out_of_bound;
-            Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, prevPx), out_of_bound);
-            if (!out_of_bound)
-                rDiffuse = reprojectReservoir(prevDiffuse, P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
+            Reservoir temporal_pick = reservoirInit(0.0);
+            Reservoir temporal_candidates[4];
+            bool temporal_candidate_valid[4];
+            bool has_neighbor_candidates = false;
+            for (int i = 0; i < 4; ++i) {
+                temporal_candidate_valid[i] = false;
+            }
+
+            for (int i = 0; i < 4; ++i) {
+                if (reproj_weights[i] <= 0.0) {
+                    continue;
+                }
+                if (any(lessThan(reproj_taps[i], ivec2(0))) || any(greaterThanEqual(reproj_taps[i], res))) {
+                    continue;
+                }
+
+                bool out_of_bound;
+                Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, reproj_taps[i]), out_of_bound);
+                if (out_of_bound) {
+                    continue;
+                }
+
+                temporal_candidates[i] = prevDiffuse;
+                temporal_candidate_valid[i] = true;
+                has_neighbor_candidates = true;
+
+                const float candidate_weight = max(prevDiffuse.w_sum, 0.0);
+                reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
+            }
+
+            bool reprojected = false;
+            if (has_neighbor_candidates) {
+                const uint selected_candidate_idx = temporal_pick.light_index;
+                if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
+                    const ivec2 selected_prev_px = reproj_taps[int(selected_candidate_idx)];
+                    const vec3 sampling_rand_prev = samplingRandom(selected_prev_px, true);
+                    rDiffuse = reprojectReservoir(temporal_candidates[int(selected_candidate_idx)], P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
+                    reprojected = true;
+                }
+            }
+
+            if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+                bool out_of_bound;
+                Reservoir centerDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, center_prev_px), out_of_bound);
+                if (!out_of_bound) {
+                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
+                    rDiffuse = reprojectReservoir(centerDiffuse, P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
+                }
+            }
         }
         {
-            bool out_of_bound;
-            Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, prevPx), out_of_bound);
-            if (!out_of_bound)
-                rSpec = reprojectReservoir(prevSpec, P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
+            Reservoir temporal_pick = reservoirInit(0.0);
+            Reservoir temporal_candidates[4];
+            bool temporal_candidate_valid[4];
+            bool has_neighbor_candidates = false;
+            for (int i = 0; i < 4; ++i) {
+                temporal_candidate_valid[i] = false;
+            }
+
+            for (int i = 0; i < 4; ++i) {
+                if (reproj_weights[i] <= 0.0) {
+                    continue;
+                }
+                if (any(lessThan(reproj_taps[i], ivec2(0))) || any(greaterThanEqual(reproj_taps[i], res))) {
+                    continue;
+                }
+
+                bool out_of_bound;
+                Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, reproj_taps[i]), out_of_bound);
+                if (out_of_bound) {
+                    continue;
+                }
+
+                temporal_candidates[i] = prevSpec;
+                temporal_candidate_valid[i] = true;
+                has_neighbor_candidates = true;
+
+                const float candidate_weight = max(prevSpec.w_sum, 0.0);
+                reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
+            }
+
+            bool reprojected = false;
+            if (has_neighbor_candidates) {
+                const uint selected_candidate_idx = temporal_pick.light_index;
+                if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
+                    const ivec2 selected_prev_px = reproj_taps[int(selected_candidate_idx)];
+                    const vec3 sampling_rand_prev = samplingRandom(selected_prev_px, true);
+                    rSpec = reprojectReservoir(temporal_candidates[int(selected_candidate_idx)], P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
+                    reprojected = true;
+                }
+            }
+
+            if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+                bool out_of_bound;
+                Reservoir centerSpec = loadReservoir(imageLoad(prev_temporal_res_specular, center_prev_px), out_of_bound);
+                if (!out_of_bound) {
+                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
+                    rSpec = reprojectReservoir(centerSpec, P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
+                }
+            }
         }
     }
 
     if(total > 0) {
         const bool iterate_all = total <= CANDIDATES_COUNT;
 
-        uint first_light_id;
-#if STABLE_CANDIDATE_START
+        uint first_light_id = 0u;
+#if CANDIDATE_ID_SAMPLING_MODE == STABLE_START_CANDIDATES
         const uint bayer_value = getBayer4x4Value(pix);
         const float frame_counter_f = float(ubo.ubo.frame_counter);
         const float candidates_per_frame_f = float(CANDIDATES_COUNT);
@@ -298,7 +373,7 @@ void main(){
         const float bayer_offset_f = bayer_dither_norm * (total_f - 1.0);
         const float candidate_index_start_f = frame_counter_f * candidates_per_frame_f + bayer_offset_f;
         first_light_id = uint(candidate_index_start_f) % total;
-#else
+#elif CANDIDATE_ID_SAMPLING_MODE == RANDOM_START_CANDIDATES
         first_light_id = uint(rand01() * float(total));
 #endif
         
@@ -306,9 +381,14 @@ void main(){
         LightRandomPickData spec_pick = LightRandomPickData(0,0,0,0,0,-1);
 
         for (uint i = 0; i < CANDIDATES_COUNT; i++) { // always fixed cycle
-            const bool out_of_bounds = iterate_all && i >= total;
+            const bool out_of_bounds = (CANDIDATE_ID_SAMPLING_MODE != FULL_RANDOM_CANDIDATES) && iterate_all && i >= total;
             if (!out_of_bounds) {
-                const uint light_id = iterate_all ? i : (first_light_id + i) % total;
+                uint light_id = 0u;
+#if CANDIDATE_ID_SAMPLING_MODE == FULL_RANDOM_CANDIDATES
+                light_id = uint(rand01() * float(total));
+#else
+                light_id = iterate_all ? i : (first_light_id + i) % total;
+#endif
 
                 if (!isFlashlightOrSky(light_id, origin, P, CANDIDATES_CLUSTERS)) {
                     const LightResult l = evalUnifiedLight(P, N, V, material, ctx, light_id, sampling_rand_curr, CANDIDATES_BRDF, CANDIDATES_RAYS, CANDIDATES_CLUSTERS);
