@@ -5,9 +5,9 @@
 
 #define OUTPUT_RADIANCE out_radiance_atrous_pong
 
-#define POSITION_T position_t
-#define NORMALS_GS normals_gs
-#define MATERIAL_RMXX material_rmxx
+#include "direct_diffuse_atrous_config.glsl"
 
 #define ATROUS_STEP 4
 #include "atrous_multipass.glsl"
+
+

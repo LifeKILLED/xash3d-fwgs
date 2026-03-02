@@ -27,6 +27,30 @@
 #define VARIANCE_MIN 0.0
 #define VARIANCE_MAX 0.25
 
+#ifndef SHADING_NORMAL_EDGE_POWER
+#define SHADING_NORMAL_EDGE_POWER 2.0
+#endif
+
+#ifndef SHADING_NORMAL_DOT_TIGHT
+#define SHADING_NORMAL_DOT_TIGHT 0.30
+#endif
+
+#ifndef SHADING_NORMAL_DOT_RELAXED
+#define SHADING_NORMAL_DOT_RELAXED 0.12
+#endif
+
+#ifndef GEOM_NORMAL_EDGE_POWER
+#define GEOM_NORMAL_EDGE_POWER 2.5
+#endif
+
+#ifndef GEOM_NORMAL_DOT_TIGHT
+#define GEOM_NORMAL_DOT_TIGHT 0.45
+#endif
+
+#ifndef GEOM_NORMAL_DOT_RELAXED
+#define GEOM_NORMAL_DOT_RELAXED 0.20
+#endif
+
 //---------------------------------------------------------
 // KERNEL
 //---------------------------------------------------------
@@ -66,11 +90,12 @@ layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
 //---------------------------------------------------------
 float safeLum(vec3 c) { return max(luminance(c), 1e-4); }
 
-float wNormal(vec3 a, vec3 b, float relax)
+float wNormal(vec3 a, vec3 b, float relax, float dotTight, float dotRelaxed, float edgePower)
 {
     float nd = max(dot(a, b), 0.0);
-    float threshold = mix(0.2, 0.05, clamp(relax - 1.0, 0.0, 1.0));
-    return smoothstep(threshold, 1.0, nd);
+    float threshold = mix(dotTight, dotRelaxed, clamp(relax - 1.0, 0.0, 1.0));
+    float w = smoothstep(threshold, 1.0, nd);
+    return pow(w, edgePower);
 }
 
 float wPosition(vec3 centerPos, vec3 samplePos, vec3 geomNorm, float stepScale, float relax)
@@ -182,15 +207,34 @@ void main()
         ivec2 q = clamp(p + KERNEL3[i] * step, ivec2(0), res - 1);
 
         vec3 c = imageLoad(IN_RADIANCE, q).rgb;
-        vec3 N1 = normalDecode(imageLoad(NORMALS_GS, q).zw);
+        vec4 normalsQ = imageLoad(NORMALS_GS, q);
+        vec3 G1 = normalDecode(normalsQ.xy);
+        vec3 N1 = normalDecode(normalsQ.zw);
         vec3 P1 = imageLoad(POSITION_T, q).xyz;
         float R1 = imageLoad(MATERIAL_RMXX, q).x;
         float V1 = imageLoad(atrous_variance, q).r;
 
         float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
+        float wnShading = wNormal(
+            N0,
+            N1,
+            relax,
+            SHADING_NORMAL_DOT_TIGHT,
+            SHADING_NORMAL_DOT_RELAXED,
+            SHADING_NORMAL_EDGE_POWER
+        );
+        float wnGeom = wNormal(
+            geomNorm,
+            G1,
+            relax,
+            GEOM_NORMAL_DOT_TIGHT,
+            GEOM_NORMAL_DOT_RELAXED,
+            GEOM_NORMAL_EDGE_POWER
+        );
         float w =
               spatialW
-            * wNormal(N0, N1, relax)
+            * wnShading
+            * wnGeom
             * wPosition(P0, P1, geomNorm, stepScale, relax)
             * wRoughness(R0, R1, relax)
             * wVariance(V0, V1);
