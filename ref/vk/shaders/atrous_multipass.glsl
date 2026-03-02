@@ -22,7 +22,7 @@
 //---------------------------------------------------------
 #define AGGRESSIVE_DENOISE 1         // 0 = off, 1 = on
 #define VARIANCE_RELAX_EDGE 1.5      // relax edge stopping on noisy pixels
-#define VARIANCE_FLATTEN_KERNEL 0.75 // flatten spatial kernel on noisy pixels
+#define VARIANCE_FLATTEN_KERNEL 0.0  // keep Gaussian kernel shape (avoid boxy/square blur)
 
 // Variance is stored in normalized form: var / (mean^2 + eps).
 #define VARIANCE_MIN 0.0
@@ -43,6 +43,14 @@
 
 #ifndef VARIANCE_REL_DIFF_THRESHOLD
 #define VARIANCE_REL_DIFF_THRESHOLD 0.80
+#endif
+
+#ifndef ATROUS_BLACK_LUMA_THRESHOLD
+#define ATROUS_BLACK_LUMA_THRESHOLD 1e-4
+#endif
+
+#ifndef ATROUS_ENABLE_VARIANCE_NEIGHBOR_GATE
+#define ATROUS_ENABLE_VARIANCE_NEIGHBOR_GATE 0
 #endif
 
 #ifndef SHADING_NORMAL_DOT_THRESHOLD
@@ -131,7 +139,7 @@ void main()
     if (any(greaterThanEqual(p, res))) return;
 
     vec3 centerColor = imageLoad(IN_RADIANCE, p).rgb;
-    if (all(equal(centerColor, vec3(0.0)))) {
+    if (luminance(max(centerColor, vec3(0.0))) <= ATROUS_BLACK_LUMA_THRESHOLD) {
         imageStore(out_atrous_variance, p, vec4(1.0));
         return;
     }
@@ -229,10 +237,14 @@ void main()
         }
 
         float V1 = imageLoad(atrous_variance, q).r;
+#if ATROUS_ENABLE_VARIANCE_NEIGHBOR_GATE
         float wV = wVariance(V0, V1);
         if (wV == 0.0) {
             continue;
         }
+#else
+        float wV = 1.0;
+#endif
 
         float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
         float w = spatialW * wnShading * wPos * wR * wV;

@@ -99,6 +99,10 @@
 #define SPATIAL_RECONSTRUCTION_STAGE_ENABLED 1
 #endif
 
+#ifndef SPATIAL_RECONSTRUCTION_CONF_MULT
+#define SPATIAL_RECONSTRUCTION_CONF_MULT DENOISER_SPATIAL_RECONSTRUCTION_CONF_MULT
+#endif
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_DIRECT;
@@ -224,7 +228,7 @@ void main()
     float center_spatialW = clampWeightNonNegative(POISSON[0].z);
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
     vec3 sumC = center_rgb * center_w;
-    float sumA = center_a * center_w;
+    float conf_sum = center_a;
     float sumW = center_w;
     int accepted_samples = 0;
 
@@ -262,6 +266,10 @@ void main()
         if (wr == 0.0) continue;
 #endif
 
+        vec4 c = imageLoad(INPUT_DIRECT, q);
+        float c_a = clamp(c.a, 0.0, 1.0);
+        conf_sum -= (1.0 - c_a) * SPATIAL_RECONSTRUCTION_CONF_MULT;
+
         vec3 Lqraw = imageLoad(INPUT_LIGHTDIR, q).xyz;
         vec3 V1 = normalize(camPos - P1);
         vec3 LqAtCenter = resolveLightDirection(Lqraw, N0, V0, R0);
@@ -278,7 +286,6 @@ void main()
 
         wl = clamp(wl, 0.0, SPATIAL_GGX_MAX_GAIN);
 
-        vec4 c = imageLoad(INPUT_DIRECT, q);
         float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
         confW = clampWeightNonNegative(confW);
         float spatialW = clampWeightNonNegative(POISSON[i].z);
@@ -286,21 +293,18 @@ void main()
 
         if (w > 0.0) {
             vec3 c_rgb = clampRadianceNonNegative(c.rgb);
-            float c_a = max(c.a, 0.0);
             sumC += c_rgb * w;
-            sumA += c_a * w;
             sumW += w;
             accepted_samples++;
         }
     }
 
     vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
-    float outA = max(sumA / max(sumW, 1e-6), 0.0);
+    float outA = max(conf_sum, 0.0);
 
     // Mirror fallback: if nothing valid was gathered, keep center sample.
     if (accepted_samples == 0) {
         outC = center_rgb;
-        outA = center_a;
     }
 
     imageStore(OUTPUT_DIRECT, p, vec4(outC, outA));
