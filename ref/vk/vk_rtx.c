@@ -168,8 +168,8 @@ static void produceUboResource(struct Producer* p, struct vk_combuf_s *combuf, c
 	const size_t ubo_slot_offset = (ctx->frame_sequence % MAX_FRAMES_IN_FLIGHT) * g_rtx.uniform.unit_size;
 	struct UniformBuffer *const ubo = PTR_CAST(struct UniformBuffer, (char*)g_rtx.uniform.buffer.mapped + ubo_slot_offset);
 	g_rtx.uniform.resource->offset = ubo_slot_offset;
-	ubo->frame_counter = ctx->frame_sequence;
 	memcpy(ubo, &g_rtx.uniform.current, sizeof(struct UniformBuffer));
+	ubo->frame_counter = ctx->frame_sequence;
 }
 
 static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args_t *args, float fov_angle_y, int frame_width, int frame_height ) {
