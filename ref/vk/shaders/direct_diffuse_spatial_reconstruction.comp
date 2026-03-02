@@ -9,5 +9,6 @@
 
 #define SPATIAL_LIGHTDIR_DOT_THRESHOLD 0.92
 #define SPATIAL_CONFIDENCE_SCALE 1.2
+#define SPATIAL_RADIUS 8.0
 
 #include "direct_spatial_reconstruction.glsl"

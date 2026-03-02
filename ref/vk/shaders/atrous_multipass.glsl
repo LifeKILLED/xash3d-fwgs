@@ -95,10 +95,12 @@ float wNormalThreshold(vec3 a, vec3 b, float dotThreshold)
 
 float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float dist2Threshold)
 {
-    // Hard gates are significantly cheaper than exponential weights.
+    // Accept samples that are either close to the center plane or close in Euclidean distance.
     float nPlaneDist = abs(dot(d, geomNorm)) * invCenterDist;
     float nDist2 = dot(d, d) * (invCenterDist * invCenterDist);
-    return step(nPlaneDist, planeThreshold) * step(nDist2, dist2Threshold);
+    float wPlane = step(nPlaneDist, planeThreshold);
+    float wDist = step(nDist2, dist2Threshold);
+    return max(wPlane, wDist);
 }
 
 float wRoughness(float a, float b, float relax)
@@ -122,6 +124,12 @@ void main()
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
     if (any(greaterThanEqual(p, res))) return;
+
+    vec3 centerColor = imageLoad(IN_RADIANCE, p).rgb;
+    if (all(equal(centerColor, vec3(0.0)))) {
+        imageStore(out_atrous_variance, p, vec4(1.0));
+        return;
+    }
 
     float m1 = 0.0;
     float m2 = 0.0;
