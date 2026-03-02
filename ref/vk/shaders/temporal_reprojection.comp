@@ -213,6 +213,7 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 	vec4 m_ds_history_fast = vec4(0.);
 
 	float better_reproj_uv_weight = 0.0;
+	bool has_valid_reprojection = false;
 
 	float history_depth = 0.;
 
@@ -279,10 +280,15 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 
 				if (bilinear_weight > better_reproj_uv_weight) {
 					better_reproj_uv_weight = bilinear_weight;
-					reprojection_uv = vec2(p);
+					reprojection_uv = reproj_uv;
 				}
+				has_valid_reprojection = true;
 			}
 		}
+	}
+
+	if (!has_valid_reprojection) {
+		reprojection_uv = vec2(-1.0);
 	}
 
 	if ( samples_weight != 0.0 ) {

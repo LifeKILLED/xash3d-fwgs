@@ -12,7 +12,8 @@
 #define ANIMATE_PATTERN true
 #define CANDIDATES_BRDF true
 #define CANDIDATES_CLUSTERS false
-#define STABLE_CANDIDATE_START 0
+#define STABLE_CANDIDATE_START 1
+#define REPROJECTION_EXTRA_RANDOM_TEXELS 1.0
 #define MIN_CANDIDATE_ROUGHNESS 0.1
 
 #define RESERVOIR_LIFETIME_MIN 64
@@ -100,6 +101,63 @@ uint getBayer4x4Value(ivec2 pix)
     return BAYER_4X4[iy * 4u + ix];
 }
 
+ivec2 pickReprojectedPixel(vec2 reproj_uv, ivec2 res, ivec2 pix)
+{
+    if (REPROJECTION_EXTRA_RANDOM_TEXELS > 0.0) {
+        const uint rx_hash = xxhash32(uvec3(uint(pix.x), uint(pix.y), ubo.ubo.frame_counter ^ 0x68bc21ebu));
+        const uint ry_hash = xxhash32(uvec3(uint(pix.x), uint(pix.y), ubo.ubo.frame_counter ^ 0x02e5be93u));
+        const vec2 rnd01 = vec2(uintToFloat01(rx_hash), uintToFloat01(ry_hash));
+        const vec2 jitter = (rnd01 * 2.0 - 1.0) * REPROJECTION_EXTRA_RANDOM_TEXELS;
+        reproj_uv += jitter;
+        reproj_uv = clamp(reproj_uv, vec2(0.0), vec2(res) - vec2(1.001));
+    }
+
+    if (any(lessThan(reproj_uv, vec2(0.0))) || any(greaterThanEqual(reproj_uv, vec2(res)))) {
+        return ivec2(-1);
+    }
+
+    const ivec2 base = ivec2(floor(reproj_uv));
+    const vec2 frac_uv = fract(reproj_uv);
+
+    float weights[4];
+    weights[0] = (1.0 - frac_uv.x) * (1.0 - frac_uv.y);
+    weights[1] = frac_uv.x * (1.0 - frac_uv.y);
+    weights[2] = (1.0 - frac_uv.x) * frac_uv.y;
+    weights[3] = frac_uv.x * frac_uv.y;
+
+    ivec2 taps[4];
+    taps[0] = base + ivec2(0, 0);
+    taps[1] = base + ivec2(1, 0);
+    taps[2] = base + ivec2(0, 1);
+    taps[3] = base + ivec2(1, 1);
+
+    float weight_sum = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        if (any(lessThan(taps[i], ivec2(0))) || any(greaterThanEqual(taps[i], res))) {
+            weights[i] = 0.0;
+        }
+        weight_sum += weights[i];
+    }
+
+    if (weight_sum <= 0.0) {
+        return ivec2(-1);
+    }
+
+    const float xi = uintToFloat01(xxhash32(uvec3(uint(pix.x), uint(pix.y), ubo.ubo.frame_counter ^ 0x9e3779b9u)));
+    float accum = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        if (weights[i] <= 0.0) {
+            continue;
+        }
+        accum += weights[i] / weight_sum;
+        if (xi <= accum) {
+            return taps[i];
+        }
+    }
+
+    return taps[0];
+}
+
 vec3 samplingRandom(ivec2 pix, bool previous)
 {
 #ifdef RANDOM_POISSON_SAMPLING
@@ -185,11 +243,12 @@ void main(){
         total = total_in_cluster;
     }
 
-    ivec2 prevPx = ivec2(imageLoad(reprojection_uv, pix).xy);
-
 #ifndef RANDOM_POISSON_SAMPLING
     rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
 #endif
+
+    const vec2 prevPxUv = imageLoad(reprojection_uv, pix).xy;
+    ivec2 prevPx = pickReprojectedPixel(prevPxUv, res, pix);
 
     vec3 sampling_rand_curr = samplingRandom(pix, false);
     vec3 sampling_rand_prev = samplingRandom(prevPx, true);
