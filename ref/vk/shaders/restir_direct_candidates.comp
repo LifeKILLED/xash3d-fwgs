@@ -98,14 +98,14 @@ vec3 samplingRandom(ivec2 pix, bool previous)
 #endif
 }
 
-Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, vec3 origin, bool isSpecular, out float conf)
+Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, vec3 origin, bool is_specular, out float conf)
 {
-    if (isFlashlightOrSky(r.lightIndex, origin, P, false))
+    if (isFlashlightOrSky(r.light_index, origin, P, false))
         return reservoirInit(0.0);
 
-    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.light_index, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
 
-    updateRestirConfidence(r, luminance(isSpecular ? l.specular : l.diffuse));
+    updateRestirConfidence(r, luminance(is_specular ? l.specular : l.diffuse));
 
     float kill_rnd = rand01();
 
@@ -114,7 +114,7 @@ Reservoir reprojectReservoir(Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProper
         return reservoirInit(0.0);
     }
 
-    bool kill_by_lifetime = r.M > (RESERVOIR_LIFETIME_MIN + uint(kill_rnd * RESERVOIR_LIFETIME_MAX));
+    bool kill_by_lifetime = r.checked_count > (RESERVOIR_LIFETIME_MIN + uint(kill_rnd * RESERVOIR_LIFETIME_MAX));
     if (kill_by_lifetime) {
          return reservoirInit(1.0);
     }

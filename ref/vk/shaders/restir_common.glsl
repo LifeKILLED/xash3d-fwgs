@@ -9,39 +9,47 @@
 #define CONF_STORE_MULT 0.98
 
 struct Reservoir {
-    uint  lightIndex; // выбранный свет
-    float w_sum;      // Σ w_i
-    float w_y;        // вес выбранного
-    float M;          // число кандидатов
-    float conf;       // одинаковость освещения в разных кадрах
+    uint  light_index;
+    float w_sum;
+    float w_clamped;
+    float w_full;
+    float checked_count;
+    float conf;
 };
 
 Reservoir reservoirInit(float conf)
 {
     Reservoir r;
-    r.lightIndex = 0u;
+    r.light_index = 0u;
     r.w_sum = 0.0;
-    r.w_y = 0.0;
-    r.M = 0.0;
+    r.w_clamped = 0.0;
+    r.w_full = 0.0;
+    r.checked_count = 0.0;
     r.conf = conf;
     return r;
 }
 
+float clampRestirWeight(float w_full)
+{
+    return clamp(w_full, MIN_RESTIR_WEIGHT, min(1.0, MAX_RESTIR_WEIGHT));
+}
+
 void reservoirUpdate(
     inout Reservoir r,
-    uint lightIndex,
-    float w_src,
+    uint light_index,
+    float curr_w_full,
     float xi
 ){
-    float w = clamp(w_src, MIN_RESTIR_WEIGHT, MAX_RESTIR_WEIGHT);
+    float curr_w_clamped = clampRestirWeight(curr_w_full);
 
-    r.M += 1.0;
-    r.w_sum += w;
+    r.checked_count += 1.0;
+    r.w_sum += curr_w_clamped;
 
-    float p = w / r.w_sum;
+    float p = curr_w_clamped / r.w_sum;
     if (xi < p) {
-        r.lightIndex = lightIndex;
-        r.w_y = w;
+        r.light_index = light_index;
+        r.w_clamped = curr_w_clamped;
+        r.w_full = curr_w_full;
     }
 }
 
@@ -55,10 +63,11 @@ Reservoir loadReservoir(vec4 d, out bool out_of_bound)
     out_of_bound = false;
 
     Reservoir r;
-    r.lightIndex = light_id;
+    r.light_index = light_id;
     r.w_sum = d.y;
-    r.w_y = d.z;
-    r.M = d.w;
+    r.w_full = d.z;
+    r.w_clamped = fract(d.w);
+    r.checked_count = floor(d.w);
     r.conf = fract(d.x) / CONF_STORE_MULT;
 
     return r;
@@ -67,25 +76,32 @@ Reservoir loadReservoir(vec4 d, out bool out_of_bound)
 vec4 saveReservoir(Reservoir r)
 {
     return vec4(
-        encodeHistoryLightId(r.lightIndex) + clamp(r.conf, 0.0, 1.0) * CONF_STORE_MULT,
+        encodeHistoryLightId(r.light_index) + clamp(r.conf, 0.0, 1.0) * CONF_STORE_MULT,
         r.w_sum,
-        r.w_y,
-        r.M
+        r.w_full,
+        floor(r.checked_count) + clamp(r.w_clamped, 0.0, 1.0)
     );
 }
 
 void updateRestirConfidence(
     inout Reservoir r,
-    float currLoSrc
+    float curr_w
 ){
-    float prevLo = r.w_y;
-
-    float currLo = clamp(currLoSrc, MIN_RESTIR_WEIGHT, MAX_RESTIR_WEIGHT);
-
-    float diff = abs(currLo - prevLo);
-    float scale = max(currLo, prevLo);
+    float diff = abs(curr_w - r.w_full);
+    float scale = max(curr_w, r.w_full);
 
     r.conf = scale > 0.0 ? clamp(1.0 - (diff / scale), 0.0, 1.0) : 0.0;
+
+    float curr_w_clamped = clampRestirWeight(curr_w);
+    
+    r.w_sum += curr_w_clamped - r.w_clamped;
+    r.w_clamped = curr_w_clamped;
+    r.w_full = curr_w;
+}
+
+float restirLightingWeight(in Reservoir r)
+{
+    return r.w_sum / (r.checked_count * r.w_clamped);
 }
 
 #endif // RESTIR_COMMON_GLSL

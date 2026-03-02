@@ -94,16 +94,16 @@ vec3 samplingRandom(ivec2 pix, bool previous)
 #endif
 }
 
-vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, bool isSpecular, float pdf_mult)
+vec3 finalShading(inout Reservoir r, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd, bool is_specular, float pdf_mult)
 {
-    if (r.w_sum == 0.0 || r.w_y == 0.0)
+    if (r.w_sum == 0.0 || r.w_clamped == 0.0)
         return vec3(0.0);
 
-    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.lightIndex, rnd, true, FINAL_RAYS, false);
+    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.light_index, rnd, true, FINAL_RAYS, false);
 
-    vec3 irradiance = isSpecular ? l.specular : l.diffuse;
+    vec3 irradiance = is_specular ? l.specular : l.diffuse;
 
-    return irradiance * pdf_mult * r.w_sum / (r.M * r.w_y);
+    return irradiance * pdf_mult * restirLightingWeight(r);
 }
 
 void main(){
