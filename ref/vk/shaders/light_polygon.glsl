@@ -9,6 +9,7 @@
 #include "lighting_utils.glsl"
 
 #define DO_ALL_IN_CLUSTER 1
+#define POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON 0.1 // fix noisy self-lighting
 
 #ifndef RAY_BOUNCE
 //#define PROJECTED
@@ -37,7 +38,8 @@ SampleContext buildSampleContext(vec3 position, vec3 normal, vec3 view_dir) {
 vec4 getPolygonLightSampleStupid(vec3 P, const PolygonLight poly)
 {
 	// diffuse is ok but specular is broken
-    vec3 dir = poly.center - P;
+    vec3 sample_pos = poly.center + poly.plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
+    vec3 dir = sample_pos - P;
     float dist2 = dot(dir, dir);
     float dist = sqrt(dist2);
     vec3 L = dir / max(dist, 1e-6); // normalized direction
@@ -63,7 +65,8 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly,
 	rnd.y *= rnd.x;
 	rnd.x = 1.f - rnd.x;
 
-	const vec3 light_dir = baryMix(v[0], v[1], v[2], rnd) - P;
+	const vec3 sample_pos = baryMix(v[0], v[1], v[2], rnd) + poly.plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
+	const vec3 light_dir = sample_pos - P;
 	const vec3 light_dir_n = normalize(light_dir);
 	const float contrib = - poly.area * dot(light_dir_n, poly.plane.xyz ) / dot(light_dir, light_dir);
 
@@ -135,11 +138,12 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 	rnd.y *= rnd.x;
 	rnd.x = 1.f - rnd.x;
 
-	const vec3 light_dir = baryMix(
+	const vec3 sample_pos = baryMix(
 		lights.m.polygon_vertices[vertices_offset + 0].xyz,
 		lights.m.polygon_vertices[vertices_offset + selected - 1].xyz,
 		lights.m.polygon_vertices[vertices_offset + selected].xyz,
-		rnd) - P;
+		rnd) + poly.plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
+	const vec3 light_dir = sample_pos - P;
 	const vec3 light_dir_n = normalize(light_dir);
 	return vec4(light_dir_n, total_contrib);
 }
