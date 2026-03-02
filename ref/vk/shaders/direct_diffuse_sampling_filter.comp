@@ -4,7 +4,8 @@
 #define OUTPUT_IRRADIANCE out_diffuse_direct_sampling_filtered
 #define INPUT_IRRADIANCE diffuse_direct
 #define LIGHT_ID_SOURCE diffuse_direct_lightdir
-#define FILTER_KERNEL_RADIUS 2
+#define FILTER_KERNEL_RADIUS 4
+#define FILTER_MAX_OFFSETS 8
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
 #define POSITION_PLANE_THRESHOLD 0.010
 #define POSITION_DIST2_THRESHOLD 0.0004

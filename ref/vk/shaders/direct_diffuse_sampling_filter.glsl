@@ -21,6 +21,15 @@
 #define FILTER_KERNEL_RADIUS 3
 #endif
 
+#ifndef FILTER_MAX_OFFSETS
+#define FILTER_MAX_OFFSETS 8
+#endif
+
+#if FILTER_MAX_OFFSETS < 1
+#undef FILTER_MAX_OFFSETS
+#define FILTER_MAX_OFFSETS 1
+#endif
+
 #ifndef LIGHT_ID_THRESHOLD
 #define LIGHT_ID_THRESHOLD 0.01
 #endif
@@ -77,28 +86,71 @@ void main() {
     float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
     float center_sign = shadow_sign_from_irradiance(center.rgb);
 
+    ivec2 matched_offsets[FILTER_MAX_OFFSETS];
+    int matched_count = 0;
+
+    matched_offsets[matched_count++] = ivec2(0, 0);
+
+    const int spiral_limit = ((FILTER_KERNEL_RADIUS * 2 + 1) * (FILTER_KERNEL_RADIUS * 2 + 1)) - 1;
+    const ivec2 spiral_dirs[4] = ivec2[](
+        ivec2(1, 0),
+        ivec2(0, 1),
+        ivec2(-1, 0),
+        ivec2(0, -1)
+    );
+
+    ivec2 offset = ivec2(0, 0);
+    int dir = 0;
+    int segment_len = 1;
+    int segment_step = 0;
+    int segments_done = 0;
+
+    for (int visited = 0; visited < spiral_limit && matched_count < FILTER_MAX_OFFSETS; visited++) {
+        if (segment_step == segment_len) {
+            dir = (dir + 1) & 3;
+            segment_step = 0;
+            segments_done++;
+            if ((segments_done & 1) == 0) {
+                segment_len++;
+            }
+        }
+
+        offset += spiral_dirs[dir];
+        segment_step++;
+
+        if (abs(offset.x) > FILTER_KERNEL_RADIUS || abs(offset.y) > FILTER_KERNEL_RADIUS) {
+            continue;
+        }
+
+        ivec2 q = pix + offset;
+        if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) {
+            continue;
+        }
+
+        float sample_light_id = imageLoad(LIGHT_ID_SOURCE, q).w;
+        if (abs(sample_light_id - center_light_id) > LIGHT_ID_THRESHOLD) {
+            continue;
+        }
+
+        matched_offsets[matched_count++] = offset;
+    }
+
     vec3 sum_abs = vec3(0.0);
     float count = 0.0;
 
-    for (int y = -FILTER_KERNEL_RADIUS; y <= FILTER_KERNEL_RADIUS; y++) {
-        for (int x = -FILTER_KERNEL_RADIUS; x <= FILTER_KERNEL_RADIUS; x++) {
-            ivec2 q = pix + ivec2(x, y);
-            if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
+    for (int i = 0; i < matched_count; i++) {
+        ivec2 q = pix + matched_offsets[i];
 
-            float sample_light_id = imageLoad(LIGHT_ID_SOURCE, q).w;
-            if (abs(sample_light_id - center_light_id) > LIGHT_ID_THRESHOLD) continue;
+        vec4 norm = imageLoad(normals_gs, q);
+        vec3 shading = normalDecode(norm.zw);
+        if (dot(center_shading, shading) < SHADING_NORMAL_DOT_THRESHOLD) continue;
 
-            vec4 norm = imageLoad(normals_gs, q);
-            vec3 shading = normalDecode(norm.zw);
-            if (dot(center_shading, shading) < SHADING_NORMAL_DOT_THRESHOLD) continue;
+        vec3 pos = imageLoad(position_t, q).xyz;
+        if (position_gate(pos - center_pos, center_geom, inv_center_dist) == 0.0) continue;
 
-            vec3 pos = imageLoad(position_t, q).xyz;
-            if (position_gate(pos - center_pos, center_geom, inv_center_dist) == 0.0) continue;
-
-            vec3 irradiance_abs = abs(imageLoad(INPUT_IRRADIANCE, q).rgb);
-            sum_abs += irradiance_abs;
-            count += 1.0;
-        }
+        vec3 irradiance_abs = abs(imageLoad(INPUT_IRRADIANCE, q).rgb);
+        sum_abs += irradiance_abs;
+        count += 1.0;
     }
 
     vec3 filtered_abs = (count > 0.0) ? (sum_abs / count) : abs(center.rgb);
