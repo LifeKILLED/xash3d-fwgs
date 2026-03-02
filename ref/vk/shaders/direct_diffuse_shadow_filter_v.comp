@@ -6,7 +6,7 @@
 #define INPUT_IS_SHADOW_VALUE 1
 #define SHADOW_FILTER_USE_SHARED_PINGPONG 1
 #define SHADOW_FILTER_OUTPUT_IRRADIANCE 1
-#define SHADOW_FILTER_IRRADIANCE_SOURCE diffuse_direct
+#define SHADOW_FILTER_IRRADIANCE_SOURCE diffuse_direct_sampling_filtered
 #define SHADOW_FILTER_OUTPUT_TEXTURE out_diffuse_direct_shadowed
 
 #include "direct_shadow_filter.glsl"

@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define INPUT_SOURCE diffuse_direct
+#define INPUT_SOURCE diffuse_direct_sampling_filtered
 #define LIGHT_ID_SOURCE diffuse_direct_lightdir
 #define INPUT_IS_SHADOW_VALUE 0
 #define SHADOW_FILTER_USE_SHARED_PINGPONG 1

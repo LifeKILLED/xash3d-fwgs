@@ -44,6 +44,9 @@
 	"restir_direct_lighting": {
 		"comp": "restir_direct_lighting"
 	},
+	"direct_diffuse_sampling_filter": {
+		"comp": "direct_diffuse_sampling_filter"
+	},
 	"direct_diffuse_shadow_filter_h": {
 		"comp": "direct_diffuse_shadow_filter_h"
 	},
