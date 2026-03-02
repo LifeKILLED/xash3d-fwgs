@@ -6,7 +6,6 @@
 #define MATERIAL_RMXX material_rmxx
 
 #define SHADING_NORMAL_DOT_THRESHOLD 0.98
-#define GEOM_NORMAL_DOT_THRESHOLD 0.985
 
 #endif
 

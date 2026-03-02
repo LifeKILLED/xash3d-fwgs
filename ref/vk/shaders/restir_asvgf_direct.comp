@@ -24,8 +24,8 @@ layout(local_size_x=8, local_size_y=8) in;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_diffuse_asvgf;
 layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct;
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_reconstructed;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_reconstructed;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
@@ -70,8 +70,8 @@ void main() {
 
     const ivec2 prev_pix = ivec2(imageLoad(reprojection_uv, pix).xy);
 
-    const vec3 curr_diffuse = imageLoad(diffuse_direct, pix).rgb;
-    const vec3 curr_specular = imageLoad(specular_direct, pix).rgb;
+    const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
+    const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
 
     float conf_weight = 0.0;
     float conf_diffuse = 0.0;
@@ -81,8 +81,8 @@ void main() {
             const ivec2 p = pix + ivec2(x, y);
             if (all(greaterThanEqual(p, ivec2(0.))) && all(lessThan(p, res))) {
                 conf_weight += 1.0;
-                conf_diffuse += imageLoad(diffuse_direct, p).w;
-                conf_specular += imageLoad(specular_direct, p).w;
+                conf_diffuse += imageLoad(diffuse_direct_reconstructed, p).w;
+                conf_specular += imageLoad(specular_direct_reconstructed, p).w;
             }
         }
     }

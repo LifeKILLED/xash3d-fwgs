@@ -48,10 +48,6 @@
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
-#ifndef GEOM_NORMAL_DOT_THRESHOLD
-#define GEOM_NORMAL_DOT_THRESHOLD 0.95
-#endif
-
 //---------------------------------------------------------
 // KERNEL
 //---------------------------------------------------------
@@ -196,12 +192,9 @@ void main()
     {
         ivec2 q = clamp(p + KERNEL3[i] * step, ivec2(0), res - 1);
 
-        vec4 normalsQ = imageLoad(NORMALS_GS, q);
-        vec3 G1 = normalDecode(normalsQ.xy);
-        vec3 N1 = normalDecode(normalsQ.zw);
+        vec3 N1 = normalDecode(imageLoad(NORMALS_GS, q).zw);
         float wnShading = wNormalThreshold(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
-        float wnGeom = wNormalThreshold(geomNorm, G1, GEOM_NORMAL_DOT_THRESHOLD);
-        if (wnShading == 0.0 || wnGeom == 0.0) {
+        if (wnShading == 0.0) {
             continue;
         }
 
@@ -224,7 +217,7 @@ void main()
         }
 
         float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
-        float w = spatialW * wnShading * wnGeom * wPos * wR * wV;
+        float w = spatialW * wnShading * wPos * wR * wV;
         vec3 c = imageLoad(IN_RADIANCE, q).rgb;
 
         sumC += c * w;
