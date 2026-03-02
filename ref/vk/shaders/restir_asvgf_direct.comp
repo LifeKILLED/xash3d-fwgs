@@ -58,7 +58,7 @@ void processLobeTemporal(
     vec3 d = curr - hist;
     outVar = clamp(dot(d, d), VARIANCE_MIN, VARIANCE_MAX);
 
-    outColor = curr; // debug current frame
+    //outColor = curr; // debug current frame
 }
 
 void main() {

@@ -214,9 +214,10 @@ void main(){
         specular_fs += l.specular;
     }
 
-    //imageStore(out_diffuse_direct, pix, vec4(vec3(rDiffuse.conf, 0.0, 1.0 - rDiffuse.conf), rDiffuse.conf)); // debug diffuse confidence
-    //imageStore(out_diffuse_direct_restir, pix, vec4(vec3(rSpec.conf, 0.0, 1.0 - rSpec.conf), rSpec.conf)); // debug specular confidence
-    //imageStore(out_specular_direct, pix, vec4(vec3(0.0), confSpecular));
+    //imageStore(out_diffuse_direct, pix, vec4(vec3(diffuse_conf, 0.0, 1.0 - diffuse_conf), diffuse_conf)); // debug diffuse confidence
+    //imageStore(out_specular_direct, pix, vec4(vec3(specular_conf, 0.0, 1.0 - specular_conf), specular_conf)); // debug specular confidence
+    //imageStore(out_diffuse_direct, pix, vec4(vec3(0.0), diffuse_conf));
+    //imageStore(out_specular_direct, pix, vec4(vec3(0.0), specular_conf));
 
     imageStore(out_diffuse_direct, pix, vec4(diffuse, diffuse_conf));
     imageStore(out_specular_direct, pix, vec4(specular, specular_conf));
