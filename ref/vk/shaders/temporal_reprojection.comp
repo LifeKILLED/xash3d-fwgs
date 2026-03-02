@@ -56,11 +56,11 @@ layout(set = 0, binding = 9, rgba32f) uniform readonly image2D reflection_direct
 // layout(set = 0, binding = 20, rgba16f) uniform image2D out_temporal_moments_ds_fast;
 // layout(set = 0, binding = 21, rgba16f) uniform image2D prev_temporal_moments_ds_fast;
 
-layout(set = 0, binding = 22, rgba16f) uniform image2D out_temporal_depth;
-layout(set = 0, binding = 23, rgba16f) uniform image2D prev_temporal_depth;
+layout(set = 0, binding = 22, rgba16f) uniform image2D prev_temporal_depth;
+layout(set = 0, binding = 23, rgba16f) uniform image2D out_temporal_depth;
 
-layout(set = 0, binding = 24, rgba16f) uniform image2D out_temporal_normals_gs;
-layout(set = 0, binding = 25, rgba16f) uniform image2D prev_temporal_normals_gs;
+layout(set = 0, binding = 24, rgba16f) uniform image2D prev_temporal_normals_gs;
+layout(set = 0, binding = 25, rgba16f) uniform image2D out_temporal_normals_gs;
 
 layout(set = 0, binding = 26, rgba16f) uniform image2D out_reprojection_uv;
 

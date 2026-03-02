@@ -1,5 +1,6 @@
 #include "utils.glsl"
 #include "brdf.h"
+#include "denoiser_config.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -98,6 +99,11 @@ void main()
 
     vec4 centerColor = imageLoad(INPUT_DIRECT, p);
     vec4 centerL = imageLoad(INPUT_LIGHTDIR, p);
+
+    if (DENOISER_ENABLE_SPATIAL_RECONSTRUCTION == 0) {
+        imageStore(OUTPUT_DIRECT, p, centerColor);
+        return;
+    }
 
     vec4 n0enc = imageLoad(NORMALS_GS, p);
     vec3 G0 = normalDecode(n0enc.xy);

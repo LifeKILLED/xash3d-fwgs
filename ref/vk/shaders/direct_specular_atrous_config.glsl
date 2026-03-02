@@ -1,11 +1,14 @@
 #ifndef DIRECT_SPECULAR_ATROUS_CONFIG_GLSL_INCLUDED
 #define DIRECT_SPECULAR_ATROUS_CONFIG_GLSL_INCLUDED
 
+#include "denoiser_config.glsl"
+
 #define POSITION_T position_t
 #define NORMALS_GS normals_gs
 #define MATERIAL_RMXX material_rmxx
 
 #define SHADING_NORMAL_DOT_THRESHOLD 0.98
+#define ATROUS_MAX_STEP DENOISER_MAX_ATROUS_STEP_SPECULAR
 
 #endif
 

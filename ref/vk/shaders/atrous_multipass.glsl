@@ -2,6 +2,7 @@
 #include "utils.glsl"
 #include "color_spaces.glsl"
 #include "brdf.h"
+#include "denoiser_config.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -46,6 +47,10 @@
 
 #ifndef SHADING_NORMAL_DOT_THRESHOLD
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
+#endif
+
+#ifndef ATROUS_MAX_STEP
+#define ATROUS_MAX_STEP 1024
 #endif
 
 //---------------------------------------------------------
@@ -170,6 +175,11 @@ void main()
     if (any(greaterThanEqual(p, res))) return;
 
     vec3 centerC = imageLoad(IN_RADIANCE, p).rgb;
+
+    if ((DENOISER_ENABLE_ATROUS == 0) || (ATROUS_STEP > ATROUS_MAX_STEP)) {
+        imageStore(OUTPUT_RADIANCE, p, vec4(centerC, 1.0));
+        return;
+    }
 
     vec4 normalsEncoded = imageLoad(NORMALS_GS, p);
     vec3 geomNorm = normalDecode(normalsEncoded.xy);

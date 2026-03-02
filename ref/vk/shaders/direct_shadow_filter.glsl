@@ -1,5 +1,6 @@
 #include "utils.glsl"
 #include "brdf.h"
+#include "denoiser_config.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -61,6 +62,11 @@ void main() {
 
     float lightId0 = imageLoad(LIGHT_ID_SOURCE, p).w;
     float centerShadow = shadowFromRadiance(imageLoad(INPUT_SOURCE, p).rgb);
+
+    if (DENOISER_ENABLE_SHADOWS_FILTERING == 0) {
+        imageStore(OUTPUT_SHADOW, p, vec4(centerShadow, centerShadow, centerShadow, 1.0));
+        return;
+    }
 
     float sum = centerShadow;
     float count = 1.0;

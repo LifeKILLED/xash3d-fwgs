@@ -8,6 +8,8 @@
 #include "ray_interop.h"
 #undef GLSL
 
+#include "denoiser_config.glsl"
+
 #define VARIANCE_MIN 0.5
 #define VARIANCE_MAX 1.0
 #define MAX_RESTIR_NORM 8.0
@@ -78,6 +80,14 @@ void main() {
     float shadow_specular = clamp(imageLoad(restir_specular_shadows, pix).r, -1.0, 1.0);
     const vec3 curr_diffuse = abs(curr_diffuse_raw) * shadow_diffuse;
     const vec3 curr_specular = abs(curr_specular_raw) * shadow_specular;
+
+    if (DENOISER_ENABLE_REPROJECTION == 0) {
+        imageStore(out_diffuse_asvgf, pix, vec4(curr_diffuse, VARIANCE_MIN));
+        imageStore(out_specular_asvgf, pix, vec4(curr_specular, VARIANCE_MIN));
+        imageStore(out_temporal_asvgf_diffuse, pix, vec4(curr_diffuse, 1.0));
+        imageStore(out_temporal_asvgf_specular, pix, vec4(curr_specular, 1.0));
+        return;
+    }
 
     float conf_weight = 0.0;
     float conf_diffuse = 0.0;
