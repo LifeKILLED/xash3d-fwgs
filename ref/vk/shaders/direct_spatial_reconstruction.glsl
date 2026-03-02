@@ -19,6 +19,18 @@
 #define SPATIAL_SAMPLES 16
 #endif
 
+#ifndef SPATIAL_USE_FIXED_KERNEL
+#define SPATIAL_USE_FIXED_KERNEL 0
+#endif
+
+#ifndef SPATIAL_KERNEL_RADIUS
+#define SPATIAL_KERNEL_RADIUS 2
+#endif
+
+#ifndef SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT
+#define SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT 0
+#endif
+
 #ifndef POSITION_PLANE_THRESHOLD
 #define POSITION_PLANE_THRESHOLD 0.010
 #endif
@@ -152,6 +164,20 @@ vec3 clampRadianceNonNegative(vec3 c) {
     return max(c, vec3(0.0));
 }
 
+float spatialKernelWeight(int poissonIndex, ivec2 texelOffset) {
+#if SPATIAL_USE_FIXED_KERNEL
+#if SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT
+    return 1.0;
+#else
+    vec2 d = vec2(texelOffset);
+    float dist2 = dot(d, d);
+    return exp(-0.35 * dist2);
+#endif
+#else
+    return POISSON[poissonIndex].z;
+#endif
+}
+
 vec3 defaultLightDirection(vec3 N, vec3 V, float roughness) {
 #if SPATIAL_DEFAULT_LIGHT_MODE == 1
     vec3 R = reflect(-V, N);
@@ -222,16 +248,79 @@ void main()
     float center_a = max(centerColor.a, 0.0);
 
     float invCenterDist = 1.0 / max(length(P0), 1.0);
-    // Center is treated like a regular sample: BRDF/pdf, confidence and Poisson weight.
+    // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
     float center_pdf = lightSamplingPdf(N0, V0, L0n, R0);
     float center_confW = clampWeightNonNegative(max(SPATIAL_CONFIDENCE_MIN, center_a * SPATIAL_CONFIDENCE_SCALE));
-    float center_spatialW = clampWeightNonNegative(POISSON[0].z);
+    float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0, ivec2(0)));
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
     vec3 sumC = center_rgb * center_w;
     float conf_sum = center_a;
     float sumW = center_w;
     int accepted_samples = 0;
 
+#if SPATIAL_USE_FIXED_KERNEL
+    for (int oy = -SPATIAL_KERNEL_RADIUS; oy <= SPATIAL_KERNEL_RADIUS; oy++) {
+        for (int ox = -SPATIAL_KERNEL_RADIUS; ox <= SPATIAL_KERNEL_RADIUS; ox++) {
+            ivec2 sampleOffset = ivec2(ox, oy);
+            if (all(equal(sampleOffset, ivec2(0)))) continue;
+
+            ivec2 q = clamp(p + sampleOffset, ivec2(0), res - 1);
+            if (all(equal(q, p))) continue;
+
+            vec4 normEnc = imageLoad(NORMALS_GS, q);
+            vec3 N1 = normalDecode(normEnc.zw);
+            float wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
+            if (wn == 0.0) continue;
+
+            vec3 G1 = normalDecode(normEnc.xy);
+            float wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
+            if (wg == 0.0) continue;
+
+            vec3 P1 = imageLoad(POSITION_T, q).xyz;
+            float wp = positionGate(P1 - P0, G0, invCenterDist);
+            if (wp == 0.0) continue;
+
+            float R1 = imageLoad(MATERIAL_RMXX, q).x;
+            float wr = 1.0;
+#if SPATIAL_ENABLE_ROUGHNESS_GATE
+            wr = step(abs(R0 - R1), ROUGHNESS_DIFF_THRESHOLD);
+            if (wr == 0.0) continue;
+#endif
+
+            vec4 c = imageLoad(INPUT_DIRECT, q);
+            float c_a = clamp(c.a, 0.0, 1.0);
+            conf_sum -= (1.0 - c_a) * SPATIAL_RECONSTRUCTION_CONF_MULT;
+
+            vec3 Lqraw = imageLoad(INPUT_LIGHTDIR, q).xyz;
+            vec3 V1 = normalize(camPos - P1);
+            vec3 LqAtCenter = resolveLightDirection(Lqraw, N0, V0, R0);
+            vec3 LqAtSample = resolveLightDirection(Lqraw, N1, V1, R1);
+
+            float pdf_target = lightSamplingPdf(N0, V0, LqAtCenter, R0);
+            if (pdf_target <= 1e-6) continue;
+            float wl = pdf_target;
+
+#if SPATIAL_ENABLE_PDF_REWEIGHT
+            float pdf_source = lightSamplingPdf(N1, V1, LqAtSample, R1);
+            wl = clamp(pdf_target / max(pdf_source, SPATIAL_PDF_EPS), 0.0, SPATIAL_PDF_MAX_RATIO);
+#endif
+
+            wl = clamp(wl, 0.0, SPATIAL_GGX_MAX_GAIN);
+
+            float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
+            confW = clampWeightNonNegative(confW);
+            float spatialW = clampWeightNonNegative(spatialKernelWeight(0, q - p));
+            float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
+
+            if (w > 0.0) {
+                vec3 c_rgb = clampRadianceNonNegative(c.rgb);
+                sumC += c_rgb * w;
+                sumW += w;
+                accepted_samples++;
+            }
+        }
+    }
+#else
     vec2 axisX = vec2(SPATIAL_RADIUS, 0.0);
 #if SPATIAL_RANDOM_POISSON_ROTATION
     rand01_state = uint(ubo.ubo.random_seed) + uint(p.x) * 1833u + uint(p.y) * 31337u + 12u;
@@ -288,7 +377,7 @@ void main()
 
         float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
         confW = clampWeightNonNegative(confW);
-        float spatialW = clampWeightNonNegative(POISSON[i].z);
+        float spatialW = clampWeightNonNegative(spatialKernelWeight(i, q - p));
         float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
 
         if (w > 0.0) {
@@ -298,6 +387,7 @@ void main()
             accepted_samples++;
         }
     }
+#endif
 
     vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
     float outA = max(conf_sum, 0.0);
