@@ -1,0 +1,8 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define OUTPUT_SHADOW out_restir_specular_shadows
+#define INPUT_SOURCE restir_specular_shadows_h
+#define LIGHT_ID_SOURCE specular_direct_lightdir
+
+#include "direct_shadow_filter.glsl"

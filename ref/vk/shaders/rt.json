@@ -50,6 +50,18 @@
 	"direct_specular_spatial_reconstruction": {
 		"comp": "direct_specular_spatial_reconstruction"
 	},
+	"direct_diffuse_shadow_filter_h": {
+		"comp": "direct_diffuse_shadow_filter_h"
+	},
+	"direct_diffuse_shadow_filter_v": {
+		"comp": "direct_diffuse_shadow_filter_v"
+	},
+	"direct_specular_shadow_filter_h": {
+		"comp": "direct_specular_shadow_filter_h"
+	},
+	"direct_specular_shadow_filter_v": {
+		"comp": "direct_specular_shadow_filter_v"
+	},
 	"restir_asvgf_direct": {
 		"comp": "restir_asvgf_direct"
 	},

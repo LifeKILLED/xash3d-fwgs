@@ -1,0 +1,9 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define OUTPUT_SHADOW out_restir_diffuse_shadows_h
+#define INPUT_SOURCE diffuse_direct_reconstructed
+#define LIGHT_ID_SOURCE diffuse_direct_lightdir
+#define HORIZONTAL 1
+
+#include "direct_shadow_filter.glsl"

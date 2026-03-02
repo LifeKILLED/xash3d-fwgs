@@ -41,6 +41,7 @@ struct LightResult {
     vec3 diffuse;
     vec3 specular;
     vec3 sampled_L;
+    bool shadowed;
     uint light_id;
 };
 
@@ -199,18 +200,17 @@ void unifiedLightFinalShading(
         }
 #endif
 
-        if (!shadow_vis) {
-            if (eval_brdf) {
-                vec3 d, s;
-                evalDecolorizedBRDF(N, l.L, V, l.emissive_color * l.geom_weight, material, d, s);
-                r.diffuse  = d;
-                r.specular = s;
-            } else {
-                float lum = luminance(l.emissive_color);
-                float spec_weight = specularWeight(N, l.L, V, material.roughness);
-                r.diffuse  = vec3(l.geom_weight * lum);
-                r.specular = vec3(spec_weight * l.geom_weight * lum);
-            }
+        r.shadowed = shadow_vis;
+        if (eval_brdf) {
+            vec3 d, s;
+            evalDecolorizedBRDF(N, l.L, V, l.emissive_color * l.geom_weight, material, d, s);
+            r.diffuse  = d;
+            r.specular = s;
+        } else {
+            float lum = luminance(l.emissive_color);
+            float spec_weight = specularWeight(N, l.L, V, material.roughness);
+            r.diffuse  = vec3(l.geom_weight * lum);
+            r.specular = vec3(spec_weight * l.geom_weight * lum);
         }
     }
 }
@@ -249,7 +249,7 @@ LightResult sampleFlashlightAndSky(
 {
 	uint cluster_index = getLightClusterIndex(P);
 
-    LightResult result = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), 0);
+    LightResult result = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, 0);
     LightSamplingData sky = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
 
     uint num_point = use_clusters ?
@@ -269,7 +269,7 @@ LightResult sampleFlashlightAndSky(
             if (need_to_separate_sky) { // calculate sky shadow outside of loop for better perfomance
                 sky = l;
             } else {                
-                LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), 0);
+                LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, 0);
                 unifiedLightFinalShading(r, l, P, N, V, material, eval_brdf, enable_shadow);
                 r.sampled_L = l.L;
                 
@@ -282,7 +282,7 @@ LightResult sampleFlashlightAndSky(
     if (enable_shadow && sky.dist < 0.0) {
         if (!shadowedSky(P, sky.L)) {
 
-            LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), 0);
+            LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, 0);
             unifiedLightFinalShading(r, sky, P, N, V, material, eval_brdf, false);
             r.sampled_L = sky.L;
             
@@ -304,7 +304,7 @@ LightResult evalUnifiedLight(
     bool enable_shadow,
     bool use_clusters)
 {
-    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), uint(-1));
+    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
 
 	uint cluster_index = getLightClusterIndex(P);
 
@@ -361,7 +361,7 @@ LightResult evalRandomUnifiedLight(
     uint total = getLightsCountInCluster(cluster_index);
 
     if(total == 0) {
-        return LightResult(vec3(0.0), vec3(0.0), vec3(0.0), uint(-1));
+        return LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
     }
 
     uint pick = min(uint(pick_random * float(total)), total - 1u);
@@ -380,7 +380,7 @@ LightResult calculateUnifiedLight(
 	uint cluster_index = getLightClusterIndex(P);
     uint total = getLightsCountInCluster(cluster_index);
     
-    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), uint(-1));
+    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
 
     if(total == 0)
         return r;
@@ -437,7 +437,7 @@ LightResult calculateUnifiedLightImportance(
 	uint cluster_index = getLightClusterIndex(P);
     uint total = getLightsCountInCluster(cluster_index);
     
-    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), uint(-1));
+    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
 
     if(total > 0) {
         bool iterate_all = total <= RANDOM_LIGHTS_COUNT;
@@ -497,7 +497,7 @@ LightResult calculateUnifiedLightsRandom(
 	uint cluster_index = getLightClusterIndex(P);
     uint total = getLightsCountInCluster(cluster_index);
     
-    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), uint(-1));
+    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
 
     if(total == 0)
         return r;
