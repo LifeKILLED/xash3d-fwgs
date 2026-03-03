@@ -4,6 +4,7 @@
 #include "color_spaces.glsl"
 #include "brdf.glsl"
 #include "lighting_utils.glsl"
+#include "denoiser_config.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -42,6 +43,7 @@ layout(set = 0, binding = 11) uniform sampler3D blue_noise_texture;
 #endif
 
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D legacy_blend;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D diffuse_atrous_variance;
 
 //layout(set = 0, binding = 13) uniform sampler2D textures[MAX_TEXTURES];
 
@@ -144,6 +146,12 @@ void main() {
 
 #ifdef DEBUG_NOISE
 	imageStore(out_final_image, pix, blueNoise(ivec3(pix.xy, ubo.ubo.frame_counter))); return;
+#endif
+
+#if DENOISER_DEBUG_DIRECT_DIFFUSE_ATROUS_VARIANCE
+    float v = clamp(imageLoad(diffuse_atrous_variance, pix).r, 0.0, 1.0);
+    imageStore(out_final_image, pix, vec4(vec3(v), 0.0));
+    return;
 #endif
 
 	Components c;

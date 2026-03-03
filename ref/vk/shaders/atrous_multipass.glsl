@@ -61,6 +61,14 @@
 #define ATROUS_MAX_STEP 1024
 #endif
 
+#ifndef ATROUS_VARIANCE_OUTPUT
+#define ATROUS_VARIANCE_OUTPUT out_atrous_variance
+#endif
+
+#ifndef ATROUS_VARIANCE_SOURCE
+#define ATROUS_VARIANCE_SOURCE atrous_variance
+#endif
+
 #ifndef ATROUS_MASK_GATE_ENABLE
 #define ATROUS_MASK_GATE_ENABLE 0
 #endif
@@ -79,6 +87,50 @@
 
 #ifndef ATROUS_MASK_FADE_RANGE
 #define ATROUS_MASK_FADE_RANGE 0.10
+#endif
+
+#ifndef ATROUS_LUMA_GATE_ENABLE
+#define ATROUS_LUMA_GATE_ENABLE 0
+#endif
+
+#ifndef ATROUS_LUMA_THR_MIN
+#define ATROUS_LUMA_THR_MIN 0.05
+#endif
+
+#ifndef ATROUS_LUMA_THR_AT_HALF_VAR
+#define ATROUS_LUMA_THR_AT_HALF_VAR 1.0
+#endif
+
+#ifndef ATROUS_LUMA_SOFTNESS_MULT
+#define ATROUS_LUMA_SOFTNESS_MULT 2.0
+#endif
+
+#ifndef ATROUS_LUMA_STRICT_VAR_CUTOFF
+#define ATROUS_LUMA_STRICT_VAR_CUTOFF 0.08
+#endif
+
+#ifndef ATROUS_LUMA_STRICT_THR
+#define ATROUS_LUMA_STRICT_THR 0.02
+#endif
+
+#ifndef ATROUS_LUMA_FULL_MIX_VAR
+#define ATROUS_LUMA_FULL_MIX_VAR 0.55
+#endif
+
+#ifndef ATROUS_LUMA_REL_EPS
+#define ATROUS_LUMA_REL_EPS 0.03
+#endif
+
+#ifndef ATROUS_LUMA_MIN_WEIGHT
+#define ATROUS_LUMA_MIN_WEIGHT 0.08
+#endif
+
+#ifndef ATROUS_LUMA_BLEND
+#define ATROUS_LUMA_BLEND 0.35
+#endif
+
+#ifndef ATROUS_LUMA_MIN_WEIGHT_GLOBAL
+#define ATROUS_LUMA_MIN_WEIGHT_GLOBAL 0.25
 #endif
 
 //---------------------------------------------------------
@@ -104,10 +156,10 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0, rgba16f) uniform readonly image2D IN_RADIANCE;
 
 #ifdef VARIANCE_PASS
-layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_atrous_variance;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D ATROUS_VARIANCE_OUTPUT;
 #else // !VARIANCE_PASS
 layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D OUTPUT_RADIANCE;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D atrous_variance;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D ATROUS_VARIANCE_SOURCE;
 layout(set = 0, binding = 4, rgba32f) uniform readonly image2D POSITION_T;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D NORMALS_GS;
 layout(set = 0, binding = 6, rgba8) uniform readonly image2D MATERIAL_RMXX;
@@ -166,6 +218,48 @@ float wMask(ivec2 p, ivec2 q)
 #endif
 }
 
+float varianceToLumaThreshold(float v)
+{
+    float nv = clamp(v, 0.0, 1.0);
+    if (nv <= 0.5) {
+        float t = nv * 2.0;
+        return mix(ATROUS_LUMA_THR_MIN, ATROUS_LUMA_THR_AT_HALF_VAR, t);
+    }
+
+    float t = clamp((nv - 0.5) * 2.0, 0.0, 0.9999);
+    return ATROUS_LUMA_THR_AT_HALF_VAR / max(1.0 - t, 1e-4);
+}
+
+float wLuminance(float lumCenter, float lumSample, float varianceCenter)
+{
+#if ATROUS_LUMA_GATE_ENABLE
+    float nv = clamp(varianceCenter, 0.0, 1.0);
+    float thr = varianceToLumaThreshold(varianceCenter);
+    if (nv <= ATROUS_LUMA_STRICT_VAR_CUTOFF) {
+        // Extra hard gate for stable pixels to preserve fine light/shadow detail.
+        thr = min(thr, ATROUS_LUMA_STRICT_THR);
+    }
+
+    float lmax = max(max(lumCenter, lumSample), ATROUS_LUMA_REL_EPS);
+    float d = abs(lumSample - lumCenter) / lmax;
+    float soft = max(thr * ATROUS_LUMA_SOFTNESS_MULT, thr + 1e-4);
+    float w = 1.0 - smoothstep(thr, soft, d);
+
+    // For noisy centers, avoid hard rejection and let neighborhood denoise.
+    float noisy_mix = smoothstep(ATROUS_LUMA_STRICT_VAR_CUTOFF, ATROUS_LUMA_FULL_MIX_VAR, nv);
+    float min_w = ATROUS_LUMA_MIN_WEIGHT * noisy_mix;
+    w = max(w, min_w);
+    w = mix(w, 1.0, smoothstep(ATROUS_LUMA_FULL_MIX_VAR, 1.0, nv));
+
+    // Make luminance gate a soft modulator instead of hard stop.
+    w = max(w, ATROUS_LUMA_MIN_WEIGHT_GLOBAL);
+    w = mix(1.0, w, ATROUS_LUMA_BLEND);
+    return clamp(w, 0.0, 1.0);
+#else
+    return 1.0;
+#endif
+}
+
 //---------------------------------------------------------
 // VARIANCE PASS
 //---------------------------------------------------------
@@ -179,7 +273,7 @@ void main()
 
     vec3 centerColor = imageLoad(IN_RADIANCE, p).rgb;
     if (luminance(max(centerColor, vec3(0.0))) <= ATROUS_BLACK_LUMA_THRESHOLD) {
-        imageStore(out_atrous_variance, p, vec4(1.0));
+        imageStore(ATROUS_VARIANCE_OUTPUT, p, vec4(1.0));
         return;
     }
 
@@ -206,7 +300,7 @@ void main()
     variance /= max(m1 * m1, 1e-3);
     variance = clamp(variance, 0.0, 1.0);
 
-    imageStore(out_atrous_variance, p, vec4(variance));
+    imageStore(ATROUS_VARIANCE_OUTPUT, p, vec4(variance));
 }
 
 #else // !VARIANCE_PASS
@@ -233,7 +327,8 @@ void main()
     vec3 N0 = normalDecode(normalsEncoded.zw);
     vec3 P0 = imageLoad(POSITION_T, p).xyz;
     float R0 = imageLoad(MATERIAL_RMXX, p).x;
-    float V0 = imageLoad(atrous_variance, p).r;
+    float V0 = imageLoad(ATROUS_VARIANCE_SOURCE, p).r;
+    float L0 = safeLum(centerC);
 
     float v = clamp((V0 - VARIANCE_MIN) / (VARIANCE_MAX - VARIANCE_MIN), 0.0, 1.0);
 
@@ -275,7 +370,7 @@ void main()
             continue;
         }
 
-        float V1 = imageLoad(atrous_variance, q).r;
+        float V1 = imageLoad(ATROUS_VARIANCE_SOURCE, q).r;
 #if ATROUS_ENABLE_VARIANCE_NEIGHBOR_GATE
         float wV = wVariance(V0, V1);
         if (wV == 0.0) {
@@ -289,9 +384,15 @@ void main()
         float wM = wMask(p, q);
         float w = spatialW * wnShading * wPos * wR * wV * wM;
         vec3 c = imageLoad(IN_RADIANCE, q).rgb;
+        float L1 = safeLum(c);
+        float wL = wLuminance(L0, L1, V0);
+        if (wL == 0.0) {
+            continue;
+        }
 
-        sumC += c * w;
-        sumW += w;
+        float wf = w * wL;
+        sumC += c * wf;
+        sumW += wf;
     }
 
     vec3 outC = (sumW > EPS) ? (sumC / sumW) : centerC;

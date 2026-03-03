@@ -66,6 +66,10 @@
 #define DENOISER_ENABLE_ATROUS 1
 #endif
 
+#ifndef DENOISER_DEBUG_DIRECT_DIFFUSE_ATROUS_VARIANCE
+#define DENOISER_DEBUG_DIRECT_DIFFUSE_ATROUS_VARIANCE 0
+#endif
+
 // Per-lobe max allowed a-trous step; larger steps are bypassed.
 #ifndef DENOISER_MAX_ATROUS_STEP_DIFFUSE
 #define DENOISER_MAX_ATROUS_STEP_DIFFUSE 8
