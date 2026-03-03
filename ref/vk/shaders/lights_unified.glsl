@@ -26,6 +26,18 @@ const float shadow_offset_fudge = .1;
 
 #define EPSILON 1e-2
 
+#ifndef POLYGON_SELF_LIGHT_PLANE_BIAS
+#define POLYGON_SELF_LIGHT_PLANE_BIAS 1.0
+#endif
+
+#ifndef POLYGON_SELF_LIGHT_FADE_RANGE
+#define POLYGON_SELF_LIGHT_FADE_RANGE 2.0
+#endif
+
+#ifndef POLYGON_LIGHT_MIN_DENOM
+#define POLYGON_LIGHT_MIN_DENOM 1e-4
+#endif
+
 float fbool(bool b) { return b ? 1.0 : 0.0; }
 
 float specularWeight(vec3 N, vec3 L, vec3 V, float roughness)
@@ -158,9 +170,10 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
 {
     LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
 
-    const float plane_dist = dot(poly.plane, vec4(P, 1.f));
+    const vec4 plane = normalizedPolygonPlane(poly);
+    const float plane_dist = dot(plane, vec4(P, 1.f));
 
-    if (plane_dist > 0.) {
+    if (plane_dist > POLYGON_SELF_LIGHT_PLANE_BIAS) {
 #ifdef PROJECTED_LIGHT_SAMPLED_UNIFIED
         const vec4 s = getPolygonLightSampleProjected(V, ctx, poly, rnd); // slow and noisy
 #else
@@ -173,10 +186,17 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
         //const vec4 s = getPolygonLightSampleSimple(P, V, poly, rnd); // not so fast and bad
 #endif
 #endif
-        l.dist = max(0.0, -plane_dist / dot(s.xyz, poly.plane.xyz));
-        l.L = s.xyz;
-        l.geom_weight = s.w;
-        l.emissive_color = poly.emissive;
+        const float denom = dot(s.xyz, plane.xyz);
+        if (s.w > 0.0 && denom < -POLYGON_LIGHT_MIN_DENOM) {
+            l.dist = max(0.0, -plane_dist / denom);
+            l.L = s.xyz;
+            float self_fade = smoothstep(
+                POLYGON_SELF_LIGHT_PLANE_BIAS,
+                POLYGON_SELF_LIGHT_PLANE_BIAS + POLYGON_SELF_LIGHT_FADE_RANGE,
+                plane_dist);
+            l.geom_weight = s.w * self_fade;
+            l.emissive_color = poly.emissive;
+        }
     }
 
     return l;

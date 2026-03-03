@@ -9,7 +9,7 @@
 #include "lighting_utils.glsl"
 
 #define DO_ALL_IN_CLUSTER 1
-#define POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON 0.1 // fix noisy self-lighting
+#define POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON 1.0 // 1 cm offset to reduce self-lighting
 
 #ifndef RAY_BOUNCE
 //#define PROJECTED
@@ -25,6 +25,15 @@ struct SampleContext {
 	mat4x3 world_to_shading;
 };
 
+vec4 normalizedPolygonPlane(const PolygonLight poly) {
+	const float nlen = max(length(poly.plane.xyz), 1e-6);
+	return vec4(poly.plane.xyz / nlen, poly.plane.w / nlen);
+}
+
+vec3 normalizedPolygonNormal(const PolygonLight poly) {
+	return normalizedPolygonPlane(poly).xyz;
+}
+
 SampleContext buildSampleContext(vec3 position, vec3 normal, vec3 view_dir) {
 	SampleContext ctx;
 	const float normal_dot_outgoing = dot(normal, -view_dir);
@@ -38,19 +47,21 @@ SampleContext buildSampleContext(vec3 position, vec3 normal, vec3 view_dir) {
 vec4 getPolygonLightSampleStupid(vec3 P, const PolygonLight poly)
 {
 	// diffuse is ok but specular is broken
-    vec3 sample_pos = poly.center + poly.plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
+    const vec3 plane_n = normalizedPolygonNormal(poly);
+    vec3 sample_pos = poly.center + plane_n * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
     vec3 dir = sample_pos - P;
     float dist2 = dot(dir, dir);
     float dist = sqrt(dist2);
     vec3 L = dir / max(dist, 1e-6); // normalized direction
 
-    float cos_theta = max(dot(normalize(poly.plane.xyz), -L), 0.0);
+    float cos_theta = max(dot(plane_n, -L), 0.0);
     float weight = poly.area * cos_theta / max(dist2, 1e-6);
 
     return vec4(dir, weight * 0.4); // WTD: 0.4 for same intensity with other samplings
 }
 
 vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
+	const vec3 plane_n = normalizedPolygonNormal(poly);
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
@@ -65,10 +76,10 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly,
 	rnd.y *= rnd.x;
 	rnd.x = 1.f - rnd.x;
 
-	const vec3 sample_pos = baryMix(v[0], v[1], v[2], rnd) + poly.plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
+	const vec3 sample_pos = baryMix(v[0], v[1], v[2], rnd) + plane_n * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
 	const vec3 light_dir = sample_pos - P;
 	const vec3 light_dir_n = normalize(light_dir);
-	const float contrib = - poly.area * dot(light_dir_n, poly.plane.xyz ) / dot(light_dir, light_dir);
+	const float contrib = - poly.area * dot(light_dir_n, plane_n) / dot(light_dir, light_dir);
 
 #ifdef DEBUG_VALIDATE_EXTRA
 	if (IS_INVALID(contrib)) {
@@ -83,6 +94,7 @@ vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly,
 }
 
 vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
+	const vec3 plane_n = normalizedPolygonNormal(poly);
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	uint vertices_count = poly.vertices_count_offset >> 16;
 
@@ -142,7 +154,7 @@ vec4 getPolygonLightSampleSimpleSolid(vec3 P, vec3 view_dir, const PolygonLight 
 		lights.m.polygon_vertices[vertices_offset + 0].xyz,
 		lights.m.polygon_vertices[vertices_offset + selected - 1].xyz,
 		lights.m.polygon_vertices[vertices_offset + selected].xyz,
-		rnd) + poly.plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
+		rnd) + plane_n * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON;
 	const vec3 light_dir = sample_pos - P;
 	const vec3 light_dir_n = normalize(light_dir);
 	return vec4(light_dir_n, total_contrib);
@@ -211,6 +223,7 @@ vec4 getPolygonLightSampleSolid(vec3 P, vec3 view_dir, SampleContext ctx, const 
 
 void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleContext ctx, in MaterialProperties material, in PolygonLight poly, in vec3 rnd, inout vec3 diffuse, inout vec3 specular) {
 	// TODO cull by poly plane
+    const vec4 plane = normalizedPolygonPlane(poly);
 
 #ifdef PROJECTED
 	const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rnd);
@@ -220,7 +233,7 @@ void sampleSinglePolygonLight(in vec3 P, in vec3 N, in vec3 view_dir, in SampleC
 	if (light_sample_dir.w <= 0.)
 		return;
 
-	const float dist = - dot(vec4(P, 1.f), poly.plane) / dot(light_sample_dir.xyz, poly.plane.xyz);
+	const float dist = - dot(vec4(P, 1.f), plane) / dot(light_sample_dir.xyz, plane.xyz);
 
 	if (shadowed(P, light_sample_dir.xyz, dist))
 		return;
@@ -269,8 +282,9 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 #endif
 
 		const PolygonLight poly = lights.m.polygons[index];
+        const vec4 plane = normalizedPolygonPlane(poly);
 
-		const float plane_dist = dot(poly.plane, vec4(P, 1.f));
+		const float plane_dist = dot(plane, vec4(P, 1.f));
 
 		if (plane_dist < 0.)
 			continue;
@@ -288,7 +302,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 		if (light_sample_dir.w <= 0.)
 			continue;
 
-		const float dist = - plane_dist / dot(light_sample_dir.xyz, poly.plane.xyz);
+		const float dist = - plane_dist / dot(light_sample_dir.xyz, plane.xyz);
 		//const vec3 emissive = poly.emissive;
 
 		if (!shadowed(P, light_sample_dir.xyz, dist)) {
@@ -331,10 +345,11 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 #endif
 
 		const PolygonLight poly = lights.m.polygons[index];
+        const vec3 plane_n = normalizedPolygonNormal(poly);
 
 		const vec3 dir = poly.center - P;
 		const vec3 light_dir = normalize(dir);
-		float contrib_estimate = poly.area * dot(-light_dir, poly.plane.xyz) / (1e-3 + dot(dir, dir));
+		float contrib_estimate = poly.area * dot(-light_dir, plane_n) / (1e-3 + dot(dir, dir));
 
 		if (contrib_estimate < 1e-6)
 		 	continue;
@@ -366,6 +381,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 #else
 	const SampleContext ctx = buildSampleContext(P, N, view_dir);
 	const PolygonLight poly = lights.m.polygons[selected - 1];
+    const vec4 plane = normalizedPolygonPlane(poly);
 #ifdef PROJECTED
 		const vec4 light_sample_dir = getPolygonLightSampleProjected(view_dir, ctx, poly, rnd);
 #else
@@ -374,7 +390,7 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 	if (light_sample_dir.w <= 0.)
 		return;
 
-	const float dist = - dot(vec4(P, 1.f), poly.plane) / dot(light_sample_dir.xyz, poly.plane.xyz);
+	const float dist = - dot(vec4(P, 1.f), plane) / dot(light_sample_dir.xyz, plane.xyz);
 	const vec3 emissive = poly.emissive;
 
 	//if (true) {//!shadowed(P, light_sample_dir.xyz, dist)) {
