@@ -19,8 +19,11 @@
 
 #define CANDIDATE_ID_SAMPLING_MODE RANDOM_START_CANDIDATES
 
-#define REPROJECTION_EXTRA_RANDOM_TEXELS 2.0
+#define REPROJECTION_EXTRA_RANDOM_TEXELS 0.0
 #define MIN_CANDIDATE_ROUGHNESS 0.1
+
+#define REPROJECTION_USE_CENTER_TAP_ONLY 1
+#define REPROJECTION_ENABLE_CENTER_FALLBACK 1
 
 #define RESERVOIR_LIFETIME_MIN 64
 #define RESERVOIR_LIFETIME_MAX 1024
@@ -256,6 +259,18 @@ void main(){
         const vec3 prev_N = normalDecode(prev_norm_mat.xy);
 
         {
+            bool reprojected = false;
+        #if REPROJECTION_USE_CENTER_TAP_ONLY
+            if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+                bool out_of_bound;
+                Reservoir centerDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, center_prev_px), out_of_bound);
+                if (!out_of_bound) {
+                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
+                    rDiffuse = reprojectReservoir(centerDiffuse, P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
+                    reprojected = true;
+                }
+            }
+        #else
             Reservoir temporal_pick = reservoirInit(0.0);
             Reservoir temporal_candidates[4];
             bool temporal_candidate_valid[4];
@@ -286,7 +301,6 @@ void main(){
                 reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
             }
 
-            bool reprojected = false;
             if (has_neighbor_candidates) {
                 const uint selected_candidate_idx = temporal_pick.light_index;
                 if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
@@ -297,6 +311,7 @@ void main(){
                 }
             }
 
+            #if REPROJECTION_ENABLE_CENTER_FALLBACK
             if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
                 bool out_of_bound;
                 Reservoir centerDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, center_prev_px), out_of_bound);
@@ -305,8 +320,22 @@ void main(){
                     rDiffuse = reprojectReservoir(centerDiffuse, P, prev_N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
                 }
             }
+            #endif
+        #endif
         }
         {
+            bool reprojected = false;
+        #if REPROJECTION_USE_CENTER_TAP_ONLY
+            if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+                bool out_of_bound;
+                Reservoir centerSpec = loadReservoir(imageLoad(prev_temporal_res_specular, center_prev_px), out_of_bound);
+                if (!out_of_bound) {
+                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
+                    rSpec = reprojectReservoir(centerSpec, P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
+                    reprojected = true;
+                }
+            }
+        #else
             Reservoir temporal_pick = reservoirInit(0.0);
             Reservoir temporal_candidates[4];
             bool temporal_candidate_valid[4];
@@ -337,7 +366,6 @@ void main(){
                 reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
             }
 
-            bool reprojected = false;
             if (has_neighbor_candidates) {
                 const uint selected_candidate_idx = temporal_pick.light_index;
                 if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
@@ -348,6 +376,7 @@ void main(){
                 }
             }
 
+            #if REPROJECTION_ENABLE_CENTER_FALLBACK
             if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
                 bool out_of_bound;
                 Reservoir centerSpec = loadReservoir(imageLoad(prev_temporal_res_specular, center_prev_px), out_of_bound);
@@ -356,6 +385,8 @@ void main(){
                     rSpec = reprojectReservoir(centerSpec, P, prev_N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
                 }
             }
+            #endif
+        #endif
         }
     }
 
