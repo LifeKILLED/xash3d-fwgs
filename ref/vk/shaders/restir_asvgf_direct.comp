@@ -29,6 +29,7 @@ layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_reconstructed;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_reconstructed;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D diffuse_shadow_mask_debug;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
@@ -138,6 +139,17 @@ void main() {
     const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
 
+#if DENOISER_DEBUG_SHADOW_MASK_VIEW
+    float shadow_mask = clamp(imageLoad(diffuse_shadow_mask_debug, pix).r, 0.0, 1.0);
+    vec3 dbg_diff = vec3(0.0, shadow_mask, 0.0);
+    vec3 dbg_spec = vec3(0.0);
+    imageStore(out_diffuse_asvgf, pix, vec4(dbg_diff, VARIANCE_MIN));
+    imageStore(out_specular_asvgf, pix, vec4(dbg_spec, VARIANCE_MIN));
+    imageStore(out_temporal_asvgf_diffuse, pix, vec4(dbg_diff, 1.0));
+    imageStore(out_temporal_asvgf_specular, pix, vec4(dbg_spec, 1.0));
+    return;
+#endif
+
     if (DENOISER_ENABLE_REPROJECTION == 0) {
         imageStore(out_diffuse_asvgf, pix, vec4(curr_diffuse, VARIANCE_MIN));
         imageStore(out_specular_asvgf, pix, vec4(curr_specular, VARIANCE_MIN));
@@ -165,16 +177,6 @@ void main() {
     }
     conf_diffuse = clamp(conf_diffuse, 0.0, 1.0);
     conf_specular = clamp(conf_specular, 0.0, 1.0);
-
-#if DENOISER_DEBUG_CONFIDENCE_VIEW
-    vec3 dbg_diff = vec3(conf_diffuse, 0.0, 0.0);
-    vec3 dbg_spec = vec3(0.0, 0.0, conf_specular);
-    imageStore(out_diffuse_asvgf, pix, vec4(dbg_diff, VARIANCE_MIN));
-    imageStore(out_specular_asvgf, pix, vec4(dbg_spec, VARIANCE_MIN));
-    imageStore(out_temporal_asvgf_diffuse, pix, vec4(dbg_diff, 1.0));
-    imageStore(out_temporal_asvgf_specular, pix, vec4(dbg_spec, 1.0));
-    return;
-#endif
 
     vec3 diffuse = curr_diffuse;
     float variance_diffuse = 1.0;

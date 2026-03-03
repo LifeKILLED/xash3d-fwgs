@@ -115,6 +115,26 @@
 #define SPATIAL_RECONSTRUCTION_CONF_MULT DENOISER_SPATIAL_RECONSTRUCTION_CONF_MULT
 #endif
 
+#ifndef SPATIAL_SHADOW_MASK_ENABLE
+#define SPATIAL_SHADOW_MASK_ENABLE 0
+#endif
+
+#ifndef SPATIAL_SHADOW_MASK_SOURCE
+#define SPATIAL_SHADOW_MASK_SOURCE diffuse_shadow_mask_debug
+#endif
+
+#ifndef SPATIAL_SHADOW_MASK_SIGMA
+#define SPATIAL_SHADOW_MASK_SIGMA 0.20
+#endif
+
+#ifndef SPATIAL_SHADOW_MASK_SOFT_EDGE
+#define SPATIAL_SHADOW_MASK_SOFT_EDGE 0.20
+#endif
+
+#ifndef SPATIAL_SHADOW_MASK_FADE_RANGE
+#define SPATIAL_SHADOW_MASK_FADE_RANGE 0.20
+#endif
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_DIRECT;
@@ -124,6 +144,9 @@ layout(set = 0, binding = 3, rgba32f) uniform readonly image2D POSITION_T;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D NORMALS_GS;
 layout(set = 0, binding = 5, rgba8) uniform readonly image2D MATERIAL_RMXX;
 layout(set = 0, binding = 6) uniform UBO { UniformBuffer ubo; } ubo;
+#if SPATIAL_SHADOW_MASK_ENABLE
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D SPATIAL_SHADOW_MASK_SOURCE;
+#endif
 
 const vec3 POISSON[16] = vec3[](
     vec3( 0.000000000,  0.000000000, 0.128544338),
@@ -175,6 +198,21 @@ float spatialKernelWeight(int poissonIndex, ivec2 texelOffset) {
 #endif
 #else
     return POISSON[poissonIndex].z;
+#endif
+}
+
+float shadowMaskWeight(ivec2 p, ivec2 q) {
+#if SPATIAL_SHADOW_MASK_ENABLE
+    float m0 = imageLoad(SPATIAL_SHADOW_MASK_SOURCE, p).r;
+    float m1 = imageLoad(SPATIAL_SHADOW_MASK_SOURCE, q).r;
+    float dm = abs(m1 - m0);
+    float inner = max(SPATIAL_SHADOW_MASK_SOFT_EDGE, 0.0);
+    float outer = inner + max(SPATIAL_SHADOW_MASK_FADE_RANGE, 1e-4);
+    float w_plateau = 1.0 - smoothstep(inner, outer, dm);
+    float w_exp = exp(-dm / max(SPATIAL_SHADOW_MASK_SIGMA, 1e-5));
+    return max(w_plateau, w_exp * 0.35);
+#else
+    return 1.0;
 #endif
 }
 
@@ -310,7 +348,8 @@ void main()
             float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
             confW = clampWeightNonNegative(confW);
             float spatialW = clampWeightNonNegative(spatialKernelWeight(0, q - p));
-            float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
+            float wm = clampWeightNonNegative(shadowMaskWeight(p, q));
+            float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW * wm);
 
             if (w > 0.0) {
                 vec3 c_rgb = clampRadianceNonNegative(c.rgb);
@@ -378,7 +417,8 @@ void main()
         float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
         confW = clampWeightNonNegative(confW);
         float spatialW = clampWeightNonNegative(spatialKernelWeight(i, q - p));
-        float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
+        float wm = clampWeightNonNegative(shadowMaskWeight(p, q));
+        float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW * wm);
 
         if (w > 0.0) {
             vec3 c_rgb = clampRadianceNonNegative(c.rgb);

@@ -53,6 +53,12 @@
 	"direct_diffuse_shadow_filter_v": {
 		"comp": "direct_diffuse_shadow_filter_v"
 	},
+	"direct_diffuse_shadow_mask_catmullrom_h": {
+		"comp": "direct_diffuse_shadow_mask_catmullrom_h"
+	},
+	"direct_diffuse_shadow_mask_catmullrom_v": {
+		"comp": "direct_diffuse_shadow_mask_catmullrom_v"
+	},
 	"direct_specular_shadow_filter_h": {
 		"comp": "direct_specular_shadow_filter_h"
 	},

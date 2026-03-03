@@ -1,0 +1,7 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define OUTPUT_MASK out_diffuse_shadow_mask_debug
+#define INPUT_MASK shadow_mask_catmull_h
+
+#include "direct_shadow_mask_catmullrom.glsl"

@@ -98,6 +98,34 @@
 #define SHADOW_OUTPUT_ALPHA 1.0
 #endif
 
+#ifndef SHADOW_FILTER_OUTPUT_MASK
+#define SHADOW_FILTER_OUTPUT_MASK 0
+#endif
+
+#ifndef SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+#define SHADOW_FILTER_PACK_MASK_IN_OUTPUT 0
+#endif
+
+#ifndef SHADOW_FILTER_MASK_USE_PINGPONG_INPUT
+#define SHADOW_FILTER_MASK_USE_PINGPONG_INPUT 0
+#endif
+
+#ifndef SHADOW_FILTER_MASK_TEXTURE
+#define SHADOW_FILTER_MASK_TEXTURE out_shadow_transition_mask
+#endif
+
+#ifndef SHADOW_FILTER_MASK_LUMA_WEIGHT_SCALE
+#define SHADOW_FILTER_MASK_LUMA_WEIGHT_SCALE 1.0
+#endif
+
+#ifndef SHADOW_FILTER_MASK_EDGE_SCALE
+#define SHADOW_FILTER_MASK_EDGE_SCALE 6.0
+#endif
+
+#ifndef SHADOW_FILTER_MASK_LOCAL_RADIUS
+#define SHADOW_FILTER_MASK_LOCAL_RADIUS 2
+#endif
+
 #ifndef FILTER_START_RADIUS
 #define FILTER_START_RADIUS 1
 #endif
@@ -234,6 +262,10 @@ layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 #if SHADOW_FILTER_OUTPUT_IRRADIANCE
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D SHADOW_FILTER_IRRADIANCE_SOURCE;
 layout(set = 0, binding = 7, rgba16f) uniform writeonly image2D SHADOW_FILTER_OUTPUT_TEXTURE;
+#endif
+
+#if SHADOW_FILTER_OUTPUT_MASK
+layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D SHADOW_FILTER_MASK_TEXTURE;
 #endif
 
 float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
@@ -499,6 +531,102 @@ void store_bypass_irradiance(ivec2 pix) {
 #endif
 }
 
+float load_mask_luma(ivec2 pix) {
+#if SHADOW_FILTER_OUTPUT_IRRADIANCE
+    return luminance(abs(imageLoad(SHADOW_FILTER_IRRADIANCE_SOURCE, pix).rgb));
+#elif INPUT_IS_SHADOW_VALUE
+    return 1.0;
+#else
+    return luminance(abs(imageLoad(INPUT_SOURCE, pix).rgb));
+#endif
+}
+
+vec3 build_shadow_transition_mask_payload(
+    ivec2 pix,
+    ivec2 res,
+    float line_values[PENUMBRA_LINE_CAP],
+    int line_offsets[PENUMBRA_LINE_CAP],
+    int line_count,
+    int center_line_idx,
+    float out_shadow_unit)
+{
+    if (line_count <= 0 || center_line_idx < 0 || center_line_idx >= line_count) {
+        return vec3(0.0, out_shadow_unit, out_shadow_unit);
+    }
+
+    float weighted_shadow_sum = 0.0;
+    float weighted_sum = 0.0;
+    for (int i = 0; i < line_count; i++) {
+        ivec2 q = pix;
+#ifdef HORIZONTAL
+        q.x += line_offsets[i];
+#else
+        q.y += line_offsets[i];
+#endif
+        if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
+        float wl = 1.0 + SHADOW_FILTER_MASK_LUMA_WEIGHT_SCALE * load_mask_luma(q);
+        weighted_shadow_sum += line_values[i] * wl;
+        weighted_sum += wl;
+    }
+    float weighted_shadow = (weighted_sum > 0.0) ? (weighted_shadow_sum / weighted_sum) : out_shadow_unit;
+
+    int l0 = max(0, center_line_idx - SHADOW_FILTER_MASK_LOCAL_RADIUS);
+    int l1 = center_line_idx - 1;
+    int r0 = center_line_idx + 1;
+    int r1 = min(line_count - 1, center_line_idx + SHADOW_FILTER_MASK_LOCAL_RADIUS);
+
+    float left_sum = 0.0, left_w = 0.0;
+    float right_sum = 0.0, right_w = 0.0;
+    for (int i = l0; i <= l1; i++) {
+        ivec2 q = pix;
+#ifdef HORIZONTAL
+        q.x += line_offsets[i];
+#else
+        q.y += line_offsets[i];
+#endif
+        if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
+        float wl = 1.0 + SHADOW_FILTER_MASK_LUMA_WEIGHT_SCALE * load_mask_luma(q);
+        left_sum += line_values[i] * wl;
+        left_w += wl;
+    }
+    for (int i = r0; i <= r1; i++) {
+        ivec2 q = pix;
+#ifdef HORIZONTAL
+        q.x += line_offsets[i];
+#else
+        q.y += line_offsets[i];
+#endif
+        if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
+        float wl = 1.0 + SHADOW_FILTER_MASK_LUMA_WEIGHT_SCALE * load_mask_luma(q);
+        right_sum += line_values[i] * wl;
+        right_w += wl;
+    }
+
+    float left_mean = (left_w > 0.0) ? (left_sum / left_w) : weighted_shadow;
+    float right_mean = (right_w > 0.0) ? (right_sum / right_w) : weighted_shadow;
+    float edge = abs(right_mean - left_mean);
+    float transition_mask = clamp(edge * SHADOW_FILTER_MASK_EDGE_SCALE, 0.0, 1.0);
+    return vec3(transition_mask, weighted_shadow, out_shadow_unit);
+}
+
+vec3 merge_shadow_mask_payload_with_pingpong(ivec2 pix, vec3 payload) {
+#if SHADOW_FILTER_MASK_USE_PINGPONG_INPUT
+    vec4 prev = imageLoad(INPUT_SOURCE, pix);
+    payload.x = max(payload.x, prev.g);
+    payload.y = 0.5 * (payload.y + prev.b);
+    payload.z = 0.5 * (payload.z + prev.a);
+#endif
+    return payload;
+}
+
+void store_shadow_transition_mask_debug(ivec2 pix, vec3 payload) {
+#if SHADOW_FILTER_OUTPUT_MASK
+    // Debug payload:
+    // R = transition mask, G = weighted shadow, B = filtered shadow.
+    imageStore(SHADOW_FILTER_MASK_TEXTURE, pix, vec4(payload, 1.0));
+#endif
+}
+
 void main() {
     ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
     ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
@@ -507,7 +635,13 @@ void main() {
     float center_shadow = load_shadow_value(pix);
     float center_shadow_unit = shadow_to_unit(center_shadow);
     if (DENOISER_ENABLE_SHADOWS_FILTERING == 0) {
+        vec3 center_payload = vec3(0.0, center_shadow_unit, center_shadow_unit);
+#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_payload));
+#else
         imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
+#endif
+        store_shadow_transition_mask_debug(pix, center_payload);
         store_bypass_irradiance(pix);
         return;
     }
@@ -559,7 +693,13 @@ void main() {
     }
 
     if (center_line_idx < 0) {
+        vec3 center_payload = vec3(0.0, center_shadow_unit, center_shadow_unit);
+#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_payload));
+#else
         imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
+#endif
+        store_shadow_transition_mask_debug(pix, center_payload);
         store_shadowed_irradiance(pix, center_shadow);
         return;
     }
@@ -665,6 +805,15 @@ void main() {
     }
 
     float out_shadow = unit_to_shadow(out_shadow_unit);
+    vec3 mask_payload = build_shadow_transition_mask_payload(
+        pix, res, line_values, line_offsets, line_count, center_line_idx, out_shadow_unit);
+    mask_payload = merge_shadow_mask_payload_with_pingpong(pix, mask_payload);
+
+#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+    imageStore(OUTPUT_SHADOW, pix, vec4(out_shadow, mask_payload));
+#else
     imageStore(OUTPUT_SHADOW, pix, vec4(out_shadow, out_shadow, out_shadow, SHADOW_OUTPUT_ALPHA));
+#endif
+    store_shadow_transition_mask_debug(pix, mask_payload);
     store_shadowed_irradiance(pix, out_shadow);
 }
