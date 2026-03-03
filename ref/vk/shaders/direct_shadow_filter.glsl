@@ -106,6 +106,122 @@
 #define FILTER_POSITIVE_FIRST 1
 #endif
 
+#ifndef PENUMBRA_LINE_CAP
+#define PENUMBRA_LINE_CAP 16
+#endif
+
+#ifndef PENUMBRA_BINARY_EPS
+#define PENUMBRA_BINARY_EPS 0.10
+#endif
+
+#ifndef PENUMBRA_MIN_CONTRAST
+#define PENUMBRA_MIN_CONTRAST 0.005
+#endif
+
+#ifndef PENUMBRA_MIN_SPAN
+#define PENUMBRA_MIN_SPAN 1
+#endif
+
+#ifndef PENUMBRA_DETECT_WINDOW
+#define PENUMBRA_DETECT_WINDOW 5
+#endif
+
+#ifndef PENUMBRA_SMOOTH_RANGE_EPS
+#define PENUMBRA_SMOOTH_RANGE_EPS 0.02
+#endif
+
+#ifndef PENUMBRA_SMOOTH_SLOPE_EPS
+#define PENUMBRA_SMOOTH_SLOPE_EPS 0.003
+#endif
+
+#ifndef PENUMBRA_USE_CATMULL_ROM
+#define PENUMBRA_USE_CATMULL_ROM 0
+#endif
+
+#ifndef PENUMBRA_CATMULL_ROM_BLEND
+#define PENUMBRA_CATMULL_ROM_BLEND 0.65
+#endif
+
+#ifndef PENUMBRA_MIN_VALID_SAMPLES
+#define PENUMBRA_MIN_VALID_SAMPLES 3
+#endif
+
+#ifndef PENUMBRA_MIN_COVERAGE
+#define PENUMBRA_MIN_COVERAGE 0.20
+#endif
+
+#ifndef PENUMBRA_MAX_OFFSET_GAP
+#define PENUMBRA_MAX_OFFSET_GAP 6
+#endif
+
+#ifndef PENUMBRA_MONO_EPS
+#define PENUMBRA_MONO_EPS 0.005
+#endif
+
+#ifndef PENUMBRA_MIN_MONO_CONF
+#define PENUMBRA_MIN_MONO_CONF 0.35
+#endif
+
+#ifndef SHADOW_AGGRESSIVE_LINE_BLUR
+#define SHADOW_AGGRESSIVE_LINE_BLUR 1
+#endif
+
+#ifndef SHADOW_AGGRESSIVE_BLUR_STRENGTH
+#define SHADOW_AGGRESSIVE_BLUR_STRENGTH 0.96
+#endif
+
+#ifndef SHADOW_AGGRESSIVE_BLUR_BOX_BLEND
+#define SHADOW_AGGRESSIVE_BLUR_BOX_BLEND 0.90
+#endif
+
+#ifndef SHADOW_SHARP_EDGE_PRESERVE
+#define SHADOW_SHARP_EDGE_PRESERVE 1
+#endif
+
+#ifndef SHADOW_SHARP_EDGE_LOW
+#define SHADOW_SHARP_EDGE_LOW 0.30
+#endif
+
+#ifndef SHADOW_SHARP_EDGE_HIGH
+#define SHADOW_SHARP_EDGE_HIGH 0.70
+#endif
+
+#ifndef SHADOW_SHARP_EDGE_REDUCE
+#define SHADOW_SHARP_EDGE_REDUCE 0.90
+#endif
+
+#ifndef SHADOW_SHARP_EDGE_SHARPEN
+#define SHADOW_SHARP_EDGE_SHARPEN 0.85
+#endif
+
+#ifndef SHADOW_SHARP_CURVATURE_WEIGHT
+#define SHADOW_SHARP_CURVATURE_WEIGHT 0.6
+#endif
+
+#ifndef SHADOW_SOFTNESS_FLOOR
+#define SHADOW_SOFTNESS_FLOOR 0.35
+#endif
+
+#ifndef SHADOW_MIN_INV_CENTER_DIST
+#define SHADOW_MIN_INV_CENTER_DIST 0.06
+#endif
+
+#ifndef SHADOW_HARD_EDGE_ENABLE
+#define SHADOW_HARD_EDGE_ENABLE 1
+#endif
+
+#ifndef SHADOW_HARD_EDGE_CONTRAST_MIN
+#define SHADOW_HARD_EDGE_CONTRAST_MIN 0.75
+#endif
+
+#ifndef SHADOW_HARD_EDGE_SIDE_VAR_MAX
+#define SHADOW_HARD_EDGE_SIDE_VAR_MAX 0.08
+#endif
+
+#ifndef SHADOW_HARD_EDGE_MAX_BLUR
+#define SHADOW_HARD_EDGE_MAX_BLUR 0.08
+#endif
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_SHADOW;
@@ -132,12 +248,230 @@ float shadow_from_radiance(vec3 radiance) {
     return (luminance(radiance) < SHADOW_THRESHOLD) ? -1.0 : 1.0;
 }
 
+float shadow_to_unit(float shadow_value) {
+    return clamp(shadow_value * 0.5 + 0.5, 0.0, 1.0);
+}
+
+float unit_to_shadow(float unit_shadow) {
+    return clamp(unit_shadow * 2.0 - 1.0, -1.0, 1.0);
+}
+
 float load_shadow_value(ivec2 pix) {
 #if INPUT_IS_SHADOW_VALUE
     return clamp(imageLoad(INPUT_SOURCE, pix).SHADOW_VALUE_CHANNEL, -1.0, 1.0);
 #else
     return shadow_from_radiance(imageLoad(INPUT_SOURCE, pix).rgb);
 #endif
+}
+
+float load_shadow_unit(ivec2 pix) {
+    return shadow_to_unit(load_shadow_value(pix));
+}
+
+bool is_binary_zero(float v) {
+    return v <= PENUMBRA_BINARY_EPS;
+}
+
+bool is_binary_one(float v) {
+    return v >= (1.0 - PENUMBRA_BINARY_EPS);
+}
+
+int penumbra_window_half() {
+    return max(PENUMBRA_DETECT_WINDOW / 2, 1);
+}
+
+bool is_penumbra_window(float line_values[PENUMBRA_LINE_CAP], int line_count, int idx) {
+    int penumbra_half_window = penumbra_window_half();
+    if (idx < penumbra_half_window || idx >= (line_count - penumbra_half_window)) return false;
+
+    int from = idx - penumbra_half_window;
+    int to = idx + penumbra_half_window;
+    int sample_count = to - from + 1;
+    if (sample_count < 3) return false;
+
+    float vmin = 1.0;
+    float vmax = 0.0;
+    int binary_zeros = 0;
+    int binary_ones = 0;
+    int non_binary = 0;
+
+    for (int i = from; i <= to; i++) {
+        float v = line_values[i];
+        vmin = min(vmin, v);
+        vmax = max(vmax, v);
+
+        if (is_binary_zero(v)) {
+            binary_zeros++;
+        } else if (is_binary_one(v)) {
+            binary_ones++;
+        } else {
+            non_binary++;
+        }
+    }
+
+    if (non_binary == 0) {
+        return (binary_zeros > 0) && (binary_ones > 0);
+    }
+
+    float range = vmax - vmin;
+    if (range < PENUMBRA_SMOOTH_RANGE_EPS) return false;
+
+    float left_sum = 0.0;
+    float right_sum = 0.0;
+    float left_count = 0.0;
+    float right_count = 0.0;
+    for (int i = from; i < idx; i++) {
+        left_sum += line_values[i];
+        left_count += 1.0;
+    }
+    for (int i = idx + 1; i <= to; i++) {
+        right_sum += line_values[i];
+        right_count += 1.0;
+    }
+
+    if (left_count <= 0.0 || right_count <= 0.0) return false;
+    float left_mean = left_sum / left_count;
+    float right_mean = right_sum / right_count;
+    return abs(right_mean - left_mean) >= PENUMBRA_SMOOTH_SLOPE_EPS;
+}
+
+float catmull_rom_1d(float p0, float p1, float p2, float p3, float t) {
+    float t2 = t * t;
+    float t3 = t2 * t;
+    return 0.5 * (
+        (2.0 * p1) +
+        (-p0 + p2) * t +
+        (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+        (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+    );
+}
+
+int max_line_offset_gap(int line_offsets[PENUMBRA_LINE_CAP], int line_count) {
+    if (line_count < 2) return FILTER_RADIUS * 2 + 1;
+    int max_gap = 1;
+    for (int i = 1; i < line_count; i++) {
+        max_gap = max(max_gap, line_offsets[i] - line_offsets[i - 1]);
+    }
+    return max_gap;
+}
+
+float penumbra_monotonic_confidence(float line_values[PENUMBRA_LINE_CAP], int grad_start, int grad_end) {
+    if (grad_end <= grad_start) return 0.0;
+
+    float grad_dir = line_values[grad_end] - line_values[grad_start];
+    if (abs(grad_dir) <= PENUMBRA_MONO_EPS) return 0.0;
+    float dir_sign = sign(grad_dir);
+
+    float good = 0.0;
+    float total = 0.0;
+    for (int i = grad_start + 1; i <= grad_end; i++) {
+        float d = line_values[i] - line_values[i - 1];
+        if (abs(d) <= PENUMBRA_MONO_EPS) {
+            good += 1.0;
+            total += 1.0;
+            continue;
+        }
+        good += (sign(d) == dir_sign) ? 1.0 : 0.0;
+        total += 1.0;
+    }
+
+    if (total <= 0.0) return 0.0;
+    return clamp(good / total, 0.0, 1.0);
+}
+
+float compute_aggressive_line_blur(float line_values[PENUMBRA_LINE_CAP], int line_count, int center_idx) {
+    if (line_count <= 0) return 0.0;
+    if (line_count == 1) return line_values[0];
+
+    float box_sum = 0.0;
+    float box_w = 0.0;
+    float tent_sum = 0.0;
+    float tent_w = 0.0;
+    for (int i = 0; i < line_count; i++) {
+        float v = line_values[i];
+        box_sum += v;
+        box_w += 1.0;
+
+        float d = abs(float(i - center_idx));
+        float w = 1.0 / (1.0 + d); // Wide kernel for strong noise suppression.
+        tent_sum += v * w;
+        tent_w += w;
+    }
+
+    float box_blur = box_sum / max(box_w, 1.0);
+    float tent_blur = tent_sum / max(tent_w, 1.0);
+    return clamp(mix(tent_blur, box_blur, SHADOW_AGGRESSIVE_BLUR_BOX_BLEND), 0.0, 1.0);
+}
+
+float compute_sharp_edge_confidence(float line_values[PENUMBRA_LINE_CAP], int line_count, int center_idx) {
+    if (line_count < 3) return 0.0;
+    int clamped_center = clamp(center_idx, 1, line_count - 2);
+
+    float l = line_values[clamped_center - 1];
+    float c = line_values[clamped_center];
+    float r = line_values[clamped_center + 1];
+
+    float edge_local = max(abs(c - l), abs(r - c));
+
+    float left_sum = 0.0;
+    float right_sum = 0.0;
+    float left_w = 0.0;
+    float right_w = 0.0;
+    for (int i = max(0, clamped_center - 2); i < clamped_center; i++) {
+        left_sum += line_values[i];
+        left_w += 1.0;
+    }
+    for (int i = clamped_center + 1; i <= min(line_count - 1, clamped_center + 2); i++) {
+        right_sum += line_values[i];
+        right_w += 1.0;
+    }
+
+    float left_mean = (left_w > 0.0) ? (left_sum / left_w) : l;
+    float right_mean = (right_w > 0.0) ? (right_sum / right_w) : r;
+    float edge_mean = abs(right_mean - left_mean);
+    float edge_curvature = abs(l - 2.0 * c + r) * SHADOW_SHARP_CURVATURE_WEIGHT;
+
+    float edge = max(max(edge_local, edge_mean), edge_curvature);
+
+    int local_binary = 0;
+    local_binary += (is_binary_zero(l) || is_binary_one(l)) ? 1 : 0;
+    local_binary += (is_binary_zero(c) || is_binary_one(c)) ? 1 : 0;
+    local_binary += (is_binary_zero(r) || is_binary_one(r)) ? 1 : 0;
+    float binary_boost = (local_binary >= 2) ? 0.15 : 0.0;
+
+    float base_conf = smoothstep(SHADOW_SHARP_EDGE_LOW, SHADOW_SHARP_EDGE_HIGH, edge + binary_boost);
+    float sharpened = base_conf * base_conf * (3.0 - 2.0 * base_conf);
+    return clamp(mix(base_conf, sharpened, SHADOW_SHARP_EDGE_SHARPEN), 0.0, 1.0);
+}
+
+bool is_hard_binary_edge(float line_values[PENUMBRA_LINE_CAP], int line_count, int center_idx) {
+    if (line_count < 5) return false;
+    int cidx = clamp(center_idx, 2, line_count - 3);
+
+    float l2 = line_values[cidx - 2];
+    float l1 = line_values[cidx - 1];
+    float c  = line_values[cidx];
+    float r1 = line_values[cidx + 1];
+    float r2 = line_values[cidx + 2];
+
+    int binary_count = 0;
+    binary_count += (is_binary_zero(l2) || is_binary_one(l2)) ? 1 : 0;
+    binary_count += (is_binary_zero(l1) || is_binary_one(l1)) ? 1 : 0;
+    binary_count += (is_binary_zero(c)  || is_binary_one(c))  ? 1 : 0;
+    binary_count += (is_binary_zero(r1) || is_binary_one(r1)) ? 1 : 0;
+    binary_count += (is_binary_zero(r2) || is_binary_one(r2)) ? 1 : 0;
+    if (binary_count < 4) return false;
+
+    float left_mean = 0.5 * (l2 + l1);
+    float right_mean = 0.5 * (r1 + r2);
+    float contrast = abs(right_mean - left_mean);
+    if (contrast < SHADOW_HARD_EDGE_CONTRAST_MIN) return false;
+
+    float left_var = abs(l2 - l1);
+    float right_var = abs(r1 - r2);
+    if (left_var > SHADOW_HARD_EDGE_SIDE_VAR_MAX || right_var > SHADOW_HARD_EDGE_SIDE_VAR_MAX) return false;
+
+    return true;
 }
 
 void store_shadowed_irradiance(ivec2 pix, float shadow_value) {
@@ -148,7 +482,8 @@ void store_shadowed_irradiance(ivec2 pix, float shadow_value) {
 #else
     vec3 rgb = irradiance.rgb;
 #endif
-    imageStore(SHADOW_FILTER_OUTPUT_TEXTURE, pix, vec4(rgb * shadow_value, irradiance.a));
+    float shadow_weight = shadow_to_unit(shadow_value);
+    imageStore(SHADOW_FILTER_OUTPUT_TEXTURE, pix, vec4(rgb * shadow_weight, irradiance.a));
 #endif
 }
 
@@ -170,6 +505,7 @@ void main() {
     if (any(greaterThanEqual(pix, res))) return;
 
     float center_shadow = load_shadow_value(pix);
+    float center_shadow_unit = shadow_to_unit(center_shadow);
     if (DENOISER_ENABLE_SHADOWS_FILTERING == 0) {
         imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
         store_bypass_irradiance(pix);
@@ -178,46 +514,157 @@ void main() {
 
     vec3 p0 = imageLoad(POSITION_T, pix).xyz;
     vec3 g0 = normalDecode(imageLoad(NORMALS_GS, pix).xy);
-    float inv_center_dist = 1.0 / max(length(p0), 1.0);
+    float inv_center_dist = max(1.0 / max(length(p0), 1.0), SHADOW_MIN_INV_CENTER_DIST);
 
     float light_id0 = imageLoad(LIGHT_ID_SOURCE, pix).w;
 
-    float sum = center_shadow;
-    float count = 1.0;
-    int matches = 0;
+    const int line_search_left = -(PENUMBRA_LINE_CAP / 2);
+    const int line_search_right = line_search_left + PENUMBRA_LINE_CAP - 1;
+    const int search_from = max(-FILTER_RADIUS, line_search_left);
+    const int search_to = min(FILTER_RADIUS, line_search_right);
 
-    for (int s = FILTER_START_RADIUS; s <= FILTER_RADIUS; s++) {
-        for (int side_iter = 0; side_iter < 2; side_iter++) {
-            int side =
-#if FILTER_POSITIVE_FIRST
-                ((side_iter == 0) ? 1 : -1); // +1, -1, +2, -2, ...
-#else
-                ((side_iter == 0) ? -1 : 1); // -1, +1, -2, +2, ...
-#endif
-            ivec2 sample_pix = pix;
-#ifdef HORIZONTAL
-            sample_pix.x += side * s;
-#else
-            sample_pix.y += side * s;
-#endif
-            if (any(lessThan(sample_pix, ivec2(0))) || any(greaterThanEqual(sample_pix, res))) continue;
+    float line_values[PENUMBRA_LINE_CAP];
+    int line_offsets[PENUMBRA_LINE_CAP];
+    int line_count = 0;
+    int center_line_idx = -1;
 
-            float light_id1 = imageLoad(LIGHT_ID_SOURCE, sample_pix).w;
-            if (abs(light_id1 - light_id0) > LIGHT_ID_THRESHOLD) continue;
+    for (int offset = search_from; offset <= search_to; offset++) {
+        if (line_count >= PENUMBRA_LINE_CAP) break;
 
-            vec3 p1 = imageLoad(POSITION_T, sample_pix).xyz;
-            if (position_gate(p1 - p0, g0, inv_center_dist) == 0.0) continue;
-
-            float shadow_sample = load_shadow_value(sample_pix);
-            sum += shadow_sample;
-            count += 1.0;
-            matches++;
-            if (matches >= REQUIRED_MATCHES) break;
+        if (offset == 0) {
+            line_offsets[line_count] = 0;
+            line_values[line_count] = center_shadow_unit;
+            center_line_idx = line_count;
+            line_count++;
+            continue;
         }
-        if (matches >= REQUIRED_MATCHES) break;
+
+        ivec2 sample_pix = pix;
+#ifdef HORIZONTAL
+        sample_pix.x += offset;
+#else
+        sample_pix.y += offset;
+#endif
+        if (any(lessThan(sample_pix, ivec2(0))) || any(greaterThanEqual(sample_pix, res))) continue;
+
+        float light_id1 = imageLoad(LIGHT_ID_SOURCE, sample_pix).w;
+        if (abs(light_id1 - light_id0) > LIGHT_ID_THRESHOLD) continue;
+
+        vec3 p1 = imageLoad(POSITION_T, sample_pix).xyz;
+        if (position_gate(p1 - p0, g0, inv_center_dist) == 0.0) continue;
+
+        line_offsets[line_count] = offset;
+        line_values[line_count] = load_shadow_unit(sample_pix);
+        line_count++;
     }
 
-    float out_shadow = clamp(sum / max(count, 1.0), -1.0, 1.0);
+    if (center_line_idx < 0) {
+        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
+        store_shadowed_irradiance(pix, center_shadow);
+        return;
+    }
+
+    float out_shadow_unit = center_shadow_unit;
+
+#if SHADOW_AGGRESSIVE_LINE_BLUR
+    float aggressive_line_blur = compute_aggressive_line_blur(line_values, line_count, center_line_idx);
+    float aggressive_strength = SHADOW_AGGRESSIVE_BLUR_STRENGTH;
+    bool hard_binary_edge = false;
+#if SHADOW_SHARP_EDGE_PRESERVE
+    float sharp_edge_conf = compute_sharp_edge_confidence(line_values, line_count, center_line_idx);
+    aggressive_strength *= (1.0 - SHADOW_SHARP_EDGE_REDUCE * sharp_edge_conf);
+#endif
+#if SHADOW_HARD_EDGE_ENABLE
+    hard_binary_edge = is_hard_binary_edge(line_values, line_count, center_line_idx);
+#endif
+    float min_soft_strength = SHADOW_AGGRESSIVE_BLUR_STRENGTH * SHADOW_SOFTNESS_FLOOR;
+    aggressive_strength = max(aggressive_strength, min_soft_strength);
+#if SHADOW_HARD_EDGE_ENABLE
+    if (hard_binary_edge) {
+        aggressive_strength = min(aggressive_strength, SHADOW_HARD_EDGE_MAX_BLUR);
+    }
+#endif
+    out_shadow_unit = mix(center_shadow_unit, aggressive_line_blur, aggressive_strength);
+#endif
+
+    float expected_support = float(max(search_to - search_from + 1, 1));
+    float support_coverage = float(line_count) / expected_support;
+    float coverage_conf = smoothstep(PENUMBRA_MIN_COVERAGE, 1.0, support_coverage);
+    int line_max_gap = max_line_offset_gap(line_offsets, line_count);
+    float gap_conf = 1.0 - smoothstep(float(PENUMBRA_MAX_OFFSET_GAP), float(PENUMBRA_MAX_OFFSET_GAP + 2), float(line_max_gap));
+    float support_conf = clamp(min(coverage_conf, gap_conf), 0.0, 1.0);
+
+    int window_half = penumbra_window_half();
+    bool can_check_penumbra = (line_count >= (window_half * 2 + 1))
+        && (line_count >= PENUMBRA_MIN_VALID_SAMPLES)
+        && (center_line_idx >= window_half)
+        && (center_line_idx < (line_count - window_half))
+        && (support_conf > 0.0);
+    if (can_check_penumbra && is_penumbra_window(line_values, line_count, center_line_idx)) {
+        int grad_start = center_line_idx;
+        int grad_end = center_line_idx;
+
+        for (int i = center_line_idx - 1; i >= window_half; i--) {
+            if (!is_penumbra_window(line_values, line_count, i)) break;
+            grad_start = i;
+        }
+        for (int i = center_line_idx + 1; i < (line_count - window_half); i++) {
+            if (!is_penumbra_window(line_values, line_count, i)) break;
+            grad_end = i;
+        }
+
+        if ((grad_end - grad_start) >= PENUMBRA_MIN_SPAN) {
+            float left_plateau = 0.0;
+            float left_count = 0.0;
+            for (int i = 0; i < grad_start; i++) {
+                left_plateau += line_values[i];
+                left_count += 1.0;
+            }
+            left_plateau = (left_count > 0.0) ? (left_plateau / left_count) : line_values[grad_start];
+
+            float right_plateau = 0.0;
+            float right_count = 0.0;
+            for (int i = grad_end + 1; i < line_count; i++) {
+                right_plateau += line_values[i];
+                right_count += 1.0;
+            }
+            right_plateau = (right_count > 0.0) ? (right_plateau / right_count) : line_values[grad_end];
+
+            float contrast = abs(right_plateau - left_plateau);
+            if (contrast >= PENUMBRA_MIN_CONTRAST) {
+                float mono_conf = penumbra_monotonic_confidence(line_values, grad_start, grad_end);
+                if (mono_conf >= PENUMBRA_MIN_MONO_CONF) {
+                    float left_offset = float(line_offsets[grad_start]);
+                    float right_offset = float(line_offsets[grad_end]);
+                    float center_offset = float(line_offsets[center_line_idx]);
+                    float t = 0.0;
+
+                    if (abs(right_offset - left_offset) > 1e-4) {
+                        t = clamp((center_offset - left_offset) / (right_offset - left_offset), 0.0, 1.0);
+                    } else {
+                        t = float(center_line_idx - grad_start) / float(max(grad_end - grad_start, 1));
+                    }
+
+                    float reconstructed = mix(left_plateau, right_plateau, t);
+#if PENUMBRA_USE_CATMULL_ROM
+                    float catmull_blend = PENUMBRA_CATMULL_ROM_BLEND * support_conf * mono_conf;
+                    float p0 = left_plateau;
+                    float p1 = line_values[grad_start];
+                    float p2 = line_values[grad_end];
+                    float p3 = right_plateau;
+                    float catmull_value = catmull_rom_1d(p0, p1, p2, p3, t);
+                    float minv = min(min(p0, p1), min(p2, p3));
+                    float maxv = max(max(p0, p1), max(p2, p3));
+                    catmull_value = clamp(catmull_value, minv, maxv);
+                    reconstructed = mix(reconstructed, catmull_value, catmull_blend);
+#endif
+                    out_shadow_unit = clamp(reconstructed, 0.0, 1.0);
+                }
+            }
+        }
+    }
+
+    float out_shadow = unit_to_shadow(out_shadow_unit);
     imageStore(OUTPUT_SHADOW, pix, vec4(out_shadow, out_shadow, out_shadow, SHADOW_OUTPUT_ALPHA));
     store_shadowed_irradiance(pix, out_shadow);
 }
