@@ -183,12 +183,7 @@ float wNormalThreshold(vec3 a, vec3 b, float dotThreshold)
 
 float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float dist2Threshold)
 {
-    // Accept samples that are either close to the center plane or close in Euclidean distance.
-    float nPlaneDist = abs(dot(d, geomNorm)) * invCenterDist;
-    float nDist2 = dot(d, d) * (invCenterDist * invCenterDist);
-    float wPlane = step(nPlaneDist, planeThreshold);
-    float wDist = step(nDist2, dist2Threshold);
-    return max(wPlane, wDist);
+    return positionEdgeStopWithThresholds(d, geomNorm, invCenterDist, planeThreshold, dist2Threshold);
 }
 
 float wRoughness(float a, float b, float relax)

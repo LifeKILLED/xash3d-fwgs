@@ -172,11 +172,8 @@ float normalGate(vec3 a, vec3 b, float threshold) {
 }
 
 float positionGate(vec3 d, vec3 geomNorm, float invCenterDist) {
-    float nPlaneDist = abs(dot(d, geomNorm)) * invCenterDist;
-    float nDist2 = dot(d, d) * (invCenterDist * invCenterDist);
-    float wPlane = step(nPlaneDist, POSITION_PLANE_THRESHOLD);
-    float wDist = step(nDist2, POSITION_DIST2_THRESHOLD);
-    return max(wPlane, wDist);
+    return positionEdgeStopWithThresholds(
+        d, geomNorm, invCenterDist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
 }
 
 float clampWeightNonNegative(float w) {

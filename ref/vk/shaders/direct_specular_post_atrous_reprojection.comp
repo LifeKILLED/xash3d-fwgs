@@ -1,0 +1,15 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#include "denoiser_config.glsl"
+
+#define POST_ATROUS_REPROJECTION_ENABLE DENOISER_SPECULAR_POST_ATROUS_REPROJECTION_ENABLE
+#define POST_ATROUS_LUMA_RESET_THRESHOLD DENOISER_SPECULAR_POST_ATROUS_LUMA_RESET_THRESHOLD
+#define POST_ATROUS_LUMA_RESET_FADE_END DENOISER_SPECULAR_POST_ATROUS_LUMA_RESET_FADE_END
+#define POST_ATROUS_MAX_HISTORY DENOISER_SPECULAR_POST_ATROUS_MAX_HISTORY
+#define POST_ATROUS_OUTPUT_FILTERED out_specular_direct_atrous_temporal
+#define POST_ATROUS_INPUT_FILTERED specular_direct_atrous
+#define POST_ATROUS_PREV_TEMPORAL prev_temporal_specular_post_atrous
+#define POST_ATROUS_OUTPUT_TEMPORAL out_temporal_specular_post_atrous
+
+#include "direct_post_atrous_reprojection.glsl"

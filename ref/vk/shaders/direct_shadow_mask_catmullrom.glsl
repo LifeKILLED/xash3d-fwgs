@@ -86,11 +86,8 @@ layout(set = 0, binding = 3, rgba16f) uniform readonly image2D NORMALS_GS;
 layout(set = 0, binding = 4) uniform UBO { UniformBuffer ubo; } ubo;
 
 float position_gate(vec3 d, vec3 geom_norm, float inv_center_dist) {
-    float n_plane_dist = abs(dot(d, geom_norm)) * inv_center_dist;
-    float n_dist2 = dot(d, d) * (inv_center_dist * inv_center_dist);
-    float w_plane = step(n_plane_dist, SHADOW_MASK_POSITION_PLANE_THRESHOLD);
-    float w_dist = step(n_dist2, SHADOW_MASK_POSITION_DIST2_THRESHOLD);
-    return max(w_plane, w_dist);
+    return positionEdgeStopWithThresholds(
+        d, geom_norm, inv_center_dist, SHADOW_MASK_POSITION_PLANE_THRESHOLD, SHADOW_MASK_POSITION_DIST2_THRESHOLD);
 }
 
 // Fast positive kernel approximation (no exp): 1 / (1 + x^2 * k).

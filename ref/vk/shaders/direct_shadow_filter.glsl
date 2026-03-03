@@ -269,11 +269,8 @@ layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D SHADOW_FILTER_MA
 #endif
 
 float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
-    float n_plane_dist = abs(dot(delta_pos, geom_norm)) * inv_center_dist;
-    float n_dist2 = dot(delta_pos, delta_pos) * (inv_center_dist * inv_center_dist);
-    float w_plane = step(n_plane_dist, POSITION_PLANE_THRESHOLD);
-    float w_dist = step(n_dist2, POSITION_DIST2_THRESHOLD);
-    return max(w_plane, w_dist);
+    return positionEdgeStopWithThresholds(
+        delta_pos, geom_norm, inv_center_dist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
 }
 
 float shadow_from_radiance(vec3 radiance) {
