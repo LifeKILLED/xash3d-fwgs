@@ -126,6 +126,13 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
 
     l.emissive_color = pl.color_stopdot.rgb;
 
+#ifdef LIMIT_LIGHT_LUMINANCE
+    float lum = luminance(l.emissive_color);
+    if (lum > 1.0) {
+        l.emissive_color /= lum;
+    }
+#endif
+
     vec3 toL = pl.origin_r2.xyz - P;
     float dist2 = dot(toL,toL);
 
@@ -196,6 +203,13 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
                 plane_dist);
             l.geom_weight = s.w * self_fade;
             l.emissive_color = poly.emissive;
+
+        #ifdef LIMIT_LIGHT_LUMINANCE
+            float lum = luminance(l.emissive_color);
+            if (lum > 1.0) {
+                l.emissive_color /= lum;
+            }
+        #endif
         }
     }
 
