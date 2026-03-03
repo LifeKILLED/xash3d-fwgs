@@ -68,11 +68,11 @@
 
 // Per-lobe max allowed a-trous step; larger steps are bypassed.
 #ifndef DENOISER_MAX_ATROUS_STEP_DIFFUSE
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 4
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 8
 #endif
 
 #ifndef DENOISER_MAX_ATROUS_STEP_SPECULAR
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 4
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 8
 #endif
 
 

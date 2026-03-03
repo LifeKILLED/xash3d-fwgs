@@ -61,6 +61,26 @@
 #define ATROUS_MAX_STEP 1024
 #endif
 
+#ifndef ATROUS_MASK_GATE_ENABLE
+#define ATROUS_MASK_GATE_ENABLE 0
+#endif
+
+#ifndef ATROUS_MASK_SOURCE
+#define ATROUS_MASK_SOURCE diffuse_shadow_mask_debug
+#endif
+
+#ifndef ATROUS_MASK_SIGMA
+#define ATROUS_MASK_SIGMA 0.08
+#endif
+
+#ifndef ATROUS_MASK_SOFT_EDGE
+#define ATROUS_MASK_SOFT_EDGE 0.10
+#endif
+
+#ifndef ATROUS_MASK_FADE_RANGE
+#define ATROUS_MASK_FADE_RANGE 0.10
+#endif
+
 //---------------------------------------------------------
 // KERNEL
 //---------------------------------------------------------
@@ -91,6 +111,9 @@ layout(set = 0, binding = 3, rgba16f) uniform readonly image2D atrous_variance;
 layout(set = 0, binding = 4, rgba32f) uniform readonly image2D POSITION_T;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D NORMALS_GS;
 layout(set = 0, binding = 6, rgba8) uniform readonly image2D MATERIAL_RMXX;
+#if ATROUS_MASK_GATE_ENABLE
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D ATROUS_MASK_SOURCE;
+#endif
 #endif // !VARIANCE_PASS
 
 layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
@@ -125,6 +148,22 @@ float wVariance(float a, float b)
 {
     float d = abs(a - b) / max(max(a, b), 1e-4);
     return step(d, VARIANCE_REL_DIFF_THRESHOLD);
+}
+
+float wMask(ivec2 p, ivec2 q)
+{
+#if ATROUS_MASK_GATE_ENABLE && !defined(VARIANCE_PASS)
+    float m0 = clamp(imageLoad(ATROUS_MASK_SOURCE, p).r, 0.0, 1.0);
+    float m1 = clamp(imageLoad(ATROUS_MASK_SOURCE, q).r, 0.0, 1.0);
+    float dm = abs(m1 - m0);
+    float inner = max(ATROUS_MASK_SOFT_EDGE, 0.0);
+    float outer = inner + max(ATROUS_MASK_FADE_RANGE, 1e-4);
+    float w_plateau = 1.0 - smoothstep(inner, outer, dm);
+    float w_exp = exp(-dm / max(ATROUS_MASK_SIGMA, 1e-5));
+    return max(w_plateau, w_exp * 0.35);
+#else
+    return 1.0;
+#endif
 }
 
 //---------------------------------------------------------
@@ -247,7 +286,8 @@ void main()
 #endif
 
         float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
-        float w = spatialW * wnShading * wPos * wR * wV;
+        float wM = wMask(p, q);
+        float w = spatialW * wnShading * wPos * wR * wV * wM;
         vec3 c = imageLoad(IN_RADIANCE, q).rgb;
 
         sumC += c * w;
