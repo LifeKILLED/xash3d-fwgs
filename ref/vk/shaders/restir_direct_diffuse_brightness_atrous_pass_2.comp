@@ -1,0 +1,12 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define INPUT_MASK diffuse_direct_restir_brightness_ping
+#define OUTPUT_MASK out_diffuse_direct_restir_brightness_pong
+#define ATROUS_STEP 2
+
+#include "restir_direct_diffuse_brightness_atrous.glsl"

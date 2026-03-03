@@ -1,7 +1,9 @@
 #ifndef RESTIR_COMMON_GLSL
 #define RESTIR_COMMON_GLSL 1
 
+#ifndef RESTIR_COMMON_NO_LIGHTING
 #include "lights_unified.glsl"
+#endif
 
 #define MIN_RESTIR_WEIGHT 1e-4
 #define MAX_RESTIR_WEIGHT 0.02
@@ -53,6 +55,7 @@ void reservoirUpdate(
     }
 }
 
+#ifndef RESTIR_COMMON_NO_LIGHTING
 Reservoir loadReservoir(vec4 d, out bool out_of_bound)
 {
     uint light_id = decodeHistoryLightId(floor(d.x), out_of_bound);
@@ -82,6 +85,32 @@ vec4 saveReservoir(Reservoir r)
         floor(r.checked_count) + clamp(r.w_clamped, 0.0, 1.0)
     );
 }
+#else
+Reservoir loadReservoir(vec4 d, out bool out_of_bound)
+{
+    out_of_bound = false;
+
+    Reservoir r;
+    r.light_index = 0u;
+    r.w_sum = d.y;
+    r.w_full = d.z;
+    r.w_clamped = fract(d.w);
+    r.checked_count = floor(d.w);
+    r.conf = fract(d.x) / CONF_STORE_MULT;
+
+    return r;
+}
+
+vec4 saveReservoir(Reservoir r)
+{
+    return vec4(
+        clamp(r.conf, 0.0, 1.0) * CONF_STORE_MULT,
+        r.w_sum,
+        r.w_full,
+        floor(r.checked_count) + clamp(r.w_clamped, 0.0, 1.0)
+    );
+}
+#endif
 
 void updateRestirConfidence(
     inout Reservoir r,

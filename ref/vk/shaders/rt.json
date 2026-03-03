@@ -41,6 +41,21 @@
 	"restir_direct_candidates": {
 		"comp": "restir_direct_candidates"
 	},
+	"restir_direct_diffuse_brightness_atrous_pass_1": {
+		"comp": "restir_direct_diffuse_brightness_atrous_pass_1"
+	},
+	"restir_direct_diffuse_brightness_atrous_pass_2": {
+		"comp": "restir_direct_diffuse_brightness_atrous_pass_2"
+	},
+	"restir_direct_diffuse_brightness_atrous_pass_3": {
+		"comp": "restir_direct_diffuse_brightness_atrous_pass_3"
+	},
+	"restir_direct_diffuse_wish": {
+		"comp": "restir_direct_diffuse_wish"
+	},
+	"restir_direct_diffuse_swap": {
+		"comp": "restir_direct_diffuse_swap"
+	},
 	"restir_direct_lighting": {
 		"comp": "restir_direct_lighting"
 	},

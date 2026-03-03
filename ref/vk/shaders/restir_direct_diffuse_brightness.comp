@@ -1,0 +1,74 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define RESTIR_COMMON_NO_LIGHTING
+#include "restir_common.glsl"
+#include "denoiser_config.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_diffuse_direct_restir_brightness;
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D diffuse_direct_restir;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+float reservoir_pdf(Reservoir r) {
+    const float denom = max(r.checked_count * r.w_clamped, 1e-6);
+    return r.w_sum / denom;
+}
+
+float reservoir_luma_estimate(ivec2 pix) {
+    bool out_of_bound;
+    Reservoir r = loadReservoir(imageLoad(diffuse_direct_restir, pix), out_of_bound);
+    if (out_of_bound || r.w_clamped <= 0.0 || r.checked_count <= 0.0) {
+        return 0.0;
+    }
+
+    const float pdf = max(reservoir_pdf(r), 0.0);
+    const float w_full = max(r.w_full, 0.0);
+    return w_full * pdf;
+}
+
+void main() {
+    const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+    if (any(greaterThanEqual(pix, res))) {
+        return;
+    }
+
+#if !DENOISER_STABILIZE_DIFFUSE_RESERVOIRS
+    imageStore(out_diffuse_direct_restir_brightness, pix, vec4(0.0));
+    return;
+#endif
+
+    const float raw_luma = reservoir_luma_estimate(pix);
+
+    const int kernel_radius = DENOISER_STABILIZE_DIFFUSE_RESERVOIRS_KERNEL;
+    const float center_weight_cfg = max(DENOISER_STABILIZE_DIFFUSE_RESERVOIRS_CENTER_WEIGHT, 0.0);
+    const float neighbor_weight_cfg = max(DENOISER_STABILIZE_DIFFUSE_RESERVOIRS_NEIGHBOR_WEIGHT, 0.0);
+    float blur_sum = 0.0;
+    float blur_weight = 0.0;
+    for (int oy = -kernel_radius; oy <= kernel_radius; ++oy) {
+        for (int ox = -kernel_radius; ox <= kernel_radius; ++ox) {
+            const ivec2 q = pix + ivec2(ox, oy);
+            if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) {
+                continue;
+            }
+
+            const bool is_center = (ox == 0 && oy == 0);
+            const float tap_weight = is_center ? center_weight_cfg : neighbor_weight_cfg;
+            if (tap_weight <= 0.0) {
+                continue;
+            }
+
+            blur_sum += reservoir_luma_estimate(q) * tap_weight;
+            blur_weight += tap_weight;
+        }
+    }
+
+    const float blur_luma = (blur_weight > 0.0) ? (blur_sum / blur_weight) : raw_luma;
+    imageStore(out_diffuse_direct_restir_brightness, pix, vec4(raw_luma, blur_luma, 0.0, 0.0));
+}

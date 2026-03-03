@@ -1,0 +1,104 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#include "noise.glsl"
+#include "denoiser_config.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform readonly image2D diffuse_direct_restir_brightness_raw;
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D diffuse_direct_restir_brightness;
+layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_diffuse_direct_restir_wish;
+layout(set = 0, binding = 3) uniform UBO { UniformBuffer ubo; } ubo;
+
+#define WISH_DEAD_ZONE 0.02
+
+const ivec2 neighbor_offsets[8] = ivec2[](
+    ivec2( 1,  0), ivec2(-1,  0),
+    ivec2( 0,  1), ivec2( 0, -1),
+    ivec2( 1,  1), ivec2(-1,  1),
+    ivec2( 1, -1), ivec2(-1, -1)
+);
+
+bool in_bounds(ivec2 p, ivec2 res) {
+    return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
+}
+
+float tie_break(ivec2 p, int k, uint frame_counter) {
+    const uint h = xxhash32(uvec4(uint(p.x), uint(p.y), uint(k), frame_counter));
+    return uintToFloat01(h);
+}
+
+void main() {
+    const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+    if (any(greaterThanEqual(pix, res))) {
+        return;
+    }
+
+#if !DENOISER_STABILIZE_DIFFUSE_RESERVOIRS
+    imageStore(
+        out_diffuse_direct_restir_wish,
+        pix,
+        vec4(float(pix.x), float(pix.y), float(pix.x), float(pix.y))
+    );
+    return;
+#endif
+
+    const float center_raw = imageLoad(diffuse_direct_restir_brightness_raw, pix).r;
+    const float center_blur = imageLoad(diffuse_direct_restir_brightness, pix).r;
+
+    ivec2 best_dark = pix;
+    ivec2 best_bright = pix;
+    float best_dark_blur = center_blur;
+    float best_bright_blur = center_blur;
+    float best_dark_tie = 2.0;
+    float best_bright_tie = 2.0;
+
+    for (int i = 0; i < 8; ++i) {
+        const ivec2 q = pix + neighbor_offsets[i];
+        if (!in_bounds(q, res)) {
+            continue;
+        }
+
+        const float bq = imageLoad(diffuse_direct_restir_brightness, q).r;
+        const float tie = tie_break(pix, i, ubo.ubo.frame_counter);
+
+        if ((bq < best_dark_blur - 1e-6) ||
+            (abs(bq - best_dark_blur) <= 1e-6 && bq < center_blur - 1e-6 && tie < best_dark_tie)) {
+            best_dark_blur = bq;
+            best_dark_tie = tie;
+            best_dark = q;
+        }
+
+        if ((bq > best_bright_blur + 1e-6) ||
+            (abs(bq - best_bright_blur) <= 1e-6 && bq > center_blur + 1e-6 && tie < best_bright_tie)) {
+            best_bright_blur = bq;
+            best_bright_tie = tie;
+            best_bright = q;
+        }
+    }
+
+    const float denom = max(abs(center_blur), 1e-6);
+    const float rel_diff = (center_raw - center_blur) / denom;
+
+    ivec2 dark_wish = best_dark;
+    ivec2 bright_wish = best_bright;
+    if (abs(rel_diff) <= WISH_DEAD_ZONE) {
+        dark_wish = pix;
+        bright_wish = pix;
+    }
+
+    imageStore(
+        out_diffuse_direct_restir_wish,
+        pix,
+        vec4(
+            float(dark_wish.x), float(dark_wish.y),
+            float(bright_wish.x), float(bright_wish.y)
+        )
+    );
+}

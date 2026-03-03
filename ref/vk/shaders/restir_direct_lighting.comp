@@ -9,7 +9,7 @@
 //#define PROJECTED_LIGHT_SAMPLED_UNIFIED 1
 
 //#define STUPID_POLYGON_SAMPLING 1
-//#define STUPID_POINT_LIGHT_SAMPLING 1
+//#define STUPID_POINT_LIGHT_SAMPLING 1 
 
 #define CANDIDATES_COUNT 16
 #define CANDIDATES_RAYS false
@@ -61,7 +61,7 @@ layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } 
 layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
 // restir
-layout(set = 0, binding = 15, rgba32f) uniform readonly image2D diffuse_direct_restir;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D diffuse_direct_restir_swapped;
 layout(set = 0, binding = 16, rgba32f) uniform readonly image2D specular_direct_restir;
 
 layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
@@ -192,7 +192,7 @@ void main(){
     vec3 specular_fs = vec3(0.);
 
     bool oub_diff = true, oub_spec = true;
-    Reservoir rDiffuse = loadReservoir(imageLoad(diffuse_direct_restir, pix), oub_diff);
+    Reservoir rDiffuse = loadReservoir(imageLoad(diffuse_direct_restir_swapped, pix), oub_diff);
     Reservoir rSpecular = loadReservoir(imageLoad(specular_direct_restir, pix), oub_spec);
 
     if (!oub_diff) {

@@ -62,6 +62,7 @@ layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
 
 layout(set = 0, binding = 22, rgba32f) uniform writeonly image2D out_diffuse_direct_restir;
 layout(set = 0, binding = 23, rgba32f) uniform writeonly image2D out_specular_direct_restir;
+layout(set = 0, binding = 24, rgba32f) uniform writeonly image2D out_diffuse_direct_restir_brightness_raw;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -93,6 +94,20 @@ layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 #endif
 
 #include "restir_common.glsl"
+
+float reservoir_pdf(in Reservoir r) {
+    const float denom = max(r.checked_count * r.w_clamped, 1e-6);
+    return r.w_sum / denom;
+}
+
+float reservoir_luma_estimate(in Reservoir r) {
+    if (r.w_clamped <= 0.0 || r.checked_count <= 0.0) {
+        return 0.0;
+    }
+
+    const float pdf = max(reservoir_pdf(r), 0.0);
+    return max(r.w_full, 0.0) * pdf;
+}
 
 const ivec2 OFFSETS[4] = ivec2[](ivec2(1,0), ivec2(-1,0),
                                  ivec2(0,1), ivec2(0,-1));
@@ -440,6 +455,7 @@ void main(){
 
     imageStore(out_diffuse_direct_restir, pix, saveReservoir(rDiffuse));
     imageStore(out_specular_direct_restir, pix, saveReservoir(rSpec));
+    imageStore(out_diffuse_direct_restir_brightness_raw, pix, vec4(reservoir_luma_estimate(rDiffuse), 0.0, 0.0, 0.0));
 
     imageStore(out_temporal_res_diffuse, pix, saveReservoir(rDiffuse));
     imageStore(out_temporal_res_specular, pix, saveReservoir(rSpec));
