@@ -60,10 +60,6 @@ float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
         delta_pos, geom_norm, inv_center_dist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
 }
 
-float shadow_sign_from_irradiance(vec3 irradiance) {
-    return any(lessThan(irradiance, vec3(0.0))) ? -1.0 : 1.0;
-}
-
 void main() {
     ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
     ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
@@ -81,8 +77,6 @@ void main() {
     vec3 center_shading = normalDecode(center_norm.zw);
     vec3 center_pos = imageLoad(position_t, pix).xyz;
     float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
-    float center_sign = shadow_sign_from_irradiance(center.rgb);
-
     ivec2 matched_offsets[FILTER_MAX_OFFSETS];
     int matched_count = 0;
 
@@ -132,7 +126,7 @@ void main() {
         matched_offsets[matched_count++] = offset;
     }
 
-    vec3 sum_abs = vec3(0.0);
+    vec3 sum_rgb = vec3(0.0);
     float count = 0.0;
 
     for (int i = 0; i < matched_count; i++) {
@@ -145,12 +139,11 @@ void main() {
         vec3 pos = imageLoad(position_t, q).xyz;
         if (position_gate(pos - center_pos, center_geom, inv_center_dist) == 0.0) continue;
 
-        vec3 irradiance_abs = abs(imageLoad(INPUT_IRRADIANCE, q).rgb);
-        sum_abs += irradiance_abs;
+        vec3 sample_rgb = imageLoad(INPUT_IRRADIANCE, q).rgb;
+        sum_rgb += sample_rgb;
         count += 1.0;
     }
 
-    vec3 filtered_abs = (count > 0.0) ? (sum_abs / count) : abs(center.rgb);
-    vec3 filtered_signed = filtered_abs * center_sign;
-    imageStore(OUTPUT_IRRADIANCE, pix, vec4(filtered_signed, center.a));
+    vec3 filtered = (count > 0.0) ? (sum_rgb / count) : center.rgb;
+    imageStore(OUTPUT_IRRADIANCE, pix, vec4(filtered, clamp(center.a, 0.0, 1.0)));
 }

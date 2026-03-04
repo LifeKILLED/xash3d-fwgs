@@ -7,6 +7,8 @@
 
 #include "noise.glsl"
 #include "denoiser_config.glsl"
+#define RESTIR_COMMON_NO_LIGHTING
+#include "restir_common.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

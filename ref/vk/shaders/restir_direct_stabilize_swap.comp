@@ -6,6 +6,8 @@
 #undef GLSL
 
 #include "denoiser_config.glsl"
+#define RESTIR_COMMON_NO_LIGHTING
+#include "restir_common.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -20,7 +22,7 @@ layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D out_temporal_res_diffuse;
 layout(set = 0, binding = 9, rgba32f) uniform writeonly image2D out_temporal_res_specular;
 
-#define STABILIZE_RESERVOIRS_TEMPORAL 1
+//#define STABILIZE_RESERVOIRS_TEMPORAL 1
 
 bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));

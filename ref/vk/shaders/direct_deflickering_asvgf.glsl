@@ -45,6 +45,10 @@
 #define DEFLICKER_ASVGF_ANTILAG_STRENGTH 0.75
 #endif
 
+#ifndef DEFLICKER_ASVGF_VARIANCE_HARD_RESET_SIGMA
+#define DEFLICKER_ASVGF_VARIANCE_HARD_RESET_SIGMA 3.0
+#endif
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D DEFLICKER_ASVGF_OUTPUT_FILTERED;
@@ -55,6 +59,7 @@ layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D DEFLICKER_ASVGF_
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D DEFLICKER_ASVGF_PREV_TEMPORAL_RADIANCE;
 layout(set = 0, binding = 6, rgba16f) uniform writeonly image2D DEFLICKER_ASVGF_OUTPUT_TEMPORAL_RADIANCE;
 layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D DEFLICKER_ASVGF_CONFIDENCE_SOURCE;
 
 float deflickerAsvgfLuma(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -99,6 +104,20 @@ void deflickerAsvgfNeighborhoodStats(ivec2 p, ivec2 res, out float mean_luma, ou
     sigma_luma = sqrt(var);
 }
 
+float deflickerAsvgfConfidence(ivec2 p, ivec2 res) {
+    float sum = 0.0;
+    float wsum = 0.0;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 tap = clamp(p + ivec2(dx, dy), ivec2(0), res - ivec2(1));
+            sum += clamp(imageLoad(DEFLICKER_ASVGF_CONFIDENCE_SOURCE, tap).w, 0.0, 1.0);
+            wsum += 1.0;
+        }
+    }
+    float conf = (wsum > 0.0) ? (sum / wsum) : 0.0;
+    return conf * conf;
+}
+
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
@@ -106,6 +125,10 @@ void main() {
 
     vec3 curr = max(imageLoad(DEFLICKER_ASVGF_INPUT_FILTERED, p).rgb, vec3(0.0));
     float curr_luma = deflickerAsvgfLuma(curr);
+    float curr_conf = deflickerAsvgfConfidence(p, res);
+    float conf_nonlinear = smoothstep(0.3, 1.0, curr_conf);
+    float conf_influence = clamp(DENOISER_DEFLICKER_ASVGF_CONFIDENCE_INFLUENCE, 0.0, 1.0);
+    float conf_strict = (1.0 - conf_nonlinear) * conf_influence;
 
     if (DEFLICKER_ASVGF_ENABLE == 0 || DENOISER_ENABLE_REPROJECTION == 0) {
         imageStore(DEFLICKER_ASVGF_OUTPUT_FILTERED, p, vec4(curr, 1.0));
@@ -169,8 +192,11 @@ void main() {
             max_dev = max(max_dev, abs(hist_luma[i] - trend_i));
         }
 
+        strictness *= mix(1.0, 1.85, conf_strict);
         float base_band = max(DEFLICKER_ASVGF_HISTORY_ABSOLUTE_THRESHOLD, (hmax - hmin) * DEFLICKER_ASVGF_HISTORY_RELATIVE_THRESHOLD);
         float band = max(max(base_band / max(strictness, 1.0), max_dev), 1e-5);
+        band *= mix(1.0, 0.60, conf_strict);
+        band = max(band, 1e-5);
         float deviation = abs(curr_luma - trend_curr);
         float accept_curr = smoothstep(band, band * 2.0, deviation);
 
@@ -193,6 +219,7 @@ void main() {
         deflickerAsvgfNeighborhoodStats(p, res, mean_luma, sigma_luma, min_luma, max_luma);
 
         float sigma_band = max(DEFLICKER_ASVGF_CLAMP_SIGMA * sigma_luma, DEFLICKER_ASVGF_HISTORY_ABSOLUTE_THRESHOLD);
+        sigma_band *= mix(1.0, 0.72, conf_strict);
         float clamp_lo = min_luma - DEFLICKER_ASVGF_CLAMP_EXPAND;
         float clamp_hi = max_luma + DEFLICKER_ASVGF_CLAMP_EXPAND;
         clamp_lo = max(clamp_lo, mean_luma - sigma_band);
@@ -209,6 +236,7 @@ void main() {
 
         float cand_hist_len = min(prev_hist_len + 1.0, DEFLICKER_ASVGF_MAX_HISTORY);
         float soft_zone = mix(1.0, 2.0, clamp(DEFLICKER_ASVGF_HISTORY_SOFT_ZONE, 0.0, 1.0));
+        soft_zone = max(1.05, soft_zone * mix(1.0, 0.82, conf_strict));
         float history_keep = 1.0 - smoothstep(band, band * soft_zone, deviation);
         history_keep *= (1.0 - DEFLICKER_ASVGF_ANTILAG_STRENGTH * accept_curr);
         if (trend_break) history_keep *= 0.35;
@@ -229,6 +257,13 @@ void main() {
 
         float variance_reactivity = smoothstep(0.0, max(0.03, sigma_band), abs(curr_luma - mean_luma));
         float reactive = max(accept_curr, variance_reactivity);
+        float hard_reset_threshold = max(0.03, sigma_band) * DEFLICKER_ASVGF_VARIANCE_HARD_RESET_SIGMA;
+        bool hard_variance_reset = abs(curr_luma - mean_luma) >= hard_reset_threshold;
+        if (hard_variance_reset) {
+            history_keep = 0.0;
+            out_hist_len = 1.0;
+            reactive = 1.0;
+        }
         float blend_alpha = mix(alpha_hist, 1.0, reactive);
         out_c = mix(clamped_hist, filtered_curr, blend_alpha);
         out_c = max(out_c, vec3(0.0));

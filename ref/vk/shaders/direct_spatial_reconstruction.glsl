@@ -280,7 +280,7 @@ void main()
     vec3 V0 = normalize(camPos - P0);
     vec3 L0n = resolveLightDirection(centerL.xyz, N0, V0, R0);
     vec3 center_rgb = clampRadianceNonNegative(centerColor.rgb);
-    float center_a = max(centerColor.a, 0.0);
+    float center_a = clamp(centerColor.a, 0.0, 1.0);
 
     float invCenterDist = 1.0 / max(length(P0), 1.0);
     // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
@@ -342,7 +342,7 @@ void main()
 
             wl = clamp(wl, 0.0, SPATIAL_GGX_MAX_GAIN);
 
-            float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
+            float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
             confW = clampWeightNonNegative(confW);
             float spatialW = clampWeightNonNegative(spatialKernelWeight(0, q - p));
             float wm = clampWeightNonNegative(shadowMaskWeight(p, q));
@@ -411,7 +411,7 @@ void main()
 
         wl = clamp(wl, 0.0, SPATIAL_GGX_MAX_GAIN);
 
-        float confW = max(SPATIAL_CONFIDENCE_MIN, c.a * SPATIAL_CONFIDENCE_SCALE);
+        float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
         confW = clampWeightNonNegative(confW);
         float spatialW = clampWeightNonNegative(spatialKernelWeight(i, q - p));
         float wm = clampWeightNonNegative(shadowMaskWeight(p, q));

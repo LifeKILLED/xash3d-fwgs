@@ -67,4 +67,5 @@ float positionEdgeStopWithThresholds(vec3 delta_pos, vec3 geom_norm, float inv_c
 	float w_dist = step(n_dist2, dist2_t);
 	return max(w_plane, w_dist);
 }
+
 #endif // UTILS_GLSL_INCLUDED

@@ -58,10 +58,6 @@
 #define SHADOW_FILTER_OUTPUT_TEXTURE out_direct_shadowed
 #endif
 
-#ifndef SHADOW_FILTER_APPLY_ABS
-#define SHADOW_FILTER_APPLY_ABS 1
-#endif
-
 #ifndef SHADOW_FILTER_BYPASS_RAW_IRRADIANCE
 #define SHADOW_FILTER_BYPASS_RAW_IRRADIANCE 1
 #endif
@@ -84,10 +80,6 @@
 
 #ifndef SHADOW_VALUE_CHANNEL
 #define SHADOW_VALUE_CHANNEL r
-#endif
-
-#ifndef SHADOW_THRESHOLD
-#define SHADOW_THRESHOLD 0.0
 #endif
 
 #ifndef LIGHT_ID_THRESHOLD
@@ -285,28 +277,12 @@ float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
         delta_pos, geom_norm, inv_center_dist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
 }
 
-float shadow_from_radiance(vec3 radiance) {
-    return (luminance(radiance) < SHADOW_THRESHOLD) ? -1.0 : 1.0;
-}
-
-float shadow_to_unit(float shadow_value) {
-    return clamp(shadow_value * 0.5 + 0.5, 0.0, 1.0);
-}
-
-float unit_to_shadow(float unit_shadow) {
-    return clamp(unit_shadow * 2.0 - 1.0, -1.0, 1.0);
-}
-
 float load_shadow_value(ivec2 pix) {
-#if INPUT_IS_SHADOW_VALUE
-    return clamp(imageLoad(INPUT_SOURCE, pix).SHADOW_VALUE_CHANNEL, -1.0, 1.0);
-#else
-    return shadow_from_radiance(imageLoad(INPUT_SOURCE, pix).rgb);
-#endif
+    return clamp(imageLoad(INPUT_SOURCE, pix).SHADOW_VALUE_CHANNEL, 0.0, 1.0);
 }
 
 float load_shadow_unit(ivec2 pix) {
-    return shadow_to_unit(load_shadow_value(pix));
+    return load_shadow_value(pix);
 }
 
 bool is_binary_zero(float v) {
@@ -518,12 +494,8 @@ bool is_hard_binary_edge(float line_values[PENUMBRA_LINE_CAP], int line_count, i
 void store_shadowed_irradiance(ivec2 pix, float shadow_value) {
 #if SHADOW_FILTER_OUTPUT_IRRADIANCE
     vec4 irradiance = imageLoad(SHADOW_FILTER_IRRADIANCE_SOURCE, pix);
-#if SHADOW_FILTER_APPLY_ABS
-    vec3 rgb = abs(irradiance.rgb);
-#else
     vec3 rgb = irradiance.rgb;
-#endif
-    float shadow_weight = shadow_to_unit(shadow_value);
+    float shadow_weight = clamp(shadow_value, 0.0, 1.0);
     imageStore(SHADOW_FILTER_OUTPUT_TEXTURE, pix, vec4(rgb * shadow_weight, irradiance.a));
 #endif
 }
@@ -642,7 +614,7 @@ void main() {
     if (any(greaterThanEqual(pix, res))) return;
 
     float center_shadow = load_shadow_value(pix);
-    float center_shadow_unit = shadow_to_unit(center_shadow);
+    float center_shadow_unit = center_shadow;
     if (DENOISER_ENABLE_SHADOWS_FILTERING == 0) {
         vec3 center_payload = vec3(0.0, center_shadow_unit, center_shadow_unit);
 #if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
@@ -651,7 +623,7 @@ void main() {
         imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
 #endif
         store_shadow_transition_mask_debug(pix, center_payload);
-        store_bypass_irradiance(pix);
+        store_shadowed_irradiance(pix, center_shadow);
         return;
     }
 
@@ -735,8 +707,8 @@ void main() {
 
     if (force_condition) {
         // Full occlusion for this light-source neighborhood.
-        // Shadow value domain is [-1, 1], where -1 means fully shadowed (unit visibility = 0).
-        const float forced_shadow = -1.0;
+        // Shadow value domain is [0, 1], where 0 means fully shadowed.
+        const float forced_shadow = 0.0;
         vec3 forced_payload = vec3(0.0, 0.0, 0.0);
 #if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
         imageStore(OUTPUT_SHADOW, pix, vec4(forced_shadow, forced_payload));
@@ -849,7 +821,7 @@ void main() {
         }
     }
 
-    float out_shadow = unit_to_shadow(out_shadow_unit);
+    float out_shadow = clamp(out_shadow_unit, 0.0, 1.0);
     vec3 mask_payload = build_shadow_transition_mask_payload(
         pix, res, line_values, line_offsets, line_count, center_line_idx, out_shadow_unit);
     mask_payload = merge_shadow_mask_payload_with_pingpong(pix, mask_payload);

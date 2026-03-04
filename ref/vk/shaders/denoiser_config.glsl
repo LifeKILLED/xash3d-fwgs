@@ -5,29 +5,38 @@
 #define DENOISER_ENABLE_SHADOW_MASK_CATMULL_ROM 1
 #define DENOISER_ENABLE_SPATIAL_RECONSTRUCTION 1
 #define DENOISER_ENABLE_REPROJECTION 1
-#define DENOISER_ENABLE_DEFLICKERING 1
+#define DENOISER_ENABLE_DEFLICKERING 0
 #define DENOISER_ENABLE_ATROUS 1
 
 // Diffuse sampling filter.
 #define DENOISER_SPATIAL_DIFFUSE_ENABLE 1
 #define DENOISER_SPATIAL_SPECULAR_ENABLE 1
 #define DENOISER_SPATIAL_CONFIDENCE_SCALE_DIFFUSE 1.0
-#define DENOISER_SPATIAL_RECONSTRUCTION_CONF_MULT 0.1
+#define DENOISER_SPATIAL_RECONSTRUCTION_CONF_MULT 0.2
 
 // Shadow filtering and shadow-mask reconstruction.
 #define DENOISER_SHADOW_MASK_ATROUS_MAX_STEP 8
-#define DENOISER_SHADOW_MASK_CATMULL_RADIUS 16
+#define DENOISER_SHADOW_MASK_CATMULL_RADIUS 8
 
 // Spatial reconstruction.
 #define DENOISER_SPATIAL_CONFIDENCE_SCALE_SPECULAR 1.0
 
+// Confidence influence for temporal history control in restir_asvgf_direct.
+// 0.0 = confidence does not affect history.
+// 1.0 = maximal confidence-based history reduction.
+#define DENOISER_ASVGF_CONFIDENCE_INFLUENCE 0.3
+// Confidence influence for deflickering_asvgf heuristics.
+// 0.0 = confidence does not affect thresholds.
+// 1.0 = maximal confidence-based threshold tightening (no direct history multiply).
+#define DENOISER_DEFLICKER_ASVGF_CONFIDENCE_INFLUENCE 0.3
+
 // Firefly rejection.
-#define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_DIFFUSE 1
-#define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_SPECULAR 1
+#define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_DIFFUSE 0
+#define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_SPECULAR 0
 
 // Direct diffuse/specular a-trous.
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 4
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 4
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 16
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 16
 
 // Debug views.
 #define DENOISER_DEBUG_CONFIDENCE_VIEW 0

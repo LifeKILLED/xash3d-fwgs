@@ -16,7 +16,7 @@
 #define MIN_ALPHA 0.02
 #define REPROJECTION_BILINEAR_MOTION_THRESHOLD 1.0
 
-#define CONF_KERNEL 0
+#define CONF_KERNEL 1
 
 #include "utils.glsl"
 #include "noise.glsl"
@@ -51,8 +51,10 @@ void processLobeTemporal(
 ){
     length = prev_length + 1.0;
 
-    float nonlinear_conf = smoothstep(0.5, 1.0, conf);//pow(smoothstep(0.0, 1.0, conf), 0.3);
-    length = mix(1.0, length, nonlinear_conf);
+    float nonlinear_conf = smoothstep(0.5, 1.0, conf);
+    float conf_influence = clamp(DENOISER_ASVGF_CONFIDENCE_INFLUENCE, 0.0, 1.0);
+    float confidence_keep = mix(1.0, nonlinear_conf, conf_influence);
+    length = mix(1.0, length, confidence_keep);
 
     float alpha = max(MIN_ALPHA, 1.0 / length);
 
@@ -166,8 +168,8 @@ void main() {
             const ivec2 p = pix + ivec2(x, y);
             if (all(greaterThanEqual(p, ivec2(0.))) && all(lessThan(p, res))) {
                 conf_weight += 1.0;
-                conf_diffuse += imageLoad(diffuse_direct_reconstructed, p).w;
-                conf_specular += imageLoad(specular_direct_reconstructed, p).w;
+                conf_diffuse += clamp(imageLoad(diffuse_direct_reconstructed, p).w, 0.0, 1.0);
+                conf_specular += clamp(imageLoad(specular_direct_reconstructed, p).w, 0.0, 1.0);
             }
         }
     }
@@ -177,6 +179,8 @@ void main() {
     }
     conf_diffuse = clamp(conf_diffuse, 0.0, 1.0);
     conf_specular = clamp(conf_specular, 0.0, 1.0);
+    // conf_diffuse *= conf_diffuse;
+    // conf_specular *= conf_specular;
 
     vec3 diffuse = curr_diffuse;
     float variance_diffuse = 1.0;
