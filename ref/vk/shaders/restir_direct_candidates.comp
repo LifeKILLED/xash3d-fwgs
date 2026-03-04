@@ -96,8 +96,7 @@ layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 #include "restir_common.glsl"
 
 float reservoir_pdf(in Reservoir r) {
-    const float denom = max(r.checked_count * r.w_clamped, 1e-6);
-    return r.w_sum / denom;
+    return r.w_sum / (r.checked_count * r.w_clamped);
 }
 
 float reservoir_luma_estimate(in Reservoir r) {
@@ -105,8 +104,8 @@ float reservoir_luma_estimate(in Reservoir r) {
         return 0.0;
     }
 
-    const float pdf = max(reservoir_pdf(r), 0.0);
-    return max(r.w_full, 0.0) * pdf;
+    const float pdf = reservoir_pdf(r);
+    return r.w_full * pdf;
 }
 
 const ivec2 OFFSETS[4] = ivec2[](ivec2(1,0), ivec2(-1,0),

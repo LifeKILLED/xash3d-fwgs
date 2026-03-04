@@ -34,6 +34,14 @@ const float shadow_offset_fudge = .1;
 #define SHADOW_RAY_DISTANCE_EPSILON 0.2
 #endif
 
+#ifndef SHADOW_RAY_TARGET_BIAS
+#define SHADOW_RAY_TARGET_BIAS SHADOW_RAY_ORIGIN_BIAS
+#endif
+
+#ifndef SHADOW_RAY_EXTRA_BIAS
+#define SHADOW_RAY_EXTRA_BIAS SHADOW_RAY_DISTANCE_EPSILON
+#endif
+
 #ifndef SHADOW_RAY_DOT_EPSILON
 #define SHADOW_RAY_DOT_EPSILON 1e-4
 #endif
@@ -60,6 +68,12 @@ vec3 offsetShadowOrigin(vec3 P, vec3 N, vec3 L)
         sign_n = 1.0;
     }
     return P + N * (sign_n * SHADOW_RAY_ORIGIN_BIAS);
+}
+
+float shadowRayTMax(float light_dist)
+{
+    float trim = SHADOW_RAY_ORIGIN_BIAS + SHADOW_RAY_TARGET_BIAS + SHADOW_RAY_EXTRA_BIAS;
+    return max(0.0, light_dist - trim);
 }
 
 float specularWeight(vec3 N, vec3 L, vec3 V, float roughness)
@@ -253,7 +267,7 @@ void unifiedLightFinalShading(
 #ifndef DISABLE_RAYS
         if (enable_shadow && l.dist > 0.0) {
             const vec3 shadow_origin = offsetShadowOrigin(P, N, l.L);
-            shadow_vis = shadowed(shadow_origin, l.L, max(0.0, l.dist - SHADOW_RAY_DISTANCE_EPSILON));
+            shadow_vis = shadowed(shadow_origin, l.L, shadowRayTMax(l.dist));
         }
 #endif
 
