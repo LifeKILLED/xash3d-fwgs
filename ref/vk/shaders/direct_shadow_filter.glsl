@@ -250,6 +250,18 @@
 #define SHADOW_HARD_EDGE_MAX_BLUR 0.08
 #endif
 
+#ifndef SHADOW_FORCE_FULL_OCCLUSION_SINGLE_SOURCE
+#define SHADOW_FORCE_FULL_OCCLUSION_SINGLE_SOURCE 1
+#endif
+
+#ifndef SHADOW_FORCE_REQUIRE_ALL_SOURCE_SAMPLES_SHADOWED
+#define SHADOW_FORCE_REQUIRE_ALL_SOURCE_SAMPLES_SHADOWED 1
+#endif
+
+#ifndef SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD
+#define SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD 0.02
+#endif
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_SHADOW;
@@ -700,6 +712,42 @@ void main() {
         store_shadowed_irradiance(pix, center_shadow);
         return;
     }
+
+#if SHADOW_FORCE_FULL_OCCLUSION_SINGLE_SOURCE
+    bool all_samples_shadowed = true;
+    const float full_shadow_thr = clamp(SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD, 0.0, 1.0);
+    for (int i = 0; i < line_count; i++) {
+        float v = line_values[i];
+        if (v > full_shadow_thr) {
+            all_samples_shadowed = false;
+            break;
+        }
+    }
+
+    bool force_condition = false;
+#if SHADOW_FORCE_REQUIRE_ALL_SOURCE_SAMPLES_SHADOWED
+    force_condition = (line_count > 0) && all_samples_shadowed;
+#endif
+    // Low-support safety: if we found too few valid source samples and center is dark, keep full occlusion.
+    if (!force_condition && line_count < REQUIRED_MATCHES && center_shadow_unit <= full_shadow_thr) {
+        force_condition = true;
+    }
+
+    if (force_condition) {
+        // Full occlusion for this light-source neighborhood.
+        // Shadow value domain is [-1, 1], where -1 means fully shadowed (unit visibility = 0).
+        const float forced_shadow = -1.0;
+        vec3 forced_payload = vec3(0.0, 0.0, 0.0);
+#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+        imageStore(OUTPUT_SHADOW, pix, vec4(forced_shadow, forced_payload));
+#else
+        imageStore(OUTPUT_SHADOW, pix, vec4(forced_shadow, forced_shadow, forced_shadow, SHADOW_OUTPUT_ALPHA));
+#endif
+        store_shadow_transition_mask_debug(pix, forced_payload);
+        store_shadowed_irradiance(pix, forced_shadow);
+        return;
+    }
+#endif
 
     float out_shadow_unit = center_shadow_unit;
 
