@@ -22,6 +22,8 @@
   - `./ref/gl/**`
 - If a path is ambiguous, treat it as forbidden and ask first.
 - Never access secrets (`.env`, keys, credentials).
+- For any task that only changes files under `./ref/vk/shaders/**`, apply edits automatically without asking for per-file confirmation.
+- Prefer avoiding shell commands for shader file reads when possible; use direct file editing/inspection workflows instead.
 
 ## Code style and encoding
 
