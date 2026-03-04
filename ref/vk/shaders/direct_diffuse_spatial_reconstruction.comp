@@ -2,7 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define OUTPUT_DIRECT out_diffuse_direct_reconstructed
-#define INPUT_DIRECT diffuse_direct_shadowed
+#define INPUT_DIRECT diffuse_direct_shadowed_prefirefly
 #define INPUT_LIGHTDIR diffuse_direct_lightdir
 
 #include "direct_diffuse_atrous_config.glsl"
@@ -12,7 +12,7 @@
 #define SPATIAL_USE_FIXED_KERNEL 0
 #define SPATIAL_KERNEL_RADIUS 2
 #define SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT 1
-#define SPATIAL_RECONSTRUCTION_STAGE_ENABLED DENOISER_ENABLE_SPATIAL_RECONSTRUCTION_DIFFUSE
+#define SPATIAL_RECONSTRUCTION_STAGE_ENABLED DENOISER_SPATIAL_DIFFUSE_ENABLE
 #define SPATIAL_SHADOW_MASK_ENABLE 1
 #define SPATIAL_SHADOW_MASK_SOURCE diffuse_shadow_mask_debug
 #define SPATIAL_SHADOW_MASK_SOFT_EDGE 0.10

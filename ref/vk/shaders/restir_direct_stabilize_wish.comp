@@ -41,6 +41,11 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
     float best_bright_blur = center_blur;
     float best_dark_tie = 2.0;
     float best_bright_tie = 2.0;
+    rand01_state =
+        uint(ubo.ubo.random_seed) +
+        uint(pix.x) * 1833u +
+        uint(pix.y) * 31337u +
+        uint(blur_channel) * 977u;
     for (int i = 0; i < 8; ++i) {
         const ivec2 q = pix + neighbor_offsets[i];
         if (!in_bounds(q, res)) {
@@ -48,9 +53,7 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
         }
 
         const float bq = imageLoad(restir_stabilize_metric, q).rg[blur_channel];
-        const uint tie_seed = uint(i) + uint(blur_channel) * 17u;
-        const uint tie_hash = xxhash32(uvec4(uint(pix.x), uint(pix.y), tie_seed, ubo.ubo.frame_counter));
-        const float tie = uintToFloat01(tie_hash);
+        const float tie = rand01();
 
         if ((bq < best_dark_blur - 1e-6) ||
             (abs(bq - best_dark_blur) <= 1e-6 && bq < center_blur - 1e-6 && tie < best_dark_tie)) {

@@ -2,14 +2,14 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define OUTPUT_DIRECT out_specular_direct_reconstructed
-#define INPUT_DIRECT specular_direct_shadowed
+#define INPUT_DIRECT specular_direct_shadowed_prefirefly
 #define INPUT_LIGHTDIR specular_direct_lightdir
 
 #include "direct_specular_atrous_config.glsl"
 
 #define SPATIAL_RADIUS 12.0
 #define SPATIAL_SAMPLES 16
-#define SPATIAL_RECONSTRUCTION_STAGE_ENABLED DENOISER_ENABLE_SPATIAL_RECONSTRUCTION_SPECULAR
+#define SPATIAL_RECONSTRUCTION_STAGE_ENABLED DENOISER_SPATIAL_SPECULAR_ENABLE
 #undef SHADING_NORMAL_DOT_THRESHOLD
 #define SHADING_NORMAL_DOT_THRESHOLD 0.9
 #define SPATIAL_ENABLE_ROUGHNESS_GATE 0
@@ -20,7 +20,5 @@
 #define SPATIAL_GGX_PDF_MAX_RATIO 32.0
 #define SPATIAL_CONFIDENCE_MIN 0.20
 #define SPATIAL_CONFIDENCE_SCALE DENOISER_SPATIAL_CONFIDENCE_SCALE_SPECULAR
-#define SPATIAL_FIREFLY_CLAMP 1.8
-#define SPATIAL_FIREFLY_BIAS 0.002
 
 #include "direct_spatial_reconstruction.glsl"

@@ -20,7 +20,7 @@ layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D out_temporal_res_diffuse;
 layout(set = 0, binding = 9, rgba32f) uniform writeonly image2D out_temporal_res_specular;
 
-//#define STABILIZE_RESERVOIRS_TEMPORAL 1
+#define STABILIZE_RESERVOIRS_TEMPORAL 1
 
 bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
