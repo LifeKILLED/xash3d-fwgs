@@ -82,6 +82,10 @@
 #define SHADOW_VALUE_CHANNEL r
 #endif
 
+#ifndef SHADOW_MASK_SEED_CHANNEL
+#define SHADOW_MASK_SEED_CHANNEL g
+#endif
+
 #ifndef LIGHT_ID_THRESHOLD
 #define LIGHT_ID_THRESHOLD 0.01
 #endif
@@ -279,6 +283,10 @@ float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
 
 float load_shadow_value(ivec2 pix) {
     return clamp(imageLoad(INPUT_SOURCE, pix).SHADOW_VALUE_CHANNEL, 0.0, 1.0);
+}
+
+float load_shadow_mask_seed(ivec2 pix) {
+    return max(imageLoad(INPUT_SOURCE, pix).SHADOW_MASK_SEED_CHANNEL, 0.0);
 }
 
 float load_shadow_unit(ivec2 pix) {
@@ -532,11 +540,13 @@ vec3 build_shadow_transition_mask_payload(
     float out_shadow_unit)
 {
     if (line_count <= 0 || center_line_idx < 0 || center_line_idx >= line_count) {
-        return vec3(0.0, out_shadow_unit, out_shadow_unit);
+        float seed = load_shadow_mask_seed(pix);
+        return vec3(seed, out_shadow_unit, out_shadow_unit);
     }
 
     float weighted_shadow_sum = 0.0;
     float weighted_sum = 0.0;
+    float weighted_seed_sum = 0.0;
     for (int i = 0; i < line_count; i++) {
         ivec2 q = pix;
 #ifdef HORIZONTAL
@@ -547,9 +557,11 @@ vec3 build_shadow_transition_mask_payload(
         if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
         float wl = 1.0 + SHADOW_FILTER_MASK_LUMA_WEIGHT_SCALE * load_mask_luma(q);
         weighted_shadow_sum += line_values[i] * wl;
+        weighted_seed_sum += load_shadow_mask_seed(q) * wl;
         weighted_sum += wl;
     }
     float weighted_shadow = (weighted_sum > 0.0) ? (weighted_shadow_sum / weighted_sum) : out_shadow_unit;
+    float weighted_seed = (weighted_sum > 0.0) ? (weighted_seed_sum / weighted_sum) : load_shadow_mask_seed(pix);
 
     int l0 = max(0, center_line_idx - SHADOW_FILTER_MASK_LOCAL_RADIUS);
     int l1 = center_line_idx - 1;
@@ -585,15 +597,13 @@ vec3 build_shadow_transition_mask_payload(
 
     float left_mean = (left_w > 0.0) ? (left_sum / left_w) : weighted_shadow;
     float right_mean = (right_w > 0.0) ? (right_sum / right_w) : weighted_shadow;
-    float edge = abs(right_mean - left_mean);
-    float transition_mask = clamp(edge * SHADOW_FILTER_MASK_EDGE_SCALE, 0.0, 1.0);
-    return vec3(transition_mask, weighted_shadow, out_shadow_unit);
+    return vec3(weighted_seed, weighted_shadow, out_shadow_unit);
 }
 
 vec3 merge_shadow_mask_payload_with_pingpong(ivec2 pix, vec3 payload) {
 #if SHADOW_FILTER_MASK_USE_PINGPONG_INPUT
     vec4 prev = imageLoad(INPUT_SOURCE, pix);
-    payload.x = max(payload.x, prev.g);
+    payload.x = 0.5 * (payload.x + prev.g);
     payload.y = 0.5 * (payload.y + prev.b);
     payload.z = 0.5 * (payload.z + prev.a);
 #endif
@@ -603,7 +613,7 @@ vec3 merge_shadow_mask_payload_with_pingpong(ivec2 pix, vec3 payload) {
 void store_shadow_transition_mask_debug(ivec2 pix, vec3 payload) {
 #if SHADOW_FILTER_OUTPUT_MASK
     // Debug payload:
-    // R = transition mask, G = weighted shadow, B = filtered shadow.
+    // R = blurred shadow-energy mask, G = weighted visibility, B = filtered visibility.
     imageStore(SHADOW_FILTER_MASK_TEXTURE, pix, vec4(payload, 1.0));
 #endif
 }
@@ -615,8 +625,9 @@ void main() {
 
     float center_shadow = load_shadow_value(pix);
     float center_shadow_unit = center_shadow;
+    float center_seed = load_shadow_mask_seed(pix);
     if (DENOISER_ENABLE_SHADOWS_FILTERING == 0) {
-        vec3 center_payload = vec3(0.0, center_shadow_unit, center_shadow_unit);
+        vec3 center_payload = vec3(center_seed, center_shadow_unit, center_shadow_unit);
 #if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
         imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_payload));
 #else
@@ -674,7 +685,7 @@ void main() {
     }
 
     if (center_line_idx < 0) {
-        vec3 center_payload = vec3(0.0, center_shadow_unit, center_shadow_unit);
+        vec3 center_payload = vec3(center_seed, center_shadow_unit, center_shadow_unit);
 #if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
         imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_payload));
 #else

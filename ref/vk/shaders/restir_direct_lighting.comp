@@ -109,12 +109,14 @@ vec3 finalShading(
     float pdf_mult,
     out vec3 sampledL,
     out float lightIdEncoded,
-    out float shadowValue
+    out float shadowValue,
+    out float shadowMaskEnergy
 )
 {
     sampledL = vec3(0.0);
     lightIdEncoded = 0.0;
     shadowValue = 1.0;
+    shadowMaskEnergy = 0.0;
 
     if (r.w_sum == 0.0 || r.w_clamped == 0.0)
         return vec3(0.0);
@@ -123,10 +125,13 @@ vec3 finalShading(
     sampledL = l.sampled_L;
     lightIdEncoded = encodeHistoryLightId(l.light_id);
 
+    float pdf_weight = pdf_mult * restirLightingWeight(r);
     vec3 irradiance = is_specular ? l.specular : l.diffuse;
     shadowValue = l.shadowed ? 0.0 : 1.0;
+    float shadow_amount = 1.0 - shadowValue;
+    shadowMaskEnergy = max(pdf_weight, 0.0) * shadow_amount;
 
-    return irradiance * pdf_mult * restirLightingWeight(r);
+    return irradiance * pdf_weight;
 }
 
 void main(){
@@ -184,11 +189,13 @@ void main(){
     float diffuse_conf = 0.0;
     float diffuse_lightid = 0.0;
     float diffuse_shadow = 1.0;
+    float diffuse_shadow_energy = 0.0;
 
     vec3 specular = vec3(0.);
     float specular_conf = 0.0;
     float specular_lightid = 0.0;
     float specular_shadow = 1.0;
+    float specular_shadow_energy = 0.0;
     vec3 diffuse_lightdir = vec3(0.0);
     vec3 specular_lightdir = vec3(0.0);
 
@@ -202,7 +209,7 @@ void main(){
     if (!oub_diff) {
         diffuse = finalShading(
             rDiffuse, P, N, V, material, ctx, sampling_rand_curr,
-            false, pdf_mult, diffuse_lightdir, diffuse_lightid, diffuse_shadow
+            false, pdf_mult, diffuse_lightdir, diffuse_lightid, diffuse_shadow, diffuse_shadow_energy
         );
         diffuse_conf = rDiffuse.conf;
     }
@@ -210,7 +217,7 @@ void main(){
     if (!oub_spec) {
         specular = finalShading(
             rSpecular, P, N, V, material, ctx, sampling_rand_curr,
-            true, pdf_mult, specular_lightdir, specular_lightid, specular_shadow
+            true, pdf_mult, specular_lightdir, specular_lightid, specular_shadow, specular_shadow_energy
         );
         specular_conf = rSpecular.conf;
     }
@@ -230,8 +237,8 @@ void main(){
     imageStore(out_specular_direct, pix, vec4(specular, specular_conf));
     imageStore(out_diffuse_direct_lightdir, pix, vec4(diffuse_lightdir, diffuse_lightid));
     imageStore(out_specular_direct_lightdir, pix, vec4(specular_lightdir, specular_lightid));
-    imageStore(out_restir_diffuse_shadows_raw, pix, vec4(diffuse_shadow, diffuse_shadow, diffuse_shadow, 1.0));
-    imageStore(out_restir_specular_shadows_raw, pix, vec4(specular_shadow, specular_shadow, specular_shadow, 1.0));
+    imageStore(out_restir_diffuse_shadows_raw, pix, vec4(diffuse_shadow, diffuse_shadow_energy, 0.0, 1.0));
+    imageStore(out_restir_specular_shadows_raw, pix, vec4(specular_shadow, specular_shadow_energy, 0.0, 1.0));
 
     imageStore(out_diffuse_direct_fs, pix, vec4(diffuse_fs, 0.0));
     imageStore(out_specular_direct_fs, pix, vec4(specular_fs, 0.0));

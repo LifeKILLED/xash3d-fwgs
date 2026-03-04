@@ -142,7 +142,8 @@ void main() {
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
 
 #if DENOISER_DEBUG_SHADOW_MASK_VIEW
-    float shadow_mask = clamp(imageLoad(diffuse_shadow_mask_debug, pix).r, 0.0, 1.0);
+    float shadow_mask_raw = max(imageLoad(diffuse_shadow_mask_debug, pix).r, 0.0);
+    float shadow_mask = shadow_mask_raw / (1.0 + shadow_mask_raw);
     vec3 dbg_diff = vec3(0.0, shadow_mask, 0.0);
     vec3 dbg_spec = vec3(0.0);
     imageStore(out_diffuse_asvgf, pix, vec4(dbg_diff, VARIANCE_MIN));

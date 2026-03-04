@@ -9,7 +9,7 @@
 #define ATROUS_VARIANCE_OUTPUT out_specular_atrous_variance
 #define ATROUS_VARIANCE_SOURCE specular_atrous_variance
 
-#define SHADING_NORMAL_DOT_THRESHOLD 0.98
+#define SHADING_NORMAL_DOT_THRESHOLD 0.995
 #define ATROUS_MAX_STEP DENOISER_MAX_ATROUS_STEP_SPECULAR
 
 #endif
