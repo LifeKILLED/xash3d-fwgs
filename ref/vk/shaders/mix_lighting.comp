@@ -21,8 +21,8 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0, rgba16f) uniform image2D out_diffuse_mixed;
 layout(set = 0, binding = 1, rgba16f) uniform image2D out_specular_mixed;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_asvgf;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_asvgf;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_asvgf_stable;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_asvgf_stable;
 
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D diffuse_direct_fs;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D specular_direct_fs;
@@ -65,10 +65,10 @@ void main() {
 		return;
 	}
 
-	vec3 diffuse =  fixRadiance(imageLoad(diffuse_asvgf, pix)).rgb +
+	vec3 diffuse =  fixRadiance(imageLoad(diffuse_asvgf_stable, pix)).rgb +
 					fixRadiance(imageLoad(diffuse_direct_fs, pix)).rgb;
 
-	vec3 specular = fixRadiance(imageLoad(specular_asvgf, pix)).rgb +
+	vec3 specular = fixRadiance(imageLoad(specular_asvgf_stable, pix)).rgb +
 					fixRadiance(imageLoad(specular_direct_fs, pix)).rgb;
 
 	imageStore(out_diffuse_mixed, pix, vec4(diffuse, 0.0));

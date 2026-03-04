@@ -20,8 +20,8 @@ layout(set = 0, binding = 0, rgba16f) uniform image2D out_final_image;
 
 layout(set = 0, binding = 1, rgba8) uniform readonly image2D base_color_a;
 
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_direct_atrous_temporal;
-layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_direct_atrous_temporal;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_direct_atrous;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_direct_atrous;
 
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D indirect_diffuse;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D indirect_specular;
@@ -155,8 +155,8 @@ void main() {
 #endif
 
 	Components c;
-	c.direct_diffuse = imageLoad(diffuse_direct_atrous_temporal, pix).rgb;
-	c.direct_specular = imageLoad(specular_direct_atrous_temporal, pix).rgb;
+	c.direct_diffuse = imageLoad(diffuse_direct_atrous, pix).rgb;
+	c.direct_specular = imageLoad(specular_direct_atrous, pix).rgb;
 	c.indirect_specular = imageLoad(indirect_specular, pix).rgb;
 	c.indirect_diffuse = imageLoad(indirect_diffuse, pix).rgb;
 

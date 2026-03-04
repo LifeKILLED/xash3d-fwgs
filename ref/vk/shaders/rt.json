@@ -89,6 +89,12 @@
 	"restir_asvgf_direct": {
 		"comp": "restir_asvgf_direct"
 	},
+	"direct_diffuse_deflickering_asvgf": {
+		"comp": "direct_diffuse_deflickering_asvgf"
+	},
+	"direct_specular_deflickering_asvgf": {
+		"comp": "direct_specular_deflickering_asvgf"
+	},
 	"mix_lighting": {
 		"comp": "mix_lighting"
 	},
@@ -167,9 +173,6 @@
 	"direct_diffuse_atrous_pass_5": {
 	 	"comp": "direct_diffuse_atrous_pass_5"
 	},
-	"direct_diffuse_post_atrous_reprojection": {
-		"comp": "direct_diffuse_post_atrous_reprojection"
-	},
 	"direct_specular_atrous_pass_0": {
 	 	"comp": "direct_specular_atrous_pass_0"
 	},
@@ -187,9 +190,6 @@
 	},
 	"direct_specular_atrous_pass_5": {
 	 	"comp": "direct_specular_atrous_pass_5"
-	},
-	"direct_specular_post_atrous_reprojection": {
-		"comp": "direct_specular_post_atrous_reprojection"
 	},
 	// "indirect_specular_atrous_pass_0": {
 	//  	"comp": "indirect_specular_atrous_pass_0"
