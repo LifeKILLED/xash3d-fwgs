@@ -1,0 +1,91 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#include "denoiser_config.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform readonly image2D diffuse_direct_restir;
+layout(set = 0, binding = 7, rgba32f) uniform readonly image2D specular_direct_restir;
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D restir_stabilize_metric_raw;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D restir_stabilize_metric;
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2D restir_stabilize_wish;
+layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_restir_stabilized_diffuse;
+layout(set = 0, binding = 8, rgba32f) uniform writeonly image2D out_restir_stabilized_specular;
+layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D out_temporal_res_diffuse;
+layout(set = 0, binding = 9, rgba32f) uniform writeonly image2D out_temporal_res_specular;
+
+//#define STABILIZE_RESERVOIRS_TEMPORAL 1
+
+bool in_bounds(ivec2 p, ivec2 res) {
+    return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
+}
+
+ivec2 decode_coord(vec2 coord_f) {
+    return ivec2(floor(coord_f + vec2(0.5)));
+}
+
+ivec2 select_wish_channel_from_texture(ivec2 pix, ivec2 res, bool specular_channel) {
+    const vec4 wish = imageLoad(restir_stabilize_wish, pix);
+    const ivec2 selected = specular_channel ? decode_coord(wish.zw) : decode_coord(wish.xy);
+    if (!in_bounds(selected, res)) {
+        return pix;
+    }
+
+    return selected;
+}
+
+void write_stabilized_reservoirs(ivec2 pix, vec4 diffuse_reservoir, vec4 specular_reservoir) {
+    imageStore(out_restir_stabilized_diffuse, pix, diffuse_reservoir);
+    imageStore(out_restir_stabilized_specular, pix, specular_reservoir);
+#if STABILIZE_RESERVOIRS_TEMPORAL
+    imageStore(out_temporal_res_diffuse, pix, diffuse_reservoir);
+    imageStore(out_temporal_res_specular, pix, specular_reservoir);
+#endif
+}
+
+void main() {
+    const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+    if (any(greaterThanEqual(pix, res))) {
+        return;
+    }
+
+#if !DENOISER_ENABLE_STABILIZE_RESERVOIRS
+    write_stabilized_reservoirs(
+        pix,
+        imageLoad(diffuse_direct_restir, pix),
+        imageLoad(specular_direct_restir, pix)
+    );
+    return;
+#endif
+
+    ivec2 diffuse_src = pix;
+    const ivec2 diffuse_wish = select_wish_channel_from_texture(pix, res, false);
+    if (!all(equal(diffuse_wish, pix))) {
+        const ivec2 diffuse_back = select_wish_channel_from_texture(diffuse_wish, res, false);
+        if (all(equal(diffuse_back, pix))) {
+            diffuse_src = diffuse_wish;
+        }
+    }
+
+    ivec2 specular_src = pix;
+    const ivec2 specular_wish = select_wish_channel_from_texture(pix, res, true);
+    if (!all(equal(specular_wish, pix))) {
+        const ivec2 specular_back = select_wish_channel_from_texture(specular_wish, res, true);
+        if (all(equal(specular_back, pix))) {
+            specular_src = specular_wish;
+        }
+    }
+
+    write_stabilized_reservoirs(
+        pix,
+        imageLoad(diffuse_direct_restir, diffuse_src),
+        imageLoad(specular_direct_restir, specular_src)
+    );
+}

@@ -61,8 +61,8 @@ layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } 
 layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
 // restir
-layout(set = 0, binding = 15, rgba32f) uniform readonly image2D diffuse_direct_restir_swapped;
-layout(set = 0, binding = 16, rgba32f) uniform readonly image2D specular_direct_restir;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D restir_stabilized_diffuse;
+layout(set = 0, binding = 16, rgba32f) uniform readonly image2D restir_stabilized_specular;
 
 layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 
@@ -192,8 +192,8 @@ void main(){
     vec3 specular_fs = vec3(0.);
 
     bool oub_diff = true, oub_spec = true;
-    Reservoir rDiffuse = loadReservoir(imageLoad(diffuse_direct_restir_swapped, pix), oub_diff);
-    Reservoir rSpecular = loadReservoir(imageLoad(specular_direct_restir, pix), oub_spec);
+    Reservoir rDiffuse = loadReservoir(imageLoad(restir_stabilized_diffuse, pix), oub_diff);
+    Reservoir rSpecular = loadReservoir(imageLoad(restir_stabilized_specular, pix), oub_spec);
 
     if (!oub_diff) {
         diffuse = finalShading(

@@ -62,7 +62,7 @@ layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
 
 layout(set = 0, binding = 22, rgba32f) uniform writeonly image2D out_diffuse_direct_restir;
 layout(set = 0, binding = 23, rgba32f) uniform writeonly image2D out_specular_direct_restir;
-layout(set = 0, binding = 24, rgba32f) uniform writeonly image2D out_diffuse_direct_restir_brightness_raw;
+layout(set = 0, binding = 24, rgba16f) uniform writeonly image2D out_restir_stabilize_metric_raw;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -455,7 +455,11 @@ void main(){
 
     imageStore(out_diffuse_direct_restir, pix, saveReservoir(rDiffuse));
     imageStore(out_specular_direct_restir, pix, saveReservoir(rSpec));
-    imageStore(out_diffuse_direct_restir_brightness_raw, pix, vec4(reservoir_luma_estimate(rDiffuse), 0.0, 0.0, 0.0));
+    imageStore(out_restir_stabilize_metric_raw, pix, vec4(
+        reservoir_luma_estimate(rDiffuse),
+        reservoir_luma_estimate(rSpec),
+        0.0, 0.0
+    ));
 
     imageStore(out_temporal_res_diffuse, pix, saveReservoir(rDiffuse));
     imageStore(out_temporal_res_specular, pix, saveReservoir(rSpec));
