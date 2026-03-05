@@ -74,7 +74,7 @@
 #endif
 
 #ifndef ATROUS_MASK_SOURCE
-#define ATROUS_MASK_SOURCE diffuse_shadow_mask_debug
+#define ATROUS_MASK_SOURCE diffuse_shadow_mask
 #endif
 
 #ifndef ATROUS_MASK_SIGMA

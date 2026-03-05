@@ -9,7 +9,7 @@
 #define SHADOW_FILTER_IRRADIANCE_SOURCE diffuse_direct_sampling_filtered
 #define SHADOW_FILTER_OUTPUT_TEXTURE out_diffuse_direct_shadowed
 #define SHADOW_FILTER_OUTPUT_MASK 1
-#define SHADOW_FILTER_MASK_TEXTURE out_diffuse_shadow_mask_raw
+#define SHADOW_FILTER_MASK_TEXTURE out_diffuse_shadow_mask
 #define SHADOW_FILTER_MASK_USE_PINGPONG_INPUT 1
 
 #include "direct_shadow_filter.glsl"

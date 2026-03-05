@@ -1,8 +1,0 @@
-#version 460 core
-#extension GL_GOOGLE_include_directive : require
-
-#define HORIZONTAL 1
-#define OUTPUT_MASK out_shadow_mask_catmull_h
-#define INPUT_MASK diffuse_shadow_mask_raw
-
-#include "direct_shadow_mask_catmullrom.glsl"
