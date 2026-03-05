@@ -19,18 +19,6 @@
 #define SPATIAL_SAMPLES 16
 #endif
 
-#ifndef SPATIAL_USE_FIXED_KERNEL
-#define SPATIAL_USE_FIXED_KERNEL 0
-#endif
-
-#ifndef SPATIAL_KERNEL_RADIUS
-#define SPATIAL_KERNEL_RADIUS 2
-#endif
-
-#ifndef SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT
-#define SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT 0
-#endif
-
 #ifndef POSITION_PLANE_THRESHOLD
 #define POSITION_PLANE_THRESHOLD 0.010
 #endif
@@ -140,6 +128,9 @@ layout(set = 0, binding = 6) uniform UBO { UniformBuffer ubo; } ubo;
 #if SPATIAL_SHADOW_MASK_ENABLE
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D SPATIAL_SHADOW_MASK_SOURCE;
 #endif
+#ifdef OUTPUT_NORMALIZED_SHADOW_MASK
+layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D OUTPUT_NORMALIZED_SHADOW_MASK;
+#endif
 
 const vec3 POISSON[16] = vec3[](
     vec3( 0.000000000,  0.000000000, 0.128544338),
@@ -177,18 +168,12 @@ vec3 clampRadianceNonNegative(vec3 c) {
     return max(c, vec3(0.0));
 }
 
-float spatialKernelWeight(int poissonIndex, ivec2 texelOffset) {
-#if SPATIAL_USE_FIXED_KERNEL
-#if SPATIAL_FIXED_KERNEL_UNIFORM_WEIGHT
-    return 1.0;
-#else
-    vec2 d = vec2(texelOffset);
-    float dist2 = dot(d, d);
-    return exp(-0.35 * dist2);
-#endif
-#else
+float luminance709(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+float spatialKernelWeight(int poissonIndex) {
     return POISSON[poissonIndex].z;
-#endif
 }
 
 vec3 loadShadowMaskAndLightId(ivec2 p) {
@@ -343,86 +328,15 @@ void main()
     // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
     float center_pdf = lightSamplingPdf(N0, V0, L0n, R0);
     float center_confW = clampWeightNonNegative(max(SPATIAL_CONFIDENCE_MIN, center_a * SPATIAL_CONFIDENCE_SCALE));
-    float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0, ivec2(0)));
+    float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0));
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
     vec3 sumC = (center_rgb * center_shadow_mask) * center_w;
+    float center_lum = max(luminance709(center_rgb), 1e-4);
+    float sumShadowNorm = center_shadow_mask * center_a * center_lum;
+    float sumW = center_a * center_lum;
     float conf_sum = center_a;
-    float sumW = center_w;
     int accepted_samples = 0;
 
-#if SPATIAL_USE_FIXED_KERNEL
-    for (int oy = -SPATIAL_KERNEL_RADIUS; oy <= SPATIAL_KERNEL_RADIUS; oy++) {
-        for (int ox = -SPATIAL_KERNEL_RADIUS; ox <= SPATIAL_KERNEL_RADIUS; ox++) {
-            ivec2 sampleOffset = ivec2(ox, oy);
-            if (all(equal(sampleOffset, ivec2(0)))) continue;
-
-            ivec2 q = clamp(p + sampleOffset, ivec2(0), res - 1);
-            if (all(equal(q, p))) continue;
-
-            vec3 P1 = imageLoad(POSITION_T, q).xyz;
-            float wp = positionGate(P1 - P0, G0, invCenterDist);
-            if (wp == 0.0) continue;
-
-            vec4 normEnc = imageLoad(NORMALS_GS, q);
-            vec3 N1 = normalDecode(normEnc.zw);
-            float wn = 1.0;
-            float wg = 1.0;
-#if SPATIAL_EDGE_GATE_MODE == 0
-            wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
-            if (wn == 0.0) continue;
-            vec3 G1 = normalDecode(normEnc.xy);
-            wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
-            if (wg == 0.0) continue;
-#elif SPATIAL_EDGE_GATE_MODE == 2
-            vec3 G1 = normalDecode(normEnc.xy);
-            wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
-            if (wg == 0.0) continue;
-#endif
-
-            float R1 = imageLoad(MATERIAL_RMXX, q).x;
-            float wr = 1.0;
-#if SPATIAL_ENABLE_ROUGHNESS_GATE
-            wr = step(abs(R0 - R1), ROUGHNESS_DIFF_THRESHOLD);
-            if (wr == 0.0) continue;
-#endif
-
-            vec4 c = imageLoad(INPUT_DIRECT, q);
-            float c_a = clamp(c.a, 0.0, 1.0);
-            conf_sum -= (1.0 - c_a) * SPATIAL_RECONSTRUCTION_CONF_MULT;
-
-            vec3 Lqraw = imageLoad(INPUT_LIGHTDIR, q).xyz;
-            vec3 V1 = normalize(camPos - P1);
-            vec3 LqAtCenter = resolveLightDirection(Lqraw, N0, V0, R0);
-            vec3 LqAtSample = resolveLightDirection(Lqraw, N1, V1, R1);
-
-            float pdf_target = lightSamplingPdf(N0, V0, LqAtCenter, R0);
-            if (pdf_target <= 1e-6) continue;
-            float wl = pdf_target;
-
-#if SPATIAL_ENABLE_PDF_REWEIGHT
-            float pdf_source = lightSamplingPdf(N1, V1, LqAtSample, R1);
-            wl = clamp(pdf_target / max(pdf_source, SPATIAL_PDF_EPS), 0.0, SPATIAL_PDF_MAX_RATIO);
-#endif
-
-            wl = clamp(wl, 0.0, SPATIAL_GGX_MAX_GAIN);
-
-            float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
-            confW = clampWeightNonNegative(confW);
-            float spatialW = clampWeightNonNegative(spatialKernelWeight(0, q - p));
-            float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
-
-            if (w > 0.0) {
-                vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
-                float sample_shadow_mask = resolveShadowMaskFromCache(
-                    sample_shadow_data.x, sample_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
-                vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
-                sumC += c_rgb * w;
-                sumW += w;
-                accepted_samples++;
-            }
-        }
-    }
-#else
     vec2 axisX = vec2(SPATIAL_RADIUS, 0.0);
 #if SPATIAL_RANDOM_POISSON_ROTATION
     rand01_state = uint(ubo.ubo.random_seed) + uint(p.x) * 1833u + uint(p.y) * 31337u + 12u;
@@ -486,7 +400,7 @@ void main()
 
         float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
         confW = clampWeightNonNegative(confW);
-        float spatialW = clampWeightNonNegative(spatialKernelWeight(i, q - p));
+        float spatialW = clampWeightNonNegative(spatialKernelWeight(i));
         float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
 
         if (w > 0.0) {
@@ -495,19 +409,25 @@ void main()
                 sample_shadow_data.x, sample_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
             vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
             sumC += c_rgb * w;
-            sumW += w;
+            float sample_lum = max(luminance709(clampRadianceNonNegative(c.rgb)), 1e-4);
+            sumShadowNorm += sample_shadow_mask * w * sample_lum;
+            sumW += w * sample_lum;
             accepted_samples++;
         }
     }
-#endif
 
     vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
+    float outShadowNorm = sumW > 0.0 ? sumShadowNorm / sumW : 0.0;
     float outA = max(conf_sum, 0.0);
 
     // Mirror fallback: if nothing valid was gathered, keep center sample.
     if (accepted_samples == 0) {
         outC = center_rgb;
+        outShadowNorm = center_shadow_mask;
     }
 
     imageStore(OUTPUT_DIRECT, p, vec4(outC, outA));
+#ifdef OUTPUT_NORMALIZED_SHADOW_MASK
+    imageStore(OUTPUT_NORMALIZED_SHADOW_MASK, p, vec4(vec3(outShadowNorm), 1.0));
+#endif
 }
