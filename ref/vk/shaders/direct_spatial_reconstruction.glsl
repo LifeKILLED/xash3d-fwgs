@@ -405,8 +405,7 @@ void main()
             float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
             confW = clampWeightNonNegative(confW);
             float spatialW = clampWeightNonNegative(spatialKernelWeight(0, q - p));
-            float wm = clampWeightNonNegative(shadowMaskWeight(p, q));
-            float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW * wm);
+            float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
 
             if (w > 0.0) {
                 vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
@@ -476,8 +475,7 @@ void main()
         float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
         confW = clampWeightNonNegative(confW);
         float spatialW = clampWeightNonNegative(spatialKernelWeight(i, q - p));
-        float wm = clampWeightNonNegative(shadowMaskWeight(p, q));
-        float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW * wm);
+        float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
 
         if (w > 0.0) {
             vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
