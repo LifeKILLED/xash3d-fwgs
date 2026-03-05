@@ -54,8 +54,50 @@
 #define SHADOW_FILTER_BYPASS_RAW_IRRADIANCE 1
 #endif
 
+#if !defined(SHADOW_FILTER_HORIZONTAL_PASS) && !defined(SHADOW_FILTER_VERTICAL_PASS) && defined(HORIZONTAL)
+#define SHADOW_FILTER_HORIZONTAL_PASS 1
+#endif
+#if !defined(SHADOW_FILTER_HORIZONTAL_PASS) && !defined(SHADOW_FILTER_VERTICAL_PASS) && defined(SHADOW_FILTER_VERTIACAL_PASS)
+#define SHADOW_FILTER_VERTICAL_PASS 1
+#endif
+#if !defined(SHADOW_FILTER_HORIZONTAL_PASS) && !defined(SHADOW_FILTER_VERTICAL_PASS)
+#define SHADOW_FILTER_VERTICAL_PASS 1
+#endif
+
+#if defined(SHADOW_FILTER_HORIZONTAL_PASS)
+#define SHADOW_FILTER_IS_HORIZONTAL 1
+#else
+#define SHADOW_FILTER_IS_HORIZONTAL 0
+#endif
+
+#if SHADOW_FILTER_IS_HORIZONTAL
+#undef INPUT_IS_SHADOW_VALUE
+#define INPUT_IS_SHADOW_VALUE 1
+#undef SHADOW_FILTER_USE_SHARED_PINGPONG
+#define SHADOW_FILTER_USE_SHARED_PINGPONG 1
+#undef SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+#define SHADOW_FILTER_PACK_MASK_IN_OUTPUT 1
+#else
+#undef INPUT_IS_SHADOW_VALUE
+#define INPUT_IS_SHADOW_VALUE 1
+#undef SHADOW_FILTER_USE_SHARED_PINGPONG
+#define SHADOW_FILTER_USE_SHARED_PINGPONG 1
+#endif
+
+#if defined(SHADOW_FILTER_OUTPUT_TEXTURE)
+#undef SHADOW_FILTER_OUTPUT_IRRADIANCE
+#define SHADOW_FILTER_OUTPUT_IRRADIANCE 1
+#endif
+
+#if defined(SHADOW_FILTER_MASK_TEXTURE)
+#undef SHADOW_FILTER_OUTPUT_MASK
+#define SHADOW_FILTER_OUTPUT_MASK 1
+#undef SHADOW_FILTER_MASK_USE_PINGPONG_INPUT
+#define SHADOW_FILTER_MASK_USE_PINGPONG_INPUT 1
+#endif
+
 #if SHADOW_FILTER_USE_SHARED_PINGPONG
-    #ifdef HORIZONTAL
+    #if SHADOW_FILTER_IS_HORIZONTAL
         #ifdef OUTPUT_SHADOW
             #undef OUTPUT_SHADOW
         #endif
@@ -235,7 +277,7 @@
 #endif
 
 #ifndef SHADOW_HARD_EDGE_MAX_BLUR
-#define SHADOW_HARD_EDGE_MAX_BLUR 0.08
+#define SHADOW_HARD_EDGE_MAX_BLUR DENOISER_SHADOW_HARD_EDGE_MAX_BLUR
 #endif
 
 #ifndef SHADOW_FORCE_FULL_OCCLUSION_SINGLE_SOURCE
@@ -248,6 +290,18 @@
 
 #ifndef SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD
 #define SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD 0.02
+#endif
+
+#ifndef SHADOW_EDGE_LOCK_ENABLE
+#define SHADOW_EDGE_LOCK_ENABLE DENOISER_SHADOW_EDGE_LOCK_ENABLE
+#endif
+
+#ifndef SHADOW_EDGE_LOCK_THRESHOLD
+#define SHADOW_EDGE_LOCK_THRESHOLD DENOISER_SHADOW_EDGE_LOCK_THRESHOLD
+#endif
+
+#ifndef SHADOW_EDGE_LOCK_BLEND
+#define SHADOW_EDGE_LOCK_BLEND DENOISER_SHADOW_EDGE_LOCK_BLEND
 #endif
 
 layout(local_size_x = 8, local_size_y = 8) in;
@@ -286,7 +340,7 @@ float load_shadow_unit(ivec2 pix) {
 }
 
 float load_prev_smoothed_flag(ivec2 pix) {
-#if defined(HORIZONTAL)
+#if SHADOW_FILTER_IS_HORIZONTAL
     return 0.0;
 #elif SHADOW_FILTER_USE_SHARED_PINGPONG
     return clamp(imageLoad(INPUT_SOURCE, pix).b, 0.0, 1.0);
@@ -557,7 +611,7 @@ vec3 build_shadow_transition_mask_payload(
     float weighted_seed_sum = 0.0;
     for (int i = 0; i < line_count; i++) {
         ivec2 q = pix;
-#ifdef HORIZONTAL
+#if SHADOW_FILTER_IS_HORIZONTAL
         q.x += line_offsets[i];
 #else
         q.y += line_offsets[i];
@@ -580,7 +634,7 @@ vec3 build_shadow_transition_mask_payload(
     float right_sum = 0.0, right_w = 0.0;
     for (int i = l0; i <= l1; i++) {
         ivec2 q = pix;
-#ifdef HORIZONTAL
+#if SHADOW_FILTER_IS_HORIZONTAL
         q.x += line_offsets[i];
 #else
         q.y += line_offsets[i];
@@ -592,7 +646,7 @@ vec3 build_shadow_transition_mask_payload(
     }
     for (int i = r0; i <= r1; i++) {
         ivec2 q = pix;
-#ifdef HORIZONTAL
+#if SHADOW_FILTER_IS_HORIZONTAL
         q.x += line_offsets[i];
 #else
         q.y += line_offsets[i];
@@ -689,7 +743,7 @@ void main() {
         }
 
         ivec2 sample_pix = pix;
-#ifdef HORIZONTAL
+#if SHADOW_FILTER_IS_HORIZONTAL
         sample_pix.x += offset;
 #else
         sample_pix.y += offset;
@@ -849,6 +903,13 @@ void main() {
             }
         }
     }
+
+#if SHADOW_EDGE_LOCK_ENABLE
+    // Preserve sharp transitions: keep center value on high-confidence hard edges.
+    float edge_lock_conf = compute_sharp_edge_confidence(line_values, line_count, center_line_idx);
+    float edge_lock = smoothstep(SHADOW_EDGE_LOCK_THRESHOLD, 1.0, edge_lock_conf);
+    out_shadow_unit = mix(out_shadow_unit, center_shadow_unit, edge_lock * SHADOW_EDGE_LOCK_BLEND);
+#endif
 
     float out_shadow = clamp(out_shadow_unit, 0.0, 1.0);
     vec3 mask_payload = build_shadow_transition_mask_payload(

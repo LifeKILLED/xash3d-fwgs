@@ -3,9 +3,6 @@
 
 #define INPUT_SOURCE restir_diffuse_shadows_raw
 #define LIGHT_ID_SOURCE diffuse_direct_lightdir
-#define INPUT_IS_SHADOW_VALUE 1
-#define SHADOW_FILTER_USE_SHARED_PINGPONG 1
-#define HORIZONTAL 1
-#define SHADOW_FILTER_PACK_MASK_IN_OUTPUT 1
+#define SHADOW_FILTER_HORIZONTAL_PASS 1
 
 #include "direct_shadow_filter.glsl"
