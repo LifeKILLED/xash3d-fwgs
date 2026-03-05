@@ -1,12 +1,17 @@
 #include "denoiser_config.glsl"
+#include "utils.glsl"
 
 #define STABILIZE_RESERVOIRS_KERNEL 1
+#define STABILIZE_POSITION_PLANE_THRESHOLD 0.010
+#define STABILIZE_POSITION_DIST2_THRESHOLD 0.0004
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_MASK;
 layout(set = 0, binding = 1, rgba16f) uniform readonly image2D INPUT_MASK;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 3, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D normals_gs;
 
 void main() {
     const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
@@ -29,6 +34,9 @@ void main() {
     float weight_sum = 0.0;
     const float center_w = 0.25;
     const float neighbor_w = 1.0;
+    const vec3 p0 = imageLoad(position_t, pix).xyz;
+    const vec3 g0 = normalDecode(imageLoad(normals_gs, pix).xy);
+    const float inv_center_dist = 1.0 / max(length(p0), 1.0);
     for (int oy = -STABILIZE_RESERVOIRS_KERNEL; oy <= STABILIZE_RESERVOIRS_KERNEL; ++oy) {
         for (int ox = -STABILIZE_RESERVOIRS_KERNEL; ox <= STABILIZE_RESERVOIRS_KERNEL; ++ox) {
             const ivec2 q = pix + ivec2(ox, oy) * ATROUS_STEP;
@@ -38,6 +46,18 @@ void main() {
 
             const bool is_center = (ox == 0 && oy == 0);
             const float w = is_center ? center_w : neighbor_w;
+            if (!is_center) {
+                const vec3 p1 = imageLoad(position_t, q).xyz;
+                const float wp = positionEdgeStopWithThresholds(
+                    p1 - p0,
+                    g0,
+                    inv_center_dist,
+                    STABILIZE_POSITION_PLANE_THRESHOLD,
+                    STABILIZE_POSITION_DIST2_THRESHOLD);
+                if (wp == 0.0) {
+                    continue;
+                }
+            }
             const vec2 v = imageLoad(INPUT_MASK, q).rg;
             sum += v * w;
             weight_sum += w;

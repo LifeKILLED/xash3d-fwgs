@@ -6,6 +6,7 @@
 #undef GLSL
 
 #include "noise.glsl"
+#include "utils.glsl"
 #include "denoiser_config.glsl"
 #define RESTIR_COMMON_NO_LIGHTING
 #include "restir_common.glsl"
@@ -16,8 +17,12 @@ layout(set = 0, binding = 0, rgba16f) uniform readonly image2D restir_stabilize_
 layout(set = 0, binding = 1, rgba16f) uniform readonly image2D restir_stabilize_metric;
 layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_restir_stabilize_wish;
 layout(set = 0, binding = 3) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 4, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 5, rgba16f) uniform readonly image2D normals_gs;
 
 #define WISH_DEAD_ZONE 0.02
+#define WISH_POSITION_PLANE_THRESHOLD 0.010
+#define WISH_POSITION_DIST2_THRESHOLD 0.0004
 
 const ivec2 neighbor_offsets[8] = ivec2[](
     ivec2( 1,  0), ivec2(-1,  0),
@@ -36,6 +41,9 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
     const vec2 center_blur_v = imageLoad(restir_stabilize_metric, pix).rg;
     const float center_raw = center_raw_v[raw_channel];
     const float center_blur = center_blur_v[blur_channel];
+    const vec3 p0 = imageLoad(position_t, pix).xyz;
+    const vec3 g0 = normalDecode(imageLoad(normals_gs, pix).xy);
+    const float inv_center_dist = 1.0 / max(length(p0), 1.0);
 
     ivec2 best_dark = pix;
     ivec2 best_bright = pix;
@@ -51,6 +59,17 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
     for (int i = 0; i < 8; ++i) {
         const ivec2 q = pix + neighbor_offsets[i];
         if (!in_bounds(q, res)) {
+            continue;
+        }
+
+        const vec3 p1 = imageLoad(position_t, q).xyz;
+        const float wp = positionEdgeStopWithThresholds(
+            p1 - p0,
+            g0,
+            inv_center_dist,
+            WISH_POSITION_PLANE_THRESHOLD,
+            WISH_POSITION_DIST2_THRESHOLD);
+        if (wp == 0.0) {
             continue;
         }
 
