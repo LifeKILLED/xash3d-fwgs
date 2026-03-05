@@ -29,14 +29,6 @@
 #define VARIANCE_MAX 0.25
 #define VARIANCE_RADIUS 2
 
-#ifndef POSITION_PLANE_THRESHOLD
-#define POSITION_PLANE_THRESHOLD DENOISER_POSITION_PLANE_THRESHOLD
-#endif
-
-#ifndef POSITION_DIST2_THRESHOLD
-#define POSITION_DIST2_THRESHOLD DENOISER_POSITION_DIST2_THRESHOLD
-#endif
-
 #ifndef ROUGHNESS_DIFF_THRESHOLD
 #define ROUGHNESS_DIFF_THRESHOLD 0.12
 #endif
@@ -193,9 +185,9 @@ float wNormalThreshold(vec3 a, vec3 b, float dotThreshold)
     return step(dotThreshold, nd);
 }
 
-float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float dist2Threshold)
+float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float worldTexelSize)
 {
-    return positionEdgeStopWithThresholds(d, geomNorm, invCenterDist, planeThreshold, dist2Threshold);
+    return positionEdgeStopWithWorldTexel(d, geomNorm, invCenterDist, planeThreshold, worldTexelSize);
 }
 
 float wRoughness(float a, float b, float relax)
@@ -335,8 +327,11 @@ void main()
     int step = ATROUS_STEP;
     float stepScale = float(ATROUS_STEP);
     float invCenterDist = 1.0 / max(length(P0), 1.0);
-    float planeThreshold = POSITION_PLANE_THRESHOLD * stepScale * relax;
-    float dist2Threshold = POSITION_DIST2_THRESHOLD * stepScale * stepScale * relax * relax;
+    vec3 camPos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float worldTexelSize = estimateWorldTexelSizeFromCenter(
+        p, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN * stepScale);
+    float planeThreshold = DENOISER_POSITION_PLANE_THRESHOLD * stepScale * relax;
+    float worldTexelThreshold = worldTexelSize * relax;
 
     vec3 sumC = vec3(0.0);
     float sumW = 0.0;
@@ -352,7 +347,7 @@ void main()
         }
 
         vec3 P1 = imageLoad(POSITION_T, q).xyz;
-        float wPos = wPositionGate(P1 - P0, geomNorm, invCenterDist, planeThreshold, dist2Threshold);
+        float wPos = wPositionGate(P1 - P0, geomNorm, invCenterDist, planeThreshold, worldTexelThreshold);
         if (wPos == 0.0) {
             continue;
         }

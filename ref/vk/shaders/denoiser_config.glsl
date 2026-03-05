@@ -1,3 +1,6 @@
+#ifndef DENOISER_CONFIG_GLSL_INCLUDED
+#define DENOISER_CONFIG_GLSL_INCLUDED
+
 // Pass toggles in rt.json order (denoiser-related chain).
 #define DENOISER_ENABLE_STABILIZE_RESERVOIRS 1
 #define DENOISER_ENABLE_DIFFUSE_SAMPLING_FILTER 1
@@ -22,11 +25,12 @@
 #define DENOISER_SPATIAL_CONFIDENCE_SCALE_SPECULAR 1.0
 
 // Shared position-gate thresholds for all denoiser passes.
-#define DENOISER_POSITION_PLANE_THRESHOLD 0.010
-#define DENOISER_POSITION_DIST2_THRESHOLD 0.0004
+#define DENOISER_POSITION_PLANE_THRESHOLD 0.2
+#define DENOISER_POSITION_DIST2_THRESHOLD 0.05
 // Unified scale for both plane distance and texel distance in position gate.
-// 1.0/70.0 preserves the currently tightened texel-distance behavior.
-#define DENOISER_POSITION_GATE_SCALE (1.0 / 70.0)
+#define DENOISER_POSITION_GATE_SCALE 0.001
+// World-space texel footprint margin used by dynamic position gate.
+#define DENOISER_POSITION_TEXEL_SIZE_MARGIN 1.5
 
 // Confidence influence for temporal history control in restir_asvgf_direct.
 // 0.0 = confidence does not affect history.
@@ -60,3 +64,5 @@
 #define NEAR_PLANE_OFFSET 5.
 #define GI_DOWNSAMPLE 2
 #define GI_BOUNCES_MAX 1
+
+#endif // DENOISER_CONFIG_GLSL_INCLUDED

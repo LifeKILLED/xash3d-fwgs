@@ -64,6 +64,9 @@ void main() {
     vec3 p0 = imageLoad(position_t, pix).xyz;
     vec3 g0 = normalDecode(imageLoad(normals_gs, pix).xy);
     float inv_center_dist = 1.0 / max(length(p0), 1.0);
+    vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float world_texel_size = estimateWorldTexelSizeFromCenter(
+        pix, res, cam_pos, p0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
 
 #if FILTER_HORIZONTAL
     ivec2 axis = ivec2(1, 0);
@@ -80,12 +83,12 @@ void main() {
         if (any(lessThan(qf, ivec2(0))) || any(greaterThanEqual(qf, res))) continue;
 
         vec3 pf = imageLoad(position_t, qf).xyz;
-        float wf = positionEdgeStopWithThresholds(
+        float wf = positionEdgeStopWithWorldTexel(
             pf - p0,
             g0,
             inv_center_dist,
             DENOISER_POSITION_PLANE_THRESHOLD,
-            DENOISER_POSITION_DIST2_THRESHOLD
+            world_texel_size
         );
         if (wf == 0.0) continue;
 
@@ -119,12 +122,12 @@ void main() {
         if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
 
         vec3 p1 = imageLoad(position_t, q).xyz;
-        float wp = positionEdgeStopWithThresholds(
+        float wp = positionEdgeStopWithWorldTexel(
             p1 - p0,
             g0,
             inv_center_dist,
             DENOISER_POSITION_PLANE_THRESHOLD,
-            DENOISER_POSITION_DIST2_THRESHOLD
+            world_texel_size
         );
         if (wp == 0.0) continue;
 

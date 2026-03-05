@@ -19,14 +19,6 @@
 #define SPATIAL_SAMPLES 16
 #endif
 
-#ifndef POSITION_PLANE_THRESHOLD
-#define POSITION_PLANE_THRESHOLD DENOISER_POSITION_PLANE_THRESHOLD
-#endif
-
-#ifndef POSITION_DIST2_THRESHOLD
-#define POSITION_DIST2_THRESHOLD DENOISER_POSITION_DIST2_THRESHOLD
-#endif
-
 #ifndef ROUGHNESS_DIFF_THRESHOLD
 #define ROUGHNESS_DIFF_THRESHOLD 0.12
 #endif
@@ -159,9 +151,8 @@ float normalGate(vec3 a, vec3 b, float threshold) {
     return step(threshold, max(dot(a, b), 0.0));
 }
 
-float positionGate(vec3 d, vec3 geomNorm, float invCenterDist) {
-    return positionEdgeStopWithThresholds(
-        d, geomNorm, invCenterDist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
+float positionGate(vec3 d, vec3 geomNorm, float invCenterDist, float worldTexelSize) {
+    return positionEdgeStopWithWorldTexel(d, geomNorm, invCenterDist, DENOISER_POSITION_PLANE_THRESHOLD, worldTexelSize);
 }
 
 float clampWeightNonNegative(float w) {
@@ -198,6 +189,7 @@ void buildAndPackShadowCache5Tap(
     vec3 P0,
     vec3 G0,
     float invCenterDist,
+    float worldTexelSize,
     out vec4 cached_light_ids,
     out vec4 cached_shadow_masks)
 {
@@ -220,7 +212,7 @@ void buildAndPackShadowCache5Tap(
 
         if (cached_light_id >= 0.0 && i != 0) {
             vec3 P1 = imageLoad(POSITION_T, q).xyz;
-            float wp = positionGate(P1 - P0, G0, invCenterDist);
+            float wp = positionGate(P1 - P0, G0, invCenterDist, worldTexelSize);
 
             if (wp == 0.0) {
                 cached_light_id = -1.0;
@@ -320,10 +312,12 @@ void main()
     vec3 center_rgb = clampRadianceNonNegative(centerColor.rgb);
     float center_a = clamp(centerColor.a, 0.0, 1.0) * SPATIAL_RECONSTRUCTION_CENTER_WEIGHT;
     float invCenterDist = 1.0 / max(length(P0), 1.0);
+    float worldTexelSize = estimateWorldTexelSizeFromCenter(
+        p, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
     vec4 shadow_cache_ids = vec4(1e20);
     vec4 shadow_cache_masks = vec4(0.0);
 #if SPATIAL_SHADOW_MASK_ENABLE
-    buildAndPackShadowCache5Tap(p, res, P0, G0, invCenterDist, shadow_cache_ids, shadow_cache_masks);
+    buildAndPackShadowCache5Tap(p, res, P0, G0, invCenterDist, worldTexelSize, shadow_cache_ids, shadow_cache_masks);
     vec3 center_shadow_data = loadShadowMaskAndLightId(p);
     float center_shadow_mask = resolveShadowMaskFromCache(
         center_shadow_data.x, center_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
@@ -367,7 +361,7 @@ void main()
         if (all(equal(q, p))) continue;
 
         vec3 P1 = imageLoad(POSITION_T, q).xyz;
-        float wp = positionGate(P1 - P0, G0, invCenterDist);
+        float wp = positionGate(P1 - P0, G0, invCenterDist, worldTexelSize);
         if (wp == 0.0) continue;
 
         vec4 normEnc = imageLoad(NORMALS_GS, q);

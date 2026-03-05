@@ -80,6 +80,7 @@ bool gatherBilinearTaps(
     vec3 center_pos,
     vec3 center_geom_normal,
     float inv_center_dist,
+    float world_texel_size,
     out ivec2 taps[4],
     out float weights[4])
 {
@@ -102,12 +103,12 @@ bool gatherBilinearTaps(
             weights[i] = 0.0;
         } else {
             const vec3 p1 = imageLoad(geometry_prev_position, taps[i]).xyz;
-            const float wp = positionEdgeStopWithThresholds(
+            const float wp = positionEdgeStopWithWorldTexel(
                 p1 - center_pos,
                 center_geom_normal,
                 inv_center_dist,
                 DENOISER_POSITION_PLANE_THRESHOLD,
-                DENOISER_POSITION_DIST2_THRESHOLD
+                world_texel_size
             );
             if (wp == 0.0) {
                 weights[i] = 0.0;
@@ -177,6 +178,9 @@ void main() {
     const vec3 center_pos = imageLoad(geometry_prev_position, pix).xyz;
     const vec3 center_geom_normal = normalDecode(imageLoad(normals_gs, pix).xy);
     const float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
+    const vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    const float world_texel_size = estimateWorldTexelSizeFromCenter(
+        pix, res, cam_pos, center_pos, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
 
     const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
@@ -241,7 +245,7 @@ void main() {
         ivec2 reproj_taps[4];
         float reproj_weights[4];
         const bool has_reprojection = gatherBilinearTaps(
-            prev_uv, res, center_pos, center_geom_normal, inv_center_dist, reproj_taps, reproj_weights);
+            prev_uv, res, center_pos, center_geom_normal, inv_center_dist, world_texel_size, reproj_taps, reproj_weights);
 
         if (has_reprojection) {
             vec4 pd = loadBilinearPrevTemporalDiffuse(reproj_taps, reproj_weights);

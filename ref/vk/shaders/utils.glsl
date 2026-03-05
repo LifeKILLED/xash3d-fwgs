@@ -54,7 +54,7 @@ vec3 mixFinalColor(vec3 base_color, vec3 diffuse, vec3 specular, float metalness
 // Shared position-based edge stop against center geometry plane.
 // One unified scale is applied to both plane distance and texel distance.
 #ifndef DENOISER_POSITION_GATE_SCALE
-#define DENOISER_POSITION_GATE_SCALE (1.0 / 70.0)
+#define DENOISER_POSITION_GATE_SCALE 0.001
 #endif
 
 float positionEdgeStopWithThresholds(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float plane_threshold, float dist2_threshold) {
@@ -65,6 +65,53 @@ float positionEdgeStopWithThresholds(vec3 delta_pos, vec3 geom_norm, float inv_c
 	float n_dist2 = dot(delta_pos, delta_pos) * (inv_center_dist * inv_center_dist);
 	float w_plane = step(n_plane_dist, plane_t);
 	float w_dist = step(n_dist2, dist2_t);
+	return max(w_plane, w_dist);
+}
+
+vec3 reconstructWorldRayDirFromInvMatrices(ivec2 pix, ivec2 res, mat4 inv_proj, mat4 inv_view) {
+	vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(res);
+	vec2 ndc = uv * 2.0 - 1.0;
+	vec4 clip_pos = vec4(ndc, 1.0, 1.0);
+	vec4 view_pos = inv_proj * clip_pos;
+	view_pos /= max(view_pos.w, 1e-6);
+	return normalize((inv_view * vec4(view_pos.xyz, 0.0)).xyz);
+}
+
+float estimateWorldTexelSizeFromCenter(
+	ivec2 pix,
+	ivec2 res,
+	vec3 cam_pos,
+	vec3 center_pos,
+	mat4 inv_proj,
+	mat4 inv_view,
+	float texel_size_margin)
+{
+	vec3 dir_c = reconstructWorldRayDirFromInvMatrices(pix, res, inv_proj, inv_view);
+	vec3 dir_r = reconstructWorldRayDirFromInvMatrices(clamp(pix + ivec2(1, 0), ivec2(0), res - 1), res, inv_proj, inv_view);
+	vec3 dir_l = reconstructWorldRayDirFromInvMatrices(clamp(pix + ivec2(-1, 0), ivec2(0), res - 1), res, inv_proj, inv_view);
+	vec3 dir_u = reconstructWorldRayDirFromInvMatrices(clamp(pix + ivec2(0, 1), ivec2(0), res - 1), res, inv_proj, inv_view);
+	vec3 dir_d = reconstructWorldRayDirFromInvMatrices(clamp(pix + ivec2(0, -1), ivec2(0), res - 1), res, inv_proj, inv_view);
+
+	float dist = max(length(center_pos - cam_pos), 1e-4);
+	float dx = max(length(dir_r - dir_c), length(dir_c - dir_l));
+	float dy = max(length(dir_u - dir_c), length(dir_c - dir_d));
+	float angular_step = max(dx, dy);
+	return max(dist * angular_step * max(texel_size_margin, 1e-4), 1e-6);
+}
+
+float positionEdgeStopWithWorldTexel(
+	vec3 delta_pos,
+	vec3 geom_norm,
+	float inv_center_dist,
+	float plane_threshold,
+	float world_texel_size)
+{
+	float gate_scale = clamp(DENOISER_POSITION_GATE_SCALE, 1e-4, 1.0);
+	float plane_t = plane_threshold * gate_scale;
+	float world_dist_t = max(world_texel_size * gate_scale, 1e-6);
+	float n_plane_dist = abs(dot(delta_pos, geom_norm)) * inv_center_dist;
+	float w_plane = step(n_plane_dist, plane_t);
+	float w_dist = step(dot(delta_pos, delta_pos), world_dist_t * world_dist_t);
 	return max(w_plane, w_dist);
 }
 

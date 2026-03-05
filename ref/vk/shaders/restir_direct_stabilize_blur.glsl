@@ -35,6 +35,9 @@ void main() {
     const vec3 p0 = imageLoad(position_t, pix).xyz;
     const vec3 g0 = normalDecode(imageLoad(normals_gs, pix).xy);
     const float inv_center_dist = 1.0 / max(length(p0), 1.0);
+    const vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    const float world_texel_size = estimateWorldTexelSizeFromCenter(
+        pix, res, cam_pos, p0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
     for (int oy = -STABILIZE_RESERVOIRS_KERNEL; oy <= STABILIZE_RESERVOIRS_KERNEL; ++oy) {
         for (int ox = -STABILIZE_RESERVOIRS_KERNEL; ox <= STABILIZE_RESERVOIRS_KERNEL; ++ox) {
             const ivec2 q = pix + ivec2(ox, oy) * ATROUS_STEP;
@@ -46,12 +49,12 @@ void main() {
             const float w = is_center ? center_w : neighbor_w;
             if (!is_center) {
                 const vec3 p1 = imageLoad(position_t, q).xyz;
-                const float wp = positionEdgeStopWithThresholds(
+                const float wp = positionEdgeStopWithWorldTexel(
                     p1 - p0,
                     g0,
                     inv_center_dist,
                     DENOISER_POSITION_PLANE_THRESHOLD,
-                    DENOISER_POSITION_DIST2_THRESHOLD);
+                    world_texel_size);
                 if (wp == 0.0) {
                     continue;
                 }

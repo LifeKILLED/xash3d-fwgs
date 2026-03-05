@@ -14,14 +14,6 @@
 #define REQUIRED_MATCHES 3
 #endif
 
-#ifndef POSITION_PLANE_THRESHOLD
-#define POSITION_PLANE_THRESHOLD DENOISER_POSITION_PLANE_THRESHOLD
-#endif
-
-#ifndef POSITION_DIST2_THRESHOLD
-#define POSITION_DIST2_THRESHOLD DENOISER_POSITION_DIST2_THRESHOLD
-#endif
-
 #ifndef POSITION_T
 #define POSITION_T position_t
 #endif
@@ -276,9 +268,9 @@ layout(set = 0, binding = 7, rgba16f) uniform writeonly image2D SHADOW_FILTER_OU
 layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D SHADOW_FILTER_MASK_TEXTURE;
 #endif
 
-float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
-    return positionEdgeStopWithThresholds(
-        delta_pos, geom_norm, inv_center_dist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
+float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float world_texel_size) {
+    return positionEdgeStopWithWorldTexel(
+        delta_pos, geom_norm, inv_center_dist, DENOISER_POSITION_PLANE_THRESHOLD, world_texel_size);
 }
 
 float load_shadow_value(ivec2 pix) {
@@ -671,6 +663,9 @@ void main() {
     vec3 p0 = imageLoad(POSITION_T, pix).xyz;
     vec3 g0 = normalDecode(imageLoad(NORMALS_GS, pix).xy);
     float inv_center_dist = max(1.0 / max(length(p0), 1.0), SHADOW_MIN_INV_CENTER_DIST);
+    vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float world_texel_size = estimateWorldTexelSizeFromCenter(
+        pix, res, cam_pos, p0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
 
     const int line_search_left = -(PENUMBRA_LINE_CAP / 2);
     const int line_search_right = line_search_left + PENUMBRA_LINE_CAP - 1;
@@ -705,7 +700,7 @@ void main() {
         if (abs(light_id1 - light_id0) > LIGHT_ID_THRESHOLD) continue;
 
         vec3 p1 = imageLoad(POSITION_T, sample_pix).xyz;
-        if (position_gate(p1 - p0, g0, inv_center_dist) == 0.0) continue;
+        if (position_gate(p1 - p0, g0, inv_center_dist, world_texel_size) == 0.0) continue;
 
         line_offsets[line_count] = offset;
         line_values[line_count] = load_shadow_unit(sample_pix);

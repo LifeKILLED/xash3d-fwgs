@@ -38,14 +38,6 @@
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
-#ifndef POSITION_PLANE_THRESHOLD
-#define POSITION_PLANE_THRESHOLD DENOISER_POSITION_PLANE_THRESHOLD
-#endif
-
-#ifndef POSITION_DIST2_THRESHOLD
-#define POSITION_DIST2_THRESHOLD DENOISER_POSITION_DIST2_THRESHOLD
-#endif
-
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_IRRADIANCE;
@@ -55,9 +47,9 @@ layout(set = 0, binding = 3, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 
-float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist) {
-    return positionEdgeStopWithThresholds(
-        delta_pos, geom_norm, inv_center_dist, POSITION_PLANE_THRESHOLD, POSITION_DIST2_THRESHOLD);
+float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float world_texel_size) {
+    return positionEdgeStopWithWorldTexel(
+        delta_pos, geom_norm, inv_center_dist, DENOISER_POSITION_PLANE_THRESHOLD, world_texel_size);
 }
 
 void main() {
@@ -77,6 +69,9 @@ void main() {
     vec3 center_shading = normalDecode(center_norm.zw);
     vec3 center_pos = imageLoad(position_t, pix).xyz;
     float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
+    vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float world_texel_size = estimateWorldTexelSizeFromCenter(
+        pix, res, cam_pos, center_pos, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
     ivec2 matched_offsets[FILTER_MAX_OFFSETS];
     int matched_count = 0;
 
@@ -137,7 +132,7 @@ void main() {
         if (dot(center_shading, shading) < SHADING_NORMAL_DOT_THRESHOLD) continue;
 
         vec3 pos = imageLoad(position_t, q).xyz;
-        if (position_gate(pos - center_pos, center_geom, inv_center_dist) == 0.0) continue;
+        if (position_gate(pos - center_pos, center_geom, inv_center_dist, world_texel_size) == 0.0) continue;
 
         vec3 sample_rgb = imageLoad(INPUT_IRRADIANCE, q).rgb;
         sum_rgb += sample_rgb;
