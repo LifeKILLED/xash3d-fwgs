@@ -123,10 +123,6 @@
 #define SPATIAL_SHADOW_MASK_SOURCE diffuse_shadow_mask
 #endif
 
-#ifndef SPATIAL_SHADOW_CACHE_VEC4_OPT
-#define SPATIAL_SHADOW_CACHE_VEC4_OPT 1
-#endif
-
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_DIRECT;
@@ -190,11 +186,6 @@ float spatialKernelWeight(int poissonIndex, ivec2 texelOffset) {
 #endif
 }
 
-struct ShadowCacheTap {
-    float light_id;
-    float shadow_mask;
-};
-
 vec3 loadShadowMaskAndLightId(ivec2 p) {
 #if SPATIAL_SHADOW_MASK_ENABLE
     vec4 d = imageLoad(SPATIAL_SHADOW_MASK_SOURCE, p);
@@ -205,7 +196,15 @@ vec3 loadShadowMaskAndLightId(ivec2 p) {
 #endif
 }
 
-void buildShadowCache5Tap(ivec2 p, ivec2 res, vec3 P0, vec3 G0, float invCenterDist, out ShadowCacheTap cache[5]) {
+void buildAndPackShadowCache5Tap(
+    ivec2 p,
+    ivec2 res,
+    vec3 P0,
+    vec3 G0,
+    float invCenterDist,
+    out vec4 cached_light_ids,
+    out vec4 cached_shadow_masks)
+{
     const ivec2 offsets[5] = ivec2[](
         ivec2(0, 0),
         ivec2(1, 0),
@@ -214,10 +213,13 @@ void buildShadowCache5Tap(ivec2 p, ivec2 res, vec3 P0, vec3 G0, float invCenterD
         ivec2(0, -1)
     );
 
+    cached_light_ids = vec4(1e20);
+    cached_shadow_masks = vec4(0.0);
+
+    int packed_count = 0;
     for (int i = 0; i < 5; i++) {
         ivec2 q = clamp(p + offsets[i], ivec2(0), res - 1);
         vec3 packed = loadShadowMaskAndLightId(q);
-        cache[i].shadow_mask = packed.x;
         float cached_light_id = (packed.z > 0.5) ? packed.y : -1.0;
 
         if (cached_light_id >= 0.0 && i != 0) {
@@ -229,20 +231,10 @@ void buildShadowCache5Tap(ivec2 p, ivec2 res, vec3 P0, vec3 G0, float invCenterD
             }
         }
 
-        cache[i].light_id = cached_light_id;
-    }
-}
-
-void packShadowCacheVec4(ShadowCacheTap cache[5], out vec4 cached_light_ids, out vec4 cached_shadow_masks) {
-    cached_light_ids = vec4(1e20);
-    cached_shadow_masks = vec4(0.0);
-
-    int packed_count = 0;
-    for (int i = 0; i < 5; i++) {
-        if (cache[i].light_id < 0.0) continue;
+        if (cached_light_id < 0.0) continue;
         if (packed_count >= 4) break;
-        cached_light_ids[packed_count] = cache[i].light_id;
-        cached_shadow_masks[packed_count] = cache[i].shadow_mask;
+        cached_light_ids[packed_count] = cached_light_id;
+        cached_shadow_masks[packed_count] = packed.x;
         packed_count++;
     }
 }
@@ -250,25 +242,15 @@ void packShadowCacheVec4(ShadowCacheTap cache[5], out vec4 cached_light_ids, out
 float resolveShadowMaskFromCache(
     float sample_shadow_mask,
     float sample_light_id,
-    ShadowCacheTap cache[5],
     vec4 cached_light_ids,
     vec4 cached_shadow_masks)
 {
 #if SPATIAL_SHADOW_MASK_ENABLE
-#if SPATIAL_SHADOW_CACHE_VEC4_OPT
     vec4 id_match = mix(vec4(0.0), vec4(1.0), equal(cached_light_ids, vec4(sample_light_id)));
     float match_count = dot(id_match, vec4(1.0));
     float cached_sum = dot(id_match, cached_shadow_masks);
     float cached_value = cached_sum / max(match_count, 1.0);
     return mix(sample_shadow_mask, cached_value, step(0.5, match_count));
-#else
-    for (int i = 0; i < 5; i++) {
-        if (cache[i].light_id < 0.0) continue;
-        if (cache[i].light_id == sample_light_id) {
-            return cache[i].shadow_mask;
-        }
-    }
-#endif
 #endif
     return sample_shadow_mask;
 }
@@ -342,22 +324,14 @@ void main()
     vec3 center_rgb = clampRadianceNonNegative(centerColor.rgb);
     float center_a = clamp(centerColor.a, 0.0, 1.0);
     float invCenterDist = 1.0 / max(length(P0), 1.0);
-    ShadowCacheTap shadow_cache[5];
     vec4 shadow_cache_ids = vec4(1e20);
     vec4 shadow_cache_masks = vec4(0.0);
 #if SPATIAL_SHADOW_MASK_ENABLE
-    buildShadowCache5Tap(p, res, P0, G0, invCenterDist, shadow_cache);
-#if SPATIAL_SHADOW_CACHE_VEC4_OPT
-    packShadowCacheVec4(shadow_cache, shadow_cache_ids, shadow_cache_masks);
-#endif
+    buildAndPackShadowCache5Tap(p, res, P0, G0, invCenterDist, shadow_cache_ids, shadow_cache_masks);
     vec3 center_shadow_data = loadShadowMaskAndLightId(p);
     float center_shadow_mask = resolveShadowMaskFromCache(
-        center_shadow_data.x, center_shadow_data.y, shadow_cache, shadow_cache_ids, shadow_cache_masks);
+        center_shadow_data.x, center_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
 #else
-    for (int i = 0; i < 5; i++) {
-        shadow_cache[i].light_id = 0.0;
-        shadow_cache[i].shadow_mask = 1.0;
-    }
     float center_shadow_mask = 1.0;
 #endif
 
@@ -428,7 +402,7 @@ void main()
             if (w > 0.0) {
                 vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
                 float sample_shadow_mask = resolveShadowMaskFromCache(
-                    sample_shadow_data.x, sample_shadow_data.y, shadow_cache, shadow_cache_ids, shadow_cache_masks);
+                    sample_shadow_data.x, sample_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
                 vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
                 sumC += c_rgb * w;
                 sumW += w;
@@ -499,7 +473,7 @@ void main()
         if (w > 0.0) {
             vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
             float sample_shadow_mask = resolveShadowMaskFromCache(
-                sample_shadow_data.x, sample_shadow_data.y, shadow_cache, shadow_cache_ids, shadow_cache_masks);
+                sample_shadow_data.x, sample_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
             vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
             sumC += c_rgb * w;
             sumW += w;
