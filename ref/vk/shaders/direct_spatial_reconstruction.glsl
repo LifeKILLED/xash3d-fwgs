@@ -232,7 +232,7 @@ vec3 loadShadowMaskAndLightId(ivec2 p) {
 #endif
 }
 
-void buildShadowCache5Tap(ivec2 p, ivec2 res, out ShadowCacheTap cache[5]) {
+void buildShadowCache5Tap(ivec2 p, ivec2 res, vec3 P0, vec3 G0, float invCenterDist, out ShadowCacheTap cache[5]) {
     const ivec2 offsets[5] = ivec2[](
         ivec2(0, 0),
         ivec2(1, 0),
@@ -245,7 +245,18 @@ void buildShadowCache5Tap(ivec2 p, ivec2 res, out ShadowCacheTap cache[5]) {
         ivec2 q = clamp(p + offsets[i], ivec2(0), res - 1);
         vec3 packed = loadShadowMaskAndLightId(q);
         cache[i].shadow_mask = packed.x;
-        cache[i].light_id = (packed.z > 0.5) ? packed.y : -1.0;
+        float cached_light_id = (packed.z > 0.5) ? packed.y : -1.0;
+
+        if (cached_light_id >= 0.0 && i != 0) {
+            vec3 P1 = imageLoad(POSITION_T, q).xyz;
+            float wp = positionGate(P1 - P0, G0, invCenterDist);
+
+            if (wp == 0.0) {
+                cached_light_id = -1.0;
+            }
+        }
+
+        cache[i].light_id = cached_light_id;
     }
 }
 
@@ -329,9 +340,10 @@ void main()
     vec3 L0n = resolveLightDirection(centerL.xyz, N0, V0, R0);
     vec3 center_rgb = clampRadianceNonNegative(centerColor.rgb);
     float center_a = clamp(centerColor.a, 0.0, 1.0);
+    float invCenterDist = 1.0 / max(length(P0), 1.0);
     ShadowCacheTap shadow_cache[5];
 #if SPATIAL_SHADOW_MASK_ENABLE
-    buildShadowCache5Tap(p, res, shadow_cache);
+    buildShadowCache5Tap(p, res, P0, G0, invCenterDist, shadow_cache);
     vec3 center_shadow_data = loadShadowMaskAndLightId(p);
     float center_shadow_mask = resolveShadowMaskFromCache(center_shadow_data.x, center_shadow_data.y, shadow_cache);
 #else
@@ -342,7 +354,6 @@ void main()
     float center_shadow_mask = 1.0;
 #endif
 
-    float invCenterDist = 1.0 / max(length(P0), 1.0);
     // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
     float center_pdf = lightSamplingPdf(N0, V0, L0n, R0);
     float center_confW = clampWeightNonNegative(max(SPATIAL_CONFIDENCE_MIN, center_a * SPATIAL_CONFIDENCE_SCALE));
