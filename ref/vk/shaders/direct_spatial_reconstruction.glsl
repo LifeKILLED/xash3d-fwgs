@@ -135,6 +135,10 @@
 #define SPATIAL_SHADOW_MASK_FADE_RANGE 0.20
 #endif
 
+#ifndef SPATIAL_SHADOW_LIGHT_ID_THRESHOLD
+#define SPATIAL_SHADOW_LIGHT_ID_THRESHOLD 0.01
+#endif
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_DIRECT;
@@ -213,6 +217,50 @@ float shadowMaskWeight(ivec2 p, ivec2 q) {
 #endif
 }
 
+struct ShadowCacheTap {
+    float light_id;
+    float shadow_mask;
+};
+
+vec3 loadShadowMaskAndLightId(ivec2 p) {
+#if SPATIAL_SHADOW_MASK_ENABLE
+    vec4 d = imageLoad(SPATIAL_SHADOW_MASK_SOURCE, p);
+    // R = shadow mask, B = smoothed(0/1), A = packed light id.
+    return vec3(clamp(d.r, 0.0, 1.0), d.a, clamp(d.b, 0.0, 1.0));
+#else
+    return vec3(1.0, -1.0, 0.0);
+#endif
+}
+
+void buildShadowCache5Tap(ivec2 p, ivec2 res, out ShadowCacheTap cache[5]) {
+    const ivec2 offsets[5] = ivec2[](
+        ivec2(0, 0),
+        ivec2(1, 0),
+        ivec2(-1, 0),
+        ivec2(0, 1),
+        ivec2(0, -1)
+    );
+
+    for (int i = 0; i < 5; i++) {
+        ivec2 q = clamp(p + offsets[i], ivec2(0), res - 1);
+        vec3 packed = loadShadowMaskAndLightId(q);
+        cache[i].shadow_mask = packed.x;
+        cache[i].light_id = (packed.z > 0.5) ? packed.y : -1.0;
+    }
+}
+
+float resolveShadowMaskFromCache(float sample_shadow_mask, float sample_light_id, ShadowCacheTap cache[5]) {
+#if SPATIAL_SHADOW_MASK_ENABLE
+    for (int i = 0; i < 5; i++) {
+        if (cache[i].light_id < 0.0) continue;
+        if (abs(cache[i].light_id - sample_light_id) <= SPATIAL_SHADOW_LIGHT_ID_THRESHOLD) {
+            return cache[i].shadow_mask;
+        }
+    }
+#endif
+    return sample_shadow_mask;
+}
+
 vec3 defaultLightDirection(vec3 N, vec3 V, float roughness) {
 #if SPATIAL_DEFAULT_LIGHT_MODE == 1
     vec3 R = reflect(-V, N);
@@ -281,6 +329,18 @@ void main()
     vec3 L0n = resolveLightDirection(centerL.xyz, N0, V0, R0);
     vec3 center_rgb = clampRadianceNonNegative(centerColor.rgb);
     float center_a = clamp(centerColor.a, 0.0, 1.0);
+    ShadowCacheTap shadow_cache[5];
+#if SPATIAL_SHADOW_MASK_ENABLE
+    buildShadowCache5Tap(p, res, shadow_cache);
+    vec3 center_shadow_data = loadShadowMaskAndLightId(p);
+    float center_shadow_mask = resolveShadowMaskFromCache(center_shadow_data.x, center_shadow_data.y, shadow_cache);
+#else
+    for (int i = 0; i < 5; i++) {
+        shadow_cache[i].light_id = 0.0;
+        shadow_cache[i].shadow_mask = 1.0;
+    }
+    float center_shadow_mask = 1.0;
+#endif
 
     float invCenterDist = 1.0 / max(length(P0), 1.0);
     // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
@@ -288,7 +348,7 @@ void main()
     float center_confW = clampWeightNonNegative(max(SPATIAL_CONFIDENCE_MIN, center_a * SPATIAL_CONFIDENCE_SCALE));
     float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0, ivec2(0)));
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
-    vec3 sumC = center_rgb * center_w;
+    vec3 sumC = (center_rgb * center_shadow_mask) * center_w;
     float conf_sum = center_a;
     float sumW = center_w;
     int accepted_samples = 0;
@@ -349,7 +409,9 @@ void main()
             float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW * wm);
 
             if (w > 0.0) {
-                vec3 c_rgb = clampRadianceNonNegative(c.rgb);
+                vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
+                float sample_shadow_mask = resolveShadowMaskFromCache(sample_shadow_data.x, sample_shadow_data.y, shadow_cache);
+                vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
                 sumC += c_rgb * w;
                 sumW += w;
                 accepted_samples++;
@@ -418,7 +480,9 @@ void main()
         float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW * wm);
 
         if (w > 0.0) {
-            vec3 c_rgb = clampRadianceNonNegative(c.rgb);
+            vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
+            float sample_shadow_mask = resolveShadowMaskFromCache(sample_shadow_data.x, sample_shadow_data.y, shadow_cache);
+            vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
             sumC += c_rgb * w;
             sumW += w;
             accepted_samples++;

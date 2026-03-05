@@ -293,6 +293,23 @@ float load_shadow_unit(ivec2 pix) {
     return load_shadow_value(pix);
 }
 
+float load_prev_smoothed_flag(ivec2 pix) {
+#if defined(HORIZONTAL)
+    return 0.0;
+#elif SHADOW_FILTER_USE_SHARED_PINGPONG
+    return clamp(imageLoad(INPUT_SOURCE, pix).b, 0.0, 1.0);
+#else
+    return 0.0;
+#endif
+}
+
+float compute_local_smoothed_flag(float center_shadow_unit, float out_shadow_unit, int line_count) {
+    if (line_count <= 2) {
+        return 0.0;
+    }
+    return (abs(out_shadow_unit - center_shadow_unit) > 1e-4) ? 1.0 : 0.0;
+}
+
 bool is_binary_zero(float v) {
     return v <= PENUMBRA_BINARY_EPS;
 }
@@ -502,9 +519,8 @@ bool is_hard_binary_edge(float line_values[PENUMBRA_LINE_CAP], int line_count, i
 void store_shadowed_irradiance(ivec2 pix, float shadow_value) {
 #if SHADOW_FILTER_OUTPUT_IRRADIANCE
     vec4 irradiance = imageLoad(SHADOW_FILTER_IRRADIANCE_SOURCE, pix);
-    vec3 rgb = irradiance.rgb;
-    float shadow_weight = clamp(shadow_value, 0.0, 1.0);
-    imageStore(SHADOW_FILTER_OUTPUT_TEXTURE, pix, vec4(rgb * shadow_weight, irradiance.a));
+    // Shadow filtering now outputs mask separately; keep irradiance unchanged.
+    imageStore(SHADOW_FILTER_OUTPUT_TEXTURE, pix, irradiance);
 #endif
 }
 
@@ -604,17 +620,32 @@ vec3 merge_shadow_mask_payload_with_pingpong(ivec2 pix, vec3 payload) {
 #if SHADOW_FILTER_MASK_USE_PINGPONG_INPUT
     vec4 prev = imageLoad(INPUT_SOURCE, pix);
     payload.x = 0.5 * (payload.x + prev.g);
-    payload.y = 0.5 * (payload.y + prev.b);
-    payload.z = 0.5 * (payload.z + prev.a);
+    payload.y = 0.5 * (payload.y + prev.r);
 #endif
     return payload;
 }
 
-void store_shadow_transition_mask_debug(ivec2 pix, vec3 payload) {
+void store_shadow_transition_mask_debug(ivec2 pix, float shadow_mask, vec3 payload, float light_id, float smoothed_flag) {
 #if SHADOW_FILTER_OUTPUT_MASK
-    // Debug payload:
-    // R = blurred shadow-energy mask, G = weighted visibility, B = filtered visibility.
-    imageStore(SHADOW_FILTER_MASK_TEXTURE, pix, vec4(payload, 1.0));
+    // Payload:
+    // R = filtered shadow mask, G = debug auxiliary, B = smoothed(0/1), A = packed light id.
+    imageStore(
+        SHADOW_FILTER_MASK_TEXTURE,
+        pix,
+        vec4(clamp(shadow_mask, 0.0, 1.0), payload.y, clamp(smoothed_flag, 0.0, 1.0), light_id)
+    );
+#endif
+}
+
+void store_shadow_output(ivec2 pix, float shadow_value, vec3 payload, float smoothed_flag, float light_id) {
+#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
+    // Ping-pong payload:
+    // R = filtered shadow mask, G = auxiliary, B = smoothed(0/1), A = packed light id.
+    imageStore(OUTPUT_SHADOW, pix, vec4(shadow_value, payload.x, clamp(smoothed_flag, 0.0, 1.0), light_id));
+#else
+    // Generic payload:
+    // R = filtered shadow mask, G = filtered shadow mask, B = smoothed(0/1), A = packed light id.
+    imageStore(OUTPUT_SHADOW, pix, vec4(shadow_value, shadow_value, clamp(smoothed_flag, 0.0, 1.0), light_id));
 #endif
 }
 
@@ -626,14 +657,13 @@ void main() {
     float center_shadow = load_shadow_value(pix);
     float center_shadow_unit = center_shadow;
     float center_seed = load_shadow_mask_seed(pix);
+    float prev_smoothed_flag = load_prev_smoothed_flag(pix);
+    float light_id0 = imageLoad(LIGHT_ID_SOURCE, pix).w;
     if (DENOISER_ENABLE_SHADOWS_FILTERING == 0) {
         vec3 center_payload = vec3(center_seed, center_shadow_unit, center_shadow_unit);
-#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
-        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_payload));
-#else
-        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
-#endif
-        store_shadow_transition_mask_debug(pix, center_payload);
+        float out_smoothed_flag = prev_smoothed_flag;
+        store_shadow_output(pix, center_shadow, center_payload, out_smoothed_flag, light_id0);
+        store_shadow_transition_mask_debug(pix, center_shadow, center_payload, light_id0, out_smoothed_flag);
         store_shadowed_irradiance(pix, center_shadow);
         return;
     }
@@ -641,8 +671,6 @@ void main() {
     vec3 p0 = imageLoad(POSITION_T, pix).xyz;
     vec3 g0 = normalDecode(imageLoad(NORMALS_GS, pix).xy);
     float inv_center_dist = max(1.0 / max(length(p0), 1.0), SHADOW_MIN_INV_CENTER_DIST);
-
-    float light_id0 = imageLoad(LIGHT_ID_SOURCE, pix).w;
 
     const int line_search_left = -(PENUMBRA_LINE_CAP / 2);
     const int line_search_right = line_search_left + PENUMBRA_LINE_CAP - 1;
@@ -686,12 +714,9 @@ void main() {
 
     if (center_line_idx < 0) {
         vec3 center_payload = vec3(center_seed, center_shadow_unit, center_shadow_unit);
-#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
-        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_payload));
-#else
-        imageStore(OUTPUT_SHADOW, pix, vec4(center_shadow, center_shadow, center_shadow, SHADOW_OUTPUT_ALPHA));
-#endif
-        store_shadow_transition_mask_debug(pix, center_payload);
+        float out_smoothed_flag = prev_smoothed_flag;
+        store_shadow_output(pix, center_shadow, center_payload, out_smoothed_flag, light_id0);
+        store_shadow_transition_mask_debug(pix, center_shadow, center_payload, light_id0, out_smoothed_flag);
         store_shadowed_irradiance(pix, center_shadow);
         return;
     }
@@ -721,12 +746,10 @@ void main() {
         // Shadow value domain is [0, 1], where 0 means fully shadowed.
         const float forced_shadow = 0.0;
         vec3 forced_payload = vec3(0.0, 0.0, 0.0);
-#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
-        imageStore(OUTPUT_SHADOW, pix, vec4(forced_shadow, forced_payload));
-#else
-        imageStore(OUTPUT_SHADOW, pix, vec4(forced_shadow, forced_shadow, forced_shadow, SHADOW_OUTPUT_ALPHA));
-#endif
-        store_shadow_transition_mask_debug(pix, forced_payload);
+        float local_smoothed_flag = compute_local_smoothed_flag(center_shadow_unit, forced_shadow, line_count);
+        float out_smoothed_flag = max(prev_smoothed_flag, local_smoothed_flag);
+        store_shadow_output(pix, forced_shadow, forced_payload, out_smoothed_flag, light_id0);
+        store_shadow_transition_mask_debug(pix, forced_shadow, forced_payload, light_id0, out_smoothed_flag);
         store_shadowed_irradiance(pix, forced_shadow);
         return;
     }
@@ -836,12 +859,10 @@ void main() {
     vec3 mask_payload = build_shadow_transition_mask_payload(
         pix, res, line_values, line_offsets, line_count, center_line_idx, out_shadow_unit);
     mask_payload = merge_shadow_mask_payload_with_pingpong(pix, mask_payload);
+    float local_smoothed_flag = compute_local_smoothed_flag(center_shadow_unit, out_shadow, line_count);
+    float out_smoothed_flag = max(prev_smoothed_flag, local_smoothed_flag);
 
-#if SHADOW_FILTER_PACK_MASK_IN_OUTPUT
-    imageStore(OUTPUT_SHADOW, pix, vec4(out_shadow, mask_payload));
-#else
-    imageStore(OUTPUT_SHADOW, pix, vec4(out_shadow, out_shadow, out_shadow, SHADOW_OUTPUT_ALPHA));
-#endif
-    store_shadow_transition_mask_debug(pix, mask_payload);
+    store_shadow_output(pix, out_shadow, mask_payload, out_smoothed_flag, light_id0);
+    store_shadow_transition_mask_debug(pix, out_shadow, mask_payload, light_id0, out_smoothed_flag);
     store_shadowed_irradiance(pix, out_shadow);
 }
