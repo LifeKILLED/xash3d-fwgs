@@ -33,7 +33,7 @@ layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_reconstructed;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_reconstructed;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D diffuse_shadow_mask;
-layout(set = 0, binding = 6, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D geometry_prev_position;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D normals_gs;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
@@ -99,7 +99,7 @@ bool gatherBilinearTaps(
         if (any(lessThan(taps[i], ivec2(0))) || any(greaterThanEqual(taps[i], res))) {
             weights[i] = 0.0;
         } else {
-            const vec3 p1 = imageLoad(position_t, taps[i]).xyz;
+            const vec3 p1 = imageLoad(geometry_prev_position, taps[i]).xyz;
             const float wp = positionEdgeStopWithThresholds(
                 p1 - center_pos,
                 center_geom_normal,
@@ -161,7 +161,7 @@ void main() {
 		return;
 
     const vec2 prev_uv = imageLoad(reprojection_uv, pix).xy;
-    const vec3 center_pos = imageLoad(position_t, pix).xyz;
+    const vec3 center_pos = imageLoad(geometry_prev_position, pix).xyz;
     const vec3 center_geom_normal = normalDecode(imageLoad(normals_gs, pix).xy);
     const float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
 

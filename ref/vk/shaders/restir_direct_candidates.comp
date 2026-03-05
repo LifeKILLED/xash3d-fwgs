@@ -269,9 +269,11 @@ void main(){
     const bool has_reprojected_neighbors = gatherReprojectedNeighbors(prevPxUvNoisy, res, reproj_taps, reproj_weights);
 
     if (has_reprojected_neighbors && total > 0) { // avoid reprojection if have no visible lights
-        const vec4 prev_norm_mat = imageLoad(prev_temporal_res_norm_mat, pix);
-
-        const vec3 prev_N = normalDecode(prev_norm_mat.xy);
+        vec3 prev_N = N;
+        if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+            const vec4 prev_norm_mat = imageLoad(prev_temporal_res_norm_mat, center_prev_px);
+            prev_N = normalDecode(prev_norm_mat.xy);
+        }
 
         {
             bool reprojected = false;

@@ -197,12 +197,8 @@ vec3 computeNeighborOnPreviousPlane(
 }
 
 bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 reproj_uv, vec3 geometry_normal_curr, float depth_nessesary, float depth_threshold, inout TemporalData final, inout TemporalData fast, inout vec2 reprojection_uv) {
-	const ivec2 reproj_pix = ivec2(floor(reproj_uv));
 	const vec2 uvw = fract(reproj_uv);
-	const vec2 uv_src = (vec2(pix) - vec2(0.5)) / vec2(res);
-
-	if (any(lessThan(reproj_pix, ivec2(0))) && any(greaterThanEqual(reproj_pix, res)))
-		return false;
+	const vec2 uv_src = vec2(pix);
 
 	vec4 history_diffuse = vec4(0.);
 	vec4 history_specular = vec4(0.);
@@ -219,16 +215,23 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 
 	float bilinear_weights[4];
 
-	bool doBilinearFiltering = length((uv_src - reproj_uv) * vec2(res)) > 1.0;
+	bool doBilinearFiltering = length(uv_src - reproj_uv) > 1.0;
+	ivec2 reproj_pix = ivec2(floor(reproj_uv));
 	if (doBilinearFiltering) {
 		bilinear_weights[0] = (1.0 - uvw.x) * (1.0 - uvw.y);
 		bilinear_weights[1] = uvw.x * (1.0 - uvw.y);
 		bilinear_weights[2] = (1.0 - uvw.x) * uvw.y;
 		bilinear_weights[3] = uvw.x * uvw.y;
 	} else {
+		reproj_pix = ivec2(floor(reproj_uv + vec2(0.5)));
 		bilinear_weights[0] = 1.0;
-		bilinear_weights[0] = bilinear_weights[0] = bilinear_weights[0] = 0.0;
+		bilinear_weights[1] = 0.0;
+		bilinear_weights[2] = 0.0;
+		bilinear_weights[3] = 0.0;
 	}
+
+	if (any(lessThan(reproj_pix, ivec2(0))) || any(greaterThanEqual(reproj_pix, res)))
+		return false;
 
 	float samples_weight = 0.0;
 	for (int x = 0; x <=1; ++x) {
@@ -280,7 +283,7 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 
 				if (bilinear_weight > better_reproj_uv_weight) {
 					better_reproj_uv_weight = bilinear_weight;
-					reprojection_uv = reproj_uv;
+					reprojection_uv = vec2(p);
 				}
 				has_valid_reprojection = true;
 			}
@@ -357,7 +360,7 @@ void main() {
 		const float depth_nessesary = length(prev_position - prev_origin);
 		const float depth_threshold = 0.01 * clip_space.w;
 
-		if (any(greaterThanEqual(reproj_uv, vec2(0))) && any(lessThan(reproj_uv, vec2(res)))) {
+		if (all(greaterThanEqual(reproj_uv, vec2(0))) && all(lessThan(reproj_uv, vec2(res)))) {
 			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, geometry_normal, depth_nessesary, depth_threshold, final, fast, reprojection_uv)) {
 				// diffuse_result = vec4(final.diffuse.radiance, 0.0);
 				// specular_result = vec4(final.specular.radiance, 0.0);
@@ -408,7 +411,7 @@ void main() {
 				const vec2 parallax_clip = clip_space.xy / clip_space.w;
 				const vec2 parallax_uv = (parallax_clip * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
 
-				if (any(greaterThanEqual(parallax_uv, vec2(0))) && any(lessThan(parallax_uv, vec2(res)))) {
+				if (all(greaterThanEqual(parallax_uv, vec2(0))) && all(lessThan(parallax_uv, vec2(res)))) {
 					TemporalData fast_parallax;
 					// fast.diffuse = temporalAccumulationInit(diffuse_src);
 					// fast.specular = temporalAccumulationInit(specular_src);
