@@ -14,7 +14,10 @@
 #define VARIANCE_MAX 1.0
 #define MAX_RESTIR_NORM 8.0
 #define MIN_ALPHA 0.02
+#define REPROJECTION_BILINEAR 1
 #define REPROJECTION_BILINEAR_MOTION_THRESHOLD 1.0
+#define ASVGF_REPROJ_POSITION_PLANE_THRESHOLD 0.010
+#define ASVGF_REPROJ_POSITION_DIST2_THRESHOLD 0.0004
 
 #define CONF_KERNEL 1
 
@@ -30,6 +33,8 @@ layout(set = 0, binding = 2, rgba16f) uniform image2D out_specular_asvgf;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D diffuse_direct_reconstructed;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D specular_direct_reconstructed;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D diffuse_shadow_mask;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D normals_gs;
 
 layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse;
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
@@ -67,7 +72,14 @@ void processLobeTemporal(
     //outColor = curr; // debug current frame
 }
 
-bool gatherBilinearTaps(vec2 reproj_uv, ivec2 res, out ivec2 taps[4], out float weights[4])
+bool gatherBilinearTaps(
+    vec2 reproj_uv,
+    ivec2 res,
+    vec3 center_pos,
+    vec3 center_geom_normal,
+    float inv_center_dist,
+    out ivec2 taps[4],
+    out float weights[4])
 {
     const ivec2 base = ivec2(floor(reproj_uv));
     const vec2 frac_uv = fract(reproj_uv);
@@ -86,6 +98,18 @@ bool gatherBilinearTaps(vec2 reproj_uv, ivec2 res, out ivec2 taps[4], out float 
     for (int i = 0; i < 4; ++i) {
         if (any(lessThan(taps[i], ivec2(0))) || any(greaterThanEqual(taps[i], res))) {
             weights[i] = 0.0;
+        } else {
+            const vec3 p1 = imageLoad(position_t, taps[i]).xyz;
+            const float wp = positionEdgeStopWithThresholds(
+                p1 - center_pos,
+                center_geom_normal,
+                inv_center_dist,
+                ASVGF_REPROJ_POSITION_PLANE_THRESHOLD,
+                ASVGF_REPROJ_POSITION_DIST2_THRESHOLD
+            );
+            if (wp == 0.0) {
+                weights[i] = 0.0;
+            }
         }
         weight_sum += weights[i];
     }
@@ -137,6 +161,9 @@ void main() {
 		return;
 
     const vec2 prev_uv = imageLoad(reprojection_uv, pix).xy;
+    const vec3 center_pos = imageLoad(position_t, pix).xyz;
+    const vec3 center_geom_normal = normalDecode(imageLoad(normals_gs, pix).xy);
+    const float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
 
     const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
@@ -185,12 +212,18 @@ void main() {
     float prev_len_spec = 0.0;
 
     const float reproj_motion = length(prev_uv - vec2(pix));
+
+#if (REPROJECTION_BILINEAR)
     const bool use_bilinear = reproj_motion > REPROJECTION_BILINEAR_MOTION_THRESHOLD;
+#else 
+    const bool use_bilinear = false;
+#endif
 
     if (use_bilinear) {
         ivec2 reproj_taps[4];
         float reproj_weights[4];
-        const bool has_reprojection = gatherBilinearTaps(prev_uv, res, reproj_taps, reproj_weights);
+        const bool has_reprojection = gatherBilinearTaps(
+            prev_uv, res, center_pos, center_geom_normal, inv_center_dist, reproj_taps, reproj_weights);
 
         if (has_reprojection) {
             vec4 pd = loadBilinearPrevTemporalDiffuse(reproj_taps, reproj_weights);

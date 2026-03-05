@@ -24,7 +24,7 @@
 // Confidence influence for temporal history control in restir_asvgf_direct.
 // 0.0 = confidence does not affect history.
 // 1.0 = maximal confidence-based history reduction.
-#define DENOISER_ASVGF_CONFIDENCE_INFLUENCE 0.3
+#define DENOISER_ASVGF_CONFIDENCE_INFLUENCE 0.5
 // Confidence influence for deflickering_asvgf heuristics.
 // 0.0 = confidence does not affect thresholds.
 // 1.0 = maximal confidence-based threshold tightening (no direct history multiply).
@@ -35,8 +35,8 @@
 #define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_SPECULAR 0
 
 // Direct diffuse/specular a-trous.
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 8
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 8
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 4
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 4
 
 // Debug views.
 #define DENOISER_DEBUG_CONFIDENCE_VIEW 0
