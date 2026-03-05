@@ -21,6 +21,13 @@
 // Spatial reconstruction.
 #define DENOISER_SPATIAL_CONFIDENCE_SCALE_SPECULAR 1.0
 
+// Shared position-gate thresholds for all denoiser passes.
+#define DENOISER_POSITION_PLANE_THRESHOLD 0.010
+#define DENOISER_POSITION_DIST2_THRESHOLD 0.0004
+// Unified scale for both plane distance and texel distance in position gate.
+// 1.0/70.0 preserves the currently tightened texel-distance behavior.
+#define DENOISER_POSITION_GATE_SCALE (1.0 / 70.0)
+
 // Confidence influence for temporal history control in restir_asvgf_direct.
 // 0.0 = confidence does not affect history.
 // 1.0 = maximal confidence-based history reduction.
@@ -35,8 +42,8 @@
 #define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_SPECULAR 0
 
 // Direct diffuse/specular a-trous.
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 4
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 4
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 2
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 2
 
 // Debug views.
 #define DENOISER_DEBUG_CONFIDENCE_VIEW 0

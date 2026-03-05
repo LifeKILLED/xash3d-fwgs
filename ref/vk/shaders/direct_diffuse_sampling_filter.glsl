@@ -1,5 +1,5 @@
-#include "utils.glsl"
 #include "denoiser_config.glsl"
+#include "utils.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -39,11 +39,11 @@
 #endif
 
 #ifndef POSITION_PLANE_THRESHOLD
-#define POSITION_PLANE_THRESHOLD 0.010
+#define POSITION_PLANE_THRESHOLD DENOISER_POSITION_PLANE_THRESHOLD
 #endif
 
 #ifndef POSITION_DIST2_THRESHOLD
-#define POSITION_DIST2_THRESHOLD 0.0004
+#define POSITION_DIST2_THRESHOLD DENOISER_POSITION_DIST2_THRESHOLD
 #endif
 
 layout(local_size_x = 8, local_size_y = 8) in;

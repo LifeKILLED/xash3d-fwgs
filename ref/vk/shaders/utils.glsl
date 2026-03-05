@@ -52,15 +52,15 @@ vec3 mixFinalColor(vec3 base_color, vec3 diffuse, vec3 specular, float metalness
 }
 
 // Shared position-based edge stop against center geometry plane.
-// Thresholds are globally hardened via POSITION_EDGE_STOP_HARDEN.
-#ifndef POSITION_EDGE_STOP_HARDEN
-#define POSITION_EDGE_STOP_HARDEN 0.72
+// One unified scale is applied to both plane distance and texel distance.
+#ifndef DENOISER_POSITION_GATE_SCALE
+#define DENOISER_POSITION_GATE_SCALE (1.0 / 70.0)
 #endif
 
 float positionEdgeStopWithThresholds(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float plane_threshold, float dist2_threshold) {
-	float hard = clamp(POSITION_EDGE_STOP_HARDEN, 0.1, 1.0);
-	float plane_t = plane_threshold * hard;
-	float dist2_t = dist2_threshold * hard * hard;
+	float gate_scale = clamp(DENOISER_POSITION_GATE_SCALE, 1e-4, 1.0);
+	float plane_t = plane_threshold * gate_scale;
+	float dist2_t = dist2_threshold * gate_scale * gate_scale;
 	float n_plane_dist = abs(dot(delta_pos, geom_norm)) * inv_center_dist;
 	float n_dist2 = dot(delta_pos, delta_pos) * (inv_center_dist * inv_center_dist);
 	float w_plane = step(n_plane_dist, plane_t);

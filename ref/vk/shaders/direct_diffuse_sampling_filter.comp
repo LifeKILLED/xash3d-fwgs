@@ -7,7 +7,5 @@
 #define FILTER_KERNEL_RADIUS 4
 #define FILTER_MAX_OFFSETS 8
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
-#define POSITION_PLANE_THRESHOLD 0.010
-#define POSITION_DIST2_THRESHOLD 0.0004
 
 #include "direct_diffuse_sampling_filter.glsl"

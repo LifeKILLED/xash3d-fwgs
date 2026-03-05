@@ -2,8 +2,6 @@
 #include "utils.glsl"
 
 #define STABILIZE_RESERVOIRS_KERNEL 1
-#define STABILIZE_POSITION_PLANE_THRESHOLD 0.010
-#define STABILIZE_POSITION_DIST2_THRESHOLD 0.0004
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -52,8 +50,8 @@ void main() {
                     p1 - p0,
                     g0,
                     inv_center_dist,
-                    STABILIZE_POSITION_PLANE_THRESHOLD,
-                    STABILIZE_POSITION_DIST2_THRESHOLD);
+                    DENOISER_POSITION_PLANE_THRESHOLD,
+                    DENOISER_POSITION_DIST2_THRESHOLD);
                 if (wp == 0.0) {
                     continue;
                 }
