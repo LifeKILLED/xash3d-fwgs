@@ -2,7 +2,6 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define OUTPUT_DIRECT out_specular_direct_reconstructed
-#define OUTPUT_NORMALIZED_SHADOW_MASK out_specular_shadow_mask_normalized_reconstructed
 #define INPUT_DIRECT specular_direct_shadowed_prefirefly
 #define INPUT_LIGHTDIR specular_direct_lightdir
 

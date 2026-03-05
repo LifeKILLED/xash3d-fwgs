@@ -1,0 +1,8 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define FILTER_HORIZONTAL 1
+#define INPUT_MASK asvgf_shadow_mask_normalized
+#define OUTPUT_MASK out_asvgf_shadow_mask_normalized_h
+
+#include "asvgf_shadow_mask_catmullrom.glsl"

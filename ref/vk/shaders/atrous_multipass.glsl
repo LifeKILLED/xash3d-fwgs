@@ -77,6 +77,10 @@
 #define ATROUS_MASK_SOURCE diffuse_shadow_mask
 #endif
 
+#ifndef ATROUS_MASK_CHANNEL
+#define ATROUS_MASK_CHANNEL 0
+#endif
+
 #ifndef ATROUS_MASK_SIGMA
 #define ATROUS_MASK_SIGMA 0.08
 #endif
@@ -87,6 +91,14 @@
 
 #ifndef ATROUS_MASK_FADE_RANGE
 #define ATROUS_MASK_FADE_RANGE 0.10
+#endif
+
+#ifndef ATROUS_MASK_DIFF_MIN
+#define ATROUS_MASK_DIFF_MIN 0.05
+#endif
+
+#ifndef ATROUS_MASK_DIFF_MAX
+#define ATROUS_MASK_DIFF_MAX 0.20
 #endif
 
 #ifndef ATROUS_LUMA_GATE_ENABLE
@@ -200,14 +212,13 @@ float wVariance(float a, float b)
 float wMask(ivec2 p, ivec2 q)
 {
 #if ATROUS_MASK_GATE_ENABLE && !defined(VARIANCE_PASS)
-    float m0 = clamp(imageLoad(ATROUS_MASK_SOURCE, p).r, 0.0, 1.0);
-    float m1 = clamp(imageLoad(ATROUS_MASK_SOURCE, q).r, 0.0, 1.0);
+    vec4 s0 = imageLoad(ATROUS_MASK_SOURCE, p);
+    vec4 s1 = imageLoad(ATROUS_MASK_SOURCE, q);
+    float m0 = s0[ATROUS_MASK_CHANNEL];
+    float m1 = s1[ATROUS_MASK_CHANNEL];
     float dm = abs(m1 - m0);
-    float inner = max(ATROUS_MASK_SOFT_EDGE, 0.0);
-    float outer = inner + max(ATROUS_MASK_FADE_RANGE, 1e-4);
-    float w_plateau = 1.0 - smoothstep(inner, outer, dm);
-    float w_exp = exp(-dm / max(ATROUS_MASK_SIGMA, 1e-5));
-    return max(w_plateau, w_exp * 0.35);
+    float t = (dm - ATROUS_MASK_DIFF_MIN) / max(ATROUS_MASK_DIFF_MAX - ATROUS_MASK_DIFF_MIN, 1e-4);
+    return 1.0 - clamp(t, 0.0, 1.0);
 #else
     return 1.0;
 #endif
@@ -229,25 +240,12 @@ float wLuminance(float lumCenter, float lumSample, float varianceCenter)
 {
 #if ATROUS_LUMA_GATE_ENABLE
     float nv = clamp(varianceCenter, 0.0, 1.0);
-    float thr = varianceToLumaThreshold(varianceCenter);
-    if (nv <= ATROUS_LUMA_STRICT_VAR_CUTOFF) {
-        // Extra hard gate for stable pixels to preserve fine light/shadow detail.
-        thr = min(thr, ATROUS_LUMA_STRICT_THR);
-    }
-
+    float thr = mix(ATROUS_LUMA_THR_MIN, ATROUS_LUMA_THR_AT_HALF_VAR, nv);
+    float thr_soft = max(thr * ATROUS_LUMA_SOFTNESS_MULT, thr + 1e-4);
     float lmax = max(max(lumCenter, lumSample), ATROUS_LUMA_REL_EPS);
     float d = abs(lumSample - lumCenter) / lmax;
-    float soft = max(thr * ATROUS_LUMA_SOFTNESS_MULT, thr + 1e-4);
-    float w = 1.0 - smoothstep(thr, soft, d);
-
-    // For noisy centers, avoid hard rejection and let neighborhood denoise.
-    float noisy_mix = smoothstep(ATROUS_LUMA_STRICT_VAR_CUTOFF, ATROUS_LUMA_FULL_MIX_VAR, nv);
-    float min_w = ATROUS_LUMA_MIN_WEIGHT * noisy_mix;
-    w = max(w, min_w);
-    w = mix(w, 1.0, smoothstep(ATROUS_LUMA_FULL_MIX_VAR, 1.0, nv));
-
-    // Make luminance gate a soft modulator instead of hard stop.
-    w = max(w, ATROUS_LUMA_MIN_WEIGHT_GLOBAL);
+    float t = (d - thr) / max(thr_soft - thr, 1e-4);
+    float w = 1.0 - clamp(t, 0.0, 1.0);
     w = mix(1.0, w, ATROUS_LUMA_BLEND);
     return clamp(w, 0.0, 1.0);
 #else
@@ -391,6 +389,15 @@ void main()
     }
 
     vec3 outC = (sumW > EPS) ? (sumC / sumW) : centerC;
+#if DENOISER_DEBUG_ATROUS_OUTPUT_SHADOW_MASK
+#if ATROUS_MASK_GATE_ENABLE
+    vec4 mask_src = imageLoad(ATROUS_MASK_SOURCE, p);
+    float mask_v = mask_src[ATROUS_MASK_CHANNEL];
+    outC = vec3(mask_v);
+#else
+    outC = vec3(1.0);
+#endif
+#endif
     imageStore(OUTPUT_RADIANCE, p, vec4(outC, 1.0));
 }
 

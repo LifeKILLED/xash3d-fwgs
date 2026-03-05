@@ -41,7 +41,6 @@ layout(set = 0, binding=17, rgba32f) uniform image2D out_temporal_asvgf_diffuse;
 layout(set = 0, binding=18, rgba32f) uniform image2D out_temporal_asvgf_specular;
 
 layout(set = 0, binding = 9, rgba16f) uniform readonly image2D reprojection_uv;
-layout(set = 0, binding = 11, rgba16f) uniform readonly image2D specular_shadow_mask_normalized_reconstructed;
 layout(set = 0, binding = 12, rgba16f) uniform image2D prev_temporal_asvgf_shadow_mask_normalized;
 layout(set = 0, binding = 13, rgba16f) uniform image2D out_temporal_asvgf_shadow_mask_normalized;
 layout(set = 0, binding = 14, rgba16f) uniform image2D out_asvgf_shadow_mask_normalized;
@@ -182,14 +181,13 @@ void main() {
     const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
     float curr_shadow_mask_norm_diff = imageLoad(diffuse_shadow_mask_normalized_reconstructed, pix).r;
-    float curr_shadow_mask_norm_spec = imageLoad(specular_shadow_mask_normalized_reconstructed, pix).r;
 
     if (DENOISER_ENABLE_REPROJECTION == 0) {
         imageStore(out_diffuse_asvgf, pix, vec4(curr_diffuse, VARIANCE_MIN));
         imageStore(out_specular_asvgf, pix, vec4(curr_specular, VARIANCE_MIN));
         imageStore(out_temporal_asvgf_diffuse, pix, vec4(curr_diffuse, 1.0));
         imageStore(out_temporal_asvgf_specular, pix, vec4(curr_specular, 1.0));
-        vec3 curr_shadow_norm = vec3(curr_shadow_mask_norm_diff, curr_shadow_mask_norm_spec, 0.5 * (curr_shadow_mask_norm_diff + curr_shadow_mask_norm_spec));
+        vec3 curr_shadow_norm = vec3(curr_shadow_mask_norm_diff);
         imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm, 1.0));
         imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm, 1.0));
         return;
@@ -227,7 +225,7 @@ void main() {
 
     vec3 prev_diff = curr_diffuse;
     vec3 prev_spec = curr_specular;
-    vec3 prev_shadow_norm = vec3(curr_shadow_mask_norm_diff, curr_shadow_mask_norm_spec, 0.5 * (curr_shadow_mask_norm_diff + curr_shadow_mask_norm_spec));
+    vec3 prev_shadow_norm = vec3(curr_shadow_mask_norm_diff);
     float prev_len_diff = 0.0;
     float prev_len_spec = 0.0;
 
@@ -281,10 +279,8 @@ void main() {
                        out_spec, var_spec, len_spec, prev_len_spec);
 
     float alpha_diff = max(MIN_ALPHA, 1.0 / max(len_diff, 1.0));
-    float alpha_spec = max(MIN_ALPHA, 1.0 / max(len_spec, 1.0));
     float out_shadow_diff = mix(prev_shadow_norm.r, curr_shadow_mask_norm_diff, alpha_diff);
-    float out_shadow_spec = mix(prev_shadow_norm.g, curr_shadow_mask_norm_spec, alpha_spec);
-    vec3 out_shadow_norm = vec3(out_shadow_diff, out_shadow_spec, 0.5 * (out_shadow_diff + out_shadow_spec));
+    vec3 out_shadow_norm = vec3(out_shadow_diff);
  
     imageStore(out_diffuse_asvgf, pix, vec4(out_diff, var_diff));
     imageStore(out_temporal_asvgf_diffuse, pix, vec4(out_diff, len_diff));

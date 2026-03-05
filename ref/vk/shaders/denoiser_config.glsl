@@ -5,7 +5,7 @@
 #define DENOISER_ENABLE_SPATIAL_RECONSTRUCTION 1
 #define DENOISER_ENABLE_REPROJECTION 1
 #define DENOISER_ENABLE_DEFLICKERING 0
-#define DENOISER_ENABLE_ATROUS 0
+#define DENOISER_ENABLE_ATROUS 1
 
 // Diffuse sampling filter.
 #define DENOISER_SPATIAL_DIFFUSE_ENABLE 1
@@ -32,6 +32,12 @@
 // 0.0 = confidence does not affect history.
 // 1.0 = maximal confidence-based history reduction.
 #define DENOISER_ASVGF_CONFIDENCE_INFLUENCE 0.5
+// Reprojected ASVGF shadow-mask Catmull-Rom filter.
+#define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
+// Higher values preserve more local detail (less blur near gradients).
+#define DENOISER_ASVGF_SHADOW_CATMULL_DETAIL_PRESERVE 0.7
+// Temporary debug: show smoothed ASVGF shadow mask instead of a-trous radiance output.
+#define DENOISER_DEBUG_ATROUS_OUTPUT_SHADOW_MASK 0
 // Confidence influence for deflickering_asvgf heuristics.
 // 0.0 = confidence does not affect thresholds.
 // 1.0 = maximal confidence-based threshold tightening (no direct history multiply).
@@ -42,8 +48,8 @@
 #define DENOISER_ENABLE_PRE_FIREFLY_REJECTION_SPECULAR 0
 
 // Direct diffuse/specular a-trous.
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 2
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 2
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 16
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 16
 
 // Debug views.
 #define DENOISER_DEBUG_CONFIDENCE_VIEW 0

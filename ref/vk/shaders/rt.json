@@ -83,6 +83,12 @@
 	"restir_asvgf_direct": {
 		"comp": "restir_asvgf_direct"
 	},
+	"asvgf_shadow_mask_catmullrom_h": {
+		"comp": "asvgf_shadow_mask_catmullrom_h"
+	},
+	"asvgf_shadow_mask_catmullrom_v": {
+		"comp": "asvgf_shadow_mask_catmullrom_v"
+	},
 	"direct_diffuse_deflickering_asvgf": {
 		"comp": "direct_diffuse_deflickering_asvgf"
 	},

@@ -346,7 +346,8 @@ void main()
     float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0));
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
     vec3 sumC = (center_rgb * center_shadow_mask) * center_w;
-    float sumShadowNorm = (center_shadow_mask / center_lum) * center_w;
+    float sumShadowNorm = center_shadow_mask * center_w * center_lum;
+    float sumShadowNormW = center_w * center_lum;
     float sumW = center_w;
     float conf_sum = center_a;
     int accepted_samples = 0;
@@ -425,20 +426,21 @@ void main()
             vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
             sumC += c_rgb * w;
             float sample_lum = max(luminance709(clampRadianceNonNegative(c.rgb)), 1e-4);
-            sumShadowNorm += (sample_shadow_mask / sample_lum) * w;
+            sumShadowNorm += sample_shadow_mask * w * sample_lum;
+            sumShadowNormW += w * sample_lum;
             sumW += w;
             accepted_samples++;
         }
     }
 
     vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
-    float outShadowNorm = sumShadowNorm / max(sumW, 1e-6);
+    float outShadowNorm = sumShadowNorm / max(sumShadowNormW, 1e-6);
     float outA = max(conf_sum, 0.0);
 
     // Mirror fallback: if nothing valid was gathered, keep center sample.
     if (accepted_samples == 0) {
         outC = center_rgb * center_shadow_mask;
-        outShadowNorm = center_shadow_mask / center_lum;
+        outShadowNorm = center_shadow_mask;
     }
 
     imageStore(OUTPUT_DIRECT, p, vec4(outC, outA));
