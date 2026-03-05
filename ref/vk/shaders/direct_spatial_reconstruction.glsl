@@ -51,6 +51,11 @@
 #define GEOMETRY_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
+#ifndef SPATIAL_EDGE_GATE_MODE
+// 0 = full (shading + geometry + position), 1 = fast (position only), 2 = medium (geometry + position)
+#define SPATIAL_EDGE_GATE_MODE 1
+#endif
+
 #ifndef SPATIAL_CONFIDENCE_MIN
 #define SPATIAL_CONFIDENCE_MIN 0.1
 #endif
@@ -354,18 +359,25 @@ void main()
             ivec2 q = clamp(p + sampleOffset, ivec2(0), res - 1);
             if (all(equal(q, p))) continue;
 
-            vec4 normEnc = imageLoad(NORMALS_GS, q);
-            vec3 N1 = normalDecode(normEnc.zw);
-            float wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
-            if (wn == 0.0) continue;
-
-            vec3 G1 = normalDecode(normEnc.xy);
-            float wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
-            if (wg == 0.0) continue;
-
             vec3 P1 = imageLoad(POSITION_T, q).xyz;
             float wp = positionGate(P1 - P0, G0, invCenterDist);
             if (wp == 0.0) continue;
+
+            vec4 normEnc = imageLoad(NORMALS_GS, q);
+            vec3 N1 = normalDecode(normEnc.zw);
+            float wn = 1.0;
+            float wg = 1.0;
+#if SPATIAL_EDGE_GATE_MODE == 0
+            wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
+            if (wn == 0.0) continue;
+            vec3 G1 = normalDecode(normEnc.xy);
+            wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
+            if (wg == 0.0) continue;
+#elif SPATIAL_EDGE_GATE_MODE == 2
+            vec3 G1 = normalDecode(normEnc.xy);
+            wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
+            if (wg == 0.0) continue;
+#endif
 
             float R1 = imageLoad(MATERIAL_RMXX, q).x;
             float wr = 1.0;
@@ -425,18 +437,25 @@ void main()
         ivec2 q = clamp(ivec2(vec2(p) + vec2(0.5) + offset), ivec2(0), res - 1);
         if (all(equal(q, p))) continue;
 
-        vec4 normEnc = imageLoad(NORMALS_GS, q);
-        vec3 N1 = normalDecode(normEnc.zw);
-        float wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
-        if (wn == 0.0) continue;
-
-        vec3 G1 = normalDecode(normEnc.xy);
-        float wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
-        if (wg == 0.0) continue;
-
         vec3 P1 = imageLoad(POSITION_T, q).xyz;
         float wp = positionGate(P1 - P0, G0, invCenterDist);
         if (wp == 0.0) continue;
+
+        vec4 normEnc = imageLoad(NORMALS_GS, q);
+        vec3 N1 = normalDecode(normEnc.zw);
+        float wn = 1.0;
+        float wg = 1.0;
+#if SPATIAL_EDGE_GATE_MODE == 0
+        wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
+        if (wn == 0.0) continue;
+        vec3 G1 = normalDecode(normEnc.xy);
+        wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
+        if (wg == 0.0) continue;
+#elif SPATIAL_EDGE_GATE_MODE == 2
+        vec3 G1 = normalDecode(normEnc.xy);
+        wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
+        if (wg == 0.0) continue;
+#endif
 
         float R1 = imageLoad(MATERIAL_RMXX, q).x;
         float wr = 1.0;
