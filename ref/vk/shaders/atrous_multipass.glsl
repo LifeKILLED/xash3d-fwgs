@@ -49,8 +49,32 @@
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
+#ifndef GEOMETRY_NORMAL_DOT_THRESHOLD
+#define GEOMETRY_NORMAL_DOT_THRESHOLD 0.75
+#endif
+
+#ifndef ATROUS_FLAT_GEOM_DOT_THRESHOLD
+#define ATROUS_FLAT_GEOM_DOT_THRESHOLD 0.985
+#endif
+
+#ifndef ATROUS_SHADING_GATE_FLAT_RELAX
+#define ATROUS_SHADING_GATE_FLAT_RELAX 0.6
+#endif
+
+#ifndef ATROUS_NORMAL_GATE_SOFTNESS
+#define ATROUS_NORMAL_GATE_SOFTNESS 0.05
+#endif
+
+#ifndef ATROUS_NORMAL_GATE_MIN_WEIGHT
+#define ATROUS_NORMAL_GATE_MIN_WEIGHT 0.0
+#endif
+
 #ifndef ATROUS_MAX_STEP
 #define ATROUS_MAX_STEP 1024
+#endif
+
+#ifndef ATROUS_POSITION_STEP_GROWTH
+#define ATROUS_POSITION_STEP_GROWTH 0.35
 #endif
 
 #ifndef ATROUS_VARIANCE_OUTPUT
@@ -183,10 +207,14 @@ layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
 //---------------------------------------------------------
 float safeLum(vec3 c) { return max(luminance(c), 1e-4); }
 
-float wNormalThreshold(vec3 a, vec3 b, float dotThreshold)
+float wNormalThreshold(vec3 a, vec3 b, float dotThreshold, float relax)
 {
     float nd = max(dot(a, b), 0.0);
-    return step(dotThreshold, nd);
+    float soft = ATROUS_NORMAL_GATE_SOFTNESS * max(relax, 1.0);
+    float t0 = clamp(dotThreshold - soft, 0.0, 1.0);
+    float t1 = clamp(dotThreshold + soft * 0.5, t0 + 1e-4, 1.0);
+    float w = smoothstep(t0, t1, nd);
+    return mix(ATROUS_NORMAL_GATE_MIN_WEIGHT, 1.0, w);
 }
 
 float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float worldTexelSize)
@@ -329,13 +357,14 @@ void main()
     float relax = 1.0;
     float kernelFlatten = 0.0;
 #endif
-    int step = ATROUS_STEP;
+    int stepWidth = ATROUS_STEP;
     float stepScale = float(ATROUS_STEP);
+    float gateStepScale = mix(1.0, stepScale, clamp(ATROUS_POSITION_STEP_GROWTH, 0.0, 1.0));
     float invCenterDist = 1.0 / max(length(P0), 1.0);
     vec3 camPos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
     float worldTexelSize = estimateWorldTexelSizeFromCenter(
-        p, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN * stepScale);
-    float planeThreshold = DENOISER_POSITION_PLANE_THRESHOLD * stepScale * relax;
+        p, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN * gateStepScale);
+    float planeThreshold = DENOISER_POSITION_PLANE_THRESHOLD * gateStepScale * relax;
     float worldTexelThreshold = worldTexelSize * relax;
 
     vec3 sumC = vec3(0.0);
@@ -343,11 +372,19 @@ void main()
 
     for (int i = 0; i < 9; i++)
     {
-        ivec2 q = clamp(p + KERNEL3[i] * step, ivec2(0), res - 1);
+        ivec2 q = clamp(p + KERNEL3[i] * stepWidth, ivec2(0), res - 1);
 
-        vec3 N1 = normalDecode(imageLoad(NORMALS_GS, q).zw);
-        float wnShading = wNormalThreshold(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
-        if (wnShading == 0.0) {
+        vec4 normalsQ = imageLoad(NORMALS_GS, q);
+        vec3 G1 = normalDecode(normalsQ.xy);
+        float wnGeom = wNormalThreshold(geomNorm, G1, GEOMETRY_NORMAL_DOT_THRESHOLD, 0.0);
+        if (wnGeom <= 1e-4) {
+            continue;
+        }
+        vec3 N1 = normalDecode(normalsQ.zw);
+        float wnShadingRaw = wNormalThreshold(N0, N1, SHADING_NORMAL_DOT_THRESHOLD, relax);
+        float flatSurface = step(ATROUS_FLAT_GEOM_DOT_THRESHOLD, max(dot(geomNorm, G1), 0.0));
+        float wnShading = mix(wnShadingRaw, 1.0, flatSurface * clamp(ATROUS_SHADING_GATE_FLAT_RELAX, 0.0, 1.0));
+        if (wnShading <= 1e-4) {
             continue;
         }
 
@@ -375,7 +412,7 @@ void main()
 
         float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
         float wM = wMask(p, q);
-        float w = spatialW * wnShading * wPos * wR * wV * wM;
+        float w = spatialW * wnShading * wnGeom * wPos * wR * wV * wM;
         vec3 c = imageLoad(IN_RADIANCE, q).rgb;
         float L1 = safeLum(c);
         float wL = wLuminance(L0, L1, V0);

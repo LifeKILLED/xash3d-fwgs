@@ -9,7 +9,7 @@
 #define DENOISER_ENABLE_REPROJECTION 1
 #define ASVGF_SHADOW_POSTFILTER_ENABLE 1
 #define DENOISER_ENABLE_DEFLICKERING 0
-#define DENOISER_ENABLE_ATROUS 1
+#define DENOISER_ENABLE_ATROUS 0
 
 // Diffuse sampling filter.
 #define DENOISER_SPATIAL_DIFFUSE_ENABLE 1
@@ -30,11 +30,11 @@
 
 // Shared position-gate thresholds for all denoiser passes.
 #define DENOISER_POSITION_PLANE_THRESHOLD 0.2
-#define DENOISER_POSITION_DIST2_THRESHOLD 0.05
+#define DENOISER_POSITION_DIST2_THRESHOLD 0.2
 // Unified scale for both plane distance and texel distance in position gate.
 #define DENOISER_POSITION_GATE_SCALE 0.001
 // World-space texel footprint margin used by dynamic position gate.
-#define DENOISER_POSITION_TEXEL_SIZE_MARGIN 1.5
+#define DENOISER_POSITION_TEXEL_SIZE_MARGIN 2.5
 
 // Reprojected ASVGF shadow-mask Catmull-Rom filter.
 #define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
@@ -61,6 +61,9 @@
 #define DENOISER_DEBUG_CONFIDENCE_VIEW 0
 #define DENOISER_DEBUG_SHADOW_MASK_VIEW 0
 #define DENOISER_DEBUG_DIRECT_DIFFUSE_ATROUS_VARIANCE 0
+
+// Provide moved reservoirs to next frame
+#define STABILIZE_RESERVOIRS_TEMPORAL 1
 
 // Legacy shared constants.
 #define NEAR_PLANE_OFFSET 5.

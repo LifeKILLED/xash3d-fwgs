@@ -185,7 +185,13 @@ vec3 rayOrigin(mat4 invView) {
 
 vec3 intersectplane(vec3 ro, vec3 rd, vec3 p0, vec3 pn) {
     float d = dot(rd, pn);
+    if (abs(d) < 1e-6) {
+        return p0;
+    }
     float t = dot(p0 - ro, pn) / d;
+    if (isnan(t) || isinf(t)) {
+        return p0;
+    }
     return ro + rd * t;
 }
 
@@ -213,7 +219,7 @@ void main() {
     const ivec2 localID = ivec2(gl_LocalInvocationID.xy);
     const ivec2 sharedOrigin = ivec2(gl_WorkGroupID.xy) * ivec2(LOCAL_SZ_X, LOCAL_SZ_Y) - ivec2(PADDING, PADDING);
 
-	if (sharedOrigin.x >= res.x || sharedOrigin.y >= res.x)
+	if (sharedOrigin.x >= res.x || sharedOrigin.y >= res.y)
 		return;
 
 	// Fill shader memory (one thread reading 3x3 texels)
@@ -256,6 +262,7 @@ void main() {
     vec3 ddx, ddy;
     float depthThreshold;
     computeDdXY(pix, center.pos, center_geom_normal, ubo.ubo.inv_proj, ubo.ubo.inv_view, ddx, ddy, depthThreshold);
+    depthThreshold = max(depthThreshold, 1e-4);
 
 #ifdef MIRROR_FIX
 	if (center.roughness == 0.0) {
@@ -296,7 +303,11 @@ void main() {
             vec3 idealPos = center.pos + ddx * float(kx) + ddy * float(ky);
             vec3 planarDiff = n.pos - idealPos;
             float planarDist2 = dot(planarDiff, planarDiff);
-            float w_pos = exp(-planarDist2 / (depthThreshold * depthThreshold));
+            float depthThreshold2 = max(depthThreshold * depthThreshold, 1e-8);
+            float w_pos = exp(-planarDist2 / depthThreshold2);
+            if (isnan(w_pos) || isinf(w_pos)) {
+                continue;
+            }
             if (w_pos <= 0.001)
                 continue;
 
@@ -308,6 +319,9 @@ void main() {
 #endif
 
             float w = w_normal * w_pos * w_sigma;
+            if (isnan(w) || isinf(w) || w <= 0.0) {
+                continue;
+            }
 
 #ifdef USE_VARIANCE
             // const float lumDiff = n.luminance - center.luminance;
@@ -364,6 +378,9 @@ void main() {
 	}
 
     vec3 result = accum / max(wsum, EPS);
+    if (any(isnan(result)) || any(isinf(result))) {
+        result = center.radiance;
+    }
 
 #ifdef AGGRESSIVE_KILL_FIREFLYES
 

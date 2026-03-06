@@ -6,6 +6,6 @@
 #define SIGMA_ALLWAYS_ONE 1
 
 #define SRC_RADIANCE diffuse_pre_filtered
-#define OUT_RADIANCE out_diffuse_atrous
+#define OUT_RADIANCE out_diffuse_direct_atrous
 
 #include "atrous_optimized.glsl"

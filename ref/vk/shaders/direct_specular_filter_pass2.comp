@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define OUT_RADIANCE out_specular_pre_filtered
+#define OUT_RADIANCE out_specular_direct_atrous
 
 #define POSITION_T position_t
 #define NORMALS_GS normals_gs
