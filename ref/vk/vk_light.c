@@ -4,6 +4,7 @@
 #include "r_textures.h"
 #include "vk_lightmap.h"
 #include "vk_common.h"
+#include "vk_cvar.h"
 #include "shaders/ray_interop.h"
 #include "std/bitarray.h"
 #include "std/profiler.h"
@@ -19,6 +20,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h> // isalnum...
+#include <math.h>
+#include <float.h>
 
 #include "camera.h"
 #include "pm_defs.h"
@@ -72,6 +75,60 @@ typedef struct {
 	// uint32_t kusok_index;
 } rt_light_polygon_t;
 
+#define LIGHT_MERGE_MAX_RECTS 1024
+#define LIGHT_MERGE_MAX_BVH_NODES (LIGHT_MERGE_MAX_RECTS * 2)
+#define LIGHT_MERGE_MAX_NEIGHBORS 256
+#define LIGHT_MERGE_MAX_SOURCE_VERTICES 8
+#define LIGHT_MERGE_POS_EPSILON 2.0f
+#define LIGHT_MERGE_LINE_EPSILON 2.0f
+#define LIGHT_MERGE_COLOR_EPSILON 0.01f
+#define LIGHT_MERGE_NORMAL_COMPONENT_EPSILON 0.01f
+#define LIGHT_MERGE_AABB_EPSILON LIGHT_MERGE_POS_EPSILON
+
+typedef struct {
+	int src_poly_index;
+	vec3_t vertices[4];
+	vec3_t emissive;
+	vec4_t plane;
+	vec3_t center;
+	float area;
+	float mins[3];
+	float maxs[3];
+} rt_light_merge_rect_t;
+
+typedef struct {
+	float mins[3];
+	float maxs[3];
+	int left;
+	int right;
+	int begin;
+	int count;
+} rt_light_merge_bvh_node_t;
+
+typedef struct {
+	int num_rects;
+	rt_light_merge_rect_t rects[LIGHT_MERGE_MAX_RECTS];
+	int rect_taken[LIGHT_MERGE_MAX_RECTS];
+
+	int rect_indices[LIGHT_MERGE_MAX_RECTS];
+
+	int num_bvh_nodes;
+	rt_light_merge_bvh_node_t bvh_nodes[LIGHT_MERGE_MAX_BVH_NODES];
+	int bvh_root;
+
+	int merged_num_polygons;
+	int merged_num_vertices;
+	rt_light_polygon_t merged_polygons[MAX_SURFACE_LIGHTS];
+	vec3_t merged_vertices[MAX_SURFACE_LIGHTS * 7];
+	int source_to_merged[MAX_SURFACE_LIGHTS];
+
+	int neighbors[LIGHT_MERGE_MAX_NEIGHBORS];
+	int working_group[LIGHT_MERGE_MAX_NEIGHBORS];
+	int isolated_self_only_count;
+
+	qboolean prev_frame_merge_was_enabled;
+} rt_light_merge_state_t;
+
 enum {
 	LightFlag_Environment = 0x1,
 	LightFlag_Flashlight = 0x2,
@@ -107,6 +164,7 @@ static struct {
 
 	int num_polygons;
 	rt_light_polygon_t polygons[MAX_SURFACE_LIGHTS];
+	qboolean polygon_rect_candidate[MAX_SURFACE_LIGHTS];
 
 	int num_point_lights;
 	vk_point_light_t point_lights[MAX_POINT_LIGHTS];
@@ -133,11 +191,15 @@ static struct {
 		int dynamic_polygons, dynamic_points;
 		int dlights, elights;
 	} stats;
+
+	rt_light_merge_state_t merge;
 } g_lights_;
 
 static struct {
 	qboolean enabled;
 	char name_filter[256];
+	qboolean print_stats_once;
+	qboolean dump_all_sources_once;
 } debug_dump_lights;
 
 static void debugDumpLights( void ) {
@@ -149,12 +211,22 @@ static void debugDumpLights( void ) {
 	}
 }
 
+static void debugPrintLightsStats( void ) {
+	debug_dump_lights.print_stats_once = true;
+}
+
+static void debugDumpAllLightSources( void ) {
+	debug_dump_lights.dump_all_sources_once = true;
+}
+
 static void lightsProduce(struct Producer* p, struct vk_combuf_s *combuf, const FrameContext *ctx);
 
 qboolean VK_LightsInit( void ) {
 	PROFILER_SCOPES(APROF_SCOPE_INIT);
 
 	gEngine.Cmd_AddCommand("rt_debug_lights_dump", debugDumpLights, "Dump all light sources for next frame");
+	gEngine.Cmd_AddCommand("rt_debug_lights_stats", debugPrintLightsStats, "Dump light sources statistics for next frame");
+	gEngine.Cmd_AddCommand("rt_debug_lights_dump_all", debugDumpAllLightSources, "Dump all light sources with vertices for next frame");
 
 	const int buffer_size = sizeof(struct LightsMetadata) + sizeof(struct LightCluster) * MAX_LIGHT_CLUSTERS;
 
@@ -206,6 +278,8 @@ void VK_LightsShutdown( void ) {
 	VK_BufferDestroy(&g_lights_.buffer);
 
 	gEngine.Cmd_RemoveCommand("vk_lights_dump");
+	gEngine.Cmd_RemoveCommand("rt_debug_lights_stats");
+	gEngine.Cmd_RemoveCommand("rt_debug_lights_dump_all");
 	bitArrayDestroy(&g_lights_.visited_cells);
 }
 
@@ -1043,6 +1117,7 @@ void RT_LightsLoadBegin( const struct model_s *map ) {
 		g_lights_.num_polygons = g_lights_.num_static.polygons = 0;
 		g_lights_.num_point_lights = g_lights_.num_static.point_lights = 0;
 		g_lights_.num_polygon_vertices = g_lights_.num_static.polygon_vertices = 0;
+		memset(g_lights_.polygon_rect_candidate, 0, sizeof(g_lights_.polygon_rect_candidate));
 
 		for (int i = 0; i < g_lights_.grid.cells; ++i) {
 			vk_lights_cell_t *const cell = g_lights_.cells + i;
@@ -1263,6 +1338,8 @@ int RT_LightAddPolygon(const rt_light_add_polygon_t *addpoly) {
 			addPolygonLightToAllClusters( g_lights_.num_polygons );
 		}
 
+		// Candidate for merge; final rectangle validation runs later after collinear cleanup.
+		g_lights_.polygon_rect_candidate[g_lights_.num_polygons] = (addpoly->num_vertices >= 4);
 		g_lights_.num_polygon_vertices += addpoly->num_vertices;
 		APROF_SCOPE_END(add_polygon);
 		return g_lights_.num_polygons++;
@@ -1279,6 +1356,811 @@ void RT_LightsFrameBegin( void ) {
 		cell->num_polygons = cell->num_static.polygons;
 		cell->num_point_lights = cell->num_static.point_lights;
 	}
+}
+
+static void lightMergeResetState(rt_light_merge_state_t *state) {
+	state->num_rects = 0;
+	state->num_bvh_nodes = 0;
+	state->bvh_root = -1;
+	state->merged_num_polygons = 0;
+	state->merged_num_vertices = 0;
+	state->isolated_self_only_count = 0;
+
+	for (int i = 0; i < MAX_SURFACE_LIGHTS; ++i) {
+		state->source_to_merged[i] = -1;
+	}
+}
+
+static void lightMergeCalcBounds4(const vec3_t *vertices, float mins[3], float maxs[3]) {
+	VectorCopy(vertices[0], mins);
+	VectorCopy(vertices[0], maxs);
+	for (int i = 1; i < 4; ++i) {
+		for (int k = 0; k < 3; ++k) {
+			mins[k] = Q_min(mins[k], vertices[i][k]);
+			maxs[k] = Q_max(maxs[k], vertices[i][k]);
+		}
+	}
+}
+
+static void lightMergeFinalizeRect(rt_light_merge_rect_t *rect) {
+	vec3_t normal;
+	VectorSet(rect->center, 0, 0, 0);
+	VectorSet(normal, 0, 0, 0);
+
+	for (int i = 0; i < 4; ++i) {
+		VectorAdd(rect->vertices[i], rect->center, rect->center);
+		if (i > 1) {
+			vec3_t e[2], lnormal;
+			VectorSubtract(rect->vertices[i], rect->vertices[0], e[0]);
+			VectorSubtract(rect->vertices[i - 1], rect->vertices[0], e[1]);
+			CrossProduct(e[0], e[1], lnormal);
+			VectorAdd(lnormal, normal, normal);
+		}
+	}
+
+	VectorM(1.f / 4.f, rect->center, rect->center);
+
+	rect->area = VectorLength(normal);
+	if (rect->area <= 0.f) {
+		VectorSet(rect->plane, 0, 0, 1);
+		rect->plane[3] = 0.f;
+		rect->area = 1.f;
+	} else {
+		VectorM(1.f / rect->area, normal, rect->plane);
+		// Use polygon centroid for stable plane origin.
+		rect->plane[3] = -DotProduct(rect->center, rect->plane);
+	}
+
+	lightMergeCalcBounds4((const vec3_t*)rect->vertices, rect->mins, rect->maxs);
+	for (int i = 0; i < 3; ++i) {
+		rect->mins[i] -= LIGHT_MERGE_AABB_EPSILON;
+		rect->maxs[i] += LIGHT_MERGE_AABB_EPSILON;
+	}
+}
+
+static qboolean lightMergeColorMatch(const vec3_t a, const vec3_t b) {
+	return fabsf(a[0] - b[0]) <= LIGHT_MERGE_COLOR_EPSILON
+		&& fabsf(a[1] - b[1]) <= LIGHT_MERGE_COLOR_EPSILON
+		&& fabsf(a[2] - b[2]) <= LIGHT_MERGE_COLOR_EPSILON;
+}
+
+static qboolean lightMergeRectCompatible(const rt_light_merge_rect_t *a, const rt_light_merge_rect_t *b) {
+	if (!lightMergeColorMatch(a->emissive, b->emissive))
+		return false;
+
+	if (fabsf(a->plane[0] - b->plane[0]) > LIGHT_MERGE_NORMAL_COMPONENT_EPSILON)
+		return false;
+	if (fabsf(a->plane[1] - b->plane[1]) > LIGHT_MERGE_NORMAL_COMPONENT_EPSILON)
+		return false;
+	if (fabsf(a->plane[2] - b->plane[2]) > LIGHT_MERGE_NORMAL_COMPONENT_EPSILON)
+		return false;
+
+	for (int i = 0; i < 3; ++i) {
+		if (a->maxs[i] + LIGHT_MERGE_POS_EPSILON < b->mins[i])
+			return false;
+		if (b->maxs[i] + LIGHT_MERGE_POS_EPSILON < a->mins[i])
+			return false;
+	}
+
+	return true;
+}
+
+static qboolean lightMergePointNear(const vec3_t a, const vec3_t b, float eps) {
+	const float dx = a[0] - b[0];
+	const float dy = a[1] - b[1];
+	const float dz = a[2] - b[2];
+	return (dx * dx + dy * dy + dz * dz) <= (eps * eps);
+}
+
+static qboolean lightMergePointOnSegment(const vec3_t p, const vec3_t a, const vec3_t b, float eps) {
+	vec3_t ab;
+	vec3_t ap;
+	vec3_t cross;
+	VectorSubtract(b, a, ab);
+	VectorSubtract(p, a, ap);
+
+	const float ab_len2 = DotProduct(ab, ab);
+	if (ab_len2 <= eps * eps)
+		return lightMergePointNear(p, a, eps);
+
+	CrossProduct(ap, ab, cross);
+	const float cross_len2 = DotProduct(cross, cross);
+	if (cross_len2 > (eps * eps) * ab_len2)
+		return false;
+
+	const float t = DotProduct(ap, ab) / ab_len2;
+	return t >= -0.01f && t <= 1.01f;
+}
+
+static int lightMergeAppendUniquePoint(vec3_t *points, int count, const vec3_t point, float eps) {
+	for (int i = 0; i < count; ++i) {
+		if (lightMergePointNear(points[i], point, eps))
+			return count;
+	}
+
+	VectorCopy(point, points[count]);
+	return count + 1;
+}
+
+static int lightMergeCompactVertices(vec3_t *vertices, int count, float eps) {
+	if (count <= 0)
+		return 0;
+	if (count > LIGHT_MERGE_MAX_SOURCE_VERTICES)
+		count = LIGHT_MERGE_MAX_SOURCE_VERTICES;
+
+	vec3_t compact[LIGHT_MERGE_MAX_SOURCE_VERTICES];
+	int compact_count = 0;
+
+	for (int i = 0; i < count; ++i) {
+		if (compact_count >= LIGHT_MERGE_MAX_SOURCE_VERTICES)
+			break;
+		if (compact_count == 0 || !lightMergePointNear(compact[compact_count - 1], vertices[i], eps)) {
+			VectorCopy(vertices[i], compact[compact_count++]);
+		}
+	}
+
+	if (compact_count > 1 && lightMergePointNear(compact[0], compact[compact_count - 1], eps))
+		compact_count--;
+
+	for (int i = 0; i < compact_count; ++i)
+		VectorCopy(compact[i], vertices[i]);
+
+	return compact_count;
+}
+
+static int lightMergeRemoveCollinearVertices(vec3_t *vertices, int count, float eps) {
+	qboolean changed;
+	do {
+		changed = false;
+		for (int i = 0; i < count; ++i) {
+			if (count <= 3)
+				return count;
+
+			const int prev = (i - 1 + count) % count;
+			const int next = (i + 1) % count;
+			if (!lightMergePointOnSegment(vertices[i], vertices[prev], vertices[next], eps))
+				continue;
+
+			for (int j = i; j < count - 1; ++j) {
+				VectorCopy(vertices[j + 1], vertices[j]);
+			}
+			count--;
+			changed = true;
+			break;
+		}
+	} while (changed);
+
+	return count;
+}
+
+static qboolean lightMergeExtractRectFromPolygon(const rt_light_polygon_t *src, int src_poly_index, rt_light_merge_rect_t *out) {
+	if (!src || !out)
+		return false;
+
+	if (src->vertices.count < 4 || src->vertices.count > LIGHT_MERGE_MAX_SOURCE_VERTICES)
+		return false;
+	if (src->vertices.offset < 0)
+		return false;
+	if (src->vertices.offset + src->vertices.count > g_lights_.num_polygon_vertices)
+		return false;
+	if (src->vertices.offset + src->vertices.count > (int)COUNTOF(g_lights_.polygon_vertices))
+		return false;
+
+	vec3_t vertices[LIGHT_MERGE_MAX_SOURCE_VERTICES];
+	for (int i = 0; i < src->vertices.count; ++i) {
+		VectorCopy(g_lights_.polygon_vertices[src->vertices.offset + i], vertices[i]);
+	}
+
+	int count = lightMergeCompactVertices(vertices, src->vertices.count, LIGHT_MERGE_POS_EPSILON);
+	count = lightMergeRemoveCollinearVertices(vertices, count, LIGHT_MERGE_LINE_EPSILON);
+	if (count != 4)
+		return false;
+
+	*out = (rt_light_merge_rect_t){0};
+	out->src_poly_index = src_poly_index;
+	VectorCopy(src->emissive, out->emissive);
+	for (int i = 0; i < 4; ++i) {
+		VectorCopy(vertices[i], out->vertices[i]);
+	}
+	lightMergeFinalizeRect(out);
+	return true;
+}
+
+static int lightMergeProjectAxisForRect(const rt_light_merge_rect_t *rect, int axis, vec3_t out) {
+	vec3_t candidate;
+	for (int i = 0; i < 4; ++i) {
+		const int j = (i + axis) & 3;
+		VectorSubtract(rect->vertices[(j + 1) & 3], rect->vertices[j], candidate);
+		if (VectorLength(candidate) > LIGHT_MERGE_POS_EPSILON) {
+			VectorNormalize(candidate);
+			VectorCopy(candidate, out);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static qboolean lightMergeTryCombineRectangles(
+	const rt_light_merge_rect_t *a,
+	const rt_light_merge_rect_t *b,
+	rt_light_merge_rect_t *out) {
+	if (!lightMergeRectCompatible(a, b))
+		return false;
+
+	vec3_t shared_points[16];
+	int shared = 0;
+	for (int i = 0; i < 4; ++i) {
+		const vec3_t p = { a->vertices[i][0], a->vertices[i][1], a->vertices[i][2] };
+		for (int e = 0; e < 4; ++e) {
+			const int e_next = (e + 1) & 3;
+			if (lightMergePointOnSegment(p, b->vertices[e], b->vertices[e_next], LIGHT_MERGE_LINE_EPSILON)) {
+				shared = lightMergeAppendUniquePoint(shared_points, shared, p, LIGHT_MERGE_POS_EPSILON);
+				break;
+			}
+		}
+	}
+	for (int i = 0; i < 4; ++i) {
+		const vec3_t p = { b->vertices[i][0], b->vertices[i][1], b->vertices[i][2] };
+		for (int e = 0; e < 4; ++e) {
+			const int e_next = (e + 1) & 3;
+			if (lightMergePointOnSegment(p, a->vertices[e], a->vertices[e_next], LIGHT_MERGE_LINE_EPSILON)) {
+				shared = lightMergeAppendUniquePoint(shared_points, shared, p, LIGHT_MERGE_POS_EPSILON);
+				break;
+			}
+		}
+	}
+
+	if (shared < 2)
+		return false;
+
+	vec3_t points[8];
+	int points_count = 0;
+	for (int i = 0; i < 4; ++i)
+		points_count = lightMergeAppendUniquePoint(points, points_count, a->vertices[i], LIGHT_MERGE_POS_EPSILON);
+	for (int i = 0; i < 4; ++i)
+		points_count = lightMergeAppendUniquePoint(points, points_count, b->vertices[i], LIGHT_MERGE_POS_EPSILON);
+
+	if (points_count < 4)
+		return false;
+
+	vec3_t u;
+	vec3_t v;
+	if (!lightMergeProjectAxisForRect(a, 0, u))
+		return false;
+	CrossProduct(a->plane, u, v);
+	if (VectorLength(v) <= LIGHT_MERGE_POS_EPSILON)
+		return false;
+	VectorNormalize(v);
+
+	vec3_t plane_origin;
+	VectorM(-a->plane[3], a->plane, plane_origin);
+
+	float min_u = FLT_MAX;
+	float max_u = -FLT_MAX;
+	float min_v = FLT_MAX;
+	float max_v = -FLT_MAX;
+
+	for (int i = 0; i < points_count; ++i) {
+		vec3_t rel;
+		VectorSubtract(points[i], plane_origin, rel);
+		const float pu = DotProduct(rel, u);
+		const float pv = DotProduct(rel, v);
+		min_u = Q_min(min_u, pu);
+		max_u = Q_max(max_u, pu);
+		min_v = Q_min(min_v, pv);
+		max_v = Q_max(max_v, pv);
+	}
+
+	*out = *a;
+
+	VectorCopy(plane_origin, out->vertices[0]);
+	VectorMA(out->vertices[0], min_u, u, out->vertices[0]);
+	VectorMA(out->vertices[0], min_v, v, out->vertices[0]);
+
+	VectorCopy(plane_origin, out->vertices[1]);
+	VectorMA(out->vertices[1], max_u, u, out->vertices[1]);
+	VectorMA(out->vertices[1], min_v, v, out->vertices[1]);
+
+	VectorCopy(plane_origin, out->vertices[2]);
+	VectorMA(out->vertices[2], max_u, u, out->vertices[2]);
+	VectorMA(out->vertices[2], max_v, v, out->vertices[2]);
+
+	VectorCopy(plane_origin, out->vertices[3]);
+	VectorMA(out->vertices[3], min_u, u, out->vertices[3]);
+	VectorMA(out->vertices[3], max_v, v, out->vertices[3]);
+
+	vec3_t e01;
+	vec3_t e12;
+	vec3_t winding_n;
+	VectorSubtract(out->vertices[1], out->vertices[0], e01);
+	VectorSubtract(out->vertices[2], out->vertices[1], e12);
+	CrossProduct(e01, e12, winding_n);
+	if (DotProduct(winding_n, a->plane) < 0.f) {
+		vec3_t tmp;
+		VectorCopy(out->vertices[1], tmp);
+		VectorCopy(out->vertices[3], out->vertices[1]);
+		VectorCopy(tmp, out->vertices[3]);
+	}
+
+	lightMergeFinalizeRect(out);
+	return true;
+}
+
+static void lightMergeBuildNodeBounds(rt_light_merge_state_t *state, int begin, int count, float mins[3], float maxs[3]) {
+	const rt_light_merge_rect_t *const first = &state->rects[state->rect_indices[begin]];
+	VectorCopy(first->mins, mins);
+	VectorCopy(first->maxs, maxs);
+
+	for (int i = 1; i < count; ++i) {
+		const rt_light_merge_rect_t *const rect = &state->rects[state->rect_indices[begin + i]];
+		for (int k = 0; k < 3; ++k) {
+			mins[k] = Q_min(mins[k], rect->mins[k]);
+			maxs[k] = Q_max(maxs[k], rect->maxs[k]);
+		}
+	}
+}
+
+static float lightMergeRectCenterAxis(const rt_light_merge_state_t *state, int rect_index, int axis) {
+	const rt_light_merge_rect_t *const rect = &state->rects[rect_index];
+	return (rect->mins[axis] + rect->maxs[axis]) * 0.5f;
+}
+
+static void lightMergeSortIndices(rt_light_merge_state_t *state, int begin, int count, int axis) {
+	for (int i = begin + 1; i < begin + count; ++i) {
+		const int key = state->rect_indices[i];
+		const float key_center = lightMergeRectCenterAxis(state, key, axis);
+		int j = i - 1;
+		while (j >= begin && lightMergeRectCenterAxis(state, state->rect_indices[j], axis) > key_center) {
+			state->rect_indices[j + 1] = state->rect_indices[j];
+			--j;
+		}
+		state->rect_indices[j + 1] = key;
+	}
+}
+
+static int lightMergeBuildBvh(rt_light_merge_state_t *state, int begin, int count) {
+	if (count <= 0 || state->num_bvh_nodes >= LIGHT_MERGE_MAX_BVH_NODES)
+		return -1;
+
+	const int node_index = state->num_bvh_nodes++;
+	rt_light_merge_bvh_node_t *const node = &state->bvh_nodes[node_index];
+
+	lightMergeBuildNodeBounds(state, begin, count, node->mins, node->maxs);
+	node->left = -1;
+	node->right = -1;
+	node->begin = begin;
+	node->count = count;
+
+	if (count <= 4)
+		return node_index;
+
+	const float extents[3] = {
+		node->maxs[0] - node->mins[0],
+		node->maxs[1] - node->mins[1],
+		node->maxs[2] - node->mins[2],
+	};
+	int axis = 0;
+	if (extents[1] > extents[axis]) axis = 1;
+	if (extents[2] > extents[axis]) axis = 2;
+
+	lightMergeSortIndices(state, begin, count, axis);
+
+	const int left_count = count / 2;
+	const int right_count = count - left_count;
+	node->left = lightMergeBuildBvh(state, begin, left_count);
+	node->right = lightMergeBuildBvh(state, begin + left_count, right_count);
+	node->begin = 0;
+	node->count = 0;
+
+	return node_index;
+}
+
+static qboolean lightMergeAabbIntersect(const float mins_a[3], const float maxs_a[3], const float mins_b[3], const float maxs_b[3]) {
+	for (int i = 0; i < 3; ++i) {
+		if (maxs_a[i] < mins_b[i] || maxs_b[i] < mins_a[i])
+			return false;
+	}
+	return true;
+}
+
+static int lightMergeFindNeighbors(rt_light_merge_state_t *state, const rt_light_merge_rect_t *rect, int self_rect_index) {
+	if (state->bvh_root < 0)
+		return 0;
+
+	float query_mins[3];
+	float query_maxs[3];
+	for (int i = 0; i < 3; ++i) {
+		query_mins[i] = rect->mins[i] - LIGHT_MERGE_POS_EPSILON;
+		query_maxs[i] = rect->maxs[i] + LIGHT_MERGE_POS_EPSILON;
+	}
+
+	int stack[LIGHT_MERGE_MAX_BVH_NODES];
+	int top = 0;
+	stack[top++] = state->bvh_root;
+
+	int neighbors_count = 0;
+	while (top > 0) {
+		const int node_index = stack[--top];
+		if (node_index < 0)
+			continue;
+
+		const rt_light_merge_bvh_node_t *const node = &state->bvh_nodes[node_index];
+		if (!lightMergeAabbIntersect(query_mins, query_maxs, node->mins, node->maxs))
+			continue;
+
+		if (node->left < 0 && node->right < 0) {
+			for (int i = 0; i < node->count; ++i) {
+				const int rect_index = state->rect_indices[node->begin + i];
+				if (rect_index == self_rect_index || state->rect_taken[rect_index])
+					continue;
+
+				if (neighbors_count >= LIGHT_MERGE_MAX_NEIGHBORS)
+					return neighbors_count;
+				state->neighbors[neighbors_count++] = rect_index;
+			}
+			continue;
+		}
+
+		if (node->left >= 0 && top < LIGHT_MERGE_MAX_BVH_NODES)
+			stack[top++] = node->left;
+		if (node->right >= 0 && top < LIGHT_MERGE_MAX_BVH_NODES)
+			stack[top++] = node->right;
+	}
+
+	return neighbors_count;
+}
+
+static int lightMergeCountOverlapsSelfOnlyAware(rt_light_merge_state_t *state, const rt_light_merge_rect_t *rect, int self_rect_index) {
+	if (state->bvh_root < 0)
+		return 0;
+
+	float query_mins[3];
+	float query_maxs[3];
+	for (int i = 0; i < 3; ++i) {
+		query_mins[i] = rect->mins[i] - LIGHT_MERGE_POS_EPSILON;
+		query_maxs[i] = rect->maxs[i] + LIGHT_MERGE_POS_EPSILON;
+	}
+
+	int stack[LIGHT_MERGE_MAX_BVH_NODES];
+	int top = 0;
+	stack[top++] = state->bvh_root;
+
+	int overlaps_count = 0;
+	while (top > 0) {
+		const int node_index = stack[--top];
+		if (node_index < 0)
+			continue;
+
+		const rt_light_merge_bvh_node_t *const node = &state->bvh_nodes[node_index];
+		if (!lightMergeAabbIntersect(query_mins, query_maxs, node->mins, node->maxs))
+			continue;
+
+		if (node->left < 0 && node->right < 0) {
+			for (int i = 0; i < node->count; ++i) {
+				const int rect_index = state->rect_indices[node->begin + i];
+				if (rect_index != self_rect_index && state->rect_taken[rect_index])
+					continue;
+				overlaps_count++;
+			}
+			continue;
+		}
+
+		if (node->left >= 0 && top < LIGHT_MERGE_MAX_BVH_NODES)
+			stack[top++] = node->left;
+		if (node->right >= 0 && top < LIGHT_MERGE_MAX_BVH_NODES)
+			stack[top++] = node->right;
+	}
+
+	return overlaps_count;
+}
+
+static int lightMergeAppendRectAsPolygon(rt_light_merge_state_t *state, const rt_light_merge_rect_t *rect) {
+	if (state->merged_num_polygons >= MAX_SURFACE_LIGHTS) {
+		ERROR_THROTTLED(10, "Max number of merged polygon lights %d reached", MAX_SURFACE_LIGHTS);
+		return -1;
+	}
+
+	if (state->merged_num_vertices + 4 > COUNTOF(state->merged_vertices)) {
+		ERROR_THROTTLED(10, "Max number of merged polygon vertices %d reached", (int)COUNTOF(state->merged_vertices));
+		return -1;
+	}
+
+	const int index = state->merged_num_polygons++;
+	rt_light_polygon_t *const poly = &state->merged_polygons[index];
+	*poly = (rt_light_polygon_t){0};
+	Vector4Copy(rect->plane, poly->plane);
+	VectorCopy(rect->center, poly->center);
+	poly->area = rect->area;
+	VectorCopy(rect->emissive, poly->emissive);
+	poly->vertices.offset = state->merged_num_vertices;
+	poly->vertices.count = 4;
+
+	for (int i = 0; i < 4; ++i)
+		VectorCopy(rect->vertices[i], state->merged_vertices[state->merged_num_vertices + i]);
+	state->merged_num_vertices += 4;
+
+	return index;
+}
+
+static int lightMergeAppendSourcePolygon(rt_light_merge_state_t *state, int source_poly_index) {
+	const rt_light_polygon_t *const src = g_lights_.polygons + source_poly_index;
+
+	if (state->merged_num_polygons >= MAX_SURFACE_LIGHTS) {
+		ERROR_THROTTLED(10, "Max number of merged polygon lights %d reached", MAX_SURFACE_LIGHTS);
+		return -1;
+	}
+
+	if (state->merged_num_vertices + src->vertices.count > COUNTOF(state->merged_vertices)) {
+		ERROR_THROTTLED(10, "Max number of merged polygon vertices %d reached", (int)COUNTOF(state->merged_vertices));
+		return -1;
+	}
+
+	const int index = state->merged_num_polygons++;
+	rt_light_polygon_t *const dst = &state->merged_polygons[index];
+	*dst = *src;
+	dst->vertices.offset = state->merged_num_vertices;
+
+	for (int i = 0; i < src->vertices.count; ++i) {
+		VectorCopy(g_lights_.polygon_vertices[src->vertices.offset + i], state->merged_vertices[state->merged_num_vertices + i]);
+	}
+	state->merged_num_vertices += src->vertices.count;
+	return index;
+}
+
+static void lightMergeCollectRectangles(rt_light_merge_state_t *state) {
+	for (int i = 0; i < g_lights_.num_polygons; ++i) {
+		const rt_light_polygon_t *const src = g_lights_.polygons + i;
+		if (!g_lights_.polygon_rect_candidate[i])
+			continue;
+
+		if (state->num_rects >= LIGHT_MERGE_MAX_RECTS)
+			break;
+
+		rt_light_merge_rect_t *const rect = &state->rects[state->num_rects];
+		if (!lightMergeExtractRectFromPolygon(src, i, rect))
+			continue;
+
+		state->rect_indices[state->num_rects] = state->num_rects;
+		state->rect_taken[state->num_rects] = 0;
+		state->num_rects++;
+	}
+}
+
+static void lightMergeBuildMergedPolygons(void) {
+	rt_light_merge_state_t *const state = &g_lights_.merge;
+	lightMergeResetState(state);
+
+	lightMergeCollectRectangles(state);
+
+	if (state->num_rects > 0) {
+		state->num_bvh_nodes = 0;
+		state->bvh_root = lightMergeBuildBvh(state, 0, state->num_rects);
+	}
+
+	for (int i = 0; i < state->num_rects; ++i) {
+		if (state->rect_taken[i])
+			continue;
+
+		if (lightMergeCountOverlapsSelfOnlyAware(state, &state->rects[i], i) <= 1) {
+			// This source overlaps only with itself in BVH, no merge candidates nearby.
+			state->rect_taken[i] = 1;
+			state->isolated_self_only_count++;
+			continue;
+		}
+
+		rt_light_merge_rect_t current = state->rects[i];
+		int group_count = 0;
+		state->working_group[group_count++] = i;
+		state->rect_taken[i] = 1;
+
+		while (1) {
+			qboolean merged_this_pass = false;
+			const int neighbors_count = lightMergeFindNeighbors(state, &current, i);
+			for (int n = 0; n < neighbors_count; ++n) {
+				const int neighbor_index = state->neighbors[n];
+				if (state->rect_taken[neighbor_index])
+					continue;
+
+				rt_light_merge_rect_t combined;
+				if (!lightMergeTryCombineRectangles(&current, &state->rects[neighbor_index], &combined))
+					continue;
+
+				current = combined;
+				state->rect_taken[neighbor_index] = 1;
+				if (group_count < LIGHT_MERGE_MAX_NEIGHBORS)
+					state->working_group[group_count++] = neighbor_index;
+				merged_this_pass = true;
+				// Restart from the beginning of neighbor scan after any successful merge.
+				break;
+			}
+
+			if (!merged_this_pass)
+				break;
+		}
+
+		const int merged_index = lightMergeAppendRectAsPolygon(state, &current);
+		if (merged_index < 0)
+			continue;
+
+		for (int g = 0; g < group_count; ++g) {
+			const int src_poly_index = state->rects[state->working_group[g]].src_poly_index;
+			state->source_to_merged[src_poly_index] = merged_index;
+		}
+	}
+
+	for (int i = 0; i < g_lights_.num_polygons; ++i) {
+		if (state->source_to_merged[i] >= 0)
+			continue;
+
+		const int merged_index = lightMergeAppendSourcePolygon(state, i);
+		if (merged_index < 0)
+			break;
+		state->source_to_merged[i] = merged_index;
+	}
+}
+
+static void lightMergeBuildBypassPolygons(struct LightsMetadata *metadata) {
+	rt_light_merge_state_t *const state = &g_lights_.merge;
+	state->merged_num_polygons = g_lights_.num_polygons;
+	state->merged_num_vertices = g_lights_.num_polygon_vertices;
+
+	for (int i = 0; i < MAX_SURFACE_LIGHTS; ++i)
+		state->source_to_merged[i] = -1;
+
+	for (int i = 0; i < g_lights_.num_polygons; ++i)
+		state->source_to_merged[i] = i;
+
+	ASSERT(g_lights_.num_polygons <= MAX_EMISSIVE_KUSOCHKI);
+	metadata->num_polygons = g_lights_.num_polygons;
+	for (int i = 0; i < g_lights_.num_polygons; ++i) {
+		const rt_light_polygon_t *const src_poly = g_lights_.polygons + i;
+		struct PolygonLight *const dst_poly = metadata->polygons + i;
+
+		Vector4Copy(src_poly->plane, dst_poly->plane);
+		VectorCopy(src_poly->center, dst_poly->center);
+		dst_poly->area = src_poly->area;
+		VectorCopy(src_poly->emissive, dst_poly->emissive);
+
+		ASSERT(src_poly->vertices.count > 2);
+		ASSERT(src_poly->vertices.offset < 0xffffu);
+		ASSERT(src_poly->vertices.count < 0xffffu);
+		ASSERT(src_poly->vertices.offset + src_poly->vertices.count < COUNTOF(metadata->polygon_vertices));
+		dst_poly->vertices_count_offset = (src_poly->vertices.count << 16) | (src_poly->vertices.offset);
+	}
+
+	ASSERT(g_lights_.num_polygon_vertices <= COUNTOF(metadata->polygon_vertices));
+	for (int i = 0; i < g_lights_.num_polygon_vertices; ++i) {
+		VectorCopy(g_lights_.polygon_vertices[i], metadata->polygon_vertices[i]);
+	}
+}
+
+static void lightMergePrintFirstEnableStats(void) {
+	rt_light_merge_state_t *const state = &g_lights_.merge;
+
+	int total_lights = g_lights_.num_polygons;
+	int is_merge_candidate[MAX_SURFACE_LIGHTS] = {0};
+	int merge_candidates = 0;
+	for (int i = 0; i < g_lights_.num_polygons; ++i) {
+		rt_light_merge_rect_t tmp;
+		if (g_lights_.polygon_rect_candidate[i] && lightMergeExtractRectFromPolygon(g_lights_.polygons + i, i, &tmp)) {
+			is_merge_candidate[i] = 1;
+			merge_candidates++;
+		}
+	}
+
+	int skipped_lights = total_lights - merge_candidates;
+
+	int merged_groups_total = 0;
+	int merged_groups_success = 0;
+	int unmerged_candidates = 0;
+	int merged_old_lights = 0;
+	int final_total_lights = state->merged_num_polygons;
+	int reduced_lights = total_lights - final_total_lights;
+
+	if (merge_candidates > 0) {
+		int merged_index_counts[MAX_SURFACE_LIGHTS] = {0};
+		for (int i = 0; i < g_lights_.num_polygons; ++i) {
+			if (!is_merge_candidate[i])
+				continue;
+
+			const int merged_index = state->source_to_merged[i];
+			if (merged_index >= 0 && merged_index < MAX_SURFACE_LIGHTS)
+				merged_index_counts[merged_index]++;
+		}
+
+		for (int i = 0; i < MAX_SURFACE_LIGHTS; ++i) {
+			const int c = merged_index_counts[i];
+			if (c <= 0)
+				continue;
+			merged_groups_total++;
+			if (c == 1)
+				unmerged_candidates++;
+			if (c > 1) {
+				merged_groups_success++;
+				merged_old_lights += c;
+			}
+		}
+	}
+
+	const float merged_percent = total_lights > 0 ? (100.f * (float)merged_old_lights / (float)total_lights) : 0.f;
+
+	INFO("rt_merge_kusochki_lights stats: skipped=%d merged_old=%d remaining_unmerged=%d isolated_self_only=%d merged_groups=%d merged_groups_total=%d total_before=%d total_after=%d reduced=%d merged_percent=%.2f%%",
+		skipped_lights,
+		merged_old_lights,
+		unmerged_candidates,
+		state->isolated_self_only_count,
+		merged_groups_success,
+		merged_groups_total,
+		total_lights,
+		final_total_lights,
+		reduced_lights,
+		merged_percent);
+}
+
+static void lightPrintPolygonStatsOnce(float merge_time_ms) {
+	if (!debug_dump_lights.print_stats_once)
+		return;
+
+	const int total_lights = g_lights_.num_polygons;
+	const int merged_success = Q_max(0, total_lights - g_lights_.merge.merged_num_polygons);
+	const int merged_failed = Q_max(0, total_lights - merged_success);
+	const float remaining_percent_total = total_lights > 0
+		? (100.f * (float)merged_failed / (float)total_lights)
+		: 0.f;
+	const float remaining_percent_from_initial = remaining_percent_total;
+
+	INFO("lights stats: total=%d merged_success=%d merged_failed=%d isolated_self_only=%d remaining_percent_total=%.2f%% remaining_percent_from_initial=%.2f%% time_ms=%.3f",
+		total_lights,
+		merged_success,
+		merged_failed,
+		g_lights_.merge.isolated_self_only_count,
+		remaining_percent_total,
+		remaining_percent_from_initial,
+		merge_time_ms);
+
+	debug_dump_lights.print_stats_once = false;
+}
+
+static void lightDumpAllSourcesOnce(void) {
+	if (!debug_dump_lights.dump_all_sources_once)
+		return;
+
+	INFO("lights dump begin: point=%d polygon=%d polygon_merged=%d",
+		g_lights_.num_point_lights, g_lights_.num_polygons, g_lights_.merge.merged_num_polygons);
+
+	for (int i = 0; i < g_lights_.num_point_lights; ++i) {
+		const vk_point_light_t *const l = &g_lights_.point_lights[i];
+		INFO("point[%d]: origin=(%.3f %.3f %.3f) color=(%.3f %.3f %.3f) dir=(%.3f %.3f %.3f) radius=%.3f",
+			i,
+			l->origin[0], l->origin[1], l->origin[2],
+			l->color[0], l->color[1], l->color[2],
+			l->dir[0], l->dir[1], l->dir[2],
+			l->radius);
+	}
+
+	for (int i = 0; i < g_lights_.num_polygons; ++i) {
+		const rt_light_polygon_t *const p = &g_lights_.polygons[i];
+		const int merged_index = (i >= 0 && i < MAX_SURFACE_LIGHTS) ? g_lights_.merge.source_to_merged[i] : -1;
+
+		INFO("poly[%d]: merged=%d vertices=%d offset=%d emissive=(%.3f %.3f %.3f) normal=(%.5f %.5f %.5f) area=%.5f",
+			i, merged_index, p->vertices.count, p->vertices.offset,
+			p->emissive[0], p->emissive[1], p->emissive[2],
+			p->plane[0], p->plane[1], p->plane[2], p->area);
+
+		for (int v = 0; v < p->vertices.count; ++v) {
+			const int index = p->vertices.offset + v;
+			if (index < 0 || index >= g_lights_.num_polygon_vertices || index >= (int)COUNTOF(g_lights_.polygon_vertices)) {
+				INFO("poly[%d].v[%d]: OOB index=%d", i, v, index);
+				continue;
+			}
+			const vec3_t *const vert = &g_lights_.polygon_vertices[index];
+			INFO("poly[%d].v[%d]=(%.3f %.3f %.3f)", i, v, (*vert)[0], (*vert)[1], (*vert)[2]);
+		}
+	}
+
+	INFO("lights dump end");
+	debug_dump_lights.dump_all_sources_once = false;
 }
 
 static void uploadGridRange( int begin, int end ) {
@@ -1302,9 +2184,31 @@ static void uploadGridRange( int begin, int end ) {
 		struct LightCluster *const dst = grid + i;
 
 		dst->num_point_lights = src->num_point_lights;
-		dst->num_polygons = src->num_polygons;
 		memcpy(dst->point_lights, src->point_lights, sizeof(uint8_t) * src->num_point_lights);
-		memcpy(dst->polygons, src->polygons, sizeof(uint8_t) * src->num_polygons);
+
+		int remapped_polygons = 0;
+		for (int p = 0; p < src->num_polygons; ++p) {
+			const int source_poly = src->polygons[p];
+			if (source_poly < 0 || source_poly >= MAX_SURFACE_LIGHTS)
+				continue;
+
+			const int merged_poly = g_lights_.merge.source_to_merged[source_poly];
+			if (merged_poly < 0 || merged_poly > UINT8_MAX)
+				continue;
+
+			qboolean duplicate = false;
+			for (int d = 0; d < remapped_polygons; ++d) {
+				if (dst->polygons[d] == merged_poly) {
+					duplicate = true;
+					break;
+				}
+			}
+
+			if (!duplicate && remapped_polygons < MAX_VISIBLE_SURFACE_LIGHTS) {
+				dst->polygons[remapped_polygons++] = merged_poly;
+			}
+		}
+		dst->num_polygons = remapped_polygons;
 	}
 
 	R_VkBufferUnlock( locked );
@@ -1334,10 +2238,34 @@ static void uploadGrid( void ) {
 }
 
 static void uploadPolygonLights( struct LightsMetadata *metadata ) {
-	ASSERT(g_lights_.num_polygons <= MAX_EMISSIVE_KUSOCHKI);
-	metadata->num_polygons = g_lights_.num_polygons;
-	for (int i = 0; i < g_lights_.num_polygons; ++i) {
-		const rt_light_polygon_t *const src_poly = g_lights_.polygons + i;
+	float merge_time_ms = 0.f;
+	if (CVAR_TO_BOOL(rt_merge_kusochki_lights)) {
+		const uint64_t merge_begin_ns = aprof_time_now_ns();
+		lightMergeBuildMergedPolygons();
+		const uint64_t merge_end_ns = aprof_time_now_ns();
+		merge_time_ms = (float)(merge_end_ns - merge_begin_ns) / 1000000.f;
+
+		const int merged_success = g_lights_.num_polygons - g_lights_.merge.merged_num_polygons;
+		if (merged_success <= 0) {
+			debug_dump_lights.dump_all_sources_once = true;
+		}
+
+		if (!g_lights_.merge.prev_frame_merge_was_enabled) {
+			lightMergePrintFirstEnableStats();
+		}
+		g_lights_.merge.prev_frame_merge_was_enabled = true;
+	} else {
+		g_lights_.merge.prev_frame_merge_was_enabled = false;
+		lightMergeBuildBypassPolygons(metadata);
+		lightPrintPolygonStatsOnce(0.f);
+		lightDumpAllSourcesOnce();
+		return;
+	}
+
+	ASSERT(g_lights_.merge.merged_num_polygons <= MAX_EMISSIVE_KUSOCHKI);
+	metadata->num_polygons = g_lights_.merge.merged_num_polygons;
+	for (int i = 0; i < g_lights_.merge.merged_num_polygons; ++i) {
+		const rt_light_polygon_t *const src_poly = g_lights_.merge.merged_polygons + i;
 		struct PolygonLight *const dst_poly = metadata->polygons + i;
 
 		Vector4Copy(src_poly->plane, dst_poly->plane);
@@ -1355,11 +2283,13 @@ static void uploadPolygonLights( struct LightsMetadata *metadata ) {
 		dst_poly->vertices_count_offset = (src_poly->vertices.count << 16) | (src_poly->vertices.offset);
 	}
 
-	// TODO static assert
-	ASSERT(sizeof(metadata->polygon_vertices) >= sizeof(g_lights_.polygon_vertices));
-	for (int i = 0; i < g_lights_.num_polygon_vertices; ++i) {
-		VectorCopy(g_lights_.polygon_vertices[i], metadata->polygon_vertices[i]);
+	ASSERT(g_lights_.merge.merged_num_vertices <= COUNTOF(metadata->polygon_vertices));
+	for (int i = 0; i < g_lights_.merge.merged_num_vertices; ++i) {
+		VectorCopy(g_lights_.merge.merged_vertices[i], metadata->polygon_vertices[i]);
 	}
+
+	lightPrintPolygonStatsOnce(merge_time_ms);
+	lightDumpAllSourcesOnce();
 }
 
 static void uploadPointLights( struct LightsMetadata *metadata ) {

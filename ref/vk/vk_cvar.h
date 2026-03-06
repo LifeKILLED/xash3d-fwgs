@@ -22,6 +22,7 @@ void VK_LoadCvarsAfterInit( void );
 	X(r_infotool) \
 	X(vk_device_target_id) \
 	X(vk_debug_log) \
+	X(rt_merge_kusochki_lights) \
 	X(rt_capable) \
 	X(rt_force_disable) \
 	X(rt_enable) \
