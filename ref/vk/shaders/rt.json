@@ -62,18 +62,6 @@
 	"direct_diffuse_shadow_filter_v": {
 		"comp": "direct_diffuse_shadow_filter_v"
 	},
-	"direct_specular_shadow_filter_h": {
-		"comp": "direct_specular_shadow_filter_h"
-	},
-	"direct_specular_shadow_filter_v": {
-		"comp": "direct_specular_shadow_filter_v"
-	},
-	"direct_diffuse_pre_firefly_rejection": {
-		"comp": "direct_diffuse_pre_firefly_rejection"
-	},
-	"direct_specular_pre_firefly_rejection": {
-		"comp": "direct_specular_pre_firefly_rejection"
-	},
 	"direct_diffuse_spatial_reconstruction": {
 		"comp": "direct_diffuse_spatial_reconstruction"
 	},

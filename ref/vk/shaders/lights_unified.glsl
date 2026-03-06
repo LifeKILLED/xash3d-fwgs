@@ -78,6 +78,10 @@ const float shadow_offset_fudge = .1;
 #define LIGHT_SPECULAR_GAIN_MAX 2.0
 #endif
 
+#ifndef NON_BRDF_POINT_LIGHTS_MULTIPLIER
+#define NON_BRDF_POINT_LIGHTS_MULTIPLIER 2.0
+#endif
+
 float fbool(bool b) { return b ? 1.0 : 0.0; }
 
 vec3 offsetShadowOrigin(vec3 P, vec3 N, vec3 L)
@@ -190,7 +194,7 @@ float computeSpecularCompensation(float angular_radius)
     return clamp(1.0 + angular_radius * LIGHT_SPECULAR_GAIN_FROM_ANGULAR, 1.0, LIGHT_SPECULAR_GAIN_MAX);
 }
 
-LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rnd)
+LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rnd, bool eval_brdf)
 {
     LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0., LIGHT_SPECULAR_MIN_ANGULAR, 1.0);
 
@@ -245,6 +249,10 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
         float source_radius = sqrt(max(pl.origin_r2.w, 0.0));
         l.spec_angular_radius = computeSpecularAngularRadius(source_radius, l.dist);
         l.spec_compensation = computeSpecularCompensation(l.spec_angular_radius);
+    }
+
+    if (!eval_brdf) {
+        l.geom_weight *= NON_BRDF_POINT_LIGHTS_MULTIPLIER;
     }
 
     return l;
@@ -382,7 +390,7 @@ LightResult sampleFlashlightAndSky(
                                 uint(light_grid.clusters_[cluster_index].point_lights[i]) :
                                 i;
 
-            LightSamplingData l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd);
+            LightSamplingData l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd, eval_brdf);
 
             bool need_to_separate_sky = enable_shadow && l.dist < 0.0;
             if (need_to_separate_sky) { // calculate sky shadow outside of loop for better perfomance
@@ -447,7 +455,7 @@ LightResult evalUnifiedLight(
 
         r.light_id = idx_point;
 
-        l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd);
+        l = calculatePointLightSamplingData(lights.m.point_lights[idx_point], P, rnd, eval_brdf);
     }
     else
     {

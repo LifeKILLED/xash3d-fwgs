@@ -33,6 +33,15 @@ bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
 }
 
+float deterministic_tie(ivec2 p, int blur_channel) {
+    uint h = uint(p.x) * 73856093u;
+    h ^= uint(p.y) * 19349663u;
+    h ^= uint(blur_channel) * 83492791u;
+    h ^= (h >> 13);
+    h *= 1274126177u;
+    return float(h & 0x00ffffffu) * (1.0 / 16777216.0);
+}
+
 ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channel)
 {
     const vec2 center_raw_v = imageLoad(restir_stabilize_metric_raw, pix).rg;
@@ -52,11 +61,13 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
     float best_bright_blur = center_blur;
     float best_dark_tie = 2.0;
     float best_bright_tie = 2.0;
+#if !DENOISER_STABLE_STABILIZATION
     rand01_state =
         uint(ubo.ubo.random_seed) +
         uint(pix.x) * 1833u +
         uint(pix.y) * 31337u +
         uint(blur_channel) * 977u;
+#endif
     for (int i = 0; i < 8; ++i) {
         const ivec2 q = pix + neighbor_offsets[i];
         if (!in_bounds(q, res)) {
@@ -75,7 +86,11 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
         }
 
         const float bq = imageLoad(restir_stabilize_metric, q).rg[blur_channel];
+#if DENOISER_STABLE_STABILIZATION
+        const float tie = deterministic_tie(q, blur_channel);
+#else
         const float tie = rand01();
+#endif
 
         if ((bq < best_dark_blur - 1e-6) ||
             (abs(bq - best_dark_blur) <= 1e-6 && bq < center_blur - 1e-6 && tie < best_dark_tie)) {

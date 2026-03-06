@@ -100,6 +100,10 @@
 #define SPATIAL_SHADOW_MASK_ENABLE 0
 #endif
 
+#ifndef SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE
+#define SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE 1
+#endif
+
 #ifndef SPATIAL_SHADOW_MASK_SOURCE
 #define SPATIAL_SHADOW_MASK_SOURCE diffuse_shadow_mask
 #endif
@@ -321,10 +325,16 @@ void main()
     vec4 shadow_cache_ids = vec4(1e20);
     vec4 shadow_cache_masks = vec4(0.0);
 #if SPATIAL_SHADOW_MASK_ENABLE
+#if SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE
     buildAndPackShadowCache5Tap(p, res, P0, G0, invCenterDist, worldTexelSize, shadow_cache_ids, shadow_cache_masks);
+#endif
     vec3 center_shadow_data = loadShadowMaskAndLightId(p);
+#if SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE
     float center_shadow_mask = resolveShadowMaskFromCache(
         center_shadow_data.x, center_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
+#else
+    float center_shadow_mask = center_shadow_data.x;
+#endif
 #else
     float center_shadow_mask = 1.0;
 #endif
@@ -430,8 +440,12 @@ void main()
 
         if ((w > 0.0) || (w_relaxed > 0.0)) {
             vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
+#if SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE
             float sample_shadow_mask = resolveShadowMaskFromCache(
                 sample_shadow_data.x, sample_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
+#else
+            float sample_shadow_mask = sample_shadow_data.x;
+#endif
             vec3 c_rgb = clampLuminancePreserveHue(
                 clampRadianceNonNegative(c.rgb), SPATIAL_SAMPLE_LUMINANCE_CLAMP) * sample_shadow_mask;
             float sample_lum = max(luminance709(c_rgb), 1e-4);
