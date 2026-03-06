@@ -124,7 +124,8 @@ void updateRestirConfidence(
     float diff = abs(curr_w - r.w_full);
     float scale = max(curr_w, r.w_full);
 
-    r.conf = scale > 0.0 ? clamp(1.0 - (diff / scale), 0.0, 1.0) : 0.0;
+    // If both previous and current weights are zero, treat as stable empty lighting.
+    r.conf = scale > 0.0 ? clamp(1.0 - (diff / scale), 0.0, 1.0) : 1.0;
 
     restirRefreshReservoirWeightsNoConfidence(r, curr_w);
 }

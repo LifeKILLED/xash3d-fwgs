@@ -414,7 +414,7 @@ void main()
 
     vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
     float outShadowNorm = sumShadowNorm / max(sumShadowNormW, 1e-6);
-    float outA = clamp(sumConfNorm / max(sumConfNormW, 1e-6), 0.0, 1.0);
+    float outA = (sumConfNormW > 1e-6) ? clamp(sumConfNorm / sumConfNormW, 0.0, 1.0) : 1.0;
 
     // Mirror fallback: if nothing valid was gathered, keep center sample.
     if (accepted_samples == 0) {
