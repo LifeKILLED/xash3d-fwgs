@@ -272,8 +272,8 @@ Reservoir reprojectReservoir(
 
     bool kill_by_lifetime = r.checked_count > (RESERVOIR_LIFETIME_MIN + uint(kill_rnd * RESERVOIR_LIFETIME_MAX));
     if (kill_by_lifetime) {
-        conf = CONFIDENCE_REJECTED;
-         return reservoirInit(CONFIDENCE_REJECTED);
+        conf = 1.0;
+        return reservoirInit(CONFIDENCE_REJECTED);
     }
 
     LightResult l_curr = evalUnifiedLight(curr_evalP, curr_evalN, V, material, ctx, r.light_index, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
