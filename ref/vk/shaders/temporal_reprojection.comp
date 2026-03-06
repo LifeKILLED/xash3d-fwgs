@@ -16,9 +16,10 @@ const float DIELECTRIC_SPECULAR_MULTIPLIER = 0.02; // default value from pbr pap
 const int AVERAGE_KERNEL = 2; // big kernel not needed
 
 // ----- new tweak constants (you may want to move to UBO) -----
-const float NORMAL_DOT_REJECT = 0.75;      // if dot(currentShading, prevShading) < this -> reject sample
+const float NORMAL_DOT_REJECT = 0.5;       // lower threshold to keep reprojection more stable near corners
 const float NORMAL_THRESHOLD_SCALE = 4.0;  // how much grow depth_threshold when normals disagree (multiplier)
 const float DDX_DDY_SCALE = 1.0;           // scale applied to measured ddx/ddy distances
+const float DEPTH_TEXEL_CHECK_MULT = 2.0;  // reject reprojection if depth mismatch exceeds this many texel sizes
 // ------------------------------------------------------------
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
@@ -230,10 +231,9 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 		bilinear_weights[3] = 0.0;
 	}
 
-	if (any(lessThan(reproj_pix, ivec2(0))) || any(greaterThanEqual(reproj_pix, res)))
-		return false;
-
 	float samples_weight = 0.0;
+	bool has_in_bounds_candidate = false;
+	ivec2 fallback_reproj = clamp(ivec2(floor(reproj_uv + vec2(0.5))), ivec2(0), res - ivec2(1));
 	for (int x = 0; x <=1; ++x) {
 		for (int y = 0; y <=1; ++y) {
 			const float bilinear_weight = bilinear_weights[x + y*2];
@@ -243,6 +243,10 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 			const ivec2 p = reproj_pix + ivec2(x, y);
 			if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res)))
 				continue;
+			has_in_bounds_candidate = true;
+			if (bilinear_weight > better_reproj_uv_weight) {
+				fallback_reproj = p;
+			}
 
 			const float depth_sample = imageLoad( prev_temporal_depth, p ).r;
 			const float depth_diff = abs(depth_sample - depth_nessesary);
@@ -266,11 +270,13 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 			float ddy = length(prevPosU - prevPos);
 			
 			float geomThresh = max(ddx, ddy) * DDX_DDY_SCALE;
+			float texelDepthThreshold = max(ddx, ddy) * DEPTH_TEXEL_CHECK_MULT;
 
 			float normalFactor = mix(1.0, NORMAL_THRESHOLD_SCALE, 1.0 - clamp(ndot_geometry, 0.0, 1.0));
 			float adaptiveDepthThreshold = max(depth_threshold * normalFactor, geomThresh);
 
-			if ( depth_threshold == 0.0 || depth_diff < adaptiveDepthThreshold ) {
+			bool passDepth = (depth_diff < adaptiveDepthThreshold) && (depth_diff < texelDepthThreshold);
+			if (passDepth) {
 				// history_diffuse += imageLoad( prev_temporal_diffuse, p ) * bilinear_weight;
 				// history_specular += imageLoad( prev_temporal_specular, p ) * bilinear_weight;
 				// m_ds_history += imageLoad( prev_temporal_moments_ds, p ) * bilinear_weight;
@@ -291,7 +297,7 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 	}
 
 	if (!has_valid_reprojection) {
-		reprojection_uv = vec2(-1.0);
+		reprojection_uv = has_in_bounds_candidate ? vec2(fallback_reproj) : vec2(-1.0);
 	}
 
 	if ( samples_weight != 0.0 ) {
@@ -358,9 +364,9 @@ void main() {
 		const vec2 reproj_uv = (reproj_clip * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
 		const vec3 prev_origin = (ubo.ubo.prev_inv_view * vec4(0., 0., 0., 1.)).xyz;
 		const float depth_nessesary = length(prev_position - prev_origin);
-		const float depth_threshold = 0.01 * clip_space.w;
+		const float depth_threshold = 0.02 * clip_space.w;
 
-		if (all(greaterThanEqual(reproj_uv, vec2(0))) && all(lessThan(reproj_uv, vec2(res)))) {
+		if (all(greaterThanEqual(reproj_uv, vec2(-1.0))) && all(lessThan(reproj_uv, vec2(res) + vec2(1.0)))) {
 			if (reproject(diffuse_src, specular_src, pix, res, reproj_uv, geometry_normal, depth_nessesary, depth_threshold, final, fast, reprojection_uv)) {
 				// diffuse_result = vec4(final.diffuse.radiance, 0.0);
 				// specular_result = vec4(final.specular.radiance, 0.0);

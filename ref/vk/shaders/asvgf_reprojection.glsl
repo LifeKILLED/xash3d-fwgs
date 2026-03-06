@@ -133,8 +133,10 @@ void main()
     float rawL = safeLum(raw_ff);
 
     // Reprojection
-    ivec2 rp = ivec2(imageLoad(reprojection_uv, p).xy);
-    bool valid = all(greaterThanEqual(rp, ivec2(0))) && all(lessThan(rp, res));
+    vec2 rp_uv = imageLoad(reprojection_uv, p).xy;
+    bool valid = all(greaterThanEqual(rp_uv, vec2(0.0))) && all(lessThan(rp_uv, vec2(res)));
+    ivec2 rp = ivec2(floor(rp_uv + vec2(0.5)));
+    valid = valid && all(greaterThanEqual(rp, ivec2(0))) && all(lessThan(rp, res));
 
     vec3 histC = vec3(0);
     float m1=0, m2=0, m3=0, H=0;
