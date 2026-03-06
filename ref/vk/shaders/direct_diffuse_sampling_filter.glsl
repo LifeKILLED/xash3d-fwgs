@@ -22,7 +22,7 @@
 #endif
 
 #ifndef FILTER_KERNEL_RADIUS
-#define FILTER_KERNEL_RADIUS 3
+#define FILTER_KERNEL_RADIUS 2
 #endif
 
 #ifndef FILTER_MAX_OFFSETS

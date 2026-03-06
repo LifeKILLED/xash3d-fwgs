@@ -4,7 +4,7 @@
 // Pass toggles in rt.json order (denoiser-related chain).
 #define DENOISER_ENABLE_STABILIZE_RESERVOIRS 1
 #define DENOISER_STABLE_STABILIZATION 1
-#define DENOISER_ENABLE_DIFFUSE_SAMPLING_FILTER 1
+#define DENOISER_ENABLE_DIFFUSE_SAMPLING_FILTER 0
 #define DENOISER_ENABLE_SHADOWS_FILTERING 1
 #define DENOISER_ENABLE_SPATIAL_RECONSTRUCTION 1
 #define DENOISER_ENABLE_REPROJECTION 1
@@ -16,7 +16,7 @@
 #define DENOISER_SPATIAL_SPECULAR_ENABLE 1
 
 // Shadow filtering and shadow-mask reconstruction.
-#define DENOISER_SHADOW_MASK_CATMULL_RADIUS 12
+#define DENOISER_SHADOW_MASK_CATMULL_RADIUS 8
 #define DENOISER_SHADOW_MASK_CATMULL_TENSION -0.5
 #define DENOISER_SHADOW_MASK_CATMULL_DETAIL_PRESERVE 0.35
 
@@ -43,7 +43,7 @@
 #define DENOISER_POSITION_TEXEL_SIZE_MARGIN 4.0
 
 // Reprojected ASVGF shadow-mask Catmull-Rom filter.
-#define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
+#define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 6
 // Higher values preserve more local detail (less blur near gradients).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DETAIL_PRESERVE 0.7
 // 0 = horizontal/vertical passes, 1 = diagonal passes (↘ then ↗).
