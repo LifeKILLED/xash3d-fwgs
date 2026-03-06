@@ -43,7 +43,7 @@
 #define DENOISER_POSITION_TEXEL_SIZE_MARGIN 4.0
 
 // Reprojected ASVGF shadow-mask Catmull-Rom filter.
-#define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
+#define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 6
 // Higher values preserve more local detail (less blur near gradients).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DETAIL_PRESERVE 0.7
 // 0 = horizontal/vertical passes, 1 = diagonal passes (↘ then ↗).

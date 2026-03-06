@@ -1,0 +1,12 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define ATROUS_WITHOUT_VARIANCE 1
+#define IN_DIFFUSE_RADIANCE diffuse_radiance_atrous_pong
+#define IN_SPECULAR_RADIANCE specular_radiance_atrous_pong
+
+#define OUTPUT_DIFFUSE_RADIANCE out_diffuse_direct_atrous
+#define OUTPUT_SPECULAR_RADIANCE out_specular_direct_atrous
+
+#define ATROUS_STEP 8
+#include "direct_atrous_dual_multipass.glsl"

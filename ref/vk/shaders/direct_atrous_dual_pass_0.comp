@@ -1,0 +1,6 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define ATROUS_WITHOUT_VARIANCE 1
+#define VARIANCE_PASS 1
+#include "direct_atrous_dual_multipass.glsl"
