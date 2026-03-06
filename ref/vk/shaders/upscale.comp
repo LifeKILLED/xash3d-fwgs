@@ -5,6 +5,7 @@
 #undef GLSL
 
 #define RCAS_STRENGH 0.0
+#define UPSCALE_FILTER_BILINEAR 1
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -39,11 +40,33 @@ vec4 textureBicubic(vec2 uv, vec2 texSize) {
         for (int n = -1; n <= 2; ++n) {
             float wx = cubic(f.x - float(n));
             ivec2 sampleUV = ivec2(vec2(i0.x + n, i0.y + m) + 0.5);
-            sampleUV = clamp(sampleUV, ivec2(0), ivec2(texSize));
+            sampleUV = clamp(sampleUV, ivec2(0), ivec2(texSize) - ivec2(1));
             result += imageLoad(antialiased, sampleUV) * (wx * wy);
         }
     }
     return result;
+}
+
+// Fast 4-tap bilinear sampling in imageLoad space.
+vec4 textureLinear(vec2 uv, ivec2 texSize) {
+    vec2 texSizeF = vec2(texSize);
+    vec2 px = uv * texSizeF - 0.5;
+    ivec2 p0 = ivec2(floor(px));
+    vec2 f = fract(px);
+
+    ivec2 p00 = clamp(p0, ivec2(0), texSize - ivec2(1));
+    ivec2 p10 = clamp(p0 + ivec2(1, 0), ivec2(0), texSize - ivec2(1));
+    ivec2 p01 = clamp(p0 + ivec2(0, 1), ivec2(0), texSize - ivec2(1));
+    ivec2 p11 = clamp(p0 + ivec2(1, 1), ivec2(0), texSize - ivec2(1));
+
+    vec4 c00 = imageLoad(antialiased, p00);
+    vec4 c10 = imageLoad(antialiased, p10);
+    vec4 c01 = imageLoad(antialiased, p01);
+    vec4 c11 = imageLoad(antialiased, p11);
+
+    vec4 cx0 = mix(c00, c10, f.x);
+    vec4 cx1 = mix(c01, c11, f.x);
+    return mix(cx0, cx1, f.y);
 }
 
 // Simple luminance
@@ -78,13 +101,16 @@ void main() {
     // normalized coords in [0,1] for the destination pixel center
     vec2 dstUV = (vec2(outXY) + 0.5) / vec2(dstSize);
 
-    // Map dest UV to source texture space (simple scale). This is where EASU would apply more complex offsets.
-    // We mimic EASU by mapping then using a bicubic kernel on a 4x4 footprint.
+    // Destination and source are the same normalized UV domain.
     vec2 srcSizeF = vec2(srcSize);
-    vec2 srcUV = dstUV * (srcSizeF / vec2(dstSize)); // equivalent to dst*scale
+    vec2 srcUV = dstUV;
 
-    // read bicubic filtered color from source
-    vec4 color = textureBicubic(srcUV, dstSize);
+    vec4 color;
+#if UPSCALE_FILTER_BILINEAR
+    color = textureLinear(srcUV, srcSize);
+#else
+    color = textureBicubic(srcUV, srcSizeF);
+#endif
 
     // RCAS pass: compute a small blurred version (3x3 gaussian) for unsharp mask
     if (RCAS_STRENGH > 0.0001) {

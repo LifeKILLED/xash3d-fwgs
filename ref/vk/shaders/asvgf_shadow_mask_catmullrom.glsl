@@ -176,8 +176,7 @@ void main() {
     vec3 sum = vec3(0.0);
     float wsum = 0.0;
 
-    for (int d = -DENOISER_ASVGF_SHADOW_CATMULL_RADIUS; d <= DENOISER_ASVGF_SHADOW_CATMULL_RADIUS; ++d) {
-        if (abs(d) > effective_radius_i) continue;
+    for (int d = -effective_radius_i; d <= effective_radius_i; ++d) {
         ivec2 q = pix + axis * d;
         if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) continue;
 

@@ -148,7 +148,8 @@ float spatialWeight(int dx, int dy) {
 #else
     float dist2 = float(dx * dx + dy * dy);
     float sigma = max(float(ATROUS_KERNEL) * 0.75, 1.0);
-    return exp(-dist2 / (2.0 * sigma * sigma));
+    float denom = 1.0 + dist2 / max(2.0 * sigma * sigma, 1e-4);
+    return 1.0 / denom;
 #endif
 }
 

@@ -32,14 +32,14 @@ float aTrousSampleWeigth(const ivec2 res, const ivec2 pix, vec3 pos, vec3 shadin
 	// TODO should we go geometry_normal too?
 	const vec3 sn_diff = sample_shading_normal - shading_normal;
 	const float sn_dist2 = max(dot(sn_diff,sn_diff) * inv_step_width_sq, 0.);
-	const float weight_sn = min(exp(-(sn_dist2)/phi_normal), 1.0);
+	const float weight_sn = 1.0 / (1.0 + sn_dist2 / max(phi_normal, 1e-6));
 
 	// Weight positions
 	const vec3 sample_position = imageLoad(position_t, p_scaled).xyz;
 	const vec3 p_diff = sample_position - pos;
 	//Original paper: const float p_dist2 = dot(p_diff, p_diff);
 	const float p_dist2 = max(dot(p_diff,p_diff) * inv_step_width_sq, 0.);
-	const float weight_pos = min(exp(-(p_dist2)/phi_pos),1.0);
+	const float weight_pos = 1.0 / (1.0 + p_dist2 / max(phi_pos, 1e-6));
 
 	const float weight = (weight_pos * weight_sn) * x_kernel * y_kernel;
 	return weight;

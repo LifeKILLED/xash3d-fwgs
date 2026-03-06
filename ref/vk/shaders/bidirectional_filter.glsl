@@ -203,57 +203,56 @@ void main() {
     // Separable bilateral accumulation
     // ========================================================
 
-    vec3 diffAcc = vec3(0.0);
-    float wSum   = 0.0;
+    vec3 diffAcc = imageLoad(IN_RADIANCE, pix).xyz;
+    float wSum   = 1.0;
 
     float invRoughnessThr = 1.0 / max(FILTER_ROUGHNESS_THRESHOLD, 1e-4);
 
-    for (int i = -R; i <= R; ++i) {
-        ivec2 c = clampedPix(pix + offset * i, res);
-        if (all(equal(c, pix))) {
-            vec3 d0 = imageLoad(IN_RADIANCE, pix).xyz;
-            diffAcc += d0;
-            wSum += 1.0;
-            continue;
+    for (int i = 1; i <= R; ++i) {
+        for (int s = -1; s <= 1; s += 2) {
+            ivec2 c = clampedPix(pix + offset * (i * s), res);
+            if (all(equal(c, pix))) {
+                continue;
+            }
+
+            vec3 P  = imageLoad(POSITION_T, c).xyz;
+            float wPos = positionEdgeStopWithWorldTexel(
+                P - P0, G0, invCenterDist, DENOISER_POSITION_PLANE_THRESHOLD, worldTexelSize);
+            if (wPos == 0.0) {
+                continue;
+            }
+
+            vec3 N  = normalDecode(imageLoad(NORMALS_GS, c).zw);
+            float nd = max(dot(N, N0), 0.0);
+            float wN = clamp((nd - FILTER_NORMAL_DOT_THRESHOLD) / max(1.0 - FILTER_NORMAL_DOT_THRESHOLD, 1e-4), 0.0, 1.0);
+            if (wN <= 0.0) {
+                continue;
+            }
+
+            float Rr = imageLoad(MATERIAL_RMXX, c).x;
+            float wR = 1.0 - clamp(abs(Rr - R0) * invRoughnessThr, 0.0, 1.0);
+            if (wR <= 0.0) {
+                continue;
+            }
+
+            float wM = shadowMaskGate(pix, c);
+            if (wM <= 0.0) {
+                continue;
+            }
+
+            float w = wPos * wN * wR * wM;
+
+        #ifdef SPECULAR_FIX
+            float tight = mix(0.25, 1.0, R0);
+        #else
+            float tight = 1.0;
+        #endif
+
+            vec3 d = imageLoad(IN_RADIANCE, c).xyz;
+
+            diffAcc += d * w * tight;
+            wSum    += w * tight;
         }
-
-        vec3 P  = imageLoad(POSITION_T, c).xyz;
-        float wPos = positionEdgeStopWithWorldTexel(
-            P - P0, G0, invCenterDist, DENOISER_POSITION_PLANE_THRESHOLD, worldTexelSize);
-        if (wPos == 0.0) {
-            continue;
-        }
-
-        vec3 N  = normalDecode(imageLoad(NORMALS_GS, c).zw);
-        float nd = max(dot(N, N0), 0.0);
-        float wN = clamp((nd - FILTER_NORMAL_DOT_THRESHOLD) / max(1.0 - FILTER_NORMAL_DOT_THRESHOLD, 1e-4), 0.0, 1.0);
-        if (wN <= 0.0) {
-            continue;
-        }
-
-        float Rr = imageLoad(MATERIAL_RMXX, c).x;
-        float wR = 1.0 - clamp(abs(Rr - R0) * invRoughnessThr, 0.0, 1.0);
-        if (wR <= 0.0) {
-            continue;
-        }
-
-        float wM = shadowMaskGate(pix, c);
-        if (wM <= 0.0) {
-            continue;
-        }
-
-        float w = wPos * wN * wR * wM;
-
-    #ifdef SPECULAR_FIX
-        float tight = mix(0.25, 1.0, R0);
-    #else
-        float tight = 1.0;
-    #endif
-
-        vec3 d = imageLoad(IN_RADIANCE, c).xyz;
-
-        diffAcc += d * w * tight;
-        wSum    += w * tight;
     }
 
     diffAcc /= max(wSum, 1e-5);

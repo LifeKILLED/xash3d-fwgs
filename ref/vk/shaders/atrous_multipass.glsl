@@ -211,7 +211,7 @@ float spatialKernelWeight(ivec2 k, float kernelFlatten)
     float base = KERNEL3_W[idx];
 #else
     float dist2 = dot(vec2(k), vec2(k));
-    float base = exp(-0.35 * dist2);
+    float base = 1.0 / (1.0 + 0.35 * dist2);
 #endif
     return mix(base, 1.0, kernelFlatten);
 }
