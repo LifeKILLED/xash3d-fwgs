@@ -5,7 +5,7 @@
 //#define DISABLE_VARIANCE 1
 #define SIGMA_ALLWAYS_ONE 1
 
-#define SRC_RADIANCE diffuse_pre_filtered
+#define SRC_RADIANCE diffuse_mixed
 #define OUT_RADIANCE out_diffuse_direct_atrous
 
 #include "atrous_optimized.glsl"

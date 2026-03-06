@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define IN_RADIANCE specular_pre_filtered
+#define IN_RADIANCE specular_mixed
 
 #define OUTPUT_RADIANCE out_radiance_atrous_pong
 

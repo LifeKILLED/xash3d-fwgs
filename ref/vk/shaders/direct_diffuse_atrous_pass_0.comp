@@ -1,7 +1,7 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
 
-#define IN_RADIANCE diffuse_pre_filtered
+#define IN_RADIANCE diffuse_mixed
 
 #include "direct_diffuse_atrous_config.glsl"
 

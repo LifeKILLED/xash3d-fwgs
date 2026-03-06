@@ -24,5 +24,6 @@
 #define SPATIAL_GGX_PDF_MAX_RATIO 32.0
 #define SPATIAL_SHADOW_MASK_ENABLE 1
 #define SPATIAL_SHADOW_MASK_SOURCE restir_specular_shadows
+#define SPATIAL_SAMPLE_LUMINANCE_CLAMP 20.0
 
 #include "direct_spatial_reconstruction.glsl"

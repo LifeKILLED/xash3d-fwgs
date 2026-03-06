@@ -10,16 +10,16 @@
 
 #include "denoiser_config.glsl"
 
-#define VARIANCE_MIN 0.5
+#define VARIANCE_MIN 0.02
 #define VARIANCE_MAX 1.0
 #define MAX_RESTIR_NORM 8.0
-#define MIN_ALPHA 0.02
 #define REPROJECTION_BILINEAR 1
 #define REPROJECTION_BILINEAR_MOTION_THRESHOLD 1.0
 
 #include "utils.glsl"
 #include "noise.glsl"
 #include "color_spaces.glsl"
+#include "brdf.glsl"
 
 layout(local_size_x=8, local_size_y=8) in;
 
@@ -37,6 +37,10 @@ layout(set = 0, binding=15, rgba32f) uniform image2D prev_temporal_asvgf_diffuse
 layout(set = 0, binding=16, rgba32f) uniform image2D prev_temporal_asvgf_specular;
 layout(set = 0, binding=17, rgba32f) uniform image2D out_temporal_asvgf_diffuse;
 layout(set = 0, binding=18, rgba32f) uniform image2D out_temporal_asvgf_specular;
+layout(set = 0, binding=19, rgba32f) uniform image2D prev_temporal_asvgf_moments_diffuse;
+layout(set = 0, binding=20, rgba32f) uniform image2D prev_temporal_asvgf_moments_specular;
+layout(set = 0, binding=21, rgba32f) uniform image2D out_temporal_asvgf_moments_diffuse;
+layout(set = 0, binding=22, rgba32f) uniform image2D out_temporal_asvgf_moments_specular;
 
 layout(set = 0, binding = 9, rgba16f) uniform readonly image2D reprojection_uv;
 layout(set = 0, binding = 12, rgba16f) uniform image2D prev_temporal_asvgf_shadow_mask_normalized;
@@ -45,26 +49,164 @@ layout(set = 0, binding = 14, rgba16f) uniform image2D out_asvgf_shadow_mask_nor
 
 layout(set = 0, binding = 10) uniform UBO { UniformBuffer ubo; } ubo;
 
+struct AsvgfMoments {
+    float m1;
+    float m2;
+    float m3;
+    float history;
+};
+
+float asvgfClamp01(float x) {
+    return clamp(x, 0.0, 1.0);
+}
+
+float sanitizeFiniteNonNegative(float x, float fallbackValue) {
+    if (isnan(x) || isinf(x)) {
+        return fallbackValue;
+    }
+    return max(x, 0.0);
+}
+
+vec3 sanitizeColorNonNegative(vec3 c, vec3 fallbackValue) {
+    vec3 outC;
+    outC.x = sanitizeFiniteNonNegative(c.x, fallbackValue.x);
+    outC.y = sanitizeFiniteNonNegative(c.y, fallbackValue.y);
+    outC.z = sanitizeFiniteNonNegative(c.z, fallbackValue.z);
+    return outC;
+}
+
+float safeLum(vec3 c) {
+    return max(luminance(max(c, vec3(0.0))), 1e-6);
+}
+
+AsvgfMoments momentsFromLuminance(float l, float history) {
+    AsvgfMoments m;
+    m.m1 = l;
+    m.m2 = l * l;
+    m.m3 = m.m2 * l;
+    m.history = history;
+    return m;
+}
+
+AsvgfMoments decodeMoments(vec4 packed) {
+    AsvgfMoments m;
+    m.m1 = sanitizeFiniteNonNegative(packed.x, 0.0);
+    m.m2 = sanitizeFiniteNonNegative(packed.y, 0.0);
+    m.m3 = sanitizeFiniteNonNegative(packed.z, 0.0);
+    m.history = clamp(sanitizeFiniteNonNegative(packed.w, 0.0), 0.0, DENOISER_ASVGF_TEMPORAL_HISTORY_MAX);
+    return m;
+}
+
+vec4 encodeMoments(AsvgfMoments m) {
+    return vec4(max(m.m1, 0.0), max(m.m2, 0.0), max(m.m3, 0.0), clamp(m.history, 0.0, DENOISER_ASVGF_TEMPORAL_HISTORY_MAX));
+}
+
+float disocclusionMetric(vec3 curr, vec3 hist) {
+    float currL = safeLum(curr);
+    float histL = safeLum(hist);
+    float dLum = abs(currL - histL) / max(max(currL, histL), 1e-4);
+    vec3 rel = abs(curr - hist) / max(max(curr, hist), vec3(1e-3));
+    float dRgb = max(max(rel.r, rel.g), rel.b);
+    return asvgfClamp01(mix(dLum, dRgb, 0.35));
+}
+
+vec3 clampLuminancePreserveHue(vec3 c, float targetLum) {
+    vec3 safe = max(c, vec3(0.0));
+    float lum = safeLum(safe);
+    if (lum <= 1e-6) {
+        return vec3(max(targetLum, 0.0));
+    }
+    return safe * (max(targetLum, 0.0) / lum);
+}
+
+vec3 clampHistoryToMoments(vec3 histColor, AsvgfMoments histMom, float confRaw, float disocc) {
+#if DENOISER_ASVGF_HISTORY_CLAMP_ENABLE
+    if (histMom.history < DENOISER_ASVGF_HISTORY_CLAMP_MIN_HISTORY) {
+        return histColor;
+    }
+
+    float confNorm = (asvgfClamp01(confRaw) - DENOISER_ASVGF_CONFIDENCE_BLEND_MIN) /
+                     max(DENOISER_ASVGF_CONFIDENCE_BLEND_MAX - DENOISER_ASVGF_CONFIDENCE_BLEND_MIN, 1e-4);
+    float conf = pow(asvgfClamp01(confNorm), DENOISER_ASVGF_CONFIDENCE_POWER);
+    float sigmaK = mix(DENOISER_ASVGF_HISTORY_CLAMP_SIGMA_MIN, DENOISER_ASVGF_HISTORY_CLAMP_SIGMA_MAX, conf);
+    sigmaK *= mix(1.0, DENOISER_ASVGF_HISTORY_CLAMP_DISOCC_TIGHTEN, asvgfClamp01(disocc));
+
+    float varianceAbs = max(histMom.m2 - histMom.m1 * histMom.m1, 0.0);
+    float sigma = sqrt(varianceAbs);
+    float lo = max(histMom.m1 - sigmaK * sigma, 0.0);
+    float hi = max(histMom.m1 + sigmaK * sigma, lo + 1e-5);
+
+    float histLum = safeLum(histColor);
+    float clampedLum = clamp(histLum, lo, hi);
+    return clampLuminancePreserveHue(histColor, clampedLum);
+#else
+    return histColor;
+#endif
+}
+
 void processLobeTemporal(
-    vec3 curr,
-    vec3 hist,
-    float conf,
+    vec3 currColor,
+    vec3 histColor,
+    AsvgfMoments currMom,
+    AsvgfMoments histMom,
+    float confidence,
+    float disocclusion,
     out vec3 outColor,
-    out float outVar,
-    out float length,
-    float prev_length
+    out AsvgfMoments outMom,
+    out float outVariance,
+    out float outAlpha
 ){
-    length = prev_length + 1.0;
-    length = mix(1.0, length, clamp(conf, 0.0, 1.0));
+    float confRaw = asvgfClamp01(confidence);
+    float confInfluence = asvgfClamp01(confRaw * DENOISER_ASVGF_CONFIDENCE_INFLUENCE_SCALE);
+    currColor = sanitizeColorNonNegative(currColor, vec3(0.0));
+    histColor = sanitizeColorNonNegative(histColor, currColor);
 
-    float alpha = max(MIN_ALPHA, 1.0 / length);
+    float alphaHistory = 1.0 / max(histMom.history + 1.0, 1.0);
+    float alpha = clamp(alphaHistory, DENOISER_ASVGF_TEMPORAL_ALPHA_MIN, DENOISER_ASVGF_TEMPORAL_ALPHA_MAX);
 
-    outColor = mix(hist, curr, alpha);
+    vec3 histClamped = clampHistoryToMoments(histColor, histMom, confInfluence, disocclusion);
+    histClamped = sanitizeColorNonNegative(histClamped, currColor);
+    float historyLum = safeLum(histClamped);
+    float currLum = safeLum(currColor);
+    float fireflyLimit = max(0.2, historyLum * 1.5);
+    vec3 currFireflyClamped = clampLuminancePreserveHue(currColor, min(currLum, fireflyLimit));
+    currFireflyClamped = sanitizeColorNonNegative(currFireflyClamped, currColor);
 
-    vec3 d = curr - hist;
-    outVar = clamp(dot(d, d), VARIANCE_MIN, VARIANCE_MAX);
+    bool hasValidHistory = (histMom.history >= 1.0) && (historyLum > 1e-5);
+    if (!hasValidHistory) {
+        outColor = currFireflyClamped;
+        outMom = currMom;
+        outMom.history = 1.0;
+        outVariance = VARIANCE_MIN;
+        outAlpha = 1.0;
+        return;
+    }
 
-    //outColor = curr; // debug current frame
+    float confResetWidth = max(DENOISER_ASVGF_HISTORY_RESET_CONFIDENCE, 1e-4);
+    float softReset = 1.0 - smoothstep(0.0, confResetWidth, confInfluence);
+    float alphaSoft = mix(alpha, 1.0, softReset);
+
+    outColor = mix(histClamped, currFireflyClamped, alphaSoft);
+    outMom.m1 = mix(histMom.m1, currMom.m1, alphaSoft);
+    outMom.m2 = mix(histMom.m2, currMom.m2, alphaSoft);
+    outMom.m3 = mix(histMom.m3, currMom.m3, alphaSoft);
+    float historyMixed = mix(min(histMom.history + 1.0, DENOISER_ASVGF_TEMPORAL_HISTORY_MAX), 1.0, softReset);
+    outMom.history = max(historyMixed, 1.0);
+    outAlpha = alphaSoft;
+
+    float varianceAbs = max(outMom.m2 - outMom.m1 * outMom.m1, 0.0);
+    float varianceNorm = varianceAbs / max(outMom.m1 * outMom.m1, 1e-4);
+    float centeredM3 = outMom.m3 - 3.0 * outMom.m1 * outMom.m2 + 2.0 * outMom.m1 * outMom.m1 * outMom.m1;
+    float skewNorm = abs(centeredM3) / max(outMom.m1 * outMom.m1 * outMom.m1, 1e-4);
+    float shortHistory = 1.0 - asvgfClamp01(outMom.history / max(DENOISER_ASVGF_TEMPORAL_HISTORY_STABLE, 1.0));
+    float temporalTrust = confInfluence;
+    float varianceFloor = mix(
+        DENOISER_ASVGF_VARIANCE_FLOOR_MIN,
+        DENOISER_ASVGF_VARIANCE_FLOOR_MAX,
+        asvgfClamp01((1.0 - temporalTrust) * 0.55 + shortHistory * 0.35 + asvgfClamp01(skewNorm * DENOISER_ASVGF_SKEW_GUARD_SCALE) * 0.10)
+    );
+    outVariance = clamp(max(varianceNorm, varianceFloor), VARIANCE_MIN, VARIANCE_MAX);
+    outColor = sanitizeColorNonNegative(outColor, currFireflyClamped);
 }
 
 float confidenceToDebugView(float c) {
@@ -158,6 +300,28 @@ vec4 loadBilinearPrevTemporalSpecular(ivec2 taps[4], float weights[4])
     return result;
 }
 
+vec4 loadBilinearPrevTemporalMomentsDiffuse(ivec2 taps[4], float weights[4])
+{
+    vec4 result = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        if (weights[i] > 0.0) {
+            result += imageLoad(prev_temporal_asvgf_moments_diffuse, taps[i]) * weights[i];
+        }
+    }
+    return result;
+}
+
+vec4 loadBilinearPrevTemporalMomentsSpecular(ivec2 taps[4], float weights[4])
+{
+    vec4 result = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        if (weights[i] > 0.0) {
+            result += imageLoad(prev_temporal_asvgf_moments_specular, taps[i]) * weights[i];
+        }
+    }
+    return result;
+}
+
 vec4 loadBilinearPrevTemporalShadowMask(ivec2 taps[4], float weights[4])
 {
     vec4 result = vec4(0.0);
@@ -245,6 +409,32 @@ vec3 clampHistoryWithNeighborhood(
     return mix(historyC, clampedC, clamp(DENOISER_REPROJECTION_FIREFLY_STRENGTH, 0.0, 1.0));
 }
 
+float gatherConfidenceDiffuseBoxK1(ivec2 p, ivec2 res) {
+    float sumConf = 0.0;
+    float count = 0.0;
+    for (int oy = -1; oy <= 1; ++oy) {
+        for (int ox = -1; ox <= 1; ++ox) {
+            ivec2 q = clamp(p + ivec2(ox, oy), ivec2(0), res - 1);
+            sumConf += clamp(imageLoad(diffuse_direct_reconstructed, q).a, 0.0, 1.0);
+            count += 1.0;
+        }
+    }
+    return sumConf / max(count, 1.0);
+}
+
+float gatherConfidenceSpecularBoxK1(ivec2 p, ivec2 res) {
+    float sumConf = 0.0;
+    float count = 0.0;
+    for (int oy = -1; oy <= 1; ++oy) {
+        for (int ox = -1; ox <= 1; ++ox) {
+            ivec2 q = clamp(p + ivec2(ox, oy), ivec2(0), res - 1);
+            sumConf += clamp(imageLoad(specular_direct_reconstructed, q).a, 0.0, 1.0);
+            count += 1.0;
+        }
+    }
+    return sumConf / max(count, 1.0);
+}
+
 void main() {
     const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
@@ -262,9 +452,11 @@ void main() {
 
     const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
+    AsvgfMoments curr_mom_diff = momentsFromLuminance(safeLum(curr_diffuse), 1.0);
+    AsvgfMoments curr_mom_spec = momentsFromLuminance(safeLum(curr_specular), 1.0);
     float curr_shadow_mask_norm_diff = imageLoad(diffuse_shadow_mask_normalized_reconstructed, pix).r;
-    float curr_conf_diffuse = clamp(imageLoad(diffuse_direct_reconstructed, pix).w, 0.0, 1.0);
-    float curr_conf_specular = clamp(imageLoad(specular_direct_reconstructed, pix).w, 0.0, 1.0);
+    float curr_conf_diffuse = gatherConfidenceDiffuseBoxK1(pix, res);
+    float curr_conf_specular = gatherConfidenceSpecularBoxK1(pix, res);
 
     if (DENOISER_ENABLE_REPROJECTION == 0) {
 #if DENOISER_DEBUG_CONFIDENCE_VIEW
@@ -274,6 +466,8 @@ void main() {
         imageStore(out_specular_asvgf, pix, vec4(conf_vis_spec, 1.0));
         imageStore(out_temporal_asvgf_diffuse, pix, vec4(conf_vis_diff, 1.0));
         imageStore(out_temporal_asvgf_specular, pix, vec4(conf_vis_spec, 1.0));
+        imageStore(out_temporal_asvgf_moments_diffuse, pix, encodeMoments(curr_mom_diff));
+        imageStore(out_temporal_asvgf_moments_specular, pix, encodeMoments(curr_mom_spec));
         vec3 curr_shadow_norm_dbg = vec3(curr_shadow_mask_norm_diff);
         imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm_dbg, 1.0));
         imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm_dbg, 1.0));
@@ -283,6 +477,8 @@ void main() {
         imageStore(out_specular_asvgf, pix, vec4(curr_specular, VARIANCE_MIN));
         imageStore(out_temporal_asvgf_diffuse, pix, vec4(curr_diffuse, 1.0));
         imageStore(out_temporal_asvgf_specular, pix, vec4(curr_specular, 1.0));
+        imageStore(out_temporal_asvgf_moments_diffuse, pix, encodeMoments(curr_mom_diff));
+        imageStore(out_temporal_asvgf_moments_specular, pix, encodeMoments(curr_mom_spec));
         vec3 curr_shadow_norm = vec3(curr_shadow_mask_norm_diff);
         imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm, 1.0));
         imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm, 1.0));
@@ -292,19 +488,16 @@ void main() {
     float conf_diffuse = curr_conf_diffuse;
     float conf_specular = curr_conf_specular;
 
-    vec3 diffuse = curr_diffuse;
-    float variance_diffuse = 1.0;
-    float history_length_diffuse = 1.0;
+    vec4 prev_diff_self = imageLoad(prev_temporal_asvgf_diffuse, pix);
+    vec4 prev_spec_self = imageLoad(prev_temporal_asvgf_specular, pix);
+    vec4 prev_mom_diff_self = imageLoad(prev_temporal_asvgf_moments_diffuse, pix);
+    vec4 prev_mom_spec_self = imageLoad(prev_temporal_asvgf_moments_specular, pix);
 
-    vec3 specular = curr_specular;
-    float variance_specular = 1.0;
-    float history_length_specular = 1.0;
-
-    vec3 prev_diff = curr_diffuse;
-    vec3 prev_spec = curr_specular;
+    vec3 prev_diff = prev_diff_self.rgb;
+    vec3 prev_spec = prev_spec_self.rgb;
     vec3 prev_shadow_norm = vec3(curr_shadow_mask_norm_diff);
-    float prev_len_diff = 0.0;
-    float prev_len_spec = 0.0;
+    AsvgfMoments prev_mom_diff = decodeMoments(prev_mom_diff_self);
+    AsvgfMoments prev_mom_spec = decodeMoments(prev_mom_spec_self);
 
     const float reproj_motion = length(prev_uv - vec2(pix));
 
@@ -323,11 +516,13 @@ void main() {
         if (has_reprojection) {
             vec4 pd = loadBilinearPrevTemporalDiffuse(reproj_taps, reproj_weights);
             vec4 ps = loadBilinearPrevTemporalSpecular(reproj_taps, reproj_weights);
+            vec4 pmd = loadBilinearPrevTemporalMomentsDiffuse(reproj_taps, reproj_weights);
+            vec4 pms = loadBilinearPrevTemporalMomentsSpecular(reproj_taps, reproj_weights);
             vec4 pm = loadBilinearPrevTemporalShadowMask(reproj_taps, reproj_weights);
             prev_diff = pd.rgb;
-            prev_len_diff = pd.w;
             prev_spec = ps.rgb;
-            prev_len_spec = ps.w;
+            prev_mom_diff = decodeMoments(pmd);
+            prev_mom_spec = decodeMoments(pms);
             prev_shadow_norm = pm.rgb;
         }
     } else {
@@ -335,11 +530,13 @@ void main() {
         if (gatherNearestTap(prev_uv, res, nearest_tap)) {
             vec4 pd = imageLoad(prev_temporal_asvgf_diffuse, nearest_tap);
             vec4 ps = imageLoad(prev_temporal_asvgf_specular, nearest_tap);
+            vec4 pmd = imageLoad(prev_temporal_asvgf_moments_diffuse, nearest_tap);
+            vec4 pms = imageLoad(prev_temporal_asvgf_moments_specular, nearest_tap);
             vec4 pm = imageLoad(prev_temporal_asvgf_shadow_mask_normalized, nearest_tap);
             prev_diff = pd.rgb;
-            prev_len_diff = pd.w;
             prev_spec = ps.rgb;
-            prev_len_spec = ps.w;
+            prev_mom_diff = decodeMoments(pmd);
+            prev_mom_spec = decodeMoments(pms);
             prev_shadow_norm = pm.rgb;
         }
     }
@@ -354,18 +551,24 @@ void main() {
     prev_spec = clampHistoryWithNeighborhood(prev_spec, specMinC, specMaxC, specMeanC, specSigmaC);
 #endif
 
-    vec3 out_diff = vec3(0.);
-    vec3 out_spec = vec3(0.);
-    float var_diff = 0., var_spec = 0.;
-    float len_diff = 0., len_spec = 0.;
+    float disocc_diff = disocclusionMetric(curr_diffuse, prev_diff);
+    float disocc_spec = disocclusionMetric(curr_specular, prev_spec);
 
-    processLobeTemporal(curr_diffuse, prev_diff, conf_diffuse,
-                        out_diff, var_diff, len_diff, prev_len_diff);
+    vec3 out_diff = vec3(0.0);
+    vec3 out_spec = vec3(0.0);
+    float var_diff = VARIANCE_MIN;
+    float var_spec = VARIANCE_MIN;
+    float alpha_diff = DENOISER_ASVGF_TEMPORAL_ALPHA_MAX;
+    float alpha_spec = DENOISER_ASVGF_TEMPORAL_ALPHA_MAX;
+    AsvgfMoments out_mom_diff = curr_mom_diff;
+    AsvgfMoments out_mom_spec = curr_mom_spec;
 
-    processLobeTemporal(curr_specular, prev_spec, conf_specular,
-                       out_spec, var_spec, len_spec, prev_len_spec);
+    processLobeTemporal(curr_diffuse, prev_diff, curr_mom_diff, prev_mom_diff, conf_diffuse, disocc_diff,
+                        out_diff, out_mom_diff, var_diff, alpha_diff);
 
-    float alpha_diff = max(MIN_ALPHA, 1.0 / max(len_diff, 1.0));
+    processLobeTemporal(curr_specular, prev_spec, curr_mom_spec, prev_mom_spec, conf_specular, disocc_spec,
+                        out_spec, out_mom_spec, var_spec, alpha_spec);
+
     float out_shadow_diff = mix(prev_shadow_norm.r, curr_shadow_mask_norm_diff, alpha_diff);
     vec3 out_shadow_norm = vec3(out_shadow_diff);
 
@@ -376,16 +579,20 @@ void main() {
     imageStore(out_temporal_asvgf_diffuse, pix, vec4(conf_vis_diff, 1.0));
     imageStore(out_specular_asvgf, pix, vec4(conf_vis_spec, 1.0));
     imageStore(out_temporal_asvgf_specular, pix, vec4(conf_vis_spec, 1.0));
+    imageStore(out_temporal_asvgf_moments_diffuse, pix, encodeMoments(out_mom_diff));
+    imageStore(out_temporal_asvgf_moments_specular, pix, encodeMoments(out_mom_spec));
     imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(out_shadow_norm, 1.0));
     imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(out_shadow_norm, 1.0));
     return;
 #endif
 
     imageStore(out_diffuse_asvgf, pix, vec4(out_diff, var_diff));
-    imageStore(out_temporal_asvgf_diffuse, pix, vec4(out_diff, len_diff));
+    imageStore(out_temporal_asvgf_diffuse, pix, vec4(out_diff, out_mom_diff.history));
+    imageStore(out_temporal_asvgf_moments_diffuse, pix, encodeMoments(out_mom_diff));
 
     imageStore(out_specular_asvgf, pix, vec4(out_spec, var_spec));
-    imageStore(out_temporal_asvgf_specular, pix, vec4(out_spec, len_spec));
+    imageStore(out_temporal_asvgf_specular, pix, vec4(out_spec, out_mom_spec.history));
+    imageStore(out_temporal_asvgf_moments_specular, pix, encodeMoments(out_mom_spec));
     imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(out_shadow_norm, 1.0));
     imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(out_shadow_norm, 1.0));
 }

@@ -20,9 +20,15 @@
 //---------------------------------------------------------
 // AGGRESSIVE DENOISE CONFIG
 //---------------------------------------------------------
-#define AGGRESSIVE_DENOISE 1         // 0 = off, 1 = on
-#define VARIANCE_RELAX_EDGE 1.5      // relax edge stopping on noisy pixels
-#define VARIANCE_FLATTEN_KERNEL 0.0  // keep Gaussian kernel shape (avoid boxy/square blur)
+#ifndef AGGRESSIVE_DENOISE
+#define AGGRESSIVE_DENOISE 0
+#endif
+#ifndef VARIANCE_RELAX_EDGE
+#define VARIANCE_RELAX_EDGE 0.0
+#endif
+#ifndef VARIANCE_FLATTEN_KERNEL
+#define VARIANCE_FLATTEN_KERNEL 0.0
+#endif
 
 // Variance is stored in normalized form: var / (mean^2 + eps).
 #define VARIANCE_MIN 0.0
@@ -168,8 +174,16 @@
 //---------------------------------------------------------
 // KERNEL
 //---------------------------------------------------------
+#ifndef ATROUS_USE_HONEST_KERNEL
+#define ATROUS_USE_HONEST_KERNEL 1
+#endif
+
 #ifndef ATROUS_KERNEL_RADIUS
+#if ATROUS_USE_HONEST_KERNEL
+#define ATROUS_KERNEL_RADIUS 2
+#else
 #define ATROUS_KERNEL_RADIUS 1
+#endif
 #endif
 
 const ivec2 KERNEL3[9] = ivec2[9](
@@ -184,9 +198,15 @@ const float KERNEL3_W[9] = float[9](
     1, 2, 1
 );
 
+const float KERNEL5_1D[5] = float[5](1, 4, 6, 4, 1);
+
 float spatialKernelWeight(ivec2 k, float kernelFlatten)
 {
-#if ATROUS_KERNEL_RADIUS == 1
+#if ATROUS_USE_HONEST_KERNEL && ATROUS_KERNEL_RADIUS == 2
+    float wx = KERNEL5_1D[k.x + 2];
+    float wy = KERNEL5_1D[k.y + 2];
+    float base = wx * wy;
+#elif ATROUS_KERNEL_RADIUS == 1
     int idx = (k.y + 1) * 3 + (k.x + 1);
     float base = KERNEL3_W[idx];
 #else
@@ -304,6 +324,11 @@ void main()
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
     if (any(greaterThanEqual(p, res))) return;
+
+    if (DENOISER_ENABLE_ATROUS == 0) {
+        imageStore(ATROUS_VARIANCE_OUTPUT, p, vec4(1.0));
+        return;
+    }
 
     vec3 centerColor = imageLoad(IN_RADIANCE, p).rgb;
     if (luminance(max(centerColor, vec3(0.0))) <= ATROUS_BLACK_LUMA_THRESHOLD) {

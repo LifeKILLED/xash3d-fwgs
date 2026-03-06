@@ -7,7 +7,7 @@
 #define AGGRESSIVE_KILL_FIREFLYES 1
 #define SIGMA_ALLWAYS_ONE 1
 
-#define SRC_RADIANCE specular_pre_filtered
+#define SRC_RADIANCE specular_mixed
 #define OUT_RADIANCE out_specular_direct_atrous
 
 #include "atrous_optimized.glsl"

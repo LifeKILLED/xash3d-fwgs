@@ -129,6 +129,11 @@ void main() {
     if (any(greaterThanEqual(pix, res)))
         return;
 
+    if (DENOISER_ENABLE_ATROUS == 0) {
+        imageStore(OUT_RADIANCE, pix, imageLoad(IN_RADIANCE, pix));
+        return;
+    }
+
     float R0 = imageLoad(MATERIAL_RMXX, pix).x;
 
 #if MIRROR_FIX

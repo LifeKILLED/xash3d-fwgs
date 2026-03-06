@@ -142,9 +142,14 @@ float maskGateWeight(float m0, float m1) {
 }
 
 float spatialWeight(int dx, int dy) {
+#if ATROUS_KERNEL == 2
+    const float k5[5] = float[5](1.0, 4.0, 6.0, 4.0, 1.0);
+    return k5[dx + 2] * k5[dy + 2];
+#else
     float dist2 = float(dx * dx + dy * dy);
     float sigma = max(float(ATROUS_KERNEL) * 0.75, 1.0);
     return exp(-dist2 / (2.0 * sigma * sigma));
+#endif
 }
 
 void loadSharedTexel(ivec2 tex, ivec2 res, int sx, int sy) {
@@ -216,6 +221,11 @@ void main() {
 
     vec3 centerC = sRadiance[cy][cx];
     float centerRough = sRough[cy][cx];
+
+    if (DENOISER_ENABLE_ATROUS == 0) {
+        imageStore(OUT_RADIANCE, pix, vec4(centerC, 1.0));
+        return;
+    }
 
 #if MIRROR_FIX
     if (centerRough < 0.02) {

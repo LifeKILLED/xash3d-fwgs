@@ -95,12 +95,6 @@
 	"asvgf_shadow_mask_catmullrom_v": {
 		"comp": "asvgf_shadow_mask_catmullrom_v"
 	},
-	"direct_diffuse_deflickering_asvgf": {
-		"comp": "direct_diffuse_deflickering_asvgf"
-	},
-	"direct_specular_deflickering_asvgf": {
-		"comp": "direct_specular_deflickering_asvgf"
-	},
 	"mix_lighting": {
 		"comp": "mix_lighting"
 	},
@@ -143,21 +137,21 @@
 	// "mix_lighting": {
 	// 	"comp": "mix_lighting"
 	// },
-	"direct_diffuse_filter_pass1": {
-		"comp": "direct_diffuse_filter_pass1"
-	},
-	"direct_diffuse_filter_pass2": {
-		"comp": "direct_diffuse_filter_pass2"
-	},
+	// "direct_diffuse_filter_pass1": {
+	// 	"comp": "direct_diffuse_filter_pass1"
+	// },
+	// "direct_diffuse_filter_pass2": {
+	// 	"comp": "direct_diffuse_filter_pass2"
+	// },
 	// "direct_diffuse_atrous": {
 	//  	"comp": "direct_diffuse_atrous"
 	// },
-	"direct_specular_filter_pass1": {
-		"comp": "direct_specular_filter_pass1"
-	},
-	"direct_specular_filter_pass2": {
-		"comp": "direct_specular_filter_pass2"
-	},
+	// "direct_specular_filter_pass1": {
+	// 	"comp": "direct_specular_filter_pass1"
+	// },
+	// "direct_specular_filter_pass2": {
+	// 	"comp": "direct_specular_filter_pass2"
+	// },
 	// "direct_specular_atrous": {
 	//  	"comp": "direct_specular_atrous"
 	// },
