@@ -56,6 +56,8 @@ layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_diffuse_dir
 layout(set = 0, binding = 27, rgba16f) uniform writeonly image2D out_specular_direct_lightdir;
 layout(set = 0, binding = 28, rgba16f) uniform writeonly image2D out_restir_diffuse_shadows_raw;
 layout(set = 0, binding = 29, rgba16f) uniform writeonly image2D out_restir_specular_shadows_raw;
+layout(set = 0, binding = 34, rgba16f) uniform writeonly image2D out_diffuse_lightid_packed2x2;
+layout(set = 0, binding = 35, rgba16f) uniform writeonly image2D out_specular_lightid_packed2x2;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -254,6 +256,43 @@ void main(){
     imageStore(out_specular_direct_lightdir, pix, vec4(specular_lightdir, specular_lightid));
     imageStore(out_restir_diffuse_shadows_raw, pix, vec4(diffuse_shadow, diffuse_shadow_energy, 0.0, 1.0));
     imageStore(out_restir_specular_shadows_raw, pix, vec4(specular_shadow, specular_shadow_energy, 0.0, 1.0));
+
+    if (((pix.x & 1) == 0) && ((pix.y & 1) == 0)) {
+        const ivec2 packed_res = (res + ivec2(1)) / 2;
+        const ivec2 packed_pix = pix / 2;
+        if (all(lessThan(packed_pix, packed_res))) {
+            const ivec2 p00 = pix;
+            const ivec2 p10 = ivec2(min(pix.x + 1, res.x - 1), pix.y);
+            const ivec2 p01 = ivec2(pix.x, min(pix.y + 1, res.y - 1));
+            const ivec2 p11 = ivec2(min(pix.x + 1, res.x - 1), min(pix.y + 1, res.y - 1));
+
+            bool oob_d00 = true, oob_d10 = true, oob_d01 = true, oob_d11 = true;
+            bool oob_s00 = true, oob_s10 = true, oob_s01 = true, oob_s11 = true;
+
+            Reservoir rd00 = loadReservoir(imageLoad(restir_stabilized_diffuse, p00), oob_d00);
+            Reservoir rd10 = loadReservoir(imageLoad(restir_stabilized_diffuse, p10), oob_d10);
+            Reservoir rd01 = loadReservoir(imageLoad(restir_stabilized_diffuse, p01), oob_d01);
+            Reservoir rd11 = loadReservoir(imageLoad(restir_stabilized_diffuse, p11), oob_d11);
+
+            Reservoir rs00 = loadReservoir(imageLoad(restir_stabilized_specular, p00), oob_s00);
+            Reservoir rs10 = loadReservoir(imageLoad(restir_stabilized_specular, p10), oob_s10);
+            Reservoir rs01 = loadReservoir(imageLoad(restir_stabilized_specular, p01), oob_s01);
+            Reservoir rs11 = loadReservoir(imageLoad(restir_stabilized_specular, p11), oob_s11);
+
+            float d00 = (!oob_d00 && rd00.w_sum > 0.0 && rd00.w_clamped > 0.0) ? encodeHistoryLightId(rd00.light_index) : 0.0;
+            float d10 = (!oob_d10 && rd10.w_sum > 0.0 && rd10.w_clamped > 0.0) ? encodeHistoryLightId(rd10.light_index) : 0.0;
+            float d01 = (!oob_d01 && rd01.w_sum > 0.0 && rd01.w_clamped > 0.0) ? encodeHistoryLightId(rd01.light_index) : 0.0;
+            float d11 = (!oob_d11 && rd11.w_sum > 0.0 && rd11.w_clamped > 0.0) ? encodeHistoryLightId(rd11.light_index) : 0.0;
+
+            float s00 = (!oob_s00 && rs00.w_sum > 0.0 && rs00.w_clamped > 0.0) ? encodeHistoryLightId(rs00.light_index) : 0.0;
+            float s10 = (!oob_s10 && rs10.w_sum > 0.0 && rs10.w_clamped > 0.0) ? encodeHistoryLightId(rs10.light_index) : 0.0;
+            float s01 = (!oob_s01 && rs01.w_sum > 0.0 && rs01.w_clamped > 0.0) ? encodeHistoryLightId(rs01.light_index) : 0.0;
+            float s11 = (!oob_s11 && rs11.w_sum > 0.0 && rs11.w_clamped > 0.0) ? encodeHistoryLightId(rs11.light_index) : 0.0;
+
+            imageStore(out_diffuse_lightid_packed2x2, packed_pix, vec4(d00, d10, d01, d11));
+            imageStore(out_specular_lightid_packed2x2, packed_pix, vec4(s00, s10, s01, s11));
+        }
+    }
 
     imageStore(out_diffuse_direct_fs, pix, vec4(diffuse_fs, 0.0));
     imageStore(out_specular_direct_fs, pix, vec4(specular_fs, 0.0));

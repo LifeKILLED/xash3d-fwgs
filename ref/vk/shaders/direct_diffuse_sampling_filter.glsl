@@ -17,6 +17,10 @@
 #define LIGHT_ID_SOURCE diffuse_direct_lightdir
 #endif
 
+#ifndef LIGHT_ID_PACKED_SOURCE
+#define LIGHT_ID_PACKED_SOURCE diffuse_lightid_packed2x2
+#endif
+
 #ifndef FILTER_KERNEL_RADIUS
 #define FILTER_KERNEL_RADIUS 3
 #endif
@@ -46,6 +50,11 @@ layout(set = 0, binding = 2, rgba16f) uniform readonly image2D LIGHT_ID_SOURCE;
 layout(set = 0, binding = 3, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D LIGHT_ID_PACKED_SOURCE;
+
+#define PACKED_TILE_W 10
+#define PACKED_TILE_H 10
+shared vec4 s_tile_light_id_packed[PACKED_TILE_H][PACKED_TILE_W];
 
 float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float world_texel_size) {
     return positionEdgeStopWithWorldTexel(
@@ -55,7 +64,26 @@ float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float
 void main() {
     ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
     ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
-    if (any(greaterThanEqual(pix, res))) return;
+    bool in_bounds = all(lessThan(pix, res));
+
+    const ivec2 packed_res = (res + ivec2(1)) / 2;
+    const ivec2 wg_base = ivec2(gl_WorkGroupID.xy) * ivec2(8, 8);
+    const ivec2 packed_min = ivec2(
+        int(floor(float(wg_base.x - FILTER_KERNEL_RADIUS) * 0.5)),
+        int(floor(float(wg_base.y - FILTER_KERNEL_RADIUS) * 0.5))
+    );
+    const int local_idx = int(gl_LocalInvocationIndex);
+    const int tile_count = PACKED_TILE_W * PACKED_TILE_H;
+    for (int idx = local_idx; idx < tile_count; idx += 64) {
+        int tx = idx % PACKED_TILE_W;
+        int ty = idx / PACKED_TILE_W;
+        ivec2 src = clamp(packed_min + ivec2(tx, ty), ivec2(0), packed_res - ivec2(1));
+        s_tile_light_id_packed[ty][tx] = imageLoad(LIGHT_ID_PACKED_SOURCE, src);
+    }
+
+    barrier();
+
+    if (!in_bounds) return;
 
     vec4 center = imageLoad(INPUT_IRRADIANCE, pix);
     if (DENOISER_ENABLE_DIFFUSE_SAMPLING_FILTER == 0) {
@@ -65,13 +93,7 @@ void main() {
 
     float center_light_id = imageLoad(LIGHT_ID_SOURCE, pix).w;
     vec4 center_norm = imageLoad(normals_gs, pix);
-    vec3 center_geom = normalDecode(center_norm.xy);
     vec3 center_shading = normalDecode(center_norm.zw);
-    vec3 center_pos = imageLoad(position_t, pix).xyz;
-    float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
-    vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-    float world_texel_size = estimateWorldTexelSizeFromCenter(
-        pix, res, cam_pos, center_pos, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
     ivec2 matched_offsets[FILTER_MAX_OFFSETS];
     int matched_count = 0;
 
@@ -113,6 +135,23 @@ void main() {
             continue;
         }
 
+        ivec2 packed_q = ivec2(
+            int(floor(float(q.x) * 0.5)),
+            int(floor(float(q.y) * 0.5))
+        );
+        ivec2 packed_local = packed_q - packed_min;
+        vec4 packed_ids;
+        if (all(greaterThanEqual(packed_local, ivec2(0))) && packed_local.x < PACKED_TILE_W && packed_local.y < PACKED_TILE_H) {
+            packed_ids = s_tile_light_id_packed[packed_local.y][packed_local.x];
+        } else {
+            packed_ids = imageLoad(LIGHT_ID_PACKED_SOURCE, clamp(packed_q, ivec2(0), packed_res - ivec2(1)));
+        }
+
+        vec4 packed_match = max(vec4(0.0), vec4(1.0) - abs(vec4(center_light_id) - packed_ids));
+        if (dot(packed_match, vec4(1.0)) <= 0.0) {
+            continue;
+        }
+
         float sample_light_id = imageLoad(LIGHT_ID_SOURCE, q).w;
         if (abs(sample_light_id - center_light_id) > LIGHT_ID_THRESHOLD) {
             continue;
@@ -121,10 +160,23 @@ void main() {
         matched_offsets[matched_count++] = offset;
     }
 
-    vec3 sum_rgb = vec3(0.0);
-    float count = 0.0;
+    // Hot path: no compatible neighbors found, keep center sample.
+    if (matched_count == 1) {
+        imageStore(OUTPUT_IRRADIANCE, pix, vec4(center.rgb, clamp(center.a, 0.0, 1.0)));
+        return;
+    }
 
-    for (int i = 0; i < matched_count; i++) {
+    vec3 center_geom = normalDecode(center_norm.xy);
+    vec3 center_pos = imageLoad(position_t, pix).xyz;
+    float inv_center_dist = 1.0 / max(length(center_pos), 1.0);
+    vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float world_texel_size = estimateWorldTexelSizeFromCenter(
+        pix, res, cam_pos, center_pos, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
+
+    vec3 sum_rgb = center.rgb;
+    float count = 1.0;
+
+    for (int i = 1; i < matched_count; i++) {
         ivec2 q = pix + matched_offsets[i];
 
         vec4 norm = imageLoad(normals_gs, q);
