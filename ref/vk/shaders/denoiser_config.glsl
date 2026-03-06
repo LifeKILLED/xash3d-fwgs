@@ -7,6 +7,7 @@
 #define DENOISER_ENABLE_SHADOWS_FILTERING 1
 #define DENOISER_ENABLE_SPATIAL_RECONSTRUCTION 1
 #define DENOISER_ENABLE_REPROJECTION 1
+#define ASVGF_SHADOW_POSTFILTER_ENABLE 1
 #define DENOISER_ENABLE_DEFLICKERING 0
 #define DENOISER_ENABLE_ATROUS 1
 
@@ -22,10 +23,10 @@
 #define DENOISER_SHADOW_MASK_CATMULL_DETAIL_PRESERVE 0.35
 
 // Direct shadow-filter hard edge preserve.
-#define DENOISER_SHADOW_HARD_EDGE_MAX_BLUR 0.03
+#define DENOISER_SHADOW_HARD_EDGE_MAX_BLUR 0.09
 #define DENOISER_SHADOW_EDGE_LOCK_ENABLE 1
-#define DENOISER_SHADOW_EDGE_LOCK_THRESHOLD 0.65
-#define DENOISER_SHADOW_EDGE_LOCK_BLEND 0.9
+#define DENOISER_SHADOW_EDGE_LOCK_THRESHOLD 0.84
+#define DENOISER_SHADOW_EDGE_LOCK_BLEND 0.55
 
 // Spatial reconstruction.
 #define DENOISER_SPATIAL_CONFIDENCE_SCALE_SPECULAR 1.0
@@ -46,6 +47,8 @@
 #define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
 // Higher values preserve more local detail (less blur near gradients).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DETAIL_PRESERVE 0.7
+// 0 = horizontal/vertical passes, 1 = diagonal passes (↘ then ↗).
+#define DENOISER_ASVGF_SHADOW_CATMULL_DIAGONAL_ENABLE 1
 // Temporary debug: show smoothed ASVGF shadow mask instead of a-trous radiance output.
 #define DENOISER_DEBUG_ATROUS_OUTPUT_SHADOW_MASK 0
 // Confidence influence for deflickering_asvgf heuristics.

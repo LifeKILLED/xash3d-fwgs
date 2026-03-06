@@ -225,11 +225,11 @@
 #endif
 
 #ifndef SHADOW_AGGRESSIVE_BLUR_STRENGTH
-#define SHADOW_AGGRESSIVE_BLUR_STRENGTH 0.96
+#define SHADOW_AGGRESSIVE_BLUR_STRENGTH 0.98
 #endif
 
 #ifndef SHADOW_AGGRESSIVE_BLUR_BOX_BLEND
-#define SHADOW_AGGRESSIVE_BLUR_BOX_BLEND 0.90
+#define SHADOW_AGGRESSIVE_BLUR_BOX_BLEND 0.96
 #endif
 
 #ifndef SHADOW_SHARP_EDGE_PRESERVE
@@ -245,7 +245,7 @@
 #endif
 
 #ifndef SHADOW_SHARP_EDGE_REDUCE
-#define SHADOW_SHARP_EDGE_REDUCE 0.90
+#define SHADOW_SHARP_EDGE_REDUCE 0.88
 #endif
 
 #ifndef SHADOW_SHARP_EDGE_SHARPEN
@@ -257,7 +257,7 @@
 #endif
 
 #ifndef SHADOW_SOFTNESS_FLOOR
-#define SHADOW_SOFTNESS_FLOOR 0.35
+#define SHADOW_SOFTNESS_FLOOR 0.60
 #endif
 
 #ifndef SHADOW_MIN_INV_CENTER_DIST
@@ -269,11 +269,11 @@
 #endif
 
 #ifndef SHADOW_HARD_EDGE_CONTRAST_MIN
-#define SHADOW_HARD_EDGE_CONTRAST_MIN 0.75
+#define SHADOW_HARD_EDGE_CONTRAST_MIN 0.65
 #endif
 
 #ifndef SHADOW_HARD_EDGE_SIDE_VAR_MAX
-#define SHADOW_HARD_EDGE_SIDE_VAR_MAX 0.08
+#define SHADOW_HARD_EDGE_SIDE_VAR_MAX 0.10
 #endif
 
 #ifndef SHADOW_HARD_EDGE_MAX_BLUR
@@ -290,6 +290,34 @@
 
 #ifndef SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD
 #define SHADOW_FORCE_FULL_OCCLUSION_UNIT_THRESHOLD 0.02
+#endif
+
+#ifndef SHADOW_PROJECTED_RADIUS_MIN_SCALE
+#define SHADOW_PROJECTED_RADIUS_MIN_SCALE 0.10
+#endif
+
+#ifndef SHADOW_PROJECTED_RADIUS_GRAZE_STRENGTH
+#define SHADOW_PROJECTED_RADIUS_GRAZE_STRENGTH 1.5
+#endif
+
+#ifndef SHADOW_GRAZING_DISABLE_FILTER
+#define SHADOW_GRAZING_DISABLE_FILTER 1
+#endif
+
+#ifndef SHADOW_GRAZING_DISABLE_NDOTV
+#define SHADOW_GRAZING_DISABLE_NDOTV 0.03
+#endif
+
+#ifndef SHADOW_SOFT_GRADIENT_SPAN_MIN
+#define SHADOW_SOFT_GRADIENT_SPAN_MIN 0.02
+#endif
+
+#ifndef SHADOW_SOFT_GRADIENT_SPAN_MAX
+#define SHADOW_SOFT_GRADIENT_SPAN_MAX 0.20
+#endif
+
+#ifndef SHADOW_SOFT_GRADIENT_BOOST
+#define SHADOW_SOFT_GRADIENT_BOOST 0.22
 #endif
 
 #ifndef SHADOW_EDGE_LOCK_ENABLE
@@ -481,7 +509,7 @@ float compute_aggressive_line_blur(float line_values[PENUMBRA_LINE_CAP], int lin
         box_w += 1.0;
 
         float d = abs(float(i - center_idx));
-        float w = 1.0 / (1.0 + d); // Wide kernel for strong noise suppression.
+        float w = 1.0 / (1.0 + d);
         tent_sum += v * w;
         tent_w += w;
     }
@@ -560,6 +588,66 @@ bool is_hard_binary_edge(float line_values[PENUMBRA_LINE_CAP], int line_count, i
     if (left_var > SHADOW_HARD_EDGE_SIDE_VAR_MAX || right_var > SHADOW_HARD_EDGE_SIDE_VAR_MAX) return false;
 
     return true;
+}
+
+float planeScreenAxisFootprint(
+    ivec2 pix,
+    ivec2 res,
+    vec3 center_pos,
+    vec3 plane_normal,
+    vec3 cam_pos,
+    ivec2 axis)
+{
+    ivec2 p1 = clamp(pix + axis, ivec2(0), res - 1);
+    vec3 dir0 = reconstructWorldRayDirFromInvMatrices(pix, res, ubo.ubo.inv_proj, ubo.ubo.inv_view);
+    vec3 dir1 = reconstructWorldRayDirFromInvMatrices(p1, res, ubo.ubo.inv_proj, ubo.ubo.inv_view);
+
+    float plane_const = dot(plane_normal, center_pos - cam_pos);
+    float d0 = dot(plane_normal, dir0);
+    float d1 = dot(plane_normal, dir1);
+    if (abs(d0) < 1e-6 || abs(d1) < 1e-6) return 1e6;
+
+    float t0 = plane_const / d0;
+    float t1 = plane_const / d1;
+    if (t0 <= 0.0 || t1 <= 0.0) return 1e6;
+
+    vec3 w0 = cam_pos + dir0 * t0;
+    vec3 w1 = cam_pos + dir1 * t1;
+    return max(length(w1 - w0), 1e-6);
+}
+
+int projectedPassRadius(
+    ivec2 pix,
+    ivec2 res,
+    vec3 center_pos,
+    vec3 plane_normal,
+    vec3 cam_pos)
+{
+    float footprint_x = planeScreenAxisFootprint(pix, res, center_pos, plane_normal, cam_pos, ivec2(1, 0));
+    float footprint_y = planeScreenAxisFootprint(pix, res, center_pos, plane_normal, cam_pos, ivec2(0, 1));
+    float footprint_min = min(footprint_x, footprint_y);
+    float footprint_pass = (SHADOW_FILTER_IS_HORIZONTAL != 0) ? footprint_x : footprint_y;
+
+    float axis_scale = footprint_min / max(footprint_pass, 1e-6);
+    axis_scale = clamp(axis_scale, SHADOW_PROJECTED_RADIUS_MIN_SCALE, 1.0);
+
+    vec3 V = normalize(cam_pos - center_pos);
+    float ndotv = clamp(abs(dot(plane_normal, V)), 0.0, 1.0);
+    float grazing = 1.0 - ndotv;
+    float grazing_mix = clamp(grazing * SHADOW_PROJECTED_RADIUS_GRAZE_STRENGTH, 0.0, 1.0);
+    float final_scale = mix(1.0, axis_scale, grazing_mix);
+
+    return clamp(int(floor(float(FILTER_RADIUS) * final_scale + 0.5)), 1, FILTER_RADIUS);
+}
+
+bool shouldDisableFilterAtGrazing(vec3 center_pos, vec3 plane_normal, vec3 cam_pos) {
+#if SHADOW_GRAZING_DISABLE_FILTER
+    vec3 V = normalize(cam_pos - center_pos);
+    float ndotv = abs(dot(plane_normal, V));
+    return ndotv < SHADOW_GRAZING_DISABLE_NDOTV;
+#else
+    return false;
+#endif
 }
 
 void store_shadowed_irradiance(ivec2 pix, float shadow_value) {
@@ -720,6 +808,15 @@ void main() {
     vec3 cam_pos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
     float world_texel_size = estimateWorldTexelSizeFromCenter(
         pix, res, cam_pos, p0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
+    if (shouldDisableFilterAtGrazing(p0, g0, cam_pos)) {
+        vec3 center_payload = vec3(center_seed, center_shadow_unit, center_shadow_unit);
+        float out_smoothed_flag = prev_smoothed_flag;
+        store_shadow_output(pix, center_shadow, center_payload, out_smoothed_flag, light_id0);
+        store_shadow_transition_mask_debug(pix, center_shadow, center_payload, light_id0, out_smoothed_flag);
+        store_shadowed_irradiance(pix, center_shadow);
+        return;
+    }
+    int pass_filter_radius = projectedPassRadius(pix, res, p0, g0, cam_pos);
 
     const int line_search_left = -(PENUMBRA_LINE_CAP / 2);
     const int line_search_right = line_search_left + PENUMBRA_LINE_CAP - 1;
@@ -733,6 +830,7 @@ void main() {
 
     for (int offset = search_from; offset <= search_to; offset++) {
         if (line_count >= PENUMBRA_LINE_CAP) break;
+        if (abs(offset) > pass_filter_radius) continue;
 
         if (offset == 0) {
             line_offsets[line_count] = 0;
@@ -810,6 +908,17 @@ void main() {
     float aggressive_line_blur = compute_aggressive_line_blur(line_values, line_count, center_line_idx);
     float aggressive_strength = SHADOW_AGGRESSIVE_BLUR_STRENGTH;
     bool hard_binary_edge = false;
+
+    float line_vmin = 1.0;
+    float line_vmax = 0.0;
+    for (int i = 0; i < line_count; i++) {
+        line_vmin = min(line_vmin, line_values[i]);
+        line_vmax = max(line_vmax, line_values[i]);
+    }
+    float line_span = max(line_vmax - line_vmin, 0.0);
+    float soft_region = 1.0 - smoothstep(SHADOW_SOFT_GRADIENT_SPAN_MIN, SHADOW_SOFT_GRADIENT_SPAN_MAX, line_span);
+    aggressive_strength = clamp(aggressive_strength + SHADOW_SOFT_GRADIENT_BOOST * soft_region, 0.0, 1.0);
+
 #if SHADOW_SHARP_EDGE_PRESERVE
     float sharp_edge_conf = compute_sharp_edge_confidence(line_values, line_count, center_line_idx);
     aggressive_strength *= (1.0 - SHADOW_SHARP_EDGE_REDUCE * sharp_edge_conf);
@@ -827,7 +936,9 @@ void main() {
     out_shadow_unit = mix(center_shadow_unit, aggressive_line_blur, aggressive_strength);
 #endif
 
-    float expected_support = float(max(search_to - search_from + 1, 1));
+    int effective_from = max(-pass_filter_radius, search_from);
+    int effective_to = min(pass_filter_radius, search_to);
+    float expected_support = float(max(effective_to - effective_from + 1, 1));
     float support_coverage = float(line_count) / expected_support;
     float coverage_conf = smoothstep(PENUMBRA_MIN_COVERAGE, 1.0, support_coverage);
     int line_max_gap = max_line_offset_gap(line_offsets, line_count);

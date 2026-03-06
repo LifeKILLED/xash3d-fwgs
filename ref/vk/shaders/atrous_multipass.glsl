@@ -86,11 +86,15 @@
 #endif
 
 #ifndef ATROUS_MASK_DIFF_MIN
-#define ATROUS_MASK_DIFF_MIN 0.05
+#define ATROUS_MASK_DIFF_MIN 0.01
 #endif
 
 #ifndef ATROUS_MASK_DIFF_MAX
-#define ATROUS_MASK_DIFF_MAX 0.20
+#define ATROUS_MASK_DIFF_MAX 0.30
+#endif
+
+#ifndef ATROUS_MASK_GATE_STRENGTH
+#define ATROUS_MASK_GATE_STRENGTH 1.0
 #endif
 
 #ifndef ATROUS_LUMA_GATE_ENABLE
@@ -210,7 +214,8 @@ float wMask(ivec2 p, ivec2 q)
     float m1 = s1[ATROUS_MASK_CHANNEL];
     float dm = abs(m1 - m0);
     float t = (dm - ATROUS_MASK_DIFF_MIN) / max(ATROUS_MASK_DIFF_MAX - ATROUS_MASK_DIFF_MIN, 1e-4);
-    return 1.0 - clamp(t, 0.0, 1.0);
+    float raw_w = 1.0 - clamp(t, 0.0, 1.0);
+    return mix(1.0, raw_w, clamp(ATROUS_MASK_GATE_STRENGTH, 0.0, 1.0));
 #else
     return 1.0;
 #endif
