@@ -232,8 +232,6 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 	}
 
 	float samples_weight = 0.0;
-	bool has_in_bounds_candidate = false;
-	ivec2 fallback_reproj = clamp(ivec2(floor(reproj_uv + vec2(0.5))), ivec2(0), res - ivec2(1));
 	for (int x = 0; x <=1; ++x) {
 		for (int y = 0; y <=1; ++y) {
 			const float bilinear_weight = bilinear_weights[x + y*2];
@@ -243,10 +241,6 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 			const ivec2 p = reproj_pix + ivec2(x, y);
 			if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res)))
 				continue;
-			has_in_bounds_candidate = true;
-			if (bilinear_weight > better_reproj_uv_weight) {
-				fallback_reproj = p;
-			}
 
 			const float depth_sample = imageLoad( prev_temporal_depth, p ).r;
 			const float depth_diff = abs(depth_sample - depth_nessesary);
@@ -297,7 +291,7 @@ bool reproject(vec3 diffuse_src, vec3 specular_src, ivec2 pix, ivec2 res, vec2 r
 	}
 
 	if (!has_valid_reprojection) {
-		reprojection_uv = has_in_bounds_candidate ? vec2(fallback_reproj) : vec2(-1.0);
+		reprojection_uv = vec2(-1.0);
 	}
 
 	if ( samples_weight != 0.0 ) {

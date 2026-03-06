@@ -40,7 +40,7 @@
 // Unified scale for both plane distance and texel distance in position gate.
 #define DENOISER_POSITION_GATE_SCALE 0.001
 // World-space texel footprint margin used by dynamic position gate.
-#define DENOISER_POSITION_TEXEL_SIZE_MARGIN 2.5
+#define DENOISER_POSITION_TEXEL_SIZE_MARGIN 4.0
 
 // Reprojected ASVGF shadow-mask Catmull-Rom filter.
 #define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
