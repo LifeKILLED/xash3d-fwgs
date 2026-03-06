@@ -27,6 +27,14 @@
 #define SHADING_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
+#ifndef SHADING_NORMAL_DOT_THRESHOLD_RELAXED
+#define SHADING_NORMAL_DOT_THRESHOLD_RELAXED 0.7
+#endif
+
+#ifndef SPATIAL_MIN_ACCEPTED_STRICT_SAMPLES
+#define SPATIAL_MIN_ACCEPTED_STRICT_SAMPLES 6
+#endif
+
 #ifndef GEOMETRY_NORMAL_DOT_THRESHOLD
 #define GEOMETRY_NORMAL_DOT_THRESHOLD 0.95
 #endif
@@ -152,6 +160,18 @@ vec3 clampRadianceNonNegative(vec3 c) {
 float luminance709(vec3 c) {
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
+
+vec3 clampLuminancePreserveHue(vec3 c, float maxLum) {
+    float lum = luminance709(c);
+    if (lum <= maxLum || lum <= 1e-6) {
+        return c;
+    }
+    return c * (maxLum / lum);
+}
+
+#ifndef SPATIAL_SAMPLE_LUMINANCE_CLAMP
+#define SPATIAL_SAMPLE_LUMINANCE_CLAMP DENOISER_SPATIAL_SAMPLE_LUMINANCE_CLAMP
+#endif
 
 float spatialKernelWeight(int poissonIndex) {
     return POISSON[poissonIndex].z;
@@ -308,10 +328,13 @@ void main()
 #else
     float center_shadow_mask = 1.0;
 #endif
-    float center_lum = max(luminance709(center_rgb), 1e-4);
+    vec3 center_rgb_shadowed = clampLuminancePreserveHue(
+        center_rgb, SPATIAL_SAMPLE_LUMINANCE_CLAMP) * center_shadow_mask;
+    float center_lum = max(luminance709(center_rgb_shadowed), 1e-4);
+
 
     if (DENOISER_ENABLE_SPATIAL_RECONSTRUCTION == 0 || SPATIAL_RECONSTRUCTION_STAGE_ENABLED == 0) {
-        imageStore(OUTPUT_DIRECT, p, vec4(center_rgb * center_shadow_mask, center_a));
+        imageStore(OUTPUT_DIRECT, p, vec4(center_rgb_shadowed, center_a));
 #ifdef OUTPUT_NORMALIZED_SHADOW_MASK
         imageStore(OUTPUT_NORMALIZED_SHADOW_MASK, p, vec4(vec3(1.0), 1.0));
 #endif
@@ -323,13 +346,20 @@ void main()
     float center_confW = clampWeightNonNegative(center_a);
     float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0));
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
-    vec3 sumC = (center_rgb * center_shadow_mask) * center_w;
+    vec3 sumC = center_rgb_shadowed * center_w;
     float sumShadowNorm = center_shadow_mask * center_w * center_lum;
     float sumShadowNormW = center_w * center_lum;
     float sumW = center_w;
     float sumConfNorm = center_a * center_w * center_lum;
     float sumConfNormW = center_w * center_lum;
     int accepted_samples = 0;
+    vec3 sumC_relaxed = sumC;
+    float sumShadowNorm_relaxed = sumShadowNorm;
+    float sumShadowNormW_relaxed = sumShadowNormW;
+    float sumW_relaxed = sumW;
+    float sumConfNorm_relaxed = sumConfNorm;
+    float sumConfNormW_relaxed = sumConfNormW;
+    int accepted_samples_relaxed = 0;
 
     vec2 axisX = vec2(SPATIAL_RADIUS, 0.0);
 #if SPATIAL_RANDOM_POISSON_ROTATION
@@ -347,15 +377,16 @@ void main()
 
         vec3 P1 = imageLoad(POSITION_T, q).xyz;
         float wp = positionGate(P1 - P0, G0, invCenterDist, worldTexelSize);
-        if (wp == 0.0) continue;
 
         vec4 normEnc = imageLoad(NORMALS_GS, q);
         vec3 N1 = normalDecode(normEnc.zw);
         float wn = 1.0;
+        float wn_relaxed = 1.0;
         float wg = 1.0;
 #if SPATIAL_EDGE_GATE_MODE == 0
         wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
-        if (wn == 0.0) continue;
+        wn_relaxed = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD_RELAXED);
+        if (wn_relaxed == 0.0) continue;
         vec3 G1 = normalDecode(normEnc.xy);
         wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
         if (wg == 0.0) continue;
@@ -394,31 +425,53 @@ void main()
         float confW = clampWeightNonNegative(c_a);
         float spatialW = clampWeightNonNegative(spatialKernelWeight(i));
         float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
-        if (isnan(w) || isinf(w)) continue;
+        float w_relaxed = clampWeightNonNegative(wn_relaxed * wg * wr * wl * confW * spatialW);
+        if ((isnan(w) || isinf(w)) || (isnan(w_relaxed) || isinf(w_relaxed))) continue;
 
-        if (w > 0.0) {
+        if ((w > 0.0) || (w_relaxed > 0.0)) {
             vec3 sample_shadow_data = loadShadowMaskAndLightId(q);
             float sample_shadow_mask = resolveShadowMaskFromCache(
                 sample_shadow_data.x, sample_shadow_data.y, shadow_cache_ids, shadow_cache_masks);
-            vec3 c_rgb = clampRadianceNonNegative(c.rgb) * sample_shadow_mask;
-            sumC += c_rgb * w;
-            float sample_lum = max(luminance709(clampRadianceNonNegative(c.rgb)), 1e-4);
-            sumShadowNorm += sample_shadow_mask * w * sample_lum;
-            sumShadowNormW += w * sample_lum;
-            sumW += w;
-            sumConfNorm += c_a * w * sample_lum;
-            sumConfNormW += w * sample_lum;
-            accepted_samples++;
+            vec3 c_rgb = clampLuminancePreserveHue(
+                clampRadianceNonNegative(c.rgb), SPATIAL_SAMPLE_LUMINANCE_CLAMP) * sample_shadow_mask;
+            float sample_lum = max(luminance709(c_rgb), 1e-4);
+            if (w > 0.0) {
+                sumC += c_rgb * w;
+                sumShadowNorm += sample_shadow_mask * w * sample_lum;
+                sumShadowNormW += w * sample_lum;
+                sumW += w;
+                sumConfNorm += c_a * w * sample_lum;
+                sumConfNormW += w * sample_lum;
+                accepted_samples++;
+            }
+            if (w_relaxed > 0.0) {
+                sumC_relaxed += c_rgb * w_relaxed;
+                sumShadowNorm_relaxed += sample_shadow_mask * w_relaxed * sample_lum;
+                sumShadowNormW_relaxed += w_relaxed * sample_lum;
+                sumW_relaxed += w_relaxed;
+                sumConfNorm_relaxed += c_a * w_relaxed * sample_lum;
+                sumConfNormW_relaxed += w_relaxed * sample_lum;
+                accepted_samples_relaxed++;
+            }
         }
     }
 
-    vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
-    float outShadowNorm = sumShadowNorm / max(sumShadowNormW, 1e-6);
-    float outA = (sumConfNormW > 1e-6) ? clamp(sumConfNorm / sumConfNormW, 0.0, 1.0) : 1.0;
+    bool use_relaxed = (accepted_samples < SPATIAL_MIN_ACCEPTED_STRICT_SAMPLES) && (accepted_samples_relaxed > 0);
+    vec3 finalSumC = use_relaxed ? sumC_relaxed : sumC;
+    float finalSumW = use_relaxed ? sumW_relaxed : sumW;
+    float finalShadowNorm = use_relaxed ? sumShadowNorm_relaxed : sumShadowNorm;
+    float finalShadowNormW = use_relaxed ? sumShadowNormW_relaxed : sumShadowNormW;
+    float finalConfNorm = use_relaxed ? sumConfNorm_relaxed : sumConfNorm;
+    float finalConfNormW = use_relaxed ? sumConfNormW_relaxed : sumConfNormW;
+    int finalAcceptedSamples = use_relaxed ? accepted_samples_relaxed : accepted_samples;
+
+    vec3 outC = clampRadianceNonNegative(finalSumC / max(finalSumW, 1e-6));
+    float outShadowNorm = finalShadowNorm / max(finalShadowNormW, 1e-6);
+    float outA = (finalConfNormW > 1e-6) ? clamp(finalConfNorm / finalConfNormW, 0.0, 1.0) : 1.0;
 
     // Mirror fallback: if nothing valid was gathered, keep center sample.
-    if (accepted_samples == 0) {
-        outC = center_rgb * center_shadow_mask;
+    if (finalAcceptedSamples == 0) {
+        outC = center_rgb_shadowed;
         outShadowNorm = center_shadow_mask;
     }
 

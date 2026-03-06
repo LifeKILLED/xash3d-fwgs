@@ -1,73 +1,80 @@
 #ifndef ATROUS_KERNEL
-	#define ATROUS_KERNEL 7
-#endif
-
-#ifndef STEP_SIZE
-	#define STEP_SIZE 1
-#endif
-
-#ifndef PHI_POS
-	#define PHI_POS 100.0
-#endif
-
-#ifndef PHI_NORMAL
-	#define PHI_NORMAL 0.2
-#endif
-
-#ifndef ROUGHNESS_THRESHOLD
-	#define ROUGHNESS_THRESHOLD 0.1
-#endif
-
-#ifndef METALNESS_THRESHOLD
-	#define METALNESS_THRESHOLD 0.2
-#endif
-
-#ifndef VARIANCE_SCALE
-	#define VARIANCE_SCALE 350.0
+#define ATROUS_KERNEL 2
 #endif
 
 #ifndef SRC_RADIANCE
-	#define SRC_RADIANCE indirect_specular
+#define SRC_RADIANCE indirect_specular
 #endif
 
 #ifndef OUT_RADIANCE
-	#define OUT_RADIANCE out_indirect_specular_denoised
+#define OUT_RADIANCE out_indirect_specular_denoised
 #endif
 
 #ifndef POSITION_T
-	#define POSITION_T position_t
+#define POSITION_T position_t
 #endif
 
 #ifndef NORMALS_GS
-	#define NORMALS_GS normals_gs
+#define NORMALS_GS normals_gs
 #endif
 
 #ifndef MATERIAL_RMXX
-	#define MATERIAL_RMXX material_rmxx
+#define MATERIAL_RMXX material_rmxx
 #endif
 
-#ifndef DISABLE_VARIANCE
-	#define USE_VARIANCE
+#ifndef ROUGHNESS_DIFF_THRESHOLD
+#define ROUGHNESS_DIFF_THRESHOLD 0.12
 #endif
 
-//--------------------------------------------------------------
-// Variants
-//--------------------------------------------------------------
-// Firefly removal algorithms
-#define FIREFLY_ALGORYTHM_A   // median/sigma-range rejection
-// #define FIREFLY_ALGORYTHM_B   // sigma-clipping rejection
+#ifndef SHADING_NORMAL_DOT_THRESHOLD
+#define SHADING_NORMAL_DOT_THRESHOLD 0.95
+#endif
 
-// Variance-guided smoothing
- #define SMOOTH_ALGORYTHM_C    // variance boosts blur
-// #define SMOOTH_ALGORYTHM_D    // variance relaxes edge-stopping
+#ifndef ATROUS_NORMAL_GATE_SOFTNESS
+#define ATROUS_NORMAL_GATE_SOFTNESS 0.05
+#endif
 
-#define FIREFLY_KILL_1   // median replacement
-//#define FIREFLY_KILL_2   // clamp to neighborhood
-//#define FIREFLY_KILL_3   // variance-aware override
+#ifndef ATROUS_VARIANCE_RELAX_EDGE
+#define ATROUS_VARIANCE_RELAX_EDGE 1.25
+#endif
 
+#ifndef ATROUS_MASK_GATE_ENABLE
+#define ATROUS_MASK_GATE_ENABLE 1
+#endif
+
+#ifndef ATROUS_MASK_SOURCE
+#define ATROUS_MASK_SOURCE asvgf_shadow_mask_normalized
+#endif
+
+#ifndef ATROUS_MASK_CHANNEL
+#define ATROUS_MASK_CHANNEL 0
+#endif
+
+#ifndef ATROUS_MASK_DIFF_MIN
+#define ATROUS_MASK_DIFF_MIN 0.01
+#endif
+
+#ifndef ATROUS_MASK_DIFF_MAX
+#define ATROUS_MASK_DIFF_MAX 0.30
+#endif
+
+#ifndef ATROUS_MASK_GATE_STRENGTH
+#define ATROUS_MASK_GATE_STRENGTH 1.0
+#endif
+
+#ifndef AGGRESSIVE_KILL_FIREFLYES
+#define AGGRESSIVE_KILL_FIREFLYES 1
+#endif
+
+#ifndef MIRROR_FIX
+#define MIRROR_FIX 0
+#endif
+
+#include "denoiser_config.glsl"
 #include "debug.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
+#include "brdf.glsl"
 
 #define GLSL
 #include "ray_interop.h"
@@ -75,376 +82,229 @@
 
 #define LOCAL_SZ_X 8
 #define LOCAL_SZ_Y 8
+#define PAD (ATROUS_KERNEL + 1)
+#define SHARED_W (LOCAL_SZ_X + 2 * PAD)
+#define SHARED_H (LOCAL_SZ_Y + 2 * PAD)
 
 layout(local_size_x = LOCAL_SZ_X, local_size_y = LOCAL_SZ_Y, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform image2D OUT_RADIANCE;
-
 layout(set = 0, binding = 1, rgba16f) uniform readonly image2D SRC_RADIANCE;
 layout(set = 0, binding = 2, rgba32f) uniform readonly image2D POSITION_T;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D NORMALS_GS;
-layout(set = 0, binding = 4, rgba8)   uniform readonly image2D MATERIAL_RMXX;
-
+layout(set = 0, binding = 4, rgba8) uniform readonly image2D MATERIAL_RMXX;
 layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
+#if ATROUS_MASK_GATE_ENABLE
+layout(set = 0, binding = 6, rgba16f) uniform readonly image2D ATROUS_MASK_SOURCE;
+#endif
 
-#include "utils.glsl"
-#include "noise.glsl"
-#include "brdf.glsl"
+shared vec3 sRadiance[SHARED_H][SHARED_W];
+shared vec3 sPos[SHARED_H][SHARED_W];
+shared vec3 sGeomN[SHARED_H][SHARED_W];
+shared vec3 sShadeN[SHARED_H][SHARED_W];
+shared float sRough[SHARED_H][SHARED_W];
+shared float sVar[SHARED_H][SHARED_W];
+#if ATROUS_MASK_GATE_ENABLE
+shared float sMask[SHARED_H][SHARED_W];
+#endif
 
-#ifdef USE_VARIANCE
-	const int PADDING = ATROUS_KERNEL + 1;
+ivec2 clampPix(ivec2 p, ivec2 res) {
+    return clamp(p, ivec2(0), res - 1);
+}
+
+vec3 safeRadiance(vec3 c) {
+    bvec3 bad = bvec3(isnan(c.x) || isinf(c.x), isnan(c.y) || isinf(c.y), isnan(c.z) || isinf(c.z));
+    vec3 safe = vec3(bad.x ? 0.0 : c.x, bad.y ? 0.0 : c.y, bad.z ? 0.0 : c.z);
+    return max(safe, vec3(0.0));
+}
+
+float safeLuma(vec3 c) {
+    return max(luminance(c), 1e-5);
+}
+
+float normalGateWeight(vec3 a, vec3 b, float threshold, float relax) {
+    float nd = max(dot(a, b), 0.0);
+    float soft = ATROUS_NORMAL_GATE_SOFTNESS * max(relax, 1.0);
+    float t0 = clamp(threshold - soft, 0.0, 1.0);
+    float t1 = clamp(threshold + soft * 0.5, t0 + 1e-4, 1.0);
+    return smoothstep(t0, t1, nd);
+}
+
+float maskGateWeight(float m0, float m1) {
+#if ATROUS_MASK_GATE_ENABLE
+    float dm = abs(m1 - m0);
+    float t = (dm - ATROUS_MASK_DIFF_MIN) / max(ATROUS_MASK_DIFF_MAX - ATROUS_MASK_DIFF_MIN, 1e-4);
+    float raw_w = 1.0 - clamp(t, 0.0, 1.0);
+    return mix(1.0, raw_w, clamp(ATROUS_MASK_GATE_STRENGTH, 0.0, 1.0));
 #else
-	const int PADDING = ATROUS_KERNEL;
+    return 1.0;
 #endif
+}
 
-const int SHARED_W = LOCAL_SZ_X + 2 * PADDING;
-const int SHARED_H = LOCAL_SZ_Y + 2 * PADDING;
-const float EPS = 1e-5;
+float spatialWeight(int dx, int dy) {
+    float dist2 = float(dx * dx + dy * dy);
+    float sigma = max(float(ATROUS_KERNEL) * 0.75, 1.0);
+    return exp(-dist2 / (2.0 * sigma * sigma));
+}
 
-struct TexelData {
-    vec3 pos;
-    vec3 normal;
-	vec3 radiance;
-    float roughness;
-    float metalness;
-#ifdef USE_VARIANCE
-	float luminance;
-    float variance;
+void loadSharedTexel(ivec2 tex, ivec2 res, int sx, int sy) {
+    ivec2 p = clampPix(tex, res);
+    sRadiance[sy][sx] = safeRadiance(imageLoad(SRC_RADIANCE, p).rgb);
+    sPos[sy][sx] = imageLoad(POSITION_T, p).xyz;
+    vec4 n = imageLoad(NORMALS_GS, p);
+    sGeomN[sy][sx] = normalDecode(n.xy);
+    sShadeN[sy][sx] = normalDecode(n.zw);
+    sRough[sy][sx] = imageLoad(MATERIAL_RMXX, p).x;
+#if ATROUS_MASK_GATE_ENABLE
+    sMask[sy][sx] = imageLoad(ATROUS_MASK_SOURCE, p)[ATROUS_MASK_CHANNEL];
 #endif
-};
-
-shared TexelData s_tile[SHARED_H][SHARED_W];
-
-float normpdf2(in float x2, in float sigma) { return 0.39894*exp(-0.5*x2/(sigma*sigma))/sigma; }
-float normpdf(in float x, in float sigma) { return normpdf2(x*x, sigma); }
-
-ivec2 clampCoord(ivec2 coord, ivec2 size) {
-    return clamp(coord, ivec2(0), size - ivec2(1));
 }
 
-TexelData loadTexel(ivec2 pix, ivec2 res) {
-    const ivec2 p = clampCoord(pix, res);
-
-    TexelData t;
-    t.pos = imageLoad(POSITION_T, p).xyz;
-    t.normal = normalDecode(imageLoad(NORMALS_GS, p).zw);
-    t.radiance = imageLoad(SRC_RADIANCE, p).rgb;
-
-    vec2 rm = imageLoad(MATERIAL_RMXX, p).rg;
-	t.roughness = rm.r;
-	t.metalness = rm.g;
-
-#ifdef USE_VARIANCE
-	t.luminance = luminance(t.radiance);
-    t.variance = 0.0;
-#endif
-
-    return t;
-}
-
-#ifdef USE_VARIANCE
-float computeVariance(int sx, int sy) {
-    float mean = 0.0;
-    float sqmean = 0.0;
-    int cnt = 0;
-    for (int oy = -1; oy <= 1; ++oy) {
-		for (int ox = -1; ox <= 1; ++ox) {
-			const int nx = sx + ox, ny = sy + oy;
-
-			if (nx >= 0 && nx < SHARED_W && ny >= 0 && ny < SHARED_H) {
-				float v = s_tile[ny][nx].luminance;
-
-				mean += v;
-				sqmean += v * v;
-				cnt++;
-			}
-		}
-	}
-
-    if (cnt == 0)
-		return 0.0;
-
-    mean /= float(cnt);
-    sqmean /= float(cnt);
-
-    return max(sqmean - mean * mean, 0.0);
-}
-#endif
-
-vec3 rayDirFromUV(vec2 uv, mat4 invProj, mat4 invView) {
-    vec2 ndc = uv * 2.0 - 1.0;
-    vec4 clip = vec4(ndc, 1.0, 1.0);
-    vec4 view = invProj * clip;
-    view /= view.w;
-    return normalize((invView * vec4(view.xyz, 0.0)).xyz);
-}
-
-vec3 rayOrigin(mat4 invView) {
-    return (invView * vec4(0,0,0,1)).xyz;
-}
-
-vec3 intersectplane(vec3 ro, vec3 rd, vec3 p0, vec3 pn) {
-    float d = dot(rd, pn);
-    if (abs(d) < 1e-6) {
-        return p0;
+float computeVariance3x3(int sx, int sy) {
+    float m1 = 0.0;
+    float m2 = 0.0;
+    float w = 0.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            float L = safeLuma(sRadiance[sy + y][sx + x]);
+            m1 += L;
+            m2 += L * L;
+            w += 1.0;
+        }
     }
-    float t = dot(p0 - ro, pn) / d;
-    if (isnan(t) || isinf(t)) {
-        return p0;
-    }
-    return ro + rd * t;
-}
-
-vec3 planarOffset(ivec2 pix, ivec2 offset, vec3 centerPos, vec3 centerNormal, mat4 invProj, mat4 invView) {
-    vec2 uv = (vec2(pix + offset) + 0.5) / vec2(ubo.ubo.res.xy * ubo.ubo.resScale);
-    vec3 ro = rayOrigin(invView);
-    vec3 rd = rayDirFromUV(uv, invProj, invView);
-    return intersectplane(ro, rd, centerPos, centerNormal);
-}
-
-void computeDdXY(ivec2 pix, vec3 centerPos, vec3 centerNormal, mat4 invProj, mat4 invView, out vec3 ddx, out vec3 ddy, out float depthThreshold) {
-    vec3 posR = planarOffset(pix, ivec2(STEP_SIZE,0), centerPos, centerNormal, invProj, invView);
-    vec3 posL = planarOffset(pix, ivec2(-STEP_SIZE,0), centerPos, centerNormal, invProj, invView);
-    ddx = 0.5 * (posR - posL);
-    depthThreshold = length(ddx);
-
-    vec3 posU = planarOffset(pix, ivec2(0,STEP_SIZE), centerPos, centerNormal, invProj, invView);
-    vec3 posD = planarOffset(pix, ivec2(0,-STEP_SIZE), centerPos, centerNormal, invProj, invView);
-    ddy = 0.5 * (posU - posD);
+    m1 /= max(w, 1.0);
+    m2 /= max(w, 1.0);
+    float var = max(m2 - m1 * m1, 0.0);
+    return clamp(var / max(m1 * m1, 1e-4), 0.0, 1.0);
 }
 
 void main() {
-	const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
-    const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
-    const ivec2 localID = ivec2(gl_LocalInvocationID.xy);
-    const ivec2 sharedOrigin = ivec2(gl_WorkGroupID.xy) * ivec2(LOCAL_SZ_X, LOCAL_SZ_Y) - ivec2(PADDING, PADDING);
+    ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pix, res))) return;
 
-	if (sharedOrigin.x >= res.x || sharedOrigin.y >= res.y)
-		return;
+    ivec2 local = ivec2(gl_LocalInvocationID.xy);
+    ivec2 sharedOrigin = ivec2(gl_WorkGroupID.xy) * ivec2(LOCAL_SZ_X, LOCAL_SZ_Y) - ivec2(PAD);
+    int lane = int(gl_LocalInvocationIndex);
+    int lanes = LOCAL_SZ_X * LOCAL_SZ_Y;
+    int sharedCount = SHARED_W * SHARED_H;
 
-	// Fill shader memory (one thread reading 3x3 texels)
-    const int localThreadIndex = int(gl_LocalInvocationIndex);
-    const int localThreadCount = LOCAL_SZ_X * LOCAL_SZ_Y;
-    const int totalSharedCount = SHARED_W * SHARED_H;
-    for (int idx = localThreadIndex; idx < totalSharedCount; idx += localThreadCount) {
+    for (int idx = lane; idx < sharedCount; idx += lanes) {
         int sy = idx / SHARED_W;
         int sx = idx - sy * SHARED_W;
-        ivec2 tex = sharedOrigin + ivec2(sx, sy) * STEP_SIZE;
-        s_tile[sy][sx] = loadTexel(tex, res);
+        ivec2 tex = sharedOrigin + ivec2(sx, sy);
+        loadSharedTexel(tex, res, sx, sy);
     }
 
-#ifdef USE_VARIANCE
-    //memoryBarrierShared();
     barrier();
 
-	// Calculate variance
-    for (int idx = localThreadIndex; idx < totalSharedCount; idx += localThreadCount) {
+    // Phase 1: local variance in shared memory.
+    for (int idx = lane; idx < sharedCount; idx += lanes) {
         int sy = idx / SHARED_W;
         int sx = idx - sy * SHARED_W;
-        s_tile[sy][sx].variance = computeVariance(sx, sy);
-    }
-#endif
-
-    //memoryBarrierShared();
-    barrier();
-
-    if (pix.x >= res.x || pix.y >= res.y)
-		return;
-
-	// Apply aTrous
-    const int centerSX = localID.x + PADDING;
-    const int centerSY = localID.y + PADDING;
-
-    TexelData center = s_tile[centerSY][centerSX];
-
-    vec3 center_geom_normal = normalDecode(imageLoad(NORMALS_GS, pix).xy);
-
-    vec3 ddx, ddy;
-    float depthThreshold;
-    computeDdXY(pix, center.pos, center_geom_normal, ubo.ubo.inv_proj, ubo.ubo.inv_view, ddx, ddy, depthThreshold);
-    depthThreshold = max(depthThreshold, 1e-4);
-
-#ifdef MIRROR_FIX
-	if (center.roughness == 0.0) {
-		imageStore(OUT_RADIANCE, pix, vec4(center.radiance, 1.0));
-		return;
-	}
-#endif
-
-    vec3 accum = vec3(0.0);
-	float wsum = 0.0;
-
-    for (int ky = -ATROUS_KERNEL; ky <= ATROUS_KERNEL; ++ky) {
-    	for (int kx = -ATROUS_KERNEL; kx <= ATROUS_KERNEL; ++kx) {
-			const int sx = centerSX + kx;
-			const int sy = centerSY + ky;
-
-			if (sx < 0 || sy < 0 || sx >= SHARED_W || sy >= SHARED_H)
-				continue;
-
-			TexelData n = s_tile[sy][sx];
-
-			// Roughness edge stopping
-            if (abs(center.roughness - n.roughness) > ROUGHNESS_THRESHOLD)
-				continue;
-
-			// Metalness edge stopping
-			if (abs(center.metalness - n.metalness) > METALNESS_THRESHOLD)
-				continue;
-
-			// Weight shading normals
-			const vec3 sn_diff = center.normal - n.normal;
-			const float sn_dist2 = dot(sn_diff,sn_diff);
-			const float w_normal = min(exp(-(sn_dist2)/PHI_NORMAL), 1.0);
-			if (w_normal <= 0.0)
-				continue;
-
-            // Edge pos
-            vec3 idealPos = center.pos + ddx * float(kx) + ddy * float(ky);
-            vec3 planarDiff = n.pos - idealPos;
-            float planarDist2 = dot(planarDiff, planarDiff);
-            float depthThreshold2 = max(depthThreshold * depthThreshold, 1e-8);
-            float w_pos = exp(-planarDist2 / depthThreshold2);
-            if (isnan(w_pos) || isinf(w_pos)) {
-                continue;
-            }
-            if (w_pos <= 0.001)
-                continue;
-
-#ifdef SIGMA_ALLWAYS_ONE
-			const float w_sigma = 1.0f;
-#else
-            const float sigma = ATROUS_KERNEL / 2.;
-			const float w_sigma = normpdf(kx, sigma) * normpdf(ky, sigma);
-#endif
-
-            float w = w_normal * w_pos * w_sigma;
-            if (isnan(w) || isinf(w) || w <= 0.0) {
-                continue;
-            }
-
-#ifdef USE_VARIANCE
-            // const float lumDiff = n.luminance - center.luminance;
-			// const float lumSigma = sqrt(center.variance) + 1e-3;
-            // const float w_lum = 1.0;
-			// const float w_var = 1.0 / (1.0 + n.variance * VARIANCE_SCALE);
-			// const float dist2 = float(kx*kx + ky*ky);
-			// const float w_spatial = 1.0 / (1.0 + dist2);
-
-			// w *= w_lum * w_var * w_spatial;
-
-#ifdef FIREFLY_ALGORYTHM_A
-            {
-                float mu = center.luminance;
-                float sigma = sqrt(center.variance) + 1e-5;
-                const float k = 3.0;
-
-                if (abs(n.luminance - mu) > k * sigma)
-                    continue;
-            }
-#endif
-
-#ifdef FIREFLY_ALGORYTHM_B
-            {
-                float mu = center.luminance;
-                float sigma = sqrt(center.variance) + 1e-5;
-                const float k = 2.5;
-
-                if (abs(n.luminance - mu) > k * sigma)
-                    continue;
-            }
-#endif
-
-#ifdef SMOOTH_ALGORYTHM_C
-            {
-                float boost = 1.0 + center.variance * VARIANCE_SCALE;
-                w *= clamp(boost, 1.0, 8.0);
-            }
-#endif // SMOOTH_ALGORYTHM_C
-
-#ifdef SMOOTH_ALGORYTHM_D
-            {
-                float factor = clamp(center.variance * VARIANCE_SCALE, 0.0, 1.0);
-                float relax = mix(1.0, 0.2, factor);
-                w *= relax;
-            }
-#endif // SMOOTH_ALGORYTHM_D
-
-#endif // USE_VARIANCE
-
-			accum += n.radiance * w;
-			wsum += w;
-		}
-	}
-
-    vec3 result = accum / max(wsum, EPS);
-    if (any(isnan(result)) || any(isinf(result))) {
-        result = center.radiance;
-    }
-
-#ifdef AGGRESSIVE_KILL_FIREFLYES
-
-    //memoryBarrierShared();
-    barrier();
-
-	s_tile[centerSY][centerSX].radiance = center.radiance = result; 
-	s_tile[centerSY][centerSX].luminance = center.luminance = luminance(result);
-
-    //memoryBarrierShared();
-    barrier();
-
-    // --------------------------------------------------
-    // FIRELY KILL PASSES (POST)
-    // --------------------------------------------------
-
-#ifdef FIREFLY_KILL_1
-    float neighLum[9];
-    int c=0;
-    for(int y=-1;y<=1;y++) {
-		for(int x=-1;x<=1;x++){
-			neighLum[c++]=s_tile[centerSY+y][centerSX+x].luminance;
-		}
-	}
-    for(int i=0;i<9;i++) {
-		for(int j=i+1;j<9;j++) {
-			if(neighLum[j]<neighLum[i]) {
-				float t=neighLum[i];
-				neighLum[i]=neighLum[j];
-				neighLum[j]=t;
-			}
-		}
-	}
-    float med=neighLum[4];
-    if(center.luminance>med*4.0)
-        result*=med/max(center.luminance,EPS);
-#endif
-
-#ifdef FIREFLY_KILL_2
-    float minL=1e20,maxL=0;
-    for(int y=-1;y<=1;y++)
-    for(int x=-1;x<=1;x++){
-        float l=s_tile[centerSY+y][centerSX+x].luminance;
-        minL=min(minL,l);
-        maxL=max(maxL,l);
-    }
-    float cl=clamp(center.luminance,minL,maxL);
-    result*=cl/max(center.luminance,EPS);
-#endif
-
-#ifdef FIREFLY_KILL_3
-    if(center.variance>0.02 && center.luminance>2.0*sqrt(center.variance)){
-        vec3 avg=vec3(0);
-        int cc=0;
-        for(int y=-1;y<=1;y++)
-        for(int x=-1;x<=1;x++){
-            avg+=s_tile[centerSY+y][centerSX+x].radiance;
-            cc++;
+        if (sx <= 0 || sy <= 0 || sx >= SHARED_W - 1 || sy >= SHARED_H - 1) {
+            sVar[sy][sx] = 1.0;
+        } else {
+            sVar[sy][sx] = computeVariance3x3(sx, sy);
         }
-        result=avg/float(cc);
+    }
+
+    barrier();
+
+    int cx = local.x + PAD;
+    int cy = local.y + PAD;
+
+    vec3 centerC = sRadiance[cy][cx];
+    float centerRough = sRough[cy][cx];
+
+#if MIRROR_FIX
+    if (centerRough < 0.02) {
+        imageStore(OUT_RADIANCE, pix, vec4(centerC, 1.0));
+        return;
     }
 #endif
 
-#endif // #ifdef AGGRESSIVE_KILL_FIREFLYES
+    vec3 P0 = sPos[cy][cx];
+    vec3 G0 = sGeomN[cy][cx];
+    vec3 N0 = sShadeN[cy][cx];
+    float V0 = sVar[cy][cx];
+#if ATROUS_MASK_GATE_ENABLE
+    float M0 = sMask[cy][cx];
+#endif
 
-    imageStore(OUT_RADIANCE, pix, vec4(result, 1.0));
+    vec3 camPos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float invCenterDist = 1.0 / max(length(P0), 1.0);
+    float relax = 1.0 + V0 * ATROUS_VARIANCE_RELAX_EDGE;
+    float worldTexelSize = estimateWorldTexelSizeFromCenter(
+        pix, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
+    float planeThreshold = DENOISER_POSITION_PLANE_THRESHOLD * relax;
+    float roughnessThreshold = ROUGHNESS_DIFF_THRESHOLD * relax;
+
+    // Phase 2: edge-aware smoothing.
+    vec3 sumC = vec3(0.0);
+    float sumW = 0.0;
+    for (int ky = -ATROUS_KERNEL; ky <= ATROUS_KERNEL; ky++) {
+        for (int kx = -ATROUS_KERNEL; kx <= ATROUS_KERNEL; kx++) {
+            int sx = cx + kx;
+            int sy = cy + ky;
+            if (sx < 0 || sy < 0 || sx >= SHARED_W || sy >= SHARED_H) continue;
+
+            vec3 P1 = sPos[sy][sx];
+            float wPos = positionEdgeStopWithWorldTexel(
+                P1 - P0, G0, invCenterDist, planeThreshold, worldTexelSize);
+            if (wPos == 0.0) continue;
+
+            vec3 N1 = sShadeN[sy][sx];
+            float wN = normalGateWeight(N0, N1, SHADING_NORMAL_DOT_THRESHOLD, relax);
+            if (wN <= 1e-4) continue;
+
+            float R1 = sRough[sy][sx];
+            float wR = step(abs(centerRough - R1), roughnessThreshold);
+            if (wR == 0.0) continue;
+
+            float w = spatialWeight(kx, ky) * wPos * wN * wR;
+#if ATROUS_MASK_GATE_ENABLE
+            w *= maskGateWeight(M0, sMask[sy][sx]);
+#endif
+            if (w <= 1e-6 || isnan(w) || isinf(w)) continue;
+
+            sumC += sRadiance[sy][sx] * w;
+            sumW += w;
+        }
+    }
+
+    vec3 smoothC = (sumW > 1e-6) ? (sumC / sumW) : centerC;
+    smoothC = safeRadiance(smoothC);
+
+    sRadiance[cy][cx] = smoothC;
+    barrier();
+
+    // Phase 3: firefly suppression on smoothed neighborhood.
+#if AGGRESSIVE_KILL_FIREFLYES
+    float mu = 0.0;
+    float m2 = 0.0;
+    float cnt = 0.0;
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            float L = safeLuma(sRadiance[cy + y][cx + x]);
+            mu += L;
+            m2 += L * L;
+            cnt += 1.0;
+        }
+    }
+    mu /= max(cnt, 1.0);
+    m2 /= max(cnt, 1.0);
+    float sigma = sqrt(max(m2 - mu * mu, 0.0));
+    float lo = max(mu - 2.5 * sigma, 0.0);
+    float hi = mu + 2.5 * sigma;
+
+    float Ls = safeLuma(smoothC);
+    float Lc = clamp(Ls, lo, hi);
+    vec3 outC = smoothC * (Lc / max(Ls, 1e-6));
+#else
+    vec3 outC = smoothC;
+#endif
+
+    outC = safeRadiance(outC);
+    imageStore(OUT_RADIANCE, pix, vec4(outC, 1.0));
 }

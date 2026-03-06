@@ -2,7 +2,7 @@
 #include "denoiser_config.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
-#include "brdf.h"
+#include "brdf.glsl"
 
 #define GLSL
 #include "ray_interop.h"

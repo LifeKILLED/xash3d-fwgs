@@ -169,6 +169,82 @@ vec4 loadBilinearPrevTemporalShadowMask(ivec2 taps[4], float weights[4])
     return result;
 }
 
+void neighborhoodColorBoundsDiffuse(
+    ivec2 p,
+    ivec2 res,
+    out vec3 outMinC,
+    out vec3 outMaxC,
+    out vec3 outMeanC,
+    out vec3 outSigmaC)
+{
+    outMinC = vec3(1e20);
+    outMaxC = vec3(-1e20);
+    vec3 sumC = vec3(0.0);
+    vec3 sumC2 = vec3(0.0);
+    float count = 0.0;
+
+    for (int y = -DENOISER_REPROJECTION_FIREFLY_RADIUS; y <= DENOISER_REPROJECTION_FIREFLY_RADIUS; ++y) {
+        for (int x = -DENOISER_REPROJECTION_FIREFLY_RADIUS; x <= DENOISER_REPROJECTION_FIREFLY_RADIUS; ++x) {
+            ivec2 q = clamp(p + ivec2(x, y), ivec2(0), res - 1);
+            vec3 c = imageLoad(diffuse_direct_reconstructed, q).rgb;
+            outMinC = min(outMinC, c);
+            outMaxC = max(outMaxC, c);
+            sumC += c;
+            sumC2 += c * c;
+            count += 1.0;
+        }
+    }
+
+    outMeanC = sumC / max(count, 1.0);
+    vec3 varC = max(sumC2 / max(count, 1.0) - outMeanC * outMeanC, vec3(0.0));
+    outSigmaC = sqrt(varC);
+}
+
+void neighborhoodColorBoundsSpecular(
+    ivec2 p,
+    ivec2 res,
+    out vec3 outMinC,
+    out vec3 outMaxC,
+    out vec3 outMeanC,
+    out vec3 outSigmaC)
+{
+    outMinC = vec3(1e20);
+    outMaxC = vec3(-1e20);
+    vec3 sumC = vec3(0.0);
+    vec3 sumC2 = vec3(0.0);
+    float count = 0.0;
+
+    for (int y = -DENOISER_REPROJECTION_FIREFLY_RADIUS; y <= DENOISER_REPROJECTION_FIREFLY_RADIUS; ++y) {
+        for (int x = -DENOISER_REPROJECTION_FIREFLY_RADIUS; x <= DENOISER_REPROJECTION_FIREFLY_RADIUS; ++x) {
+            ivec2 q = clamp(p + ivec2(x, y), ivec2(0), res - 1);
+            vec3 c = imageLoad(specular_direct_reconstructed, q).rgb;
+            outMinC = min(outMinC, c);
+            outMaxC = max(outMaxC, c);
+            sumC += c;
+            sumC2 += c * c;
+            count += 1.0;
+        }
+    }
+
+    outMeanC = sumC / max(count, 1.0);
+    vec3 varC = max(sumC2 / max(count, 1.0) - outMeanC * outMeanC, vec3(0.0));
+    outSigmaC = sqrt(varC);
+}
+
+vec3 clampHistoryWithNeighborhood(
+    vec3 historyC,
+    vec3 minC,
+    vec3 maxC,
+    vec3 meanC,
+    vec3 sigmaC)
+{
+    vec3 sigmaBand = sigmaC * max(DENOISER_REPROJECTION_FIREFLY_SIGMA, 0.01);
+    vec3 low = max(minC, meanC - sigmaBand);
+    vec3 high = min(maxC, meanC + sigmaBand);
+    vec3 clampedC = clamp(historyC, low, high);
+    return mix(historyC, clampedC, clamp(DENOISER_REPROJECTION_FIREFLY_STRENGTH, 0.0, 1.0));
+}
+
 void main() {
     const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
@@ -267,6 +343,16 @@ void main() {
             prev_shadow_norm = pm.rgb;
         }
     }
+
+#if DENOISER_REPROJECTION_FIREFLY_CLAMP_ENABLE
+    vec3 diffMinC, diffMaxC, diffMeanC, diffSigmaC;
+    neighborhoodColorBoundsDiffuse(pix, res, diffMinC, diffMaxC, diffMeanC, diffSigmaC);
+    prev_diff = clampHistoryWithNeighborhood(prev_diff, diffMinC, diffMaxC, diffMeanC, diffSigmaC);
+
+    vec3 specMinC, specMaxC, specMeanC, specSigmaC;
+    neighborhoodColorBoundsSpecular(pix, res, specMinC, specMaxC, specMeanC, specSigmaC);
+    prev_spec = clampHistoryWithNeighborhood(prev_spec, specMinC, specMaxC, specMeanC, specSigmaC);
+#endif
 
     vec3 out_diff = vec3(0.);
     vec3 out_spec = vec3(0.);

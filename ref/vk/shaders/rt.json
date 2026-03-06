@@ -83,6 +83,12 @@
 	"restir_asvgf_direct": {
 		"comp": "restir_asvgf_direct"
 	},
+	"direct_diffuse_post_asvgf_firefly_rejection": {
+		"comp": "direct_diffuse_post_asvgf_firefly_rejection"
+	},
+	"direct_specular_post_asvgf_firefly_rejection": {
+		"comp": "direct_specular_post_asvgf_firefly_rejection"
+	},
 	"asvgf_shadow_mask_catmullrom_h": {
 		"comp": "asvgf_shadow_mask_catmullrom_h"
 	},
@@ -155,39 +161,39 @@
 	// "direct_specular_atrous": {
 	//  	"comp": "direct_specular_atrous"
 	// },
-	// "direct_diffuse_atrous_pass_0": {
-	//  	"comp": "direct_diffuse_atrous_pass_0"
-	// },
-	// "direct_diffuse_atrous_pass_1": {
-	//  	"comp": "direct_diffuse_atrous_pass_1"
-	// },
-	// "direct_diffuse_atrous_pass_2": {
-	//  	"comp": "direct_diffuse_atrous_pass_2"
-	// },
-	// "direct_diffuse_atrous_pass_3": {
-	//  	"comp": "direct_diffuse_atrous_pass_3"
-	// },
-	// "direct_diffuse_atrous_pass_4": {
-	//  	"comp": "direct_diffuse_atrous_pass_4"
-	// },
+	"direct_diffuse_atrous_pass_0": {
+	 	"comp": "direct_diffuse_atrous_pass_0"
+	},
+	"direct_diffuse_atrous_pass_1": {
+	 	"comp": "direct_diffuse_atrous_pass_1"
+	},
+	"direct_diffuse_atrous_pass_2": {
+	 	"comp": "direct_diffuse_atrous_pass_2"
+	},
+	"direct_diffuse_atrous_pass_3": {
+	 	"comp": "direct_diffuse_atrous_pass_3"
+	},
+	"direct_diffuse_atrous_pass_4": {
+	 	"comp": "direct_diffuse_atrous_pass_4"
+	},
 	// "direct_diffuse_atrous_pass_5": {
 	//  	"comp": "direct_diffuse_atrous_pass_5"
 	// },
-	// "direct_specular_atrous_pass_0": {
-	//  	"comp": "direct_specular_atrous_pass_0"
-	// },
-	// "direct_specular_atrous_pass_1": {
-	//  	"comp": "direct_specular_atrous_pass_1"
-	// },
-	// "direct_specular_atrous_pass_2": {
-	//  	"comp": "direct_specular_atrous_pass_2"
-	// },
-	// "direct_specular_atrous_pass_3": {
-	//  	"comp": "direct_specular_atrous_pass_3"
-	// },
-	// "direct_specular_atrous_pass_4": {
-	//  	"comp": "direct_specular_atrous_pass_4"
-	// },
+	"direct_specular_atrous_pass_0": {
+	 	"comp": "direct_specular_atrous_pass_0"
+	},
+	"direct_specular_atrous_pass_1": {
+	 	"comp": "direct_specular_atrous_pass_1"
+	},
+	"direct_specular_atrous_pass_2": {
+	 	"comp": "direct_specular_atrous_pass_2"
+	},
+	"direct_specular_atrous_pass_3": {
+	 	"comp": "direct_specular_atrous_pass_3"
+	},
+	"direct_specular_atrous_pass_4": {
+	 	"comp": "direct_specular_atrous_pass_4"
+	},
 	// "direct_specular_atrous_pass_5": {
 	//  	"comp": "direct_specular_atrous_pass_5"
 	// },

@@ -3,7 +3,7 @@
 
 #define IN_RADIANCE radiance_atrous_pong
 
-#define OUTPUT_RADIANCE out_radiance_atrous_ping
+#define OUTPUT_RADIANCE out_diffuse_direct_atrous
 
 #include "direct_diffuse_atrous_config.glsl"
 

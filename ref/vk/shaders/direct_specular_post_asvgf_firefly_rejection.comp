@@ -1,0 +1,20 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define OUTPUT_DIRECT out_specular_asvgf_firefly
+#define INPUT_DIRECT specular_asvgf
+
+#include "denoiser_config.glsl"
+
+#define FIREFLY_REJECTION_ENABLE 1
+#define FIREFLY_RATIO_SOFT_START 1.2
+#define FIREFLY_RATIO_SOFT_END 3.5
+#define FIREFLY_LUMA_SOFT_START 0.5
+#define FIREFLY_LUMA_SOFT_END 2.2
+#define FIREFLY_DROP_BRIGHTEST_MIN_LUMA 0.75
+#define FIREFLY_CLAMP_MIN_ABS_LUMA 1.0
+#define FIREFLY_DROPED_NEIGHBOR_SCALE 0.30
+#define FIREFLY_MIN_REF_FROM_CENTER 0.70
+#define FIREFLY_MAX_RATIO 2.5
+
+#include "direct_post_firefly_rejection.glsl"

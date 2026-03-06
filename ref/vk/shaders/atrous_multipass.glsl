@@ -168,6 +168,10 @@
 //---------------------------------------------------------
 // KERNEL
 //---------------------------------------------------------
+#ifndef ATROUS_KERNEL_RADIUS
+#define ATROUS_KERNEL_RADIUS 1
+#endif
+
 const ivec2 KERNEL3[9] = ivec2[9](
     ivec2(-1,-1), ivec2(0,-1), ivec2(1,-1),
     ivec2(-1, 0), ivec2(0, 0), ivec2(1, 0),
@@ -179,6 +183,18 @@ const float KERNEL3_W[9] = float[9](
     2, 4, 2,
     1, 2, 1
 );
+
+float spatialKernelWeight(ivec2 k, float kernelFlatten)
+{
+#if ATROUS_KERNEL_RADIUS == 1
+    int idx = (k.y + 1) * 3 + (k.x + 1);
+    float base = KERNEL3_W[idx];
+#else
+    float dist2 = dot(vec2(k), vec2(k));
+    float base = exp(-0.35 * dist2);
+#endif
+    return mix(base, 1.0, kernelFlatten);
+}
 
 //---------------------------------------------------------
 // IO
@@ -360,19 +376,22 @@ void main()
     int stepWidth = ATROUS_STEP;
     float stepScale = float(ATROUS_STEP);
     float gateStepScale = mix(1.0, stepScale, clamp(ATROUS_POSITION_STEP_GROWTH, 0.0, 1.0));
+    float kernelRadiusScale = float(max(ATROUS_KERNEL_RADIUS, 1));
+    float maxSampleRadiusScale = kernelRadiusScale * max(stepScale, 1.0);
     float invCenterDist = 1.0 / max(length(P0), 1.0);
     vec3 camPos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
     float worldTexelSize = estimateWorldTexelSizeFromCenter(
         p, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN * gateStepScale);
     float planeThreshold = DENOISER_POSITION_PLANE_THRESHOLD * gateStepScale * relax;
-    float worldTexelThreshold = worldTexelSize * relax;
+    float worldTexelThreshold = worldTexelSize * maxSampleRadiusScale * relax;
 
     vec3 sumC = vec3(0.0);
     float sumW = 0.0;
 
-    for (int i = 0; i < 9; i++)
-    {
-        ivec2 q = clamp(p + KERNEL3[i] * stepWidth, ivec2(0), res - 1);
+    for (int oy = -ATROUS_KERNEL_RADIUS; oy <= ATROUS_KERNEL_RADIUS; oy++) {
+        for (int ox = -ATROUS_KERNEL_RADIUS; ox <= ATROUS_KERNEL_RADIUS; ox++) {
+        ivec2 k = ivec2(ox, oy);
+        ivec2 q = clamp(p + k * stepWidth, ivec2(0), res - 1);
 
         vec4 normalsQ = imageLoad(NORMALS_GS, q);
         vec3 G1 = normalDecode(normalsQ.xy);
@@ -410,7 +429,7 @@ void main()
         float wV = 1.0;
 #endif
 
-        float spatialW = mix(KERNEL3_W[i], 1.0, kernelFlatten);
+        float spatialW = spatialKernelWeight(k, kernelFlatten);
         float wM = wMask(p, q);
         float w = spatialW * wnShading * wnGeom * wPos * wR * wV * wM;
         vec3 c = imageLoad(IN_RADIANCE, q).rgb;
@@ -423,6 +442,7 @@ void main()
         float wf = w * wL;
         sumC += c * wf;
         sumW += wf;
+    }
     }
 
     vec3 outC = (sumW > EPS) ? (sumC / sumW) : centerC;
