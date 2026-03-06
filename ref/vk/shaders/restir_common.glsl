@@ -19,6 +19,11 @@ struct Reservoir {
     float conf;
 };
 
+void restirRefreshReservoirWeightsNoConfidence(
+    inout Reservoir r,
+    float curr_w
+);
+
 Reservoir reservoirInit(float conf)
 {
     Reservoir r;
@@ -121,8 +126,14 @@ void updateRestirConfidence(
 
     r.conf = scale > 0.0 ? clamp(1.0 - (diff / scale), 0.0, 1.0) : 0.0;
 
+    restirRefreshReservoirWeightsNoConfidence(r, curr_w);
+}
+
+void restirRefreshReservoirWeightsNoConfidence(
+    inout Reservoir r,
+    float curr_w
+){
     float curr_w_clamped = clampRestirWeight(curr_w);
-    
     r.w_sum += curr_w_clamped - r.w_clamped;
     r.w_clamped = curr_w_clamped;
     r.w_full = curr_w;

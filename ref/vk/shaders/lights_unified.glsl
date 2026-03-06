@@ -58,6 +58,26 @@ const float shadow_offset_fudge = .1;
 #define POLYGON_LIGHT_MIN_DENOM 1e-4
 #endif
 
+#ifndef LIGHT_SPECULAR_MIN_ANGULAR
+#define LIGHT_SPECULAR_MIN_ANGULAR 0.0025
+#endif
+
+#ifndef LIGHT_SPECULAR_ANGULAR_SCALE
+#define LIGHT_SPECULAR_ANGULAR_SCALE 1.0
+#endif
+
+#ifndef LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR
+#define LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR 2.0
+#endif
+
+#ifndef LIGHT_SPECULAR_GAIN_FROM_ANGULAR
+#define LIGHT_SPECULAR_GAIN_FROM_ANGULAR 4.0
+#endif
+
+#ifndef LIGHT_SPECULAR_GAIN_MAX
+#define LIGHT_SPECULAR_GAIN_MAX 2.0
+#endif
+
 float fbool(bool b) { return b ? 1.0 : 0.0; }
 
 vec3 offsetShadowOrigin(vec3 P, vec3 N, vec3 L)
@@ -154,11 +174,25 @@ struct LightSamplingData {
     float dist;
     vec3 emissive_color;
     float geom_weight;
+    float spec_angular_radius;
+    float spec_compensation;
 };
+
+float computeSpecularAngularRadius(float source_extent, float dist)
+{
+    float angular = source_extent / max(abs(dist), EPSILON);
+    angular = max(angular * LIGHT_SPECULAR_ANGULAR_SCALE, LIGHT_SPECULAR_MIN_ANGULAR);
+    return angular;
+}
+
+float computeSpecularCompensation(float angular_radius)
+{
+    return clamp(1.0 + angular_radius * LIGHT_SPECULAR_GAIN_FROM_ANGULAR, 1.0, LIGHT_SPECULAR_GAIN_MAX);
+}
 
 LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rnd)
 {
-    LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
+    LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0., LIGHT_SPECULAR_MIN_ANGULAR, 1.0);
 
     l.emissive_color = pl.color_stopdot.rgb;
 
@@ -183,6 +217,9 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
         l.dist = -10000.; // sky distance is negative
 
         l.geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a);
+        float cone_spread = sqrt(max(1.0 - pl.dir_stopdot2.a * pl.dir_stopdot2.a, 0.0));
+        l.spec_angular_radius = max(LIGHT_SPECULAR_MIN_ANGULAR, cone_spread * LIGHT_SPECULAR_ANGULAR_SCALE);
+        l.spec_compensation = computeSpecularCompensation(l.spec_angular_radius);
     }
     else
     {
@@ -204,6 +241,10 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
             spot_att = max(0.0, (spot_dot - stopdot2) / (stopdot - stopdot2));
         }
         l.geom_weight = 2.0 * kPi * (1.0 - sqrt(max(0.0,1.0 - pl.origin_r2.w / max(dist2,EPSILON)))) * spot_att;
+
+        float source_radius = sqrt(max(pl.origin_r2.w, 0.0));
+        l.spec_angular_radius = computeSpecularAngularRadius(source_radius, l.dist);
+        l.spec_compensation = computeSpecularCompensation(l.spec_angular_radius);
     }
 
     return l;
@@ -211,7 +252,7 @@ LightSamplingData calculatePointLightSamplingData(PointLight pl, vec3 P, vec3 rn
 
 LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, vec3 V, SampleContext ctx, vec3 rnd)
 {
-    LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
+    LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0., LIGHT_SPECULAR_MIN_ANGULAR, 1.0);
 
     const vec4 plane = normalizedPolygonPlane(poly);
     const float plane_dist = dot(plane, vec4(P, 1.f));
@@ -239,6 +280,9 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
                 plane_dist);
             l.geom_weight = s.w * self_fade;
             l.emissive_color = poly.emissive;
+            float source_radius = sqrt(max(poly.area, 0.0) * (1.0 / kPi));
+            l.spec_angular_radius = computeSpecularAngularRadius(source_radius, l.dist);
+            l.spec_compensation = computeSpecularCompensation(l.spec_angular_radius);
 
         #ifdef LIMIT_LIGHT_LUMINANCE
             float lum = luminance(l.emissive_color);
@@ -261,6 +305,10 @@ void unifiedLightFinalShading(
     bool enable_shadow)
 {
     if (l.geom_weight > 0.0) {
+        float specular_compensation = l.spec_compensation;
+        float roughness_for_spec = clamp(
+            material.roughness + l.spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR,
+            0.0, 1.0);
 
         bool shadow_vis = false;
 
@@ -276,12 +324,12 @@ void unifiedLightFinalShading(
             vec3 d, s;
             evalDecolorizedBRDF(N, l.L, V, l.emissive_color * l.geom_weight, material, d, s);
             r.diffuse  = d;
-            r.specular = s;
+            r.specular = s * specular_compensation;
         } else {
             float lum = luminance(l.emissive_color);
-            float spec_weight = specularWeight(N, l.L, V, material.roughness);
+            float spec_weight = specularWeight(N, l.L, V, roughness_for_spec);
             r.diffuse  = vec3(l.geom_weight * lum);
-            r.specular = vec3(spec_weight * l.geom_weight * lum);
+            r.specular = vec3(spec_weight * l.geom_weight * lum * specular_compensation);
         }
     }
 }
@@ -321,7 +369,7 @@ LightResult sampleFlashlightAndSky(
 	uint cluster_index = getLightClusterIndex(P);
 
     LightResult result = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, 0);
-    LightSamplingData sky = LightSamplingData(vec3(0.), 0., vec3(0.), 0.);
+    LightSamplingData sky = LightSamplingData(vec3(0.), 0., vec3(0.), 0., LIGHT_SPECULAR_MIN_ANGULAR, 1.0);
 
     uint num_point = use_clusters ?
                         uint(light_grid.clusters_[cluster_index].num_point_lights) :

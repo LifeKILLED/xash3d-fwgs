@@ -17,8 +17,6 @@
 #define REPROJECTION_BILINEAR 1
 #define REPROJECTION_BILINEAR_MOTION_THRESHOLD 1.0
 
-#define CONF_KERNEL 1
-
 #include "utils.glsl"
 #include "noise.glsl"
 #include "color_spaces.glsl"
@@ -57,21 +55,25 @@ void processLobeTemporal(
     float prev_length
 ){
     length = prev_length + 1.0;
-
-    float nonlinear_conf = smoothstep(0.5, 1.0, conf);
-    float conf_influence = clamp(DENOISER_ASVGF_CONFIDENCE_INFLUENCE, 0.0, 1.0);
-    float confidence_keep = mix(1.0, nonlinear_conf, conf_influence);
-    length = mix(1.0, length, confidence_keep);
+    length = mix(1.0, length, clamp(conf, 0.0, 1.0));
 
     float alpha = max(MIN_ALPHA, 1.0 / length);
 
-    //outColor = vec3(nonlinear_conf); // debug
     outColor = mix(hist, curr, alpha);
 
     vec3 d = curr - hist;
     outVar = clamp(dot(d, d), VARIANCE_MIN, VARIANCE_MAX);
 
     //outColor = curr; // debug current frame
+}
+
+float confidenceToDebugView(float c) {
+    return clamp(c, 0.0, 1.0);
+}
+
+vec3 confidenceDebugColor(float c) {
+    float v = confidenceToDebugView(c);
+    return vec3(v);
 }
 
 bool gatherBilinearTaps(
@@ -185,8 +187,22 @@ void main() {
     const vec3 curr_diffuse = imageLoad(diffuse_direct_reconstructed, pix).rgb;
     const vec3 curr_specular = imageLoad(specular_direct_reconstructed, pix).rgb;
     float curr_shadow_mask_norm_diff = imageLoad(diffuse_shadow_mask_normalized_reconstructed, pix).r;
+    float curr_conf_diffuse = clamp(imageLoad(diffuse_direct_reconstructed, pix).w, 0.0, 1.0);
+    float curr_conf_specular = clamp(imageLoad(specular_direct_reconstructed, pix).w, 0.0, 1.0);
 
     if (DENOISER_ENABLE_REPROJECTION == 0) {
+#if DENOISER_DEBUG_CONFIDENCE_VIEW
+        vec3 conf_vis_diff = confidenceDebugColor(curr_conf_diffuse);
+        vec3 conf_vis_spec = confidenceDebugColor(curr_conf_specular);
+        imageStore(out_diffuse_asvgf, pix, vec4(conf_vis_diff, 1.0));
+        imageStore(out_specular_asvgf, pix, vec4(conf_vis_spec, 1.0));
+        imageStore(out_temporal_asvgf_diffuse, pix, vec4(conf_vis_diff, 1.0));
+        imageStore(out_temporal_asvgf_specular, pix, vec4(conf_vis_spec, 1.0));
+        vec3 curr_shadow_norm_dbg = vec3(curr_shadow_mask_norm_diff);
+        imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm_dbg, 1.0));
+        imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(curr_shadow_norm_dbg, 1.0));
+        return;
+#endif
         imageStore(out_diffuse_asvgf, pix, vec4(curr_diffuse, VARIANCE_MIN));
         imageStore(out_specular_asvgf, pix, vec4(curr_specular, VARIANCE_MIN));
         imageStore(out_temporal_asvgf_diffuse, pix, vec4(curr_diffuse, 1.0));
@@ -197,27 +213,8 @@ void main() {
         return;
     }
 
-    float conf_weight = 0.0;
-    float conf_diffuse = 0.0;
-    float conf_specular = 0.0;
-    for (int x = -CONF_KERNEL; x <= CONF_KERNEL; x++) {
-        for (int y = -CONF_KERNEL; y <= CONF_KERNEL; y++) {
-            const ivec2 p = pix + ivec2(x, y);
-            if (all(greaterThanEqual(p, ivec2(0.))) && all(lessThan(p, res))) {
-                conf_weight += 1.0;
-                conf_diffuse += clamp(imageLoad(diffuse_direct_reconstructed, p).w, 0.0, 1.0);
-                conf_specular += clamp(imageLoad(specular_direct_reconstructed, p).w, 0.0, 1.0);
-            }
-        }
-    }
-    if (conf_weight > 0.0) {
-        conf_diffuse /= conf_weight;
-        conf_specular /= conf_weight;
-    }
-    conf_diffuse = clamp(conf_diffuse, 0.0, 1.0);
-    conf_specular = clamp(conf_specular, 0.0, 1.0);
-    // conf_diffuse *= conf_diffuse;
-    // conf_specular *= conf_specular;
+    float conf_diffuse = curr_conf_diffuse;
+    float conf_specular = curr_conf_specular;
 
     vec3 diffuse = curr_diffuse;
     float variance_diffuse = 1.0;
@@ -285,7 +282,19 @@ void main() {
     float alpha_diff = max(MIN_ALPHA, 1.0 / max(len_diff, 1.0));
     float out_shadow_diff = mix(prev_shadow_norm.r, curr_shadow_mask_norm_diff, alpha_diff);
     vec3 out_shadow_norm = vec3(out_shadow_diff);
- 
+
+#if DENOISER_DEBUG_CONFIDENCE_VIEW
+    vec3 conf_vis_diff = confidenceDebugColor(curr_conf_diffuse);
+    vec3 conf_vis_spec = confidenceDebugColor(curr_conf_specular);
+    imageStore(out_diffuse_asvgf, pix, vec4(conf_vis_diff, 1.0));
+    imageStore(out_temporal_asvgf_diffuse, pix, vec4(conf_vis_diff, 1.0));
+    imageStore(out_specular_asvgf, pix, vec4(conf_vis_spec, 1.0));
+    imageStore(out_temporal_asvgf_specular, pix, vec4(conf_vis_spec, 1.0));
+    imageStore(out_asvgf_shadow_mask_normalized, pix, vec4(out_shadow_norm, 1.0));
+    imageStore(out_temporal_asvgf_shadow_mask_normalized, pix, vec4(out_shadow_norm, 1.0));
+    return;
+#endif
+
     imageStore(out_diffuse_asvgf, pix, vec4(out_diff, var_diff));
     imageStore(out_temporal_asvgf_diffuse, pix, vec4(out_diff, len_diff));
 

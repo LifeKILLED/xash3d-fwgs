@@ -31,21 +31,9 @@
 #define GEOMETRY_NORMAL_DOT_THRESHOLD 0.95
 #endif
 
-#ifndef SPATIAL_RECONSTRUCTION_CENTER_WEIGHT
-#define SPATIAL_RECONSTRUCTION_CENTER_WEIGHT 0.001
-#endif
-
 #ifndef SPATIAL_EDGE_GATE_MODE
 // 0 = full (shading + geometry + position), 1 = fast (position only), 2 = medium (geometry + position)
 #define SPATIAL_EDGE_GATE_MODE 1
-#endif
-
-#ifndef SPATIAL_CONFIDENCE_MIN
-#define SPATIAL_CONFIDENCE_MIN 0.1
-#endif
-
-#ifndef SPATIAL_CONFIDENCE_SCALE
-#define SPATIAL_CONFIDENCE_SCALE 1.0
 #endif
 
 #ifndef SPATIAL_ENABLE_ROUGHNESS_GATE
@@ -98,10 +86,6 @@
 
 #ifndef SPATIAL_RECONSTRUCTION_STAGE_ENABLED
 #define SPATIAL_RECONSTRUCTION_STAGE_ENABLED 1
-#endif
-
-#ifndef SPATIAL_RECONSTRUCTION_CONF_MULT
-#define SPATIAL_RECONSTRUCTION_CONF_MULT DENOISER_SPATIAL_RECONSTRUCTION_CONF_MULT
 #endif
 
 #ifndef SPATIAL_SHADOW_MASK_ENABLE
@@ -310,7 +294,7 @@ void main()
     vec3 V0 = normalize(camPos - P0);
     vec3 L0n = resolveLightDirection(centerL.xyz, N0, V0, R0);
     vec3 center_rgb = clampRadianceNonNegative(centerColor.rgb);
-    float center_a = clamp(centerColor.a, 0.0, 1.0) * SPATIAL_RECONSTRUCTION_CENTER_WEIGHT;
+    float center_a = clamp(centerColor.a, 0.0, 1.0);
     float invCenterDist = 1.0 / max(length(P0), 1.0);
     float worldTexelSize = estimateWorldTexelSizeFromCenter(
         p, res, camPos, P0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
@@ -336,14 +320,15 @@ void main()
 
     // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
     float center_pdf = lightSamplingPdf(N0, V0, L0n, R0);
-    float center_confW = clampWeightNonNegative(max(SPATIAL_CONFIDENCE_MIN, center_a * SPATIAL_CONFIDENCE_SCALE));
+    float center_confW = clampWeightNonNegative(center_a);
     float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0));
     float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
     vec3 sumC = (center_rgb * center_shadow_mask) * center_w;
     float sumShadowNorm = center_shadow_mask * center_w * center_lum;
     float sumShadowNormW = center_w * center_lum;
     float sumW = center_w;
-    float conf_sum = center_a;
+    float sumConfNorm = center_a * center_w * center_lum;
+    float sumConfNormW = center_w * center_lum;
     int accepted_samples = 0;
 
     vec2 axisX = vec2(SPATIAL_RADIUS, 0.0);
@@ -389,7 +374,6 @@ void main()
 
         vec4 c = imageLoad(INPUT_DIRECT, q);
         float c_a = clamp(c.a, 0.0, 1.0);
-        conf_sum -= (1.0 - c_a) * SPATIAL_RECONSTRUCTION_CONF_MULT;
 
         vec3 Lqraw = imageLoad(INPUT_LIGHTDIR, q).xyz;
         vec3 V1 = normalize(camPos - P1);
@@ -407,8 +391,7 @@ void main()
 
         wl = clamp(wl, 0.0, SPATIAL_GGX_MAX_GAIN);
 
-        float confW = max(SPATIAL_CONFIDENCE_MIN, c_a * SPATIAL_CONFIDENCE_SCALE);
-        confW = clampWeightNonNegative(confW);
+        float confW = clampWeightNonNegative(c_a);
         float spatialW = clampWeightNonNegative(spatialKernelWeight(i));
         float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
         if (isnan(w) || isinf(w)) continue;
@@ -423,13 +406,15 @@ void main()
             sumShadowNorm += sample_shadow_mask * w * sample_lum;
             sumShadowNormW += w * sample_lum;
             sumW += w;
+            sumConfNorm += c_a * w * sample_lum;
+            sumConfNormW += w * sample_lum;
             accepted_samples++;
         }
     }
 
     vec3 outC = clampRadianceNonNegative(sumC / max(sumW, 1e-6));
     float outShadowNorm = sumShadowNorm / max(sumShadowNormW, 1e-6);
-    float outA = max(conf_sum, 0.0);
+    float outA = clamp(sumConfNorm / max(sumConfNormW, 1e-6), 0.0, 1.0);
 
     // Mirror fallback: if nothing valid was gathered, keep center sample.
     if (accepted_samples == 0) {

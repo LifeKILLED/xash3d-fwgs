@@ -14,8 +14,6 @@
 // Diffuse sampling filter.
 #define DENOISER_SPATIAL_DIFFUSE_ENABLE 1
 #define DENOISER_SPATIAL_SPECULAR_ENABLE 1
-#define DENOISER_SPATIAL_CONFIDENCE_SCALE_DIFFUSE 1.0
-#define DENOISER_SPATIAL_RECONSTRUCTION_CONF_MULT 0.2
 
 // Shadow filtering and shadow-mask reconstruction.
 #define DENOISER_SHADOW_MASK_CATMULL_RADIUS 12
@@ -29,7 +27,6 @@
 #define DENOISER_SHADOW_EDGE_LOCK_BLEND 0.55
 
 // Spatial reconstruction.
-#define DENOISER_SPATIAL_CONFIDENCE_SCALE_SPECULAR 1.0
 
 // Shared position-gate thresholds for all denoiser passes.
 #define DENOISER_POSITION_PLANE_THRESHOLD 0.2
@@ -39,10 +36,6 @@
 // World-space texel footprint margin used by dynamic position gate.
 #define DENOISER_POSITION_TEXEL_SIZE_MARGIN 1.5
 
-// Confidence influence for temporal history control in restir_asvgf_direct.
-// 0.0 = confidence does not affect history.
-// 1.0 = maximal confidence-based history reduction.
-#define DENOISER_ASVGF_CONFIDENCE_INFLUENCE 0.5
 // Reprojected ASVGF shadow-mask Catmull-Rom filter.
 #define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 12
 // Higher values preserve more local detail (less blur near gradients).
