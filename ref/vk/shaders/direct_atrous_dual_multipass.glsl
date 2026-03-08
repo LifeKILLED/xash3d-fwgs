@@ -30,6 +30,10 @@
 #define ATROUS_WITHOUT_VARIANCE 0
 #endif
 
+#ifndef PROCESS_CURRENT_FRAME_IMAGE
+#define PROCESS_CURRENT_FRAME_IMAGE 0
+#endif
+
 #define VARIANCE_MIN 0.0
 #define VARIANCE_MAX 0.25
 #define VARIANCE_RADIUS 2
@@ -56,8 +60,8 @@
 // Diffuse configuration.
 #define DIFFUSE_MAX_STEP DENOISER_MAX_ATROUS_STEP_DIFFUSE
 #define DIFFUSE_MASK_CHANNEL 0
-#define DIFFUSE_MASK_DIFF_MIN 0.01
-#define DIFFUSE_MASK_DIFF_MAX 0.30
+#define DIFFUSE_MASK_DIFF_MIN 0.1
+#define DIFFUSE_MASK_DIFF_MAX 0.5
 #define DIFFUSE_MASK_GATE_STRENGTH 1.0
 #define DIFFUSE_LUMA_GATE_ENABLE 1
 #define DIFFUSE_LUMA_THR_MIN 0.07
@@ -287,8 +291,8 @@ void main()
 
 	bool doDiffuse = (DENOISER_ENABLE_ATROUS != 0) && (ATROUS_STEP <= DIFFUSE_MAX_STEP);
 	bool doSpecular = (DENOISER_ENABLE_ATROUS != 0) && (ATROUS_STEP <= SPECULAR_MAX_STEP);
-	bool doDiffuseCurrent = doDiffuse;
-	bool doSpecularCurrent = doSpecular;
+	bool doDiffuseCurrent = doDiffuse && (PROCESS_CURRENT_FRAME_IMAGE != 0);
+	bool doSpecularCurrent = doSpecular && (PROCESS_CURRENT_FRAME_IMAGE != 0);
 
 	if (!doDiffuse) {
 		imageStore(OUTPUT_DIFFUSE_RADIANCE, p, vec4(centerDiffuse, 1.0));

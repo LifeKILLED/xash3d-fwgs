@@ -7,6 +7,8 @@
 #define OUTPUT_DIFFUSE_RADIANCE_CURRENT out_diffuse_radiance_current_atrous_pong
 #define OUTPUT_SPECULAR_RADIANCE_CURRENT out_specular_radiance_current_atrous_pong
 
+#define PROCESS_CURRENT_FRAME_IMAGE 1
+
 #define ATROUS_KERNEL_RADIUS 2
 #define ATROUS_STEP 1
 #include "direct_atrous_dual_multipass.glsl"
