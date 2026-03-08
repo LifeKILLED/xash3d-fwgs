@@ -48,7 +48,7 @@
 #define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 6
 // Higher values preserve more local detail (less blur near gradients).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DETAIL_PRESERVE 0.7
-// 0 = horizontal/vertical passes, 1 = diagonal passes (Р В Р’В Р В РІР‚В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В then Р В Р’В Р В РІР‚В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ).
+// 0 = horizontal/vertical passes, 1 = diagonal passes (Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В then Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р вЂ Р В РІР‚С™Р РЋРЎС™).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DIAGONAL_ENABLE 1
 // Temporary debug: show smoothed ASVGF shadow mask instead of a-trous radiance output.
 #define DENOISER_DEBUG_ATROUS_OUTPUT_SHADOW_MASK 0
@@ -63,10 +63,10 @@
 #define DENOISER_REPROJECTION_FIREFLY_RADIUS 1
 #define DENOISER_REPROJECTION_FIREFLY_SIGMA 0.65
 #define DENOISER_REPROJECTION_FIREFLY_STRENGTH 1.0
-#define DENOISER_ASVGF_TEMPORAL_ALPHA_MIN 0.02
-#define DENOISER_ASVGF_TEMPORAL_ALPHA_MAX 0.18
-#define DENOISER_ASVGF_TEMPORAL_HISTORY_MAX 48.0
-#define DENOISER_ASVGF_TEMPORAL_HISTORY_STABLE 20.0
+#define DENOISER_ASVGF_TEMPORAL_ALPHA_MIN 0.01
+#define DENOISER_ASVGF_TEMPORAL_ALPHA_MAX 0.12
+#define DENOISER_ASVGF_TEMPORAL_HISTORY_MAX 96.0
+#define DENOISER_ASVGF_TEMPORAL_HISTORY_STABLE 32.0
 #define DENOISER_ASVGF_DISOCCLUSION_SOFT_START 0.22
 #define DENOISER_ASVGF_DISOCCLUSION_SOFT_END 0.90
 #define DENOISER_ASVGF_DISOCCLUSION_STRENGTH 0.60
@@ -79,19 +79,19 @@
 #define DENOISER_ASVGF_HISTORY_CONFIDENCE_INFLUENCE 0.90
 #define DENOISER_ASVGF_CONFIDENCE_REACTIVE_CLAMP 0.65
 #define DENOISER_ASVGF_HISTORY_CLAMP_ENABLE 1
-#define DENOISER_ASVGF_HISTORY_CLAMP_SIGMA_MIN 0.85
-#define DENOISER_ASVGF_HISTORY_CLAMP_SIGMA_MAX 2.50
-#define DENOISER_ASVGF_HISTORY_CLAMP_DISOCC_TIGHTEN 0.45
+#define DENOISER_ASVGF_HISTORY_CLAMP_SIGMA_MIN 1.20
+#define DENOISER_ASVGF_HISTORY_CLAMP_SIGMA_MAX 4.00
+#define DENOISER_ASVGF_HISTORY_CLAMP_DISOCC_TIGHTEN 0.25
 #define DENOISER_ASVGF_HISTORY_CLAMP_MIN_HISTORY 2.0
-#define DENOISER_ASVGF_HISTORY_RESET_CONFIDENCE 0.10
+#define DENOISER_ASVGF_HISTORY_RESET_CONFIDENCE 0.05
 #define DENOISER_ASVGF_CONFIDENCE_INFLUENCE_SCALE 2.0
 #define DENOISER_ASVGF_VARIANCE_FLOOR_MIN 0.02
 #define DENOISER_ASVGF_VARIANCE_FLOOR_MAX 0.22
 #define DENOISER_ASVGF_SKEW_GUARD_SCALE 0.25
 
 // Direct diffuse/specular a-trous.
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 4
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 4
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 2
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 2
 
 #define DENOISER_STABLE_STABILIZATION 0
 

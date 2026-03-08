@@ -15,6 +15,10 @@
 #define SPATIAL_RANDOM_POISSON_ROTATION 1
 #endif
 
+#ifndef SPATIAL_RANDOM_POISSON_ROTATION_STABLE
+#define SPATIAL_RANDOM_POISSON_ROTATION_STABLE 1
+#endif
+
 #ifndef SPATIAL_SAMPLES
 #define SPATIAL_SAMPLES 16
 #endif
@@ -387,7 +391,12 @@ void main()
 
     vec2 axisX = vec2(SPATIAL_RADIUS, 0.0);
 #if SPATIAL_RANDOM_POISSON_ROTATION
-    rand01_state = uint(ubo.ubo.random_seed) + uint(p.x) * 1833u + uint(p.y) * 31337u + 12u;
+    #if (SPATIAL_RANDOM_POISSON_ROTATION_STABLE)
+        uint rnd_seed = 0;
+    #else
+        uint rnd_seed = uint(ubo.ubo.random_seed);
+    #endif
+    rand01_state = rnd_seed + uint(p.x) * 1833u + uint(p.y) * 31337u + 12u;
     float rotation_angle = rand01() * (2.0 * PI);
     vec2 rotation_dir = vec2(cos(rotation_angle), sin(rotation_angle));
     axisX = rotation_dir * SPATIAL_RADIUS;

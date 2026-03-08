@@ -168,7 +168,7 @@ void processLobeTemporal(
     histClamped = sanitizeColorNonNegative(histClamped, currColor);
     float historyLum = safeLum(histClamped);
     float currLum = safeLum(currColor);
-    float fireflyLimit = max(0.2, historyLum * 1.5);
+    float fireflyLimit = max(0.2, historyLum * 2.5);
     vec3 currFireflyClamped = clampLuminancePreserveHue(currColor, min(currLum, fireflyLimit));
     currFireflyClamped = sanitizeColorNonNegative(currFireflyClamped, currColor);
 
