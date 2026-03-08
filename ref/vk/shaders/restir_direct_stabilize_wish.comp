@@ -1,5 +1,17 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query: require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_control_flow_attributes2 : require
+
+#define CANDIDATES_RAYS false
+#define CANDIDATES_BRDF false
+#define MIN_CANDIDATE_ROUGHNESS 0.01
+#define STUPID_POLYGON_SAMPLING 1
+#define STUPID_POINT_LIGHT_SAMPLING 1
+#define LIMIT_LIGHT_LUMINANCE 1
+#define DISABLE_RAYS 1
 
 #define GLSL
 #include "ray_interop.h"
@@ -9,6 +21,11 @@
 #include "denoiser_config.glsl"
 #include "utils.glsl"
 #include "brdf.glsl"
+#include "color_spaces.glsl"
+
+#define LIGHT_POINT 1
+#define LIGHT_POLYGON 1
+#define RAY_QUERY
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -20,15 +37,30 @@ layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_restir_stabi
 layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 6, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 7, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 8, rgba32f) uniform readonly image2D diffuse_direct_restir;
+layout(set = 0, binding = 9, rgba32f) uniform readonly image2D specular_direct_restir;
+layout(set = 0, binding = 10, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 11, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 12) uniform sampler2D textures[MAX_TEXTURES];
+layout(set = 0, binding = 13) uniform accelerationStructureEXT tlas;
+layout (set = 0, binding = 14) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout (set = 0, binding = 15, align = 1) readonly buffer UBOLightClusters {
+    LightCluster clusters_[MAX_LIGHT_CLUSTERS];
+} light_grid;
+layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
 #define WISH_DEAD_ZONE 0.02
 
-const ivec2 neighbor_offsets[8] = ivec2[](
+const ivec2 neighbor_offsets[4] = ivec2[](
     ivec2( 1,  0), ivec2(-1,  0),
-    ivec2( 0,  1), ivec2( 0, -1),
-    ivec2( 1,  1), ivec2(-1,  1),
-    ivec2( 1, -1), ivec2(-1, -1)
+    ivec2( 0,  1), ivec2( 0, -1)
 );
+
+#include "ray_kusochki.glsl"
+#include "restir_common.glsl"
 
 bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
@@ -58,10 +90,130 @@ float load_smoothed_luma(ivec2 p, bool specular_channel)
     return max(luminance(max(c, vec3(0.0))), 0.0);
 }
 
+vec3 samplingRandom(ivec2 pix)
+{
+    rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
+    return vec3(rand01(), rand01(), rand01());
+}
+
+float restirCandidateSpecularWeight(in LightResult l, vec3 N, vec3 V, MaterialProperties material)
+{
+    float w = luminance(l.specular);
+
+    if (!CANDIDATES_BRDF) {
+        vec3 L = l.sampled_L;
+        float l_len2 = dot(L, L);
+        if (l_len2 <= 1e-8) return 0.0;
+        L *= inversesqrt(l_len2);
+
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
+        if (NdotL <= 1e-5 || NdotV <= 1e-5) return 0.0;
+
+        vec3 H = L + V;
+        float h_len2 = dot(H, H);
+        if (h_len2 <= 1e-8) return 0.0;
+        H *= inversesqrt(h_len2);
+
+        float NdotH = max(dot(N, H), 0.0);
+        float VdotH = max(dot(V, H), 0.0);
+        float a = max(material.roughness * material.roughness, 0.04);
+        float a2 = a * a;
+        float d_denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+        float D = a2 / max(kPi * d_denom * d_denom, 1e-5);
+
+        float k = (a + 1.0);
+        k = (k * k) * 0.125;
+        float Gv = NdotV / max(NdotV * (1.0 - k) + k, 1e-5);
+        float Gl = NdotL / max(NdotL * (1.0 - k) + k, 1e-5);
+        float G = Gv * Gl;
+
+        vec3 F0 = mix(vec3(0.04), material.base_color, material.metalness);
+        vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotH, 5.0);
+        float ggx_proxy = luminance(F) * D * G * NdotL;
+
+        float legacy_proxy = max(specularWeight(N, L, V, material.roughness), 1e-4);
+        float align = clamp(ggx_proxy / legacy_proxy, 0.25, 3.0);
+        w *= align;
+    }
+
+    return max(w, 0.0);
+}
+
+Reservoir load_center_reservoir(ivec2 p, bool specular_channel, out bool out_of_bound)
+{
+    vec4 packed;
+    if (specular_channel) {
+        packed = imageLoad(specular_direct_restir, p);
+    } else {
+        packed = imageLoad(diffuse_direct_restir, p);
+    }
+
+    return loadReservoir(packed, out_of_bound);
+}
+float estimate_reservoir_preview_luma(
+    ivec2 pix,
+    Reservoir r,
+    bool specular_channel,
+    float fallback_luma)
+{
+    if (r.checked_count <= 0.0) {
+        return fallback_luma;
+    }
+
+    const vec4 packed_normal = imageLoad(normals_gs, pix);
+    const vec3 geometry_normal = normalDecode(packed_normal.xy);
+    const vec3 shading_normal = normalDecode(packed_normal.zw);
+    const vec4 pos_t = imageLoad(position_t, pix);
+
+    const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
+    const vec2 uv = (vec2(pix) + 0.5) / vec2(res) * 2.0 - 1.0;
+    const vec4 target = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1.0, 1.0);
+    const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
+    const vec3 V = -direction;
+
+    MaterialProperties material;
+    const vec4 material_data = imageLoad(material_rmxx, pix);
+    material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+    material.roughness = mix(MIN_CANDIDATE_ROUGHNESS, 1.0, material_data.r);
+    material.metalness = material_data.g;
+
+    const vec3 P = pos_t.xyz + geometry_normal * .001;
+    const vec3 N = shading_normal;
+    const SampleContext ctx = buildSampleContext(P, N, V);
+    const vec3 sampling_rand = samplingRandom(pix);
+
+    const LightResult l = evalUnifiedLight(
+        P, N, V, material, ctx, r.light_index, sampling_rand, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+
+    float w = specular_channel
+        ? restirCandidateSpecularWeight(l, N, V, material)
+        : luminance(l.diffuse);
+
+    if (isnan(w) || isinf(w)) {
+        w = fallback_luma;
+    }
+
+    return max(w, 0.0);
+}
+
 ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specular_channel)
 {
     const float center_raw = load_raw_metric(pix, specular_channel);
     const float center_blur = load_smoothed_luma(pix, specular_channel);
+    const float denom = max(abs(center_blur), 1e-6);
+    const float rel_diff = (center_raw - center_blur) / denom;
+    if (abs(rel_diff) <= WISH_DEAD_ZONE) {
+        return pix;
+    }
+
+    bool center_oob = false;
+    const Reservoir center_reservoir = load_center_reservoir(pix, specular_channel, center_oob);
+    const bool use_preview_guard = rel_diff > 0.0 && !center_oob && center_reservoir.checked_count > 0.0;
+    const float center_preview_luma = use_preview_guard
+        ? estimate_reservoir_preview_luma(pix, center_reservoir, specular_channel, center_blur)
+        : center_blur;
+
     const vec3 p0 = imageLoad(position_t, pix).xyz;
     const vec3 g0 = normalDecode(imageLoad(normals_gs, pix).xy);
     const float inv_center_dist = 1.0 / max(length(p0), 1.0);
@@ -69,12 +221,9 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specula
     const float world_texel_size = estimateWorldTexelSizeFromCenter(
         pix, res, cam_pos, p0, ubo.ubo.inv_proj, ubo.ubo.inv_view, DENOISER_POSITION_TEXEL_SIZE_MARGIN);
 
-    ivec2 best_dark = pix;
-    ivec2 best_bright = pix;
-    float best_dark_blur = center_blur;
-    float best_bright_blur = center_blur;
-    float best_dark_tie = 2.0;
-    float best_bright_tie = 2.0;
+    ivec2 best_pix = pix;
+    float best_score = 0.0;
+    float best_tie = 2.0;
 #if !DENOISER_STABLE_STABILIZATION
     rand01_state =
         uint(ubo.ubo.random_seed) +
@@ -82,7 +231,7 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specula
         uint(pix.y) * 31337u +
         uint(metric_channel) * 977u;
 #endif
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < 4; ++i) {
         const ivec2 q = pix + neighbor_offsets[i];
         if (!in_bounds(q, res)) {
             continue;
@@ -106,28 +255,39 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specula
         const float tie = rand01();
 #endif
 
-        if ((bq < best_dark_blur - 1e-6) ||
-            (abs(bq - best_dark_blur) <= 1e-6 && bq < center_blur - 1e-6 && tie < best_dark_tie)) {
-            best_dark_blur = bq;
-            best_dark_tie = tie;
-            best_dark = q;
+        float score = 0.0;
+        if (rel_diff > 0.0) {
+            const float atrous_delta = center_blur - bq;
+            if (atrous_delta <= 1e-6) {
+                continue;
+            }
+
+            float corrected_delta = atrous_delta;
+            if (use_preview_guard) {
+                const float q_preview_luma = estimate_reservoir_preview_luma(
+                    q, center_reservoir, specular_channel, bq);
+                const float preview_delta = center_preview_luma - q_preview_luma;
+                corrected_delta -= max(preview_delta, 0.0);
+            }
+
+            score = max(corrected_delta, 0.0);
+        } else {
+            score = max(bq - center_blur, 0.0);
         }
 
-        if ((bq > best_bright_blur + 1e-6) ||
-            (abs(bq - best_bright_blur) <= 1e-6 && bq > center_blur + 1e-6 && tie < best_bright_tie)) {
-            best_bright_blur = bq;
-            best_bright_tie = tie;
-            best_bright = q;
+        if ((score > best_score + 1e-6) ||
+            (abs(score - best_score) <= 1e-6 && score > 1e-6 && tie < best_tie)) {
+            best_score = score;
+            best_tie = tie;
+            best_pix = q;
         }
     }
 
-    const float denom = max(abs(center_blur), 1e-6);
-    const float rel_diff = (center_raw - center_blur) / denom;
-    if (abs(rel_diff) <= WISH_DEAD_ZONE) {
+    if (best_score <= 1e-6) {
         return pix;
     }
 
-    return (rel_diff > 0.0) ? best_dark : best_bright;
+    return best_pix;
 }
 
 void main() {
