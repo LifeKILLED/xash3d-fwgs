@@ -114,7 +114,45 @@ layout(set = 0, binding = 9, rgba16f) uniform readonly image2D asvgf_shadow_mask
 
 layout(set = 0, binding = 10) uniform UBO { UniformBuffer ubo; } ubo;
 
-float safeLum(vec3 c) { return max(luminance(c), 1e-4); }
+#ifndef IN_DIFFUSE_RADIANCE_CURRENT
+#define IN_DIFFUSE_RADIANCE_CURRENT diffuse_direct_reconstructed
+#endif
+
+#ifndef IN_SPECULAR_RADIANCE_CURRENT
+#define IN_SPECULAR_RADIANCE_CURRENT specular_direct_reconstructed
+#endif
+
+#ifndef OUTPUT_DIFFUSE_RADIANCE_CURRENT
+#define OUTPUT_DIFFUSE_RADIANCE_CURRENT out_diffuse_direct_current_atrous
+#endif
+
+#ifndef OUTPUT_SPECULAR_RADIANCE_CURRENT
+#define OUTPUT_SPECULAR_RADIANCE_CURRENT out_specular_direct_current_atrous
+#endif
+
+#ifndef VARIANCE_PASS
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D IN_DIFFUSE_RADIANCE_CURRENT;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D IN_SPECULAR_RADIANCE_CURRENT;
+layout(set = 0, binding = 13, rgba16f) uniform writeonly image2D OUTPUT_DIFFUSE_RADIANCE_CURRENT;
+layout(set = 0, binding = 14, rgba16f) uniform writeonly image2D OUTPUT_SPECULAR_RADIANCE_CURRENT;
+#endif
+
+vec3 sanitizeRadiance(vec3 c)
+{
+	bvec3 invalid = bvec3(
+		isnan(c.x) || isinf(c.x),
+		isnan(c.y) || isinf(c.y),
+		isnan(c.z) || isinf(c.z));
+	vec3 safe = vec3(
+		invalid.x ? 0.0 : c.x,
+		invalid.y ? 0.0 : c.y,
+		invalid.z ? 0.0 : c.z);
+	return max(safe, vec3(0.0));
+}
+
+float safeLum(vec3 c) {
+	return max(luminance(sanitizeRadiance(c)), 1e-4);
+}
 
 float spatialKernelWeight(ivec2 k, float kernelFlatten)
 {
@@ -133,12 +171,6 @@ float wNormalThreshold(vec3 a, vec3 b, float dotThreshold, float relax)
 {
 	float diff = max(0.0, dot(a, b));
 	return mix(diff, smoothstep(0.98, 1.0, diff), 0.98);
-	// float nd = max(dot(a, b), 0.0);
-	// float soft = ATROUS_NORMAL_GATE_SOFTNESS * max(relax, 1.0);
-	// float t0 = clamp(dotThreshold - soft, 0.0, 1.0);
-	// float t1 = clamp(dotThreshold + soft * 0.5, t0 + 1e-4, 1.0);
-	// float w = smoothstep(t0, t1, nd);
-	// return mix(ATROUS_NORMAL_GATE_MIN_WEIGHT, 1.0, w);
 }
 
 float wPositionGate(vec3 d, vec3 geomNorm, float invCenterDist, float planeThreshold, float worldTexelSize)
@@ -194,8 +226,8 @@ void main()
 		return;
 	}
 
-	vec3 centerDiffuse = imageLoad(IN_DIFFUSE_RADIANCE, p).rgb;
-	vec3 centerSpecular = imageLoad(IN_SPECULAR_RADIANCE, p).rgb;
+	vec3 centerDiffuse = sanitizeRadiance(imageLoad(IN_DIFFUSE_RADIANCE, p).rgb);
+	vec3 centerSpecular = sanitizeRadiance(imageLoad(IN_SPECULAR_RADIANCE, p).rgb);
 
 	bool blackDiffuse = luminance(max(centerDiffuse, vec3(0.0))) <= ATROUS_BLACK_LUMA_THRESHOLD;
 	bool blackSpecular = luminance(max(centerSpecular, vec3(0.0))) <= ATROUS_BLACK_LUMA_THRESHOLD;
@@ -248,11 +280,15 @@ void main()
 	ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
 	if (any(greaterThanEqual(p, res))) return;
 
-	vec3 centerDiffuse = imageLoad(IN_DIFFUSE_RADIANCE, p).rgb;
-	vec3 centerSpecular = imageLoad(IN_SPECULAR_RADIANCE, p).rgb;
+	vec3 centerDiffuse = sanitizeRadiance(imageLoad(IN_DIFFUSE_RADIANCE, p).rgb);
+	vec3 centerSpecular = sanitizeRadiance(imageLoad(IN_SPECULAR_RADIANCE, p).rgb);
+	vec3 centerDiffuseCurrent = sanitizeRadiance(imageLoad(IN_DIFFUSE_RADIANCE_CURRENT, p).rgb);
+	vec3 centerSpecularCurrent = sanitizeRadiance(imageLoad(IN_SPECULAR_RADIANCE_CURRENT, p).rgb);
 
 	bool doDiffuse = (DENOISER_ENABLE_ATROUS != 0) && (ATROUS_STEP <= DIFFUSE_MAX_STEP);
 	bool doSpecular = (DENOISER_ENABLE_ATROUS != 0) && (ATROUS_STEP <= SPECULAR_MAX_STEP);
+	bool doDiffuseCurrent = doDiffuse;
+	bool doSpecularCurrent = doSpecular;
 
 	if (!doDiffuse) {
 		imageStore(OUTPUT_DIFFUSE_RADIANCE, p, vec4(centerDiffuse, 1.0));
@@ -260,7 +296,13 @@ void main()
 	if (!doSpecular) {
 		imageStore(OUTPUT_SPECULAR_RADIANCE, p, vec4(centerSpecular, 1.0));
 	}
-	if (!doDiffuse && !doSpecular) {
+	if (!doDiffuseCurrent) {
+		imageStore(OUTPUT_DIFFUSE_RADIANCE_CURRENT, p, vec4(centerDiffuseCurrent, 1.0));
+	}
+	if (!doSpecularCurrent) {
+		imageStore(OUTPUT_SPECULAR_RADIANCE_CURRENT, p, vec4(centerSpecularCurrent, 1.0));
+	}
+	if (!doDiffuse && !doSpecular && !doDiffuseCurrent && !doSpecularCurrent) {
 		return;
 	}
 
@@ -278,6 +320,8 @@ void main()
 #if !ATROUS_WITHOUT_VARIANCE
 	float lumDiffuseCenter = safeLum(centerDiffuse);
 	float lumSpecularCenter = safeLum(centerSpecular);
+	float lumDiffuseCenterCurrent = safeLum(centerDiffuseCurrent);
+	float lumSpecularCenterCurrent = safeLum(centerSpecularCurrent);
 #endif
 
 #if ATROUS_WITHOUT_VARIANCE
@@ -312,12 +356,16 @@ void main()
 	float worldTexelThresholdCommon = worldTexelSize * maxSampleRadiusScale * relaxCommon;
 
 	float centerMask = imageLoad(asvgf_shadow_mask_normalized, p)[DIFFUSE_MASK_CHANNEL];
-	float roughnessCenter = doSpecular ? imageLoad(material_rmxx, p).x : 0.0;
+	float roughnessCenter = (doSpecular || doSpecularCurrent) ? imageLoad(material_rmxx, p).x : 0.0;
 
 	vec3 sumDiffuse = vec3(0.0);
 	float sumWeightDiffuse = 0.0;
 	vec3 sumSpecular = vec3(0.0);
 	float sumWeightSpecular = 0.0;
+	vec3 sumDiffuseCurrent = vec3(0.0);
+	float sumWeightDiffuseCurrent = 0.0;
+	vec3 sumSpecularCurrent = vec3(0.0);
+	float sumWeightSpecularCurrent = 0.0;
 
 	for (int oy = -ATROUS_KERNEL_RADIUS; oy <= ATROUS_KERNEL_RADIUS; oy++) {
 		for (int ox = -ATROUS_KERNEL_RADIUS; ox <= ATROUS_KERNEL_RADIUS; ox++) {
@@ -344,7 +392,7 @@ void main()
 
 			if (doDiffuse) {
 				float baseW = baseCommon * wMaskV;
-				vec3 c = imageLoad(IN_DIFFUSE_RADIANCE, q).rgb;
+				vec3 c = sanitizeRadiance(imageLoad(IN_DIFFUSE_RADIANCE, q).rgb);
 #if ATROUS_WITHOUT_VARIANCE
 				float wL = 1.0;
 #else
@@ -356,38 +404,70 @@ void main()
 				sumWeightDiffuse += w;
 			}
 
-			if (doSpecular) {
+			if (doDiffuseCurrent) {
+				float baseW = baseCommon;
+				vec3 c = sanitizeRadiance(imageLoad(IN_DIFFUSE_RADIANCE_CURRENT, q).rgb);
+#if ATROUS_WITHOUT_VARIANCE
+				float wL = 1.0;
+#else
+				float l1 = safeLum(c);
+				float wL = wLuminance(lumDiffuseCenterCurrent, l1, varianceDiffuseCenter, DIFFUSE_LUMA_GATE_ENABLE, DIFFUSE_LUMA_THR_MIN, DIFFUSE_LUMA_THR_AT_HALF_VAR, DIFFUSE_LUMA_SOFTNESS_MULT, DIFFUSE_LUMA_REL_EPS, DIFFUSE_LUMA_BLEND);
+#endif
+				float w = baseW * wL;
+				sumDiffuseCurrent += c * w;
+				sumWeightDiffuseCurrent += w;
+			}
+
+			if (doSpecular || doSpecularCurrent) {
 				float roughnessQ = imageLoad(material_rmxx, q).x;
 				float wRough = wRoughness(roughnessCenter, roughnessQ, relaxSpecular);
 				if (wRough > 0.0) {
-					float baseW = baseCommon * wMaskV * wRough;
-					vec3 c = imageLoad(IN_SPECULAR_RADIANCE, q).rgb;
+					if (doSpecular) {
+						float baseW = baseCommon * wMaskV * wRough;
+						vec3 c = sanitizeRadiance(imageLoad(IN_SPECULAR_RADIANCE, q).rgb);
 #if ATROUS_WITHOUT_VARIANCE
-					float wL = 1.0;
+						float wL = 1.0;
 #else
-					float l1 = safeLum(c);
-					float wL = wLuminance(lumSpecularCenter, l1, varianceSpecularCenter, SPECULAR_LUMA_GATE_ENABLE, SPECULAR_LUMA_THR_MIN, SPECULAR_LUMA_THR_AT_HALF_VAR, SPECULAR_LUMA_SOFTNESS_MULT, SPECULAR_LUMA_REL_EPS, SPECULAR_LUMA_BLEND);
+						float l1 = safeLum(c);
+						float wL = wLuminance(lumSpecularCenter, l1, varianceSpecularCenter, SPECULAR_LUMA_GATE_ENABLE, SPECULAR_LUMA_THR_MIN, SPECULAR_LUMA_THR_AT_HALF_VAR, SPECULAR_LUMA_SOFTNESS_MULT, SPECULAR_LUMA_REL_EPS, SPECULAR_LUMA_BLEND);
 #endif
-					float w = baseW * wL;
-					sumSpecular += c * w;
-					sumWeightSpecular += w;
+						float w = baseW * wL;
+						sumSpecular += c * w;
+						sumWeightSpecular += w;
+					}
+					if (doSpecularCurrent) {
+						float baseW = baseCommon * wRough;
+						vec3 c = sanitizeRadiance(imageLoad(IN_SPECULAR_RADIANCE_CURRENT, q).rgb);
+#if ATROUS_WITHOUT_VARIANCE
+						float wL = 1.0;
+#else
+						float l1 = safeLum(c);
+						float wL = wLuminance(lumSpecularCenterCurrent, l1, varianceSpecularCenter, SPECULAR_LUMA_GATE_ENABLE, SPECULAR_LUMA_THR_MIN, SPECULAR_LUMA_THR_AT_HALF_VAR, SPECULAR_LUMA_SOFTNESS_MULT, SPECULAR_LUMA_REL_EPS, SPECULAR_LUMA_BLEND);
+#endif
+						float w = baseW * wL;
+						sumSpecularCurrent += c * w;
+						sumWeightSpecularCurrent += w;
+					}
 				}
 			}
 		}
 	}
 
 	if (doDiffuse) {
-		vec3 outDiffuse = (sumWeightDiffuse > EPS) ? (sumDiffuse / sumWeightDiffuse) : centerDiffuse;
+		vec3 outDiffuse = sanitizeRadiance((sumWeightDiffuse > EPS) ? (sumDiffuse / sumWeightDiffuse) : centerDiffuse);
 		imageStore(OUTPUT_DIFFUSE_RADIANCE, p, vec4(outDiffuse, 1.0));
 	}
 	if (doSpecular) {
-		vec3 outSpecular = (sumWeightSpecular > EPS) ? (sumSpecular / sumWeightSpecular) : centerSpecular;
+		vec3 outSpecular = sanitizeRadiance((sumWeightSpecular > EPS) ? (sumSpecular / sumWeightSpecular) : centerSpecular);
 		imageStore(OUTPUT_SPECULAR_RADIANCE, p, vec4(outSpecular, 1.0));
+	}
+	if (doDiffuseCurrent) {
+		vec3 outDiffuseCurrent = sanitizeRadiance((sumWeightDiffuseCurrent > EPS) ? (sumDiffuseCurrent / sumWeightDiffuseCurrent) : centerDiffuseCurrent);
+		imageStore(OUTPUT_DIFFUSE_RADIANCE_CURRENT, p, vec4(outDiffuseCurrent, 1.0));
+	}
+	if (doSpecularCurrent) {
+		vec3 outSpecularCurrent = sanitizeRadiance((sumWeightSpecularCurrent > EPS) ? (sumSpecularCurrent / sumWeightSpecularCurrent) : centerSpecularCurrent);
+		imageStore(OUTPUT_SPECULAR_RADIANCE_CURRENT, p, vec4(outSpecularCurrent, 1.0));
 	}
 }
 #endif
-
-
-
-
-

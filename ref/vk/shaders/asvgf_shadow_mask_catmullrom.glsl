@@ -25,8 +25,8 @@ layout(set = 0, binding = 2, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 4) uniform UBO { UniformBuffer ubo; } ubo;
 
-#ifndef ASVGF_SHADOW_POSTFILTER_ENABLE
-#define ASVGF_SHADOW_POSTFILTER_ENABLE 1
+#ifndef DENOISER_ENABLE_SHADOW_POSTFILTER
+#define DENOISER_ENABLE_SHADOW_POSTFILTER 1
 #endif
 
 #ifndef ASVGF_SHADOW_ANISO_ENABLE
@@ -143,7 +143,7 @@ void main() {
     if (any(greaterThanEqual(pix, res))) return;
 
     vec3 center_mask = loadMaskSafe(pix, res);
-#if !ASVGF_SHADOW_POSTFILTER_ENABLE
+#if !DENOISER_ENABLE_SHADOW_POSTFILTER
     imageStore(OUTPUT_MASK, pix, vec4(center_mask, 1.0));
     return;
 #endif

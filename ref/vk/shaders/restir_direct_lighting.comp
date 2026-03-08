@@ -65,8 +65,8 @@ layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } 
 layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
 // restir
-layout(set = 0, binding = 15, rgba32f) uniform readonly image2D restir_stabilized_diffuse;
-layout(set = 0, binding = 16, rgba32f) uniform readonly image2D restir_stabilized_specular;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D diffuse_direct_restir;
+layout(set = 0, binding = 16, rgba32f) uniform readonly image2D specular_direct_restir;
 
 layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 
@@ -205,8 +205,8 @@ void main(){
     vec3 specular_fs = vec3(0.);
 
     bool oub_diff = true, oub_spec = true;
-    Reservoir rDiffuse = loadReservoir(imageLoad(restir_stabilized_diffuse, pix), oub_diff);
-    Reservoir rSpecular = loadReservoir(imageLoad(restir_stabilized_specular, pix), oub_spec);
+    Reservoir rDiffuse = loadReservoir(imageLoad(diffuse_direct_restir, pix), oub_diff);
+    Reservoir rSpecular = loadReservoir(imageLoad(specular_direct_restir, pix), oub_spec);
 
     if (!oub_diff) {
         diffuse = finalShading(
@@ -269,15 +269,15 @@ void main(){
             bool oob_d00 = true, oob_d10 = true, oob_d01 = true, oob_d11 = true;
             bool oob_s00 = true, oob_s10 = true, oob_s01 = true, oob_s11 = true;
 
-            Reservoir rd00 = loadReservoir(imageLoad(restir_stabilized_diffuse, p00), oob_d00);
-            Reservoir rd10 = loadReservoir(imageLoad(restir_stabilized_diffuse, p10), oob_d10);
-            Reservoir rd01 = loadReservoir(imageLoad(restir_stabilized_diffuse, p01), oob_d01);
-            Reservoir rd11 = loadReservoir(imageLoad(restir_stabilized_diffuse, p11), oob_d11);
+            Reservoir rd00 = loadReservoir(imageLoad(diffuse_direct_restir, p00), oob_d00);
+            Reservoir rd10 = loadReservoir(imageLoad(diffuse_direct_restir, p10), oob_d10);
+            Reservoir rd01 = loadReservoir(imageLoad(diffuse_direct_restir, p01), oob_d01);
+            Reservoir rd11 = loadReservoir(imageLoad(diffuse_direct_restir, p11), oob_d11);
 
-            Reservoir rs00 = loadReservoir(imageLoad(restir_stabilized_specular, p00), oob_s00);
-            Reservoir rs10 = loadReservoir(imageLoad(restir_stabilized_specular, p10), oob_s10);
-            Reservoir rs01 = loadReservoir(imageLoad(restir_stabilized_specular, p01), oob_s01);
-            Reservoir rs11 = loadReservoir(imageLoad(restir_stabilized_specular, p11), oob_s11);
+            Reservoir rs00 = loadReservoir(imageLoad(specular_direct_restir, p00), oob_s00);
+            Reservoir rs10 = loadReservoir(imageLoad(specular_direct_restir, p10), oob_s10);
+            Reservoir rs01 = loadReservoir(imageLoad(specular_direct_restir, p01), oob_s01);
+            Reservoir rs11 = loadReservoir(imageLoad(specular_direct_restir, p11), oob_s11);
 
             float d00 = (!oob_d00 && rd00.w_sum > 0.0 && rd00.w_clamped > 0.0) ? encodeHistoryLightId(rd00.light_index) : 0.0;
             float d10 = (!oob_d10 && rd10.w_sum > 0.0 && rd10.w_clamped > 0.0) ? encodeHistoryLightId(rd10.light_index) : 0.0;
@@ -297,3 +297,4 @@ void main(){
     imageStore(out_diffuse_direct_fs, pix, vec4(diffuse_fs, 0.0));
     imageStore(out_specular_direct_fs, pix, vec4(specular_fs, 0.0));
 }
+

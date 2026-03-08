@@ -1,14 +1,12 @@
 #ifndef DENOISER_CONFIG_GLSL_INCLUDED
 #define DENOISER_CONFIG_GLSL_INCLUDED
 
-// Pass toggles in rt.json order (denoiser-related chain).
 #define DENOISER_ENABLE_STABILIZE_RESERVOIRS 1
-#define DENOISER_STABLE_STABILIZATION 1
 #define DENOISER_ENABLE_DIFFUSE_SAMPLING_FILTER 0
 #define DENOISER_ENABLE_SHADOWS_FILTERING 1
 #define DENOISER_ENABLE_SPATIAL_RECONSTRUCTION 1
 #define DENOISER_ENABLE_REPROJECTION 1
-#define ASVGF_SHADOW_POSTFILTER_ENABLE 1
+#define DENOISER_ENABLE_SHADOW_POSTFILTER 1
 #define DENOISER_ENABLE_ATROUS 1
 
 // Diffuse sampling filter.
@@ -33,6 +31,10 @@
 #define DENOISER_SPATIAL_SHADING_NORMAL_DOT_RELAXED 0.7
 #define DENOISER_SPATIAL_MIN_STRICT_SAMPLES 6
 #define DENOISER_SPATIAL_SAMPLE_LUMINANCE_CLAMP 20.0
+// 0 = regular center weighting (pdf * confidence * kernel), 1 = force center texel weight to 1.0.
+#define DENOISER_SPATIAL_CENTER_WEIGHT_FORCE_ONE 0
+// Metric source for wish noisy map: 0 = center raw metric, 1 = spatially reconstructed metric.
+#define DENOISER_SPATIAL_WISH_METRIC_SOURCE 0
 
 // Shared position-gate thresholds for all denoiser passes.
 #define DENOISER_POSITION_PLANE_THRESHOLD 0.2
@@ -46,7 +48,7 @@
 #define DENOISER_ASVGF_SHADOW_CATMULL_RADIUS 6
 // Higher values preserve more local detail (less blur near gradients).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DETAIL_PRESERVE 0.7
-// 0 = horizontal/vertical passes, 1 = diagonal passes (↘ then ↗).
+// 0 = horizontal/vertical passes, 1 = diagonal passes (Р В Р’В Р В РІР‚В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В then Р В Р’В Р В РІР‚В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ).
 #define DENOISER_ASVGF_SHADOW_CATMULL_DIAGONAL_ENABLE 1
 // Temporary debug: show smoothed ASVGF shadow mask instead of a-trous radiance output.
 #define DENOISER_DEBUG_ATROUS_OUTPUT_SHADOW_MASK 0
@@ -88,16 +90,15 @@
 #define DENOISER_ASVGF_SKEW_GUARD_SCALE 0.25
 
 // Direct diffuse/specular a-trous.
-#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 16
-#define DENOISER_MAX_ATROUS_STEP_SPECULAR 16
+#define DENOISER_MAX_ATROUS_STEP_DIFFUSE 4
+#define DENOISER_MAX_ATROUS_STEP_SPECULAR 4
+
+#define DENOISER_STABLE_STABILIZATION 0
 
 // Debug views.
 #define DENOISER_DEBUG_CONFIDENCE_VIEW 0
 #define DENOISER_DEBUG_SHADOW_MASK_VIEW 0
 #define DENOISER_DEBUG_DIRECT_DIFFUSE_ATROUS_VARIANCE 0
-
-// Provide moved reservoirs to next frame
-//#define STABILIZE_RESERVOIRS_TEMPORAL 1
 
 // Legacy shared constants.
 #define NEAR_PLANE_OFFSET 5.

@@ -4,6 +4,8 @@
 #define ATROUS_WITHOUT_VARIANCE 1
 #define OUTPUT_DIFFUSE_RADIANCE out_diffuse_radiance_atrous_pong
 #define OUTPUT_SPECULAR_RADIANCE out_specular_radiance_atrous_pong
+#define OUTPUT_DIFFUSE_RADIANCE_CURRENT out_diffuse_radiance_current_atrous_pong
+#define OUTPUT_SPECULAR_RADIANCE_CURRENT out_specular_radiance_current_atrous_pong
 
 #define ATROUS_KERNEL_RADIUS 2
 #define ATROUS_STEP 1

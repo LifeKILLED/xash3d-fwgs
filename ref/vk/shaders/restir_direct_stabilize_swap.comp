@@ -1,26 +1,61 @@
 #version 460 core
 #extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query: require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_control_flow_attributes2 : require
+
+#define CANDIDATES_RAYS false
+#define CANDIDATES_BRDF false
+#define MIN_CANDIDATE_ROUGHNESS 0.01
+#define STUPID_POLYGON_SAMPLING 1
+#define STUPID_POINT_LIGHT_SAMPLING 1
+#define LIMIT_LIGHT_LUMINANCE 1
+#define DISABLE_RAYS 1
 
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
 
 #include "denoiser_config.glsl"
-#define RESTIR_COMMON_NO_LIGHTING
-#include "restir_common.glsl"
+#include "utils.glsl"
+#include "noise.glsl"
+#include "color_spaces.glsl"
+
+#define LIGHT_POINT 1
+#define LIGHT_POLYGON 1
+#define RAY_QUERY
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, rgba32f) uniform readonly image2D diffuse_direct_restir;
-layout(set = 0, binding = 7, rgba32f) uniform readonly image2D specular_direct_restir;
-layout(set = 0, binding = 1, rgba16f) uniform readonly image2D restir_stabilize_metric_raw;
-layout(set = 0, binding = 2, rgba16f) uniform readonly image2D restir_stabilize_metric;
-layout(set = 0, binding = 3, rgba32f) uniform readonly image2D restir_stabilize_wish;
-layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_restir_stabilized_diffuse;
-layout(set = 0, binding = 8, rgba32f) uniform writeonly image2D out_restir_stabilized_specular;
+layout(set = 0, binding = 1, rgba32f) uniform readonly image2D specular_direct_restir;
+layout(set = 0, binding = 2, rgba32f) uniform readonly image2D restir_stabilize_wish;
 layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D out_temporal_res_diffuse;
-layout(set = 0, binding = 9, rgba32f) uniform writeonly image2D out_temporal_res_specular;
+layout(set = 0, binding = 7, rgba32f) uniform writeonly image2D out_temporal_res_specular;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D diffuse_direct_current_atrous;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D specular_direct_current_atrous;
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 14) uniform sampler2D textures[MAX_TEXTURES];
+layout(set = 0, binding = 17) uniform accelerationStructureEXT tlas;
+
+layout (set = 0, binding = 15) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout (set = 0, binding = 16, align = 1) readonly buffer UBOLightClusters {
+    LightCluster clusters_[MAX_LIGHT_CLUSTERS];
+} light_grid;
+
+layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+
+#include "ray_kusochki.glsl"
+#include "restir_common.glsl"
 
 bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
@@ -40,13 +75,110 @@ ivec2 select_wish_channel_from_texture(ivec2 pix, ivec2 res, bool specular_chann
     return selected;
 }
 
-void write_stabilized_reservoirs(ivec2 pix, vec4 diffuse_reservoir, vec4 specular_reservoir) {
-    imageStore(out_restir_stabilized_diffuse, pix, diffuse_reservoir);
-    imageStore(out_restir_stabilized_specular, pix, specular_reservoir);
-#if STABILIZE_RESERVOIRS_TEMPORAL
-    imageStore(out_temporal_res_diffuse, pix, diffuse_reservoir);
-    imageStore(out_temporal_res_specular, pix, specular_reservoir);
-#endif
+vec3 samplingRandom(ivec2 pix)
+{
+    rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
+    return vec3(rand01(), rand01(), rand01());
+}
+
+float restirCandidateSpecularWeight(in LightResult l, vec3 N, vec3 V, MaterialProperties material)
+{
+    float w = luminance(l.specular);
+
+    if (!CANDIDATES_BRDF) {
+        vec3 L = l.sampled_L;
+        float l_len2 = dot(L, L);
+        if (l_len2 <= 1e-8) return 0.0;
+        L *= inversesqrt(l_len2);
+
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotV = max(dot(N, V), 0.0);
+        if (NdotL <= 1e-5 || NdotV <= 1e-5) return 0.0;
+
+        vec3 H = L + V;
+        float h_len2 = dot(H, H);
+        if (h_len2 <= 1e-8) return 0.0;
+        H *= inversesqrt(h_len2);
+
+        float NdotH = max(dot(N, H), 0.0);
+        float VdotH = max(dot(V, H), 0.0);
+        float a = max(material.roughness * material.roughness, 0.04);
+        float a2 = a * a;
+        float d_denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+        float D = a2 / max(kPi * d_denom * d_denom, 1e-5);
+
+        float k = (a + 1.0);
+        k = (k * k) * 0.125;
+        float Gv = NdotV / max(NdotV * (1.0 - k) + k, 1e-5);
+        float Gl = NdotL / max(NdotL * (1.0 - k) + k, 1e-5);
+        float G = Gv * Gl;
+
+        vec3 F0 = mix(vec3(0.04), material.base_color, material.metalness);
+        vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotH, 5.0);
+        float ggx_proxy = luminance(F) * D * G * NdotL;
+
+        float legacy_proxy = max(specularWeight(N, L, V, material.roughness), 1e-4);
+        float align = clamp(ggx_proxy / legacy_proxy, 0.25, 3.0);
+        w *= align;
+    }
+
+    return max(w, 0.0);
+}
+
+Reservoir reweight_shifted_reservoir(ivec2 pix, Reservoir r, bool specular_channel)
+{
+    if (r.checked_count <= 0.0) {
+        return r;
+    }
+
+    const vec4 packed_normal = imageLoad(normals_gs, pix);
+    const vec3 geometry_normal = normalDecode(packed_normal.xy);
+    const vec3 shading_normal = normalDecode(packed_normal.zw);
+    const vec4 pos_t = imageLoad(position_t, pix);
+
+    const vec2 uv = (vec2(pix) + 0.5) / vec2(ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale)) * 2.0 - 1.0;
+    const vec4 target = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1.0, 1.0);
+    const vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
+    const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
+    const vec3 V = -direction;
+
+    MaterialProperties material;
+    const vec4 material_data = imageLoad(material_rmxx, pix);
+    material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+    material.roughness = mix(MIN_CANDIDATE_ROUGHNESS, 1.0, material_data.r);
+    material.metalness = material_data.g;
+
+    const vec3 P = pos_t.xyz + geometry_normal * .001;
+    const vec3 N = shading_normal;
+    const SampleContext ctx = buildSampleContext(P, N, V);
+
+    if (isFlashlightOrSky(r.light_index, origin, P, false)) {
+        restirRefreshReservoirWeightsNoConfidence(r, 0.0);
+        return r;
+    }
+
+    const vec3 sampling_rand = samplingRandom(pix);
+    const LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.light_index, sampling_rand, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+
+    float curr_w = specular_channel
+        ? restirCandidateSpecularWeight(l, N, V, material)
+        : luminance(l.diffuse);
+
+    if (isnan(curr_w) || isinf(curr_w)) {
+        curr_w = specular_channel
+            ? max(luminance(imageLoad(specular_direct_current_atrous, pix).rgb), 0.0)
+            : max(luminance(imageLoad(diffuse_direct_current_atrous, pix).rgb), 0.0);
+    }
+
+    restirRefreshReservoirWeightsNoConfidence(r, max(curr_w, 0.0));
+    return r;
+}
+
+void write_temporal_reservoirs(ivec2 pix, Reservoir diffuse_reservoir, Reservoir specular_reservoir) {
+    const vec4 diffuse_packed = saveReservoir(diffuse_reservoir);
+    const vec4 specular_packed = saveReservoir(specular_reservoir);
+    imageStore(out_temporal_res_diffuse, pix, diffuse_packed);
+    imageStore(out_temporal_res_specular, pix, specular_packed);
 }
 
 void main() {
@@ -55,13 +187,14 @@ void main() {
     if (any(greaterThanEqual(pix, res))) {
         return;
     }
-
+    bool oob_diffuse = false;
+    bool oob_specular = false;
+    Reservoir diffuse_r;
+    Reservoir specular_r;
 #if !DENOISER_ENABLE_STABILIZE_RESERVOIRS
-    write_stabilized_reservoirs(
-        pix,
-        imageLoad(diffuse_direct_restir, pix),
-        imageLoad(specular_direct_restir, pix)
-    );
+    diffuse_r = loadReservoir(imageLoad(diffuse_direct_restir, pix), oob_diffuse);
+    specular_r = loadReservoir(imageLoad(specular_direct_restir, pix), oob_specular);
+    write_temporal_reservoirs(pix, diffuse_r, specular_r);
     return;
 #endif
 
@@ -82,10 +215,15 @@ void main() {
             specular_src = specular_wish;
         }
     }
+    diffuse_r = loadReservoir(imageLoad(diffuse_direct_restir, diffuse_src), oob_diffuse);
+    specular_r = loadReservoir(imageLoad(specular_direct_restir, specular_src), oob_specular);
 
-    write_stabilized_reservoirs(
-        pix,
-        imageLoad(diffuse_direct_restir, diffuse_src),
-        imageLoad(specular_direct_restir, specular_src)
-    );
+    if (!oob_diffuse) {
+        diffuse_r = reweight_shifted_reservoir(pix, diffuse_r, false);
+    }
+    if (!oob_specular) {
+        specular_r = reweight_shifted_reservoir(pix, specular_r, true);
+    }
+
+    write_temporal_reservoirs(pix, diffuse_r, specular_r);
 }

@@ -28,7 +28,7 @@
 #endif
 
 #ifndef SHADING_NORMAL_DOT_THRESHOLD_RELAXED
-#define SHADING_NORMAL_DOT_THRESHOLD_RELAXED 0.7
+#define SHADING_NORMAL_DOT_THRESHOLD_RELAXED 0.0
 #endif
 
 #ifndef SPATIAL_MIN_ACCEPTED_STRICT_SAMPLES
@@ -37,11 +37,6 @@
 
 #ifndef GEOMETRY_NORMAL_DOT_THRESHOLD
 #define GEOMETRY_NORMAL_DOT_THRESHOLD 0.95
-#endif
-
-#ifndef SPATIAL_EDGE_GATE_MODE
-// 0 = full (shading + geometry + position), 1 = fast (position only), 2 = medium (geometry + position)
-#define SPATIAL_EDGE_GATE_MODE 1
 #endif
 
 #ifndef SPATIAL_ENABLE_ROUGHNESS_GATE
@@ -108,6 +103,15 @@
 #define SPATIAL_SHADOW_MASK_SOURCE diffuse_shadow_mask
 #endif
 
+
+#ifndef SPATIAL_CENTER_WEIGHT_FORCE_ONE
+#define SPATIAL_CENTER_WEIGHT_FORCE_ONE DENOISER_SPATIAL_CENTER_WEIGHT_FORCE_ONE
+#endif
+
+#ifndef SPATIAL_WISH_METRIC_SOURCE
+#define SPATIAL_WISH_METRIC_SOURCE DENOISER_SPATIAL_WISH_METRIC_SOURCE
+#endif
+
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D OUTPUT_DIRECT;
@@ -122,6 +126,9 @@ layout(set = 0, binding = 7, rgba16f) uniform readonly image2D SPATIAL_SHADOW_MA
 #endif
 #ifdef OUTPUT_NORMALIZED_SHADOW_MASK
 layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D OUTPUT_NORMALIZED_SHADOW_MASK;
+#endif
+#ifdef OUTPUT_STABILIZE_METRIC_RAW
+layout(set = 0, binding = 9, rgba16f) uniform writeonly image2D OUTPUT_STABILIZE_METRIC_RAW;
 #endif
 
 const vec3 POISSON[16] = vec3[](
@@ -341,6 +348,7 @@ void main()
     vec3 center_rgb_shadowed = clampLuminancePreserveHue(
         center_rgb, SPATIAL_SAMPLE_LUMINANCE_CLAMP) * center_shadow_mask;
     float center_lum = max(luminance709(center_rgb_shadowed), 1e-4);
+    float center_metric_raw = max(center_lum * center_shadow_mask, 0.0);
 
 
     if (DENOISER_ENABLE_SPATIAL_RECONSTRUCTION == 0 || SPATIAL_RECONSTRUCTION_STAGE_ENABLED == 0) {
@@ -348,14 +356,20 @@ void main()
 #ifdef OUTPUT_NORMALIZED_SHADOW_MASK
         imageStore(OUTPUT_NORMALIZED_SHADOW_MASK, p, vec4(vec3(1.0), 1.0));
 #endif
+#ifdef OUTPUT_STABILIZE_METRIC_RAW
+        imageStore(OUTPUT_STABILIZE_METRIC_RAW, p, vec4(center_metric_raw, center_lum, center_shadow_mask, 1.0));
+#endif
         return;
     }
 
     // Center is treated like a regular sample: BRDF/pdf, confidence and spatial-kernel weight.
+    float center_w = 1.0;
+#if !SPATIAL_CENTER_WEIGHT_FORCE_ONE
     float center_pdf = lightSamplingPdf(N0, V0, L0n, R0);
     float center_confW = clampWeightNonNegative(center_a);
     float center_spatialW = clampWeightNonNegative(spatialKernelWeight(0));
-    float center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
+    center_w = clampWeightNonNegative(center_pdf * center_confW * center_spatialW);
+#endif
     vec3 sumC = center_rgb_shadowed * center_w;
     float sumShadowNorm = center_shadow_mask * center_w * center_lum;
     float sumShadowNormW = center_w * center_lum;
@@ -392,20 +406,10 @@ void main()
         vec3 N1 = normalDecode(normEnc.zw);
         float wn = 1.0;
         float wn_relaxed = 1.0;
-        float wg = 1.0;
-#if SPATIAL_EDGE_GATE_MODE == 0
+
         wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
         wn_relaxed = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD_RELAXED);
         if (wn_relaxed == 0.0) continue;
-        vec3 G1 = normalDecode(normEnc.xy);
-        wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
-        if (wg == 0.0) continue;
-#elif SPATIAL_EDGE_GATE_MODE == 2
-        vec3 G1 = normalDecode(normEnc.xy);
-        wg = normalGate(G0, G1, GEOMETRY_NORMAL_DOT_THRESHOLD);
-        if (wg == 0.0) continue;
-#endif
-
         float R1 = imageLoad(MATERIAL_RMXX, q).x;
         float wr = 1.0;
 #if SPATIAL_ENABLE_ROUGHNESS_GATE
@@ -434,8 +438,8 @@ void main()
 
         float confW = clampWeightNonNegative(c_a);
         float spatialW = clampWeightNonNegative(spatialKernelWeight(i));
-        float w = clampWeightNonNegative(wn * wg * wp * wr * wl * confW * spatialW);
-        float w_relaxed = clampWeightNonNegative(wn_relaxed * wg * wr * wl * confW * spatialW);
+        float w = clampWeightNonNegative(wn * wp * wr * wl * confW * spatialW);
+        float w_relaxed = clampWeightNonNegative(wn_relaxed * wr * wl * confW * spatialW);
         if ((isnan(w) || isinf(w)) || (isnan(w_relaxed) || isinf(w_relaxed))) continue;
 
         if ((w > 0.0) || (w_relaxed > 0.0)) {
@@ -492,5 +496,15 @@ void main()
     imageStore(OUTPUT_DIRECT, p, vec4(outC, outA));
 #ifdef OUTPUT_NORMALIZED_SHADOW_MASK
     imageStore(OUTPUT_NORMALIZED_SHADOW_MASK, p, vec4(vec3(outShadowNorm), 1.0));
+#endif
+#ifdef OUTPUT_STABILIZE_METRIC_RAW
+    float wish_metric_lum = center_lum;
+    float wish_metric_shadow = center_shadow_mask;
+#if SPATIAL_WISH_METRIC_SOURCE == 1
+    wish_metric_lum = max(luminance709(outC), 1e-4);
+    wish_metric_shadow = clamp(outShadowNorm, 0.0, 1.0);
+#endif
+    float wish_metric_raw = max(wish_metric_lum * wish_metric_shadow, 0.0);
+    imageStore(OUTPUT_STABILIZE_METRIC_RAW, p, vec4(wish_metric_raw, wish_metric_lum, wish_metric_shadow, 1.0));
 #endif
 }

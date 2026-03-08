@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define OUTPUT_DIRECT out_specular_direct_reconstructed
+#define OUTPUT_STABILIZE_METRIC_RAW out_restir_stabilize_metric_raw_specular
 #define INPUT_DIRECT specular_direct
 #define INPUT_LIGHTDIR specular_direct_lightdir
 
@@ -23,7 +24,7 @@
 #define SPATIAL_GGX_MAX_GAIN 12.0
 #define SPATIAL_GGX_PDF_MAX_RATIO 32.0
 #define SPATIAL_SHADOW_MASK_ENABLE 1
-#define SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE 0
+#define SPATIAL_SHADOW_MASK_CENTER_CACHE_ENABLE 1
 #define SPATIAL_SHADOW_MASK_SOURCE restir_specular_shadows_raw
 #define SPATIAL_SAMPLE_LUMINANCE_CLAMP 20.0
 

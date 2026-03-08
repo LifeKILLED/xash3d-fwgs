@@ -8,17 +8,18 @@
 #include "noise.glsl"
 #include "denoiser_config.glsl"
 #include "utils.glsl"
-#define RESTIR_COMMON_NO_LIGHTING
-#include "restir_common.glsl"
+#include "brdf.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba16f) uniform readonly image2D restir_stabilize_metric_raw;
-layout(set = 0, binding = 1, rgba16f) uniform readonly image2D restir_stabilize_metric;
-layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_restir_stabilize_wish;
-layout(set = 0, binding = 3) uniform UBO { UniformBuffer ubo; } ubo;
-layout(set = 0, binding = 4, rgba32f) uniform readonly image2D position_t;
-layout(set = 0, binding = 5, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 0, rgba16f) uniform readonly image2D restir_stabilize_metric_raw_diffuse;
+layout(set = 0, binding = 1, rgba16f) uniform readonly image2D restir_stabilize_metric_raw_specular;
+layout(set = 0, binding = 2, rgba16f) uniform readonly image2D diffuse_direct_current_atrous;
+layout(set = 0, binding = 3, rgba16f) uniform readonly image2D specular_direct_current_atrous;
+layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_restir_stabilize_wish;
+layout(set = 0, binding = 5) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 7, rgba16f) uniform readonly image2D normals_gs;
 
 #define WISH_DEAD_ZONE 0.02
 
@@ -33,21 +34,34 @@ bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
 }
 
-float deterministic_tie(ivec2 p, int blur_channel) {
+float deterministic_tie(ivec2 p, int channel) {
     uint h = uint(p.x) * 73856093u;
     h ^= uint(p.y) * 19349663u;
-    h ^= uint(blur_channel) * 83492791u;
+    h ^= uint(channel) * 83492791u;
     h ^= (h >> 13);
     h *= 1274126177u;
     return float(h & 0x00ffffffu) * (1.0 / 16777216.0);
 }
 
-ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channel)
+float load_raw_metric(ivec2 p, bool specular_channel)
 {
-    const vec2 center_raw_v = imageLoad(restir_stabilize_metric_raw, pix).rg;
-    const vec2 center_blur_v = imageLoad(restir_stabilize_metric, pix).rg;
-    const float center_raw = center_raw_v[raw_channel];
-    const float center_blur = center_blur_v[blur_channel];
+    return specular_channel
+        ? max(imageLoad(restir_stabilize_metric_raw_specular, p).r, 0.0)
+        : max(imageLoad(restir_stabilize_metric_raw_diffuse, p).r, 0.0);
+}
+
+float load_smoothed_luma(ivec2 p, bool specular_channel)
+{
+    vec3 c = specular_channel
+        ? imageLoad(specular_direct_current_atrous, p).rgb
+        : imageLoad(diffuse_direct_current_atrous, p).rgb;
+    return max(luminance(max(c, vec3(0.0))), 0.0);
+}
+
+ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specular_channel)
+{
+    const float center_raw = load_raw_metric(pix, specular_channel);
+    const float center_blur = load_smoothed_luma(pix, specular_channel);
     const vec3 p0 = imageLoad(position_t, pix).xyz;
     const vec3 g0 = normalDecode(imageLoad(normals_gs, pix).xy);
     const float inv_center_dist = 1.0 / max(length(p0), 1.0);
@@ -66,7 +80,7 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
         uint(ubo.ubo.random_seed) +
         uint(pix.x) * 1833u +
         uint(pix.y) * 31337u +
-        uint(blur_channel) * 977u;
+        uint(metric_channel) * 977u;
 #endif
     for (int i = 0; i < 8; ++i) {
         const ivec2 q = pix + neighbor_offsets[i];
@@ -85,9 +99,9 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int raw_channel, int blur_channe
             continue;
         }
 
-        const float bq = imageLoad(restir_stabilize_metric, q).rg[blur_channel];
+        const float bq = load_smoothed_luma(q, specular_channel);
 #if DENOISER_STABLE_STABILIZATION
-        const float tie = deterministic_tie(q, blur_channel);
+        const float tie = deterministic_tie(q, metric_channel);
 #else
         const float tie = rand01();
 #endif
@@ -132,8 +146,8 @@ void main() {
     return;
 #endif
 
-    const ivec2 diffuse_wish = select_wish_channel(pix, res, 0, 0);
-    const ivec2 specular_wish = select_wish_channel(pix, res, 1, 1);
+    const ivec2 diffuse_wish = select_wish_channel(pix, res, 0, false);
+    const ivec2 specular_wish = select_wish_channel(pix, res, 1, true);
 
     imageStore(
         out_restir_stabilize_wish,
