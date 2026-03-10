@@ -1,3 +1,6 @@
+#ifndef LIGHT_POLYGON_GLSL_INCLUDED
+#define LIGHT_POLYGON_GLSL_INCLUDED
+
 #define MAX_POLYGON_VERTEX_COUNT 8
 #define MIN_POLYGON_VERTEX_COUNT_BEFORE_CLIPPING 3
 #include "peters2021-sampling/polygon_clipping.glsl"
@@ -404,3 +407,5 @@ void sampleEmissiveSurfaces(vec3 P, vec3 N, vec3 view_dir, MaterialProperties ma
 #endif
 }
 #endif
+
+#endif // LIGHT_POLYGON_GLSL_INCLUDED
