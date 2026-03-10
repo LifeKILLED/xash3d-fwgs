@@ -311,54 +311,40 @@ LightResult lightPointWeightCalculation(
 {
     LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
 
-    vec3 emissive_color = pl.color_stopdot.rgb;
-
-    vec3 L = vec3(0.0);
-    float dist = 0.0;
-    float geom_weight = 0.0;
-    float spec_angular_radius = LIGHT_SPECULAR_MIN_ANGULAR;
-    float specular_compensation = 1.0;
-
-    vec3 toL = pl.origin_r2.xyz - P;
-    float dist2 = dot(toL, toL);
+    vec3 L;
+    float geom_weight;
+    float spec_angular_radius;
 
     if (pl.environment != 0) {
         L = pl.dir_stopdot2.xyz;
-        dist = -10000.0;
+        geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a) * NON_BRDF_POINT_LIGHTS_MULTIPLIER;
 
-        geom_weight = 2.0 * kPi * (1.0 - pl.dir_stopdot2.a);
         float cone_spread = sqrt(max(1.0 - pl.dir_stopdot2.a * pl.dir_stopdot2.a, 0.0));
         spec_angular_radius = max(LIGHT_SPECULAR_MIN_ANGULAR, cone_spread * LIGHT_SPECULAR_ANGULAR_SCALE);
-        specular_compensation = computeSpecularCompensation(spec_angular_radius);
     } else {
-        L = normalize(toL);
-        dist = length(toL);
+        vec3 toL = pl.origin_r2.xyz - P;
+        float dist2 = max(dot(toL, toL), EPSILON);
+        float inv_dist = inversesqrt(dist2);
+        L = toL * inv_dist;
 
         float spot_dot = dot(L, pl.dir_stopdot2.xyz);
         float stopdot2 = pl.dir_stopdot2.a;
         float stopdot = pl.color_stopdot.a;
-        float spot_att = 1.0;
-        if (spot_dot < stopdot) {
-            spot_att = max(0.0, (spot_dot - stopdot2) / (stopdot - stopdot2));
-        }
-        geom_weight = 2.0 * kPi * (1.0 - sqrt(max(0.0, 1.0 - pl.origin_r2.w / max(dist2, EPSILON)))) * spot_att;
+        float spot_att = (spot_dot < stopdot) ? max(0.0, (spot_dot - stopdot2) / (stopdot - stopdot2)) : 1.0;
+        float radius_ratio = sqrt(max(0.0, 1.0 - pl.origin_r2.w / dist2));
+        geom_weight = 2.0 * kPi * (1.0 - radius_ratio) * spot_att * NON_BRDF_POINT_LIGHTS_MULTIPLIER;
 
         float source_radius = sqrt(max(pl.origin_r2.w, 0.0));
-        spec_angular_radius = computeSpecularAngularRadius(source_radius, dist);
-        specular_compensation = computeSpecularCompensation(spec_angular_radius);
+        spec_angular_radius = max(LIGHT_SPECULAR_MIN_ANGULAR, source_radius * inv_dist * LIGHT_SPECULAR_ANGULAR_SCALE);
     }
 
-    geom_weight *= NON_BRDF_POINT_LIGHTS_MULTIPLIER;
-
     if (geom_weight > 0.0) {
-        float roughness_for_spec = clamp(
-            material.roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR,
-            0.0, 1.0);
-
-        float light_lum = luminance(emissive_color);
+        float specular_compensation = computeSpecularCompensation(spec_angular_radius);
+        float roughness_for_spec = clamp(material.roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
+        float light_weight = geom_weight * luminance(pl.color_stopdot.rgb);
         float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-        r.diffuse = vec3(geom_weight * light_lum);
-        r.specular = vec3(spec_weight * geom_weight * light_lum * specular_compensation);
+        r.diffuse = vec3(light_weight);
+        r.specular = vec3(light_weight * spec_weight * specular_compensation);
     }
 
     r.sampled_L = L;
@@ -377,35 +363,29 @@ LightResult lightPolygonWeightCalculation(
     const float plane_dist = dot(plane, vec4(P, 1.0));
 
     if (plane_dist > POLYGON_SELF_LIGHT_PLANE_BIAS) {
-#ifdef STUPID_POLYGON_SAMPLING
-        const vec4 s = getPolygonLightSampleStupid(P, poly);
-#else
-        const vec4 s = getPolygonLightSampleSimple(P, V, poly, vec3(0.5, 0.5, 0.5));
-#endif
-        const float denom = dot(s.xyz, plane.xyz);
+        vec3 dir = poly.center + plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON - P;
+        float dist2 = max(dot(dir, dir), 1e-6);
+        float inv_dist = inversesqrt(dist2);
+        vec3 L = dir * inv_dist;
+        float denom = dot(L, plane.xyz);
 
-        if (s.w > 0.0 && denom < -POLYGON_LIGHT_MIN_DENOM) {
-            float dist = max(0.0, -plane_dist / denom);
-            vec3 L = s.xyz;
-            float self_fade = smoothstep(
+        if (denom < -POLYGON_LIGHT_MIN_DENOM) {
+            float geom_weight = poly.area * max(-denom, 0.0) * (0.4 / dist2);
+            geom_weight *= smoothstep(
                 POLYGON_SELF_LIGHT_PLANE_BIAS,
                 POLYGON_SELF_LIGHT_PLANE_BIAS + POLYGON_SELF_LIGHT_FADE_RANGE,
                 plane_dist);
-            float geom_weight = s.w * self_fade;
-            vec3 emissive_color = poly.emissive;
-            float source_radius = sqrt(max(poly.area, 0.0) * (1.0 / kPi));
-            float spec_angular_radius = computeSpecularAngularRadius(source_radius, dist);
-            float specular_compensation = computeSpecularCompensation(spec_angular_radius);
 
             if (geom_weight > 0.0) {
-                float roughness_for_spec = clamp(
-                    material.roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR,
-                    0.0, 1.0);
-
-                float light_lum = luminance(emissive_color);
+                float dist = max(0.0, -plane_dist / denom);
+                float source_radius = sqrt(max(poly.area, 0.0) * (1.0 / kPi));
+                float spec_angular_radius = computeSpecularAngularRadius(source_radius, dist);
+                float specular_compensation = computeSpecularCompensation(spec_angular_radius);
+                float roughness_for_spec = clamp(material.roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
+                float light_weight = geom_weight * luminance(poly.emissive);
                 float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-                r.diffuse = vec3(geom_weight * light_lum);
-                r.specular = vec3(spec_weight * geom_weight * light_lum * specular_compensation);
+                r.diffuse = vec3(light_weight);
+                r.specular = vec3(light_weight * spec_weight * specular_compensation);
             }
 
             r.sampled_L = L;
