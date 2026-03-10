@@ -303,13 +303,12 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
     return l;
 }
 
-LightResult lightPointWeightCalculation(
+vec2 lightPointWeightCalculation(
     PointLight pl,
     vec3 P, vec3 N, vec3 V,
-    MaterialProperties material,
-    bool eval_brdf)
+    float roughness)
 {
-    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
+    vec2 result = vec2(0.0);
 
     vec3 L;
     float geom_weight;
@@ -340,24 +339,20 @@ LightResult lightPointWeightCalculation(
 
     if (geom_weight > 0.0) {
         float specular_compensation = computeSpecularCompensation(spec_angular_radius);
-        float roughness_for_spec = clamp(material.roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
+        float roughness_for_spec = clamp(roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
         float light_weight = geom_weight * luminance(pl.color_stopdot.rgb);
         float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-        r.diffuse = vec3(light_weight);
-        r.specular = vec3(light_weight * spec_weight * specular_compensation);
+        result = vec2(light_weight, light_weight * spec_weight * specular_compensation);
     }
-
-    r.sampled_L = L;
-    return r;
+    return result;
 }
 
-LightResult lightPolygonWeightCalculation(
+vec2 lightPolygonWeightCalculation(
     PolygonLight poly,
     vec3 P, vec3 N, vec3 V,
-    MaterialProperties material,
-    bool eval_brdf)
+    float roughness)
 {
-    LightResult r = LightResult(vec3(0.0), vec3(0.0), vec3(0.0), false, uint(-1));
+    vec2 result = vec2(0.0);
 
     const vec4 plane = normalizedPolygonPlane(poly);
     const float plane_dist = dot(plane, vec4(P, 1.0));
@@ -381,18 +376,15 @@ LightResult lightPolygonWeightCalculation(
                 float source_radius = sqrt(max(poly.area, 0.0) * (1.0 / kPi));
                 float spec_angular_radius = computeSpecularAngularRadius(source_radius, dist);
                 float specular_compensation = computeSpecularCompensation(spec_angular_radius);
-                float roughness_for_spec = clamp(material.roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
+                float roughness_for_spec = clamp(roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
                 float light_weight = geom_weight * luminance(poly.emissive);
                 float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-                r.diffuse = vec3(light_weight);
-                r.specular = vec3(light_weight * spec_weight * specular_compensation);
+                result = vec2(light_weight, light_weight * spec_weight * specular_compensation);
             }
-
-            r.sampled_L = L;
         }
     }
 
-    return r;
+    return result;
 }
 void unifiedLightFinalShading(
     inout LightResult r,
