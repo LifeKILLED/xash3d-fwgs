@@ -57,7 +57,7 @@ vec4 getPolygonLightSampleStupid(vec3 P, const PolygonLight poly)
     float cos_theta = max(dot(plane_n, -L), 0.0);
     float weight = poly.area * cos_theta / max(dist2, 1e-6);
 
-    return vec4(dir, weight * 0.4); // WTD: 0.4 for same intensity with other samplings
+    return vec4(L, weight * 0.4); // WTD: 0.4 for same intensity with other samplings
 }
 
 vec4 getPolygonLightSampleSimple(vec3 P, vec3 view_dir, const PolygonLight poly, vec3 rnd_values) {
