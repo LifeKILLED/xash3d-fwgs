@@ -5,6 +5,7 @@
 #define OUTPUT_STABILIZE_METRIC_RAW out_restir_stabilize_metric_raw_specular
 #define INPUT_DIRECT specular_direct
 #define INPUT_LIGHTDIR specular_direct_lightdir
+#define OUTPUT_TEMPORAL_RESERVOIR out_temporal_res_specular
 
 #include "direct_specular_atrous_config.glsl"
 

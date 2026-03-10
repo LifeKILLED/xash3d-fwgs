@@ -6,6 +6,7 @@
 #define OUTPUT_STABILIZE_METRIC_RAW out_restir_stabilize_metric_raw_diffuse
 #define INPUT_DIRECT diffuse_direct_shadowed
 #define INPUT_LIGHTDIR diffuse_direct_lightdir
+#define OUTPUT_TEMPORAL_RESERVOIR out_temporal_res_diffuse
 
 #include "direct_diffuse_atrous_config.glsl"
 

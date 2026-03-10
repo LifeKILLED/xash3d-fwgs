@@ -134,6 +134,7 @@ layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D OUTPUT_NORMALIZE
 #ifdef OUTPUT_STABILIZE_METRIC_RAW
 layout(set = 0, binding = 9, rgba16f) uniform writeonly image2D OUTPUT_STABILIZE_METRIC_RAW;
 #endif
+layout(set = 0, binding = 10, rgba32f) uniform writeonly image2D OUTPUT_TEMPORAL_RESERVOIR;
 
 const vec3 POISSON[16] = vec3[](
     vec3( 0.000000000,  0.000000000, 0.128544338),
@@ -500,6 +501,10 @@ void main()
     if (finalAcceptedSamples == 0) {
         outC = center_rgb_shadowed;
         outShadowNorm = center_shadow_mask;
+    }
+
+    if (outShadowNorm == 0) {
+        imageStore(OUTPUT_TEMPORAL_RESERVOIR, p, vec4(0.0)); // totally shadowed, kill reservoir
     }
 
     imageStore(OUTPUT_DIRECT, p, vec4(outC, outA));
