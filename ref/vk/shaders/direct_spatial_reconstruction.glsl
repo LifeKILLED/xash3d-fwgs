@@ -79,8 +79,16 @@
 #define SPATIAL_PDF_MAX_RATIO SPATIAL_GGX_PDF_MAX_RATIO
 #endif
 
+#ifndef SPATIAL_ALLOW_LOW_PDF_ACCUM
+#define SPATIAL_ALLOW_LOW_PDF_ACCUM 0
+#endif
+
 #ifndef SPATIAL_LIGHTDIR_ZERO_EPS
 #define SPATIAL_LIGHTDIR_ZERO_EPS 1e-8
+#endif
+
+#ifndef SPATIAL_MIN_ROUGHNESS
+#define SPATIAL_MIN_ROUGHNESS 0.0
 #endif
 
 #ifndef SPATIAL_DEFAULT_LIGHT_MODE
@@ -325,7 +333,7 @@ void main()
     vec3 G0 = normalDecode(n0enc.xy);
     vec3 N0 = normalDecode(n0enc.zw);
     vec3 P0 = imageLoad(POSITION_T, p).xyz;
-    float R0 = imageLoad(MATERIAL_RMXX, p).x;
+    float R0 = max(imageLoad(MATERIAL_RMXX, p).x, SPATIAL_MIN_ROUGHNESS);
     vec3 camPos = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
     vec3 V0 = normalize(camPos - P0);
     vec3 L0n = resolveLightDirection(centerL.xyz, N0, V0, R0);
@@ -420,7 +428,7 @@ void main()
         wn = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD);
         wn_relaxed = normalGate(N0, N1, SHADING_NORMAL_DOT_THRESHOLD_RELAXED);
         if (wn_relaxed == 0.0) continue;
-        float R1 = imageLoad(MATERIAL_RMXX, q).x;
+        float R1 = max(imageLoad(MATERIAL_RMXX, q).x, SPATIAL_MIN_ROUGHNESS);
         float wr = 1.0;
 #if SPATIAL_ENABLE_ROUGHNESS_GATE
         wr = step(abs(R0 - R1), ROUGHNESS_DIFF_THRESHOLD);
@@ -436,7 +444,11 @@ void main()
         vec3 LqAtSample = resolveLightDirection(Lqraw, N1, V1, R1);
 
         float pdf_target = lightSamplingPdf(N0, V0, LqAtCenter, R0);
+#if SPATIAL_ALLOW_LOW_PDF_ACCUM
+        pdf_target = max(pdf_target, SPATIAL_PDF_EPS);
+#else
         if (pdf_target <= 1e-6) continue;
+#endif
         float wl = pdf_target;
 
 #if SPATIAL_ENABLE_PDF_REWEIGHT

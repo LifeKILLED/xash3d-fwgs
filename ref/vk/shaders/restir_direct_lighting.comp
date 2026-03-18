@@ -124,7 +124,9 @@ vec3 finalShading(
         return vec3(0.0);
 
     LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.light_index, rnd, FINAL_RAYS, false);
-    sampledL = max(l.sampled_L, vec3(0.0));
+    float sampledL_len2 = dot(l.sampled_L, l.sampled_L);
+    vec3 fallbackL = is_specular ? normalize(reflect(-V, N)) : N;
+    sampledL = (sampledL_len2 > 1e-10) ? (l.sampled_L * inversesqrt(sampledL_len2)) : fallbackL;
     lightIdEncoded = encodeHistoryLightId(l.light_id);
 
     float selected_weight = max(r.w_clamped, MIN_RESTIR_WEIGHT);
@@ -256,8 +258,10 @@ void main(){
     imageStore(out_specular_direct, pix, vec4(specular, specular_conf));
     imageStore(out_diffuse_direct_lightdir, pix, vec4(diffuse_lightdir, diffuse_lightid));
     imageStore(out_specular_direct_lightdir, pix, vec4(specular_lightdir, specular_lightid));
-    imageStore(out_restir_diffuse_shadows_raw, pix, vec4(diffuse_shadow, diffuse_shadow_energy, 0.0, 1.0));
-    imageStore(out_restir_specular_shadows_raw, pix, vec4(specular_shadow, specular_shadow_energy, 0.0, 1.0));
+    float diffuse_lightid_valid = (diffuse_lightid > 0.0) ? 1.0 : 0.0;
+    float specular_lightid_valid = (specular_lightid > 0.0) ? 1.0 : 0.0;
+    imageStore(out_restir_diffuse_shadows_raw, pix, vec4(diffuse_shadow, diffuse_shadow_energy, diffuse_lightid_valid, diffuse_lightid));
+    imageStore(out_restir_specular_shadows_raw, pix, vec4(specular_shadow, specular_shadow_energy, specular_lightid_valid, specular_lightid));
 
     if (((pix.x & 1) == 0) && ((pix.y & 1) == 0)) {
         const ivec2 packed_res = (res + ivec2(1)) / 2;
