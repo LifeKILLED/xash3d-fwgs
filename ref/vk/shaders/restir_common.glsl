@@ -5,11 +5,11 @@
 #include "lights_unified.glsl"
 #endif
 
-#define MIN_RESTIR_WEIGHT 1e-4
+#define MIN_RESTIR_WEIGHT 3e-4
 #define MAX_RESTIR_WEIGHT 0.02
 
 #define CONF_STORE_MULT 0.98
-#define MAX_RESTIR_PDF_WEIGHT 256.0
+#define MAX_RESTIR_PDF_WEIGHT 64.0
 
 struct Reservoir {
     uint  light_index;
@@ -176,7 +176,7 @@ void restirRefreshReservoirWeightsNoConfidence(
 float restirLightingWeight(in Reservoir r)
 {
     sanitizeReservoir(r);
-    float denom = max(r.checked_count * r.w_clamped, 1e-6);
+    float denom = max(r.checked_count * max(r.w_clamped, MIN_RESTIR_WEIGHT), MIN_RESTIR_WEIGHT);
     return clamp(r.w_sum / denom, 0.0, MAX_RESTIR_PDF_WEIGHT);
 }
 

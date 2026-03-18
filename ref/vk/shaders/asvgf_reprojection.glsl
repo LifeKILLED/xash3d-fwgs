@@ -59,6 +59,14 @@
 #define RESET_ALPHA_MULT 0.25
 #define DELTA_CLAMP 0.5
 
+// Reprojection magnification damping (gentle, no hard reset)
+#define MAGNIFICATION_EPS 1e-4
+#define MAGNIFICATION_MAX 16.0
+#define MAGNIFICATION_START 1.6
+#define MAGNIFICATION_FULL 4.0
+#define MAGNIFICATION_ALPHA_BOOST 0.35
+#define MAGNIFICATION_HISTORY_DAMP 0.25
+
 // Smart tremor parameters
 #define TREMOR_AMPLITUDE_THRESHOLD 0.4
 #define TREMOR_ALPHA_MULT 0.2
@@ -86,6 +94,28 @@ vec3 reject_firefly(vec3 raw, vec3 blur)
     float Lr = luminance(raw);
     float Lb = luminance(blur);
     return (Lr > Lb * FIREFLY_CLAMP) ? blur : raw;
+}
+bool isValidReprojectionUvAsvgf(vec2 uv, ivec2 res)
+{
+    return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(res)));
+}
+
+float computeReprojectionMagnification(ivec2 res, vec2 rp_uv, vec2 uvx, vec2 uvy)
+{
+    if (!isValidReprojectionUvAsvgf(rp_uv, res)) {
+        return 1.0;
+    }
+
+    if (!isValidReprojectionUvAsvgf(uvx, res) || !isValidReprojectionUvAsvgf(uvy, res)) {
+        return 1.0;
+    }
+
+    vec2 du = uvx - rp_uv;
+    vec2 dv = uvy - rp_uv;
+    float area = abs(du.x * dv.y - du.y * dv.x);
+
+    float magnification = 1.0 / max(area, MAGNIFICATION_EPS);
+    return clamp(magnification, 1.0, MAGNIFICATION_MAX);
 }
 
 //---------------------------------------------------------
@@ -137,6 +167,12 @@ void main()
     bool valid = all(greaterThanEqual(rp_uv, vec2(0.0))) && all(lessThan(rp_uv, vec2(res)));
     ivec2 rp = ivec2(floor(rp_uv + vec2(0.5)));
     valid = valid && all(greaterThanEqual(rp, ivec2(0))) && all(lessThan(rp, res));
+    ivec2 px = ivec2(min(p.x + 1, res.x - 1), p.y);
+    ivec2 py = ivec2(p.x, min(p.y + 1, res.y - 1));
+    vec2 rp_uv_x = imageLoad(reprojection_uv, px).xy;
+    vec2 rp_uv_y = imageLoad(reprojection_uv, py).xy;
+    float reprojMagnification = computeReprojectionMagnification(res, rp_uv, rp_uv_x, rp_uv_y);
+    float reprojMagFactor = smoothstep(MAGNIFICATION_START, MAGNIFICATION_FULL, reprojMagnification);
 
     vec3 histC = vec3(0);
     float m1=0, m2=0, m3=0, H=0;
@@ -240,6 +276,9 @@ void main()
     alpha = clamp(alpha, MIN_ALPHA, MAX_ALPHA);
     alpha *= ALPHA_GLOBAL_MULT;
 
+    // Gentle magnification damping: reduce history influence when many current pixels map to one previous area.
+    alpha = mix(alpha, MAX_ALPHA * ALPHA_GLOBAL_MULT, reprojMagFactor * MAGNIFICATION_ALPHA_BOOST);
+
     //---------------------------------------------------------
     // ReBLUR-style correction
     //---------------------------------------------------------
@@ -255,7 +294,9 @@ void main()
     float nm1 = mix(m1, enc(outL), alpha);
     float nm2 = mix(m2, enc(outL*outL), alpha);
     float nm3 = mix(m3, enc(outL)-nm1, alpha);
-    float newH = min(H+1.0, HISTORY_MAX);
+    float newH = min(H + 1.0, HISTORY_MAX);
+    float dampedHistory = max(1.0, H * 0.8);
+    newH = mix(newH, dampedHistory, reprojMagFactor * MAGNIFICATION_HISTORY_DAMP);
 
     //---------------------------------------------------------
     // Store

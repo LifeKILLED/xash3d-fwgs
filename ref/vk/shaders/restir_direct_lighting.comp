@@ -127,7 +127,9 @@ vec3 finalShading(
     sampledL = max(l.sampled_L, vec3(0.0));
     lightIdEncoded = encodeHistoryLightId(l.light_id);
 
-    float pdf_weight = max(pdf_mult, 0.0) * max(restirLightingWeight(r), 0.0);
+    float selected_weight = max(r.w_clamped, MIN_RESTIR_WEIGHT);
+    float ris_weight = r.w_sum / max(r.checked_count * selected_weight, MIN_RESTIR_WEIGHT);
+    float pdf_weight = max(pdf_mult, 0.0) * clamp(ris_weight, 0.0, MAX_RESTIR_PDF_WEIGHT);
     vec3 irradiance = max(is_specular ? l.specular : l.diffuse, vec3(0.0));
     shadowValue = l.shadowed ? 0.0 : 1.0;
     float shadow_amount = 1.0 - shadowValue;

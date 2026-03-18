@@ -50,15 +50,15 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef POLYGON_LIGHT_MIS_BRDF_MAX_ROUGHNESS
-#define POLYGON_LIGHT_MIS_BRDF_MAX_ROUGHNESS 0.35
+#define POLYGON_LIGHT_MIS_BRDF_MAX_ROUGHNESS 0.18
 #endif
 
 #ifndef POLYGON_LIGHT_MIS_MIN_LIGHT_PROB
-#define POLYGON_LIGHT_MIS_MIN_LIGHT_PROB 0.02
+#define POLYGON_LIGHT_MIS_MIN_LIGHT_PROB 0.85
 #endif
 
 #ifndef POLYGON_LIGHT_MIS_MAX_LIGHT_PROB
-#define POLYGON_LIGHT_MIS_MAX_LIGHT_PROB 0.95
+#define POLYGON_LIGHT_MIS_MAX_LIGHT_PROB 0.995
 #endif
 
 #ifndef POLYGON_LIGHT_MIS_MIRROR_ROUGHNESS
@@ -231,7 +231,32 @@ LightSamplingData calculatePointLightSamplingData(
 
     return l;
 }
+bool polygonContainsPointOnPlane(vec3 hit, PolygonLight poly, vec3 plane_n)
+{
+    const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+    const uint vertices_count = poly.vertices_count_offset >> 16;
 
+    bool have_ref = false;
+    float ref_sign = 0.0;
+
+    for (uint i = 0u; i < vertices_count; ++i) {
+        vec3 a = lights.m.polygon_vertices[vertices_offset + i].xyz;
+        vec3 b = lights.m.polygon_vertices[vertices_offset + ((i + 1u) % vertices_count)].xyz;
+        float s = dot(cross(b - a, hit - a), plane_n);
+        if (abs(s) <= 1e-6) {
+            continue;
+        }
+
+        if (!have_ref) {
+            ref_sign = sign(s);
+            have_ref = true;
+        } else if (s * ref_sign < -1e-5) {
+            return false;
+        }
+    }
+
+    return true;
+}
 LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, vec3 N, vec3 V, MaterialProperties material, SampleContext ctx, vec3 rnd)
 {
     LightSamplingData l = LightSamplingData(vec3(0.), 0., vec3(0.), 0., LIGHT_SPECULAR_MIN_ANGULAR, 1.0);
@@ -243,17 +268,53 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
         return l;
     }
 
-    // Technique A: existing polygon solid-angle sampler.
-    const vec4 s_light = getPolygonLightSampleSimpleSolid(P, V, poly, rnd);
-    if (s_light.w <= 0.0) {
-        return l;
-    }
-
     const float self_fade = smoothstep(
         POLYGON_SELF_LIGHT_PLANE_BIAS,
         POLYGON_SELF_LIGHT_PLANE_BIAS + POLYGON_SELF_LIGHT_FADE_RANGE,
         plane_dist);
     if (self_fade <= 0.0) {
+        return l;
+    }
+
+    // Mirror path: deterministic reflection-to-polygon hit test.
+    // Avoids point-like spot artifacts for roughness ~= 0.
+    if (material.roughness <= POLYGON_LIGHT_MIS_MIRROR_ROUGHNESS) {
+        vec3 Rm = normalize(reflect(-V, N));
+        float denom_m = dot(Rm, plane.xyz);
+        if (denom_m >= -POLYGON_LIGHT_MIN_DENOM) {
+            return l;
+        }
+
+        float dist_m = max(0.0, -plane_dist / denom_m);
+        if (dist_m <= 0.0) {
+            return l;
+        }
+
+        vec3 hit_m = P + Rm * dist_m;
+        if (!polygonContainsPointOnPlane(hit_m, poly, plane.xyz)) {
+            return l;
+        }
+
+        l.dist = dist_m;
+        l.L = Rm;
+        l.geom_weight = self_fade;
+        l.emissive_color = poly.emissive;
+        l.spec_angular_radius = LIGHT_SPECULAR_MIN_ANGULAR;
+        l.spec_compensation = 1.0;
+
+    #ifdef LIMIT_LIGHT_LUMINANCE
+        float lum_m = luminance(l.emissive_color);
+        if (lum_m > 1.0) {
+            l.emissive_color /= lum_m;
+        }
+    #endif
+
+        return l;
+    }
+
+    // Technique A: existing polygon solid-angle sampler.
+    const vec4 s_light = getPolygonLightSampleSimpleSolid(P, V, poly, rnd);
+    if (s_light.w <= 0.0) {
         return l;
     }
 
@@ -280,10 +341,7 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
 
         // Keep light sampling dominant to avoid energy loss and excess variance.
         float rough = clamp(material.roughness, 0.0, 1.0);
-        c_light = clamp(rough * rough * 0.85 + 0.02, POLYGON_LIGHT_MIS_MIN_LIGHT_PROB, POLYGON_LIGHT_MIS_MAX_LIGHT_PROB);
-        if (rough <= POLYGON_LIGHT_MIS_MIRROR_ROUGHNESS) {
-            c_light = 0.0;
-        }
+        c_light = clamp(0.95 + rough * 0.04, POLYGON_LIGHT_MIS_MIN_LIGHT_PROB, POLYGON_LIGHT_MIS_MAX_LIGHT_PROB);
         c_brdf = 1.0 - c_light;
 
         bool choose_light = rnd.z < c_light;
@@ -307,27 +365,7 @@ LightSamplingData calculatePolygonLightSamplingData(PolygonLight poly, vec3 P, v
     // For BRDF proposal we must reject rays that do not hit the polygon interior.
     if (sampled_brdf) {
         const vec3 hit = P + L * dist;
-        const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
-        const uint vertices_count = poly.vertices_count_offset >> 16;
-        bool inside = true;
-        float ref_sign = 0.0;
-        bool have_ref = false;
-        for (uint i = 0u; i < vertices_count; ++i) {
-            vec3 a = lights.m.polygon_vertices[vertices_offset + i].xyz;
-            vec3 b = lights.m.polygon_vertices[vertices_offset + ((i + 1u) % vertices_count)].xyz;
-            float s = dot(cross(b - a, hit - a), plane.xyz);
-            if (abs(s) <= 1e-6) {
-                continue;
-            }
-            if (!have_ref) {
-                ref_sign = sign(s);
-                have_ref = true;
-            } else if (s * ref_sign < -1e-5) {
-                inside = false;
-                break;
-            }
-        }
-        if (!inside) {
+        if (!polygonContainsPointOnPlane(hit, poly, plane.xyz)) {
             return l;
         }
     }

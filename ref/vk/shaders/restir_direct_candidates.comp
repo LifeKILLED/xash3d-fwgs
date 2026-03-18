@@ -23,7 +23,10 @@
 
 #define REPROJECTION_USE_CENTER_TAP_ONLY 1
 #define REPROJECTION_ENABLE_CENTER_FALLBACK 1
-#define REPROJECTION_KILL_SAME_NEIGHBORS 1
+#define REPROJECTION_KILL_SAME_NEIGHBORS 0
+#define REPROJECTION_ALLOW_NEIGHBOR_TRANSFER 0
+#define REPROJECTION_USE_SHADOW_VISIBILITY 1
+#define REPROJECTION_ENABLE_MAGNIFICATION_KILL 1
 
 #define RESERVOIR_LIFETIME_MIN 200
 #define RESERVOIR_LIFETIME_MAX 7000
@@ -32,7 +35,18 @@
 #define CONFIDENCE_REJECTED 0.20
 #define REPROJECTION_VISIBILITY_THRESHOLD 0.02
 #define REPROJECTION_MIN_VALID_CONFIDENCE 0.05
+#define REPROJECTION_FULL_SHADOW_THRESHOLD 0.02
+#define REPROJECTION_SHADOW_FILTER_RADIUS 1
 #define REPROJECTION_DUPLICATE_REL_EPS 0.03
+#define REPROJECTION_MAGNIFICATION_EPS 1e-4
+#define REPROJECTION_MAGNIFICATION_MAX 64.0
+#define REPROJECTION_MAGNIFICATION_KILL_THRESHOLD 3.0
+#define REPROJECTION_MAGNIFICATION_KILL_START 1.15
+#define REPROJECTION_MAGNIFICATION_KILL_FULL 2.2
+#define REPROJECTION_MAGNIFICATION_MIN_SURVIVE 0.02
+#define REPROJECTION_COLLISION_KILL_EXP_BASE 1.0
+#define REPROJECTION_COLLISION_KILL_EXP_MAX 2.0
+#define REPROJECTION_COLLISION_RADIUS 2
 
 //#define RANDOM_POISSON_SAMPLING 1
 #define STUPID_POLYGON_SAMPLING 1
@@ -87,8 +101,8 @@ layout(set = 0, binding=20, rgba16f) uniform image2D out_temporal_res_norm_mat;
 layout(set = 0, binding=26, rgba32f) uniform writeonly image2D out_temporal_res_position;
 
 layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
-layout(set = 0, binding = 28, rgba16f) uniform readonly image2D restir_diffuse_shadows;
-layout(set = 0, binding = 29, rgba16f) uniform readonly image2D restir_specular_shadows;
+layout(set = 0, binding = 28, rgba16f) uniform readonly image2D restir_diffuse_shadows_raw;
+layout(set = 0, binding = 29, rgba16f) uniform readonly image2D restir_specular_shadows_raw;
 
 #define RAY_QUERY
 
@@ -168,6 +182,82 @@ bool gatherReprojectedNeighbors(vec2 reproj_uv, ivec2 res, out ivec2 taps[4], ou
 
     return true;
 }
+bool isValidReprojectionUv(vec2 uv, ivec2 res)
+{
+    return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThan(uv, vec2(res)));
+}
+
+bool tryLoadReprojectionUv(ivec2 p, ivec2 res, out vec2 uv)
+{
+    if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
+        uv = vec2(0.0);
+        return false;
+    }
+
+    uv = imageLoad(reprojection_uv, p).xy;
+    return isValidReprojectionUv(uv, res);
+}
+
+bool computeReprojectionDerivatives(ivec2 pix, ivec2 res, vec2 center_prev_uv, out vec2 d_prev_dx, out vec2 d_prev_dy)
+{
+    vec2 uv_l;
+    vec2 uv_r;
+    vec2 uv_d;
+    vec2 uv_u;
+
+    bool has_l = tryLoadReprojectionUv(pix + ivec2(-1, 0), res, uv_l);
+    bool has_r = tryLoadReprojectionUv(pix + ivec2(1, 0), res, uv_r);
+    bool has_d = tryLoadReprojectionUv(pix + ivec2(0, -1), res, uv_d);
+    bool has_u = tryLoadReprojectionUv(pix + ivec2(0, 1), res, uv_u);
+
+    bool has_dx = false;
+    bool has_dy = false;
+
+    if (has_l && has_r) {
+        d_prev_dx = (uv_r - uv_l) * 0.5;
+        has_dx = true;
+    } else if (has_r) {
+        d_prev_dx = uv_r - center_prev_uv;
+        has_dx = true;
+    } else if (has_l) {
+        d_prev_dx = center_prev_uv - uv_l;
+        has_dx = true;
+    } else {
+        d_prev_dx = vec2(0.0);
+    }
+
+    if (has_d && has_u) {
+        d_prev_dy = (uv_u - uv_d) * 0.5;
+        has_dy = true;
+    } else if (has_u) {
+        d_prev_dy = uv_u - center_prev_uv;
+        has_dy = true;
+    } else if (has_d) {
+        d_prev_dy = center_prev_uv - uv_d;
+        has_dy = true;
+    } else {
+        d_prev_dy = vec2(0.0);
+    }
+
+    return has_dx && has_dy;
+}
+
+float computeReprojectionMagnification(ivec2 pix, ivec2 res, vec2 center_prev_uv)
+{
+    if (!isValidReprojectionUv(center_prev_uv, res)) {
+        return 1.0;
+    }
+
+    vec2 d_prev_dx;
+    vec2 d_prev_dy;
+    if (!computeReprojectionDerivatives(pix, res, center_prev_uv, d_prev_dx, d_prev_dy)) {
+        return 1.0;
+    }
+
+    float area = abs(d_prev_dx.x * d_prev_dy.y - d_prev_dx.y * d_prev_dy.x);
+    float magnification = 1.0 / max(area, REPROJECTION_MAGNIFICATION_EPS);
+    return clamp(magnification, 1.0, REPROJECTION_MAGNIFICATION_MAX);
+}
 
 vec3 loadPrevShadingNormalOrFallback(ivec2 p, ivec2 res, vec3 fallbackN)
 {
@@ -188,15 +278,36 @@ vec3 loadPrevPositionOrFallback(ivec2 p, ivec2 res, vec3 fallbackP)
 
 float loadPrevFrameVisibility(ivec2 p, ivec2 res, bool is_specular)
 {
+#if REPROJECTION_USE_SHADOW_VISIBILITY
     if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
         return 0.0;
     }
 
-    float shadow_vis = is_specular
-        ? imageLoad(restir_specular_shadows, p).x
-        : imageLoad(restir_diffuse_shadows, p).x;
+    float vis_sum = 0.0;
+    float vis_count = 0.0;
+    for (int oy = -REPROJECTION_SHADOW_FILTER_RADIUS; oy <= REPROJECTION_SHADOW_FILTER_RADIUS; ++oy) {
+        for (int ox = -REPROJECTION_SHADOW_FILTER_RADIUS; ox <= REPROJECTION_SHADOW_FILTER_RADIUS; ++ox) {
+            ivec2 q = p + ivec2(ox, oy);
+            if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, res))) {
+                continue;
+            }
 
-    return clamp(shadow_vis, 0.0, 1.0);
+            float shadow_vis = is_specular
+                ? imageLoad(restir_specular_shadows_raw, q).x
+                : imageLoad(restir_diffuse_shadows_raw, q).x;
+            vis_sum += clamp(shadow_vis, 0.0, 1.0);
+            vis_count += 1.0;
+        }
+    }
+
+    if (vis_count <= 0.0) {
+        return 0.0;
+    }
+
+    return clamp(vis_sum / vis_count, 0.0, 1.0);
+#else
+    return 1.0;
+#endif
 }
 
 vec3 samplingRandom(ivec2 pix, bool previous)
@@ -288,49 +399,60 @@ Reservoir loadPrevTemporalReservoirAt(ivec2 p, bool is_specular, out bool out_of
     return loadReservoir(imageLoad(prev_temporal_res_diffuse, p), out_of_bound);
 }
 
-bool areReservoirsSimilarForDuplicateKill(Reservoir a, Reservoir b)
+uint reprojectionCollisionRank(ivec2 curr_px, ivec2 target_prev_px)
 {
-    if (a.light_index != b.light_index) {
-        return false;
-    }
-
-    float sum_scale = max(max(abs(a.w_sum), abs(b.w_sum)), 1e-6);
-    float full_scale = max(max(abs(a.w_full), abs(b.w_full)), 1e-6);
-
-    bool sum_close = abs(a.w_sum - b.w_sum) <= (REPROJECTION_DUPLICATE_REL_EPS * sum_scale);
-    bool full_close = abs(a.w_full - b.w_full) <= (REPROJECTION_DUPLICATE_REL_EPS * full_scale);
-    bool count_close = abs(a.checked_count - b.checked_count) <= 1.0;
-
-    return sum_close && full_close && count_close;
+    return xxhash32(uvec3(
+        uint(curr_px.x) ^ (uint(target_prev_px.x) * 0x9E3779B9u),
+        uint(curr_px.y) ^ (uint(target_prev_px.y) * 0x85EBCA6Bu),
+        uint(target_prev_px.x) * 0xC2B2AE35u ^ uint(target_prev_px.y)
+    ));
 }
 
-int countSimilarReservoirs9Tap(ivec2 center_px, ivec2 res, bool is_specular, Reservoir reference_reservoir)
+bool isReprojectionWinner9Tap(ivec2 curr_pix, ivec2 res, ivec2 target_prev_px, out int collision_count)
 {
-    int similar_count = 0;
+    collision_count = 0;
 
-    for (int oy = -1; oy <= 1; ++oy) {
-        for (int ox = -1; ox <= 1; ++ox) {
-            ivec2 p = center_px + ivec2(ox, oy);
+    bool has_winner = false;
+    uint winner_rank = 0xffffffffu;
+    ivec2 winner_px = ivec2(0);
+
+    for (int oy = -REPROJECTION_COLLISION_RADIUS; oy <= REPROJECTION_COLLISION_RADIUS; ++oy) {
+        for (int ox = -REPROJECTION_COLLISION_RADIUS; ox <= REPROJECTION_COLLISION_RADIUS; ++ox) {
+            ivec2 p = curr_pix + ivec2(ox, oy);
             if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
                 continue;
             }
 
-            bool out_of_bound = false;
-            Reservoir neighbor = loadPrevTemporalReservoirAt(p, is_specular, out_of_bound);
-            if (out_of_bound || neighbor.checked_count <= 0.0 || neighbor.w_sum <= 0.0) {
+            vec2 reproj_uv = imageLoad(reprojection_uv, p).xy;
+            if (!isValidReprojectionUv(reproj_uv, res)) {
                 continue;
             }
 
-            if (areReservoirsSimilarForDuplicateKill(reference_reservoir, neighbor)) {
-                similar_count++;
+            ivec2 mapped_prev_px = ivec2(floor(reproj_uv + vec2(0.5)));
+            if (!all(equal(mapped_prev_px, target_prev_px))) {
+                continue;
+            }
+
+            collision_count++;
+
+            uint rank = reprojectionCollisionRank(p, target_prev_px);
+            bool better_rank = rank < winner_rank;
+            bool same_rank = rank == winner_rank;
+            bool better_tiebreak = same_rank && ((p.y < winner_px.y) || (p.y == winner_px.y && p.x < winner_px.x));
+
+            if (!has_winner || better_rank || better_tiebreak) {
+                has_winner = true;
+                winner_rank = rank;
+                winner_px = p;
             }
         }
     }
 
-    return similar_count;
+    return has_winner && all(equal(curr_pix, winner_px));
 }
 void reprojectTemporalReservoir(
     bool is_specular,
+    ivec2 curr_pix,
     ivec2 center_prev_px,
     ivec2 res,
     ivec2 reproj_taps[4],
@@ -343,6 +465,7 @@ void reprojectTemporalReservoir(
     MaterialProperties material,
     SampleContext ctx,
     vec3 origin,
+    float reprojection_magnification,
     inout Reservoir out_reservoir,
     inout float out_confidence)
 {
@@ -362,6 +485,7 @@ void reprojectTemporalReservoir(
             bool center_temporal_valid = out_reservoir.checked_count > 0.0 && out_reservoir.w_sum > 0.0;
             bool center_visible = center_vis > REPROJECTION_VISIBILITY_THRESHOLD;
             bool center_reuse_valid = center_temporal_valid && center_visible;
+            bool collision_forced_survivor = false;
             float center_score = center_reuse_valid
                 ? (center_vis * max(out_confidence, REPROJECTION_MIN_VALID_CONFIDENCE) * max(out_reservoir.w_sum, 1e-6))
                 : 0.0;
@@ -395,7 +519,7 @@ void reprojectTemporalReservoir(
                 }
             }
 
-            if (best_neighbor_idx >= 0) {
+            if (REPROJECTION_ALLOW_NEIGHBOR_TRANSFER != 0 && best_neighbor_idx >= 0) {
                 ivec2 selected_prev_px = reproj_taps[best_neighbor_idx];
                 vec3 prev_N_selected = loadPrevShadingNormalOrFallback(selected_prev_px, res, prev_N_center);
                 vec3 prev_P_selected = loadPrevPositionOrFallback(selected_prev_px, res, prev_P_center);
@@ -423,19 +547,45 @@ void reprojectTemporalReservoir(
                 }
             }
 
-            #if REPROJECTION_KILL_SAME_NEIGHBORS
+            #if REPROJECTION_KILL_SAME_NEIGHBORS || REPROJECTION_ENABLE_MAGNIFICATION_KILL
+#if REPROJECTION_KILL_SAME_NEIGHBORS
             if (center_reuse_valid) {
-                int similar_count = countSimilarReservoirs9Tap(selected_prev_px_for_dup, res, is_specular, out_reservoir);
-                if (similar_count > 1) {
-                    float survive_probability = 1.0 / float(similar_count);
-                    if (rand01() > survive_probability) {
+                int collision_count = 0;
+                bool is_collision_winner = isReprojectionWinner9Tap(curr_pix, res, center_prev_px, collision_count);
+                if (collision_count > 1) {
+                    if (!is_collision_winner) {
                         center_reuse_valid = false;
                         out_confidence = CONFIDENCE_REJECTED;
                         out_reservoir = reservoirInit(CONFIDENCE_REJECTED);
+                    } else {
+                        collision_forced_survivor = true;
                     }
                 }
             }
             #endif
+
+            if (center_reuse_valid) {
+                float mag_factor = smoothstep(REPROJECTION_MAGNIFICATION_KILL_START, REPROJECTION_MAGNIFICATION_KILL_FULL, reprojection_magnification);
+                float survive_probability = mix(1.0, REPROJECTION_MAGNIFICATION_MIN_SURVIVE, mag_factor);
+
+                if (!collision_forced_survivor && rand01() > survive_probability) {
+                    center_reuse_valid = false;
+                    out_confidence = CONFIDENCE_REJECTED;
+                    out_reservoir = reservoirInit(CONFIDENCE_REJECTED);
+                } else {
+                    float history_scale = collision_forced_survivor
+                        ? max(0.5, survive_probability)
+                        : (survive_probability * survive_probability);
+                    out_reservoir.checked_count = max(1.0, floor(out_reservoir.checked_count * history_scale));
+                    out_reservoir.w_sum *= history_scale;
+                    out_reservoir.w_sum = max(out_reservoir.w_sum, out_reservoir.w_clamped);
+                    out_confidence *= survive_probability;
+                    sanitizeReservoir(out_reservoir);
+                }
+            }
+
+#endif
+
             if (!center_reuse_valid) {
                 out_confidence = CONFIDENCE_REJECTED;
                 out_reservoir = reservoirInit(CONFIDENCE_REJECTED);
@@ -566,6 +716,7 @@ void main(){
     const vec2 prevPxUv = imageLoad(reprojection_uv, pix).xy;
     const bool has_valid_reprojection_uv = all(greaterThanEqual(prevPxUv, vec2(0.0))) && all(lessThan(prevPxUv, vec2(res)));
     const vec2 prevPxUvNoisy = has_valid_reprojection_uv ? getNoisyReprojectionUv(prevPxUv, res, pix) : prevPxUv;
+    const float reprojection_magnification = computeReprojectionMagnification(pix, res, prevPxUvNoisy);
     const ivec2 center_prev_px = ivec2(floor(prevPxUvNoisy + vec2(0.5)));
 
     ivec2 reproj_taps[4];
@@ -573,6 +724,16 @@ void main(){
     const bool has_reprojected_neighbors = has_valid_reprojection_uv && gatherReprojectedNeighbors(prevPxUvNoisy, res, reproj_taps, reproj_weights);
     const vec3 prev_N_center = loadPrevShadingNormalOrFallback(center_prev_px, res, N);
     const vec3 prev_P_center = loadPrevPositionOrFallback(center_prev_px, res, P);
+    float prev_vis_diffuse = 1.0;
+    float prev_vis_specular = 1.0;
+    bool prev_full_shadow_diffuse = false;
+    bool prev_full_shadow_specular = false;
+    if (has_valid_reprojection_uv) {
+        prev_vis_diffuse = loadPrevFrameVisibility(center_prev_px, res, false);
+        prev_vis_specular = loadPrevFrameVisibility(center_prev_px, res, true);
+        prev_full_shadow_diffuse = prev_vis_diffuse <= REPROJECTION_FULL_SHADOW_THRESHOLD;
+        prev_full_shadow_specular = prev_vis_specular <= REPROJECTION_FULL_SHADOW_THRESHOLD;
+    }
 
     if (!has_valid_reprojection_uv) {
         // Break temporal chain when temporal reprojection has no valid previous pixel.
@@ -581,8 +742,18 @@ void main(){
     }
 
     if (has_reprojected_neighbors && total > 0) { // avoid reprojection if have no visible lights
-        reprojectTemporalReservoir(false, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rDiffuse, confDiffuse);
-        reprojectTemporalReservoir(true, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rSpec, confSpecular);
+        if (!prev_full_shadow_diffuse) {
+            reprojectTemporalReservoir(false, pix, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, reprojection_magnification, rDiffuse, confDiffuse);
+        } else {
+            rDiffuse = reservoirInit(CONFIDENCE_REJECTED);
+            confDiffuse = CONFIDENCE_REJECTED;
+        }
+        if (!prev_full_shadow_specular) {
+            reprojectTemporalReservoir(true, pix, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, reprojection_magnification, rSpec, confSpecular);
+        } else {
+            rSpec = reservoirInit(CONFIDENCE_REJECTED);
+            confSpecular = CONFIDENCE_REJECTED;
+        }
     }
     if(total > 0) {
         const bool reprojection_out_of_bounds = !has_valid_reprojection_uv;
@@ -623,13 +794,16 @@ void main(){
 #endif
 
                 if (!isFlashlightOrSky(light_id, origin, P, CANDIDATES_CLUSTERS)) {
+                    if (prev_full_shadow_diffuse && prev_full_shadow_specular) {
+                        continue;
+                    }
                     const LightResult l = evaluateRestirCandidateLight(P, N, V, material, ctx, light_id, sampling_rand_curr, CANDIDATES_CLUSTERS);
 
                     const float wDiffuse = max(luminance(max(l.diffuse, vec3(0.0))), 0.0);
                     const float wSpec = restirCandidateSpecularWeight(l);
 
-                    reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
-                    reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
+                    if (!prev_full_shadow_diffuse) { reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01()); }
+                    if (!prev_full_shadow_specular) { reservoirUpdate(rSpec, l.light_id, wSpec, rand01()); }
                 }
             }
         }
