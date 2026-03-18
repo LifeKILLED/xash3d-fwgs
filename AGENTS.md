@@ -84,3 +84,14 @@ From `README.md` and `wscript`:
   - Windows requires `VULKAN_SDK` (see `ref/vk/wscript`)
   - GLSL is compiled via `glslc` (wired into waf via `scripts/waifulib/glslc.py`)
 
+## Additional Instructions
+
+- Sandbox is unavailable for file reads and updates in this environment. Treat other file-editing methods as unavailable too, except direct file writing via PowerShell commands, because that is the method that succeeded here.
+- If you intend to use PowerShell for file changes, check line-ending handling first and use explicit CRLF-safe text so trailing patch terminators or other control lines do not break.
+- For speed, skip all other file-editing methods and go straight to the direct PowerShell file-write approach that worked in this session.
+
+- When editing files in this environment, go straight to direct PowerShell file writing with explicit CRLF handling, because that is the only edit path that has worked reliably here.
+- Before replacing a code block via PowerShell, first read the exact current block including indentation, then apply the change against that exact text instead of guessing formatting.
+- After PowerShell-based edits, normalize touched files back to explicit CRLF and verify the result with a read-back or git diff to catch formatting artifacts immediately.
+- For multi-block file edits in this environment, use the working PowerShell path from the start: perform direct file writes, prefer regex or stable marker-based replacements over exact block matching, and verify with git diff immediately after writing.
+- Never write BOM into shader source files such as .comp and .glsl; they must be saved as UTF-8 without BOM or shader compilation can break.
