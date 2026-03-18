@@ -7,6 +7,6 @@
 #define SHADOW_FILTER_OUTPUT_TEXTURE out_diffuse_direct_shadowed
 #define SHADOW_FILTER_MASK_TEXTURE out_diffuse_shadow_mask
 #define SHADOW_FILTER_VERTIACAL_PASS 1
-#define RESERVOIR_KILL_IF_NOT_SMOOTHED out_temporal_res_diffuse
+//#define RESERVOIR_KILL_IF_NOT_SMOOTHED out_temporal_res_diffuse
 
 #include "direct_shadow_filter.glsl"

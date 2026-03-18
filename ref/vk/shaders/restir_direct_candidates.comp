@@ -468,22 +468,29 @@ void main(){
 
     Reservoir rDiffuse = reservoirInit(CONFIDENCE_BASELINE);
     Reservoir rSpec = reservoirInit(CONFIDENCE_BASELINE);
-
     const vec2 prevPxUv = imageLoad(reprojection_uv, pix).xy;
-    const vec2 prevPxUvNoisy = getNoisyReprojectionUv(prevPxUv, res, pix);
+    const bool has_valid_reprojection_uv = all(greaterThanEqual(prevPxUv, vec2(0.0))) && all(lessThan(prevPxUv, vec2(res)));
+    const vec2 prevPxUvNoisy = has_valid_reprojection_uv ? getNoisyReprojectionUv(prevPxUv, res, pix) : prevPxUv;
     const ivec2 center_prev_px = ivec2(floor(prevPxUvNoisy + vec2(0.5)));
 
     ivec2 reproj_taps[4];
     float reproj_weights[4];
-    const bool has_reprojected_neighbors = gatherReprojectedNeighbors(prevPxUvNoisy, res, reproj_taps, reproj_weights);
+    const bool has_reprojected_neighbors = has_valid_reprojection_uv && gatherReprojectedNeighbors(prevPxUvNoisy, res, reproj_taps, reproj_weights);
     const vec3 prev_N_center = loadPrevShadingNormalOrFallback(center_prev_px, res, N);
     const vec3 prev_P_center = loadPrevPositionOrFallback(center_prev_px, res, P);
+
+    if (!has_valid_reprojection_uv) {
+        // Break temporal chain when temporal reprojection has no valid previous pixel.
+        rDiffuse = reservoirInit(CONFIDENCE_REJECTED);
+        rSpec = reservoirInit(CONFIDENCE_REJECTED);
+    }
+
     if (has_reprojected_neighbors && total > 0) { // avoid reprojection if have no visible lights
         reprojectTemporalReservoir(false, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rDiffuse, confDiffuse);
         reprojectTemporalReservoir(true, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rSpec, confSpecular);
     }
     if(total > 0) {
-        const bool reprojection_out_of_bounds = !has_reprojected_neighbors;
+        const bool reprojection_out_of_bounds = !has_valid_reprojection_uv;
         const bool use_fast_candidate_limit = !reprojection_out_of_bounds;
         const uint candidates_count = use_fast_candidate_limit ? CANDIDATES_COUNT_FAST : CANDIDATES_COUNT_FULL;
         const bool iterate_all = total <= candidates_count;

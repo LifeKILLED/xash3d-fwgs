@@ -1038,7 +1038,7 @@ void main() {
     store_shadowed_irradiance(pix, out_shadow);
 
 #ifdef RESERVOIR_KILL_IF_NOT_SMOOTHED
-    if (out_smoothed_flag == 0.0) {
+    if (out_smoothed_flag == 0.0 && out_shadow < 0.001) {
         imageStore(RESERVOIR_KILL_IF_NOT_SMOOTHED, pix, vec4(0.0));
     }
 #endif
