@@ -52,11 +52,14 @@ layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } ku
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
 layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
-#define WISH_DEAD_ZONE 0.02
+#define WISH_DEAD_ZONE 0.001
 
-const ivec2 neighbor_offsets[4] = ivec2[](
+#define NEIGHBOR_COUNT 8
+const ivec2 neighbor_offsets[8] = ivec2[](
     ivec2( 1,  0), ivec2(-1,  0),
-    ivec2( 0,  1), ivec2( 0, -1)
+    ivec2( 0,  1), ivec2( 0, -1),
+    ivec2( 1,  1), ivec2(-1,  -1),
+    ivec2( -1,  1), ivec2( 1, -1)
 );
 
 #include "ray_kusochki.glsl"
@@ -167,7 +170,7 @@ float estimate_reservoir_preview_luma(
     const vec4 pos_t = imageLoad(position_t, pix);
 
     const ivec2 res = ivec2(vec2(ubo.ubo.res) * ubo.ubo.resScale);
-    const vec2 uv = (vec2(pix) + 0.5) / vec2(res) * 2.0 - 1.0;
+    const vec2 uv = vec2(pix) / vec2(res) * 2.0 - 1.0;
     const vec4 target = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1.0, 1.0);
     const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0)).xyz);
     const vec3 V = -direction;
@@ -231,8 +234,10 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specula
         uint(pix.y) * 31337u +
         uint(metric_channel) * 977u;
 #endif
-    for (int i = 0; i < 4; ++i) {
-        const ivec2 q = pix + neighbor_offsets[i];
+
+    int start_i = int(rand01() * float(NEIGHBOR_COUNT));
+    for (int i = 0; i < NEIGHBOR_COUNT; ++i) {
+        const ivec2 q = pix + neighbor_offsets[(i + start_i) % NEIGHBOR_COUNT];
         if (!in_bounds(q, res)) {
             continue;
         }

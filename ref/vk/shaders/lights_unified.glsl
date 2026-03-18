@@ -45,6 +45,9 @@ const float shadow_offset_fudge = .1;
 #define SHADOW_RAY_DOT_EPSILON 1e-4
 #endif
 
+#ifndef SPECULAR_COSINE_WEIGHT
+#define SPECULAR_COSINE_WEIGHT 0.2
+#endif
 
 float fbool(bool b) { return b ? 1.0 : 0.0; }
 
@@ -281,7 +284,7 @@ void unifiedLightFinalShading(
             float lum = luminance(l.emissive_color);
             float spec_weight = specularWeight(N, l.L, V, roughness_for_spec);
             r.diffuse  = vec3(l.geom_weight * lum);
-            r.specular = vec3(spec_weight * l.geom_weight * lum * specular_compensation);
+            r.specular = vec3(mix(spec_weight * l.geom_weight * lum * specular_compensation, l.geom_weight, SPECULAR_COSINE_WEIGHT));
         }
     }
 }

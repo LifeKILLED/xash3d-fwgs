@@ -350,6 +350,10 @@ layout(set = 0, binding = 7, rgba16f) uniform writeonly image2D SHADOW_FILTER_OU
 layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D SHADOW_FILTER_MASK_TEXTURE;
 #endif
 
+#ifdef RESERVOIR_KILL_IF_NOT_SMOOTHED
+layout(set = 0, binding=9, rgba32f) uniform image2D RESERVOIR_KILL_IF_NOT_SMOOTHED;
+#endif
+
 float position_gate(vec3 delta_pos, vec3 geom_norm, float inv_center_dist, float world_texel_size) {
     return positionEdgeStopWithWorldTexel(
         delta_pos, geom_norm, inv_center_dist, DENOISER_POSITION_PLANE_THRESHOLD, world_texel_size);
@@ -1032,4 +1036,10 @@ void main() {
     store_shadow_output(pix, out_shadow, mask_payload, out_smoothed_flag, light_id0);
     store_shadow_transition_mask_debug(pix, out_shadow, mask_payload, light_id0, out_smoothed_flag);
     store_shadowed_irradiance(pix, out_shadow);
+
+#ifdef RESERVOIR_KILL_IF_NOT_SMOOTHED
+    if (out_smoothed_flag == 0.0) {
+        imageStore(RESERVOIR_KILL_IF_NOT_SMOOTHED, pix, vec4(0.0));
+    }
+#endif
 }

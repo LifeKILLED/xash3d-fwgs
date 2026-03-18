@@ -6,5 +6,6 @@
 #define SHADOW_FILTER_IRRADIANCE_SOURCE specular_direct
 #define SHADOW_FILTER_OUTPUT_TEXTURE out_specular_direct_shadowed
 #define SHADOW_FILTER_VERTIACAL_PASS 1
+//#define RESERVOIR_KILL_IF_NOT_SMOOTHED out_temporal_res_specular
 
 #include "direct_shadow_filter.glsl"

@@ -17,15 +17,16 @@
 #define RANDOM_START_CANDIDATES 1
 #define FULL_RANDOM_CANDIDATES 2
 
-#define CANDIDATE_ID_SAMPLING_MODE RANDOM_START_CANDIDATES
+#define CANDIDATE_ID_SAMPLING_MODE STABLE_START_CANDIDATES
 
 #define REPROJECTION_EXTRA_RANDOM_TEXELS 0.0
 #define MIN_CANDIDATE_ROUGHNESS 0.01
 
 #define REPROJECTION_USE_CENTER_TAP_ONLY 1
 #define REPROJECTION_ENABLE_CENTER_FALLBACK 1
+#define REPROJECTION_KILL_SAME_NEIGHBORS 1
 
-#define RESERVOIR_LIFETIME_MIN 1000
+#define RESERVOIR_LIFETIME_MIN 200
 #define RESERVOIR_LIFETIME_MAX 7000
 
 #define CONFIDENCE_BASELINE 0.35
@@ -369,6 +370,29 @@ void main(){
             if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
                 bool out_of_bound;
                 Reservoir centerDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, center_prev_px), out_of_bound);
+            
+            #if REPROJECTION_KILL_SAME_NEIGHBORS
+                int same_neighbors = 0;
+                for (int x = -1; x <= 1; x++) {
+                    for (int y = -1; y <= 1; y++) {
+                        if (x == 0 && y == 0)
+                            continue;
+                        const ivec2 p = center_prev_px + ivec2(x, y);
+                        if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
+                            continue;
+                        }
+                        bool out_of_bound_neighbor = false;
+                        Reservoir neighbor = loadReservoir(imageLoad(prev_temporal_res_diffuse, p), out_of_bound);
+                        if (  !out_of_bound_neighbor &&
+                              neighbor.light_index == centerDiffuse.light_index &&
+                              neighbor.w_sum == centerDiffuse.w_sum) {
+                            same_neighbors++;
+                        }
+                    }
+                }
+                out_of_bound = same_neighbors != 0 && rand01() > (1.0 / float(same_neighbors));
+            #endif // REPROJECTION_KILL_SAME_NEIGHBORS
+
                 if (!out_of_bound) {
                     const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
                     rDiffuse = reprojectReservoir(centerDiffuse, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
@@ -436,6 +460,29 @@ void main(){
             if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
                 bool out_of_bound;
                 Reservoir centerSpec = loadReservoir(imageLoad(prev_temporal_res_specular, center_prev_px), out_of_bound);
+            
+            #if REPROJECTION_KILL_SAME_NEIGHBORS
+                int same_neighbors = 0;
+                for (int x = -1; x <= 1; x++) {
+                    for (int y = -1; y <= 1; y++) {
+                        if (x == 0 && y == 0)
+                            continue;
+                        const ivec2 p = center_prev_px + ivec2(x, y);
+                        if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
+                            continue;
+                        }
+                        bool out_of_bound_neighbor = false;
+                        Reservoir neighbor = loadReservoir(imageLoad(prev_temporal_res_specular, p), out_of_bound);
+                        if (  !out_of_bound_neighbor &&
+                              neighbor.light_index == centerSpec.light_index &&
+                              neighbor.w_sum == centerSpec.w_sum) {
+                            same_neighbors++;
+                        }
+                    }
+                }
+                out_of_bound = same_neighbors != 0 && rand01() > (1.0 / float(same_neighbors));
+            #endif // REPROJECTION_KILL_SAME_NEIGHBORS
+
                 if (!out_of_bound) {
                     const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
                     rSpec = reprojectReservoir(centerSpec, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);

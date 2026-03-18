@@ -45,6 +45,8 @@
 #define NON_BRDF_POINT_LIGHTS_MULTIPLIER 2.0
 #endif
 
+#define COSINE_WEIGHT_SPEC_MIX 0.2
+
 float specularWeight(vec3 N, vec3 L, vec3 V, float roughness)
 {
     vec3 H = normalize(L + V);
@@ -102,8 +104,12 @@ vec2 lightPointWeightCalculation(
     if (geom_weight > 0.0) {
         float roughness_for_spec = clamp(roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
         float light_weight = geom_weight * luminance(pl.color_stopdot.rgb);
+        
         float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-        result = vec2(light_weight, light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius));
+        spec_weight = light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius);
+        spec_weight = mix(spec_weight, light_weight, COSINE_WEIGHT_SPEC_MIX);
+
+        result = vec2(light_weight, spec_weight);
     }
 
     return result;
@@ -137,8 +143,12 @@ vec2 lightPolygonWeightCalculation(
                 float spec_angular_radius = computeSpecularAngularRadius(sqrt(max(poly.area, 0.0) * (1.0 / kPi)), dist);
                 float roughness_for_spec = clamp(roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
                 float light_weight = geom_weight * luminance(poly.emissive);
+                
                 float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-                result = vec2(light_weight, light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius));
+                spec_weight = light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius);
+                spec_weight = mix(spec_weight, light_weight, COSINE_WEIGHT_SPEC_MIX);
+
+                result = vec2(light_weight, spec_weight);
             }
         }
     }
