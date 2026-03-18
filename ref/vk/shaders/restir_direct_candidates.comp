@@ -287,6 +287,121 @@ Reservoir reprojectReservoir(
     return r;
 }
 
+Reservoir loadPrevTemporalReservoirAt(ivec2 p, bool is_specular, out bool out_of_bound)
+{
+    if (is_specular) {
+        return loadReservoir(imageLoad(prev_temporal_res_specular, p), out_of_bound);
+    }
+    return loadReservoir(imageLoad(prev_temporal_res_diffuse, p), out_of_bound);
+}
+
+void reprojectTemporalReservoir(
+    bool is_specular,
+    ivec2 center_prev_px,
+    ivec2 res,
+    ivec2 reproj_taps[4],
+    float reproj_weights[4],
+    vec3 prev_P_center,
+    vec3 prev_N_center,
+    vec3 P,
+    vec3 N,
+    vec3 V,
+    MaterialProperties material,
+    SampleContext ctx,
+    vec3 origin,
+    inout Reservoir out_reservoir,
+    inout float out_confidence)
+{
+    bool reprojected = false;
+#if REPROJECTION_USE_CENTER_TAP_ONLY
+    if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+        bool out_of_bound;
+        Reservoir center_reservoir = loadPrevTemporalReservoirAt(center_prev_px, is_specular, out_of_bound);
+
+    #if REPROJECTION_KILL_SAME_NEIGHBORS
+        int same_neighbors = 0;
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                if (x == 0 && y == 0)
+                    continue;
+                const ivec2 p = center_prev_px + ivec2(x, y);
+                if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
+                    continue;
+                }
+                bool out_of_bound_neighbor = false;
+                Reservoir neighbor = loadPrevTemporalReservoirAt(p, is_specular, out_of_bound_neighbor);
+                if (  !out_of_bound_neighbor &&
+                      neighbor.light_index == center_reservoir.light_index &&
+                      neighbor.w_sum == center_reservoir.w_sum) {
+                    same_neighbors++;
+                }
+            }
+        }
+        out_of_bound = same_neighbors != 0 && rand01() > (1.0 / float(same_neighbors));
+    #endif // REPROJECTION_KILL_SAME_NEIGHBORS
+
+        if (!out_of_bound) {
+            const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
+            out_reservoir = reprojectReservoir(center_reservoir, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, is_specular, out_confidence);
+            reprojected = true;
+        }
+    }
+#else
+    Reservoir temporal_pick = reservoirInit(0.0);
+    Reservoir temporal_candidates[4];
+    bool temporal_candidate_valid[4];
+    bool has_neighbor_candidates = false;
+    for (int i = 0; i < 4; ++i) {
+        temporal_candidate_valid[i] = false;
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        if (reproj_weights[i] <= 0.0) {
+            continue;
+        }
+        if (any(lessThan(reproj_taps[i], ivec2(0))) || any(greaterThanEqual(reproj_taps[i], res))) {
+            continue;
+        }
+
+        bool out_of_bound;
+        Reservoir prev_reservoir = loadPrevTemporalReservoirAt(reproj_taps[i], is_specular, out_of_bound);
+        if (out_of_bound) {
+            continue;
+        }
+
+        temporal_candidates[i] = prev_reservoir;
+        temporal_candidate_valid[i] = true;
+        has_neighbor_candidates = true;
+
+        const float candidate_weight = max(prev_reservoir.w_sum, 0.0);
+        reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
+    }
+
+    if (has_neighbor_candidates) {
+        const uint selected_candidate_idx = temporal_pick.light_index;
+        if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
+            const ivec2 selected_prev_px = reproj_taps[int(selected_candidate_idx)];
+            const vec3 sampling_rand_prev = samplingRandom(selected_prev_px, true);
+            const vec3 prev_N_selected = loadPrevShadingNormalOrFallback(selected_prev_px, res, prev_N_center);
+            const vec3 prev_P_selected = loadPrevPositionOrFallback(selected_prev_px, res, prev_P_center);
+            out_reservoir = reprojectReservoir(temporal_candidates[int(selected_candidate_idx)], prev_P_selected, prev_N_selected, P, N, V, material, ctx, sampling_rand_prev, origin, is_specular, out_confidence);
+            reprojected = true;
+        }
+    }
+
+    #if REPROJECTION_ENABLE_CENTER_FALLBACK
+    if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
+        bool out_of_bound;
+        Reservoir center_reservoir = loadPrevTemporalReservoirAt(center_prev_px, is_specular, out_of_bound);
+        if (!out_of_bound) {
+            const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
+            out_reservoir = reprojectReservoir(center_reservoir, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, is_specular, out_confidence);
+        }
+    }
+    #endif
+#endif
+}
+
 void main(){
 #ifdef RAY_TRACE
 	const vec2 uv = (gl_LaunchIDEXT.xy + .5) / gl_LaunchSizeEXT.xy * 2. - 1.;
@@ -362,190 +477,10 @@ void main(){
     const bool has_reprojected_neighbors = gatherReprojectedNeighbors(prevPxUvNoisy, res, reproj_taps, reproj_weights);
     const vec3 prev_N_center = loadPrevShadingNormalOrFallback(center_prev_px, res, N);
     const vec3 prev_P_center = loadPrevPositionOrFallback(center_prev_px, res, P);
-
     if (has_reprojected_neighbors && total > 0) { // avoid reprojection if have no visible lights
-        {
-            bool reprojected = false;
-        #if REPROJECTION_USE_CENTER_TAP_ONLY
-            if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
-                bool out_of_bound;
-                Reservoir centerDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, center_prev_px), out_of_bound);
-            
-            #if REPROJECTION_KILL_SAME_NEIGHBORS
-                int same_neighbors = 0;
-                for (int x = -1; x <= 1; x++) {
-                    for (int y = -1; y <= 1; y++) {
-                        if (x == 0 && y == 0)
-                            continue;
-                        const ivec2 p = center_prev_px + ivec2(x, y);
-                        if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
-                            continue;
-                        }
-                        bool out_of_bound_neighbor = false;
-                        Reservoir neighbor = loadReservoir(imageLoad(prev_temporal_res_diffuse, p), out_of_bound);
-                        if (  !out_of_bound_neighbor &&
-                              neighbor.light_index == centerDiffuse.light_index &&
-                              neighbor.w_sum == centerDiffuse.w_sum) {
-                            same_neighbors++;
-                        }
-                    }
-                }
-                out_of_bound = same_neighbors != 0 && rand01() > (1.0 / float(same_neighbors));
-            #endif // REPROJECTION_KILL_SAME_NEIGHBORS
-
-                if (!out_of_bound) {
-                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
-                    rDiffuse = reprojectReservoir(centerDiffuse, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
-                    reprojected = true;
-                }
-            }
-        #else
-            Reservoir temporal_pick = reservoirInit(0.0);
-            Reservoir temporal_candidates[4];
-            bool temporal_candidate_valid[4];
-            bool has_neighbor_candidates = false;
-            for (int i = 0; i < 4; ++i) {
-                temporal_candidate_valid[i] = false;
-            }
-
-            for (int i = 0; i < 4; ++i) {
-                if (reproj_weights[i] <= 0.0) {
-                    continue;
-                }
-                if (any(lessThan(reproj_taps[i], ivec2(0))) || any(greaterThanEqual(reproj_taps[i], res))) {
-                    continue;
-                }
-
-                bool out_of_bound;
-                Reservoir prevDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, reproj_taps[i]), out_of_bound);
-                if (out_of_bound) {
-                    continue;
-                }
-
-                temporal_candidates[i] = prevDiffuse;
-                temporal_candidate_valid[i] = true;
-                has_neighbor_candidates = true;
-
-                const float candidate_weight = max(prevDiffuse.w_sum, 0.0);
-                reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
-            }
-
-            if (has_neighbor_candidates) {
-                const uint selected_candidate_idx = temporal_pick.light_index;
-                if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
-                    const ivec2 selected_prev_px = reproj_taps[int(selected_candidate_idx)];
-                    const vec3 sampling_rand_prev = samplingRandom(selected_prev_px, true);
-                    const vec3 prev_N_selected = loadPrevShadingNormalOrFallback(selected_prev_px, res, prev_N_center);
-                    const vec3 prev_P_selected = loadPrevPositionOrFallback(selected_prev_px, res, prev_P_center);
-                    rDiffuse = reprojectReservoir(temporal_candidates[int(selected_candidate_idx)], prev_P_selected, prev_N_selected, P, N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
-                    reprojected = true;
-                }
-            }
-
-            #if REPROJECTION_ENABLE_CENTER_FALLBACK
-            if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
-                bool out_of_bound;
-                Reservoir centerDiffuse = loadReservoir(imageLoad(prev_temporal_res_diffuse, center_prev_px), out_of_bound);
-                if (!out_of_bound) {
-                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
-                    rDiffuse = reprojectReservoir(centerDiffuse, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, false, confDiffuse);
-                }
-            }
-            #endif
-        #endif
-        }
-        {
-            bool reprojected = false;
-        #if REPROJECTION_USE_CENTER_TAP_ONLY
-            if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
-                bool out_of_bound;
-                Reservoir centerSpec = loadReservoir(imageLoad(prev_temporal_res_specular, center_prev_px), out_of_bound);
-            
-            #if REPROJECTION_KILL_SAME_NEIGHBORS
-                int same_neighbors = 0;
-                for (int x = -1; x <= 1; x++) {
-                    for (int y = -1; y <= 1; y++) {
-                        if (x == 0 && y == 0)
-                            continue;
-                        const ivec2 p = center_prev_px + ivec2(x, y);
-                        if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
-                            continue;
-                        }
-                        bool out_of_bound_neighbor = false;
-                        Reservoir neighbor = loadReservoir(imageLoad(prev_temporal_res_specular, p), out_of_bound);
-                        if (  !out_of_bound_neighbor &&
-                              neighbor.light_index == centerSpec.light_index &&
-                              neighbor.w_sum == centerSpec.w_sum) {
-                            same_neighbors++;
-                        }
-                    }
-                }
-                out_of_bound = same_neighbors != 0 && rand01() > (1.0 / float(same_neighbors));
-            #endif // REPROJECTION_KILL_SAME_NEIGHBORS
-
-                if (!out_of_bound) {
-                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
-                    rSpec = reprojectReservoir(centerSpec, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
-                    reprojected = true;
-                }
-            }
-        #else
-            Reservoir temporal_pick = reservoirInit(0.0);
-            Reservoir temporal_candidates[4];
-            bool temporal_candidate_valid[4];
-            bool has_neighbor_candidates = false;
-            for (int i = 0; i < 4; ++i) {
-                temporal_candidate_valid[i] = false;
-            }
-
-            for (int i = 0; i < 4; ++i) {
-                if (reproj_weights[i] <= 0.0) {
-                    continue;
-                }
-                if (any(lessThan(reproj_taps[i], ivec2(0))) || any(greaterThanEqual(reproj_taps[i], res))) {
-                    continue;
-                }
-
-                bool out_of_bound;
-                Reservoir prevSpec = loadReservoir(imageLoad(prev_temporal_res_specular, reproj_taps[i]), out_of_bound);
-                if (out_of_bound) {
-                    continue;
-                }
-
-                temporal_candidates[i] = prevSpec;
-                temporal_candidate_valid[i] = true;
-                has_neighbor_candidates = true;
-
-                const float candidate_weight = max(prevSpec.w_sum, 0.0);
-                reservoirUpdate(temporal_pick, uint(i), candidate_weight, rand01());
-            }
-
-            if (has_neighbor_candidates) {
-                const uint selected_candidate_idx = temporal_pick.light_index;
-                if (selected_candidate_idx < 4u && temporal_candidate_valid[int(selected_candidate_idx)]) {
-                    const ivec2 selected_prev_px = reproj_taps[int(selected_candidate_idx)];
-                    const vec3 sampling_rand_prev = samplingRandom(selected_prev_px, true);
-                    const vec3 prev_N_selected = loadPrevShadingNormalOrFallback(selected_prev_px, res, prev_N_center);
-                    const vec3 prev_P_selected = loadPrevPositionOrFallback(selected_prev_px, res, prev_P_center);
-                    rSpec = reprojectReservoir(temporal_candidates[int(selected_candidate_idx)], prev_P_selected, prev_N_selected, P, N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
-                    reprojected = true;
-                }
-            }
-
-            #if REPROJECTION_ENABLE_CENTER_FALLBACK
-            if (!reprojected && all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
-                bool out_of_bound;
-                Reservoir centerSpec = loadReservoir(imageLoad(prev_temporal_res_specular, center_prev_px), out_of_bound);
-                if (!out_of_bound) {
-                    const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
-                    rSpec = reprojectReservoir(centerSpec, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, true, confSpecular);
-                }
-            }
-            #endif
-        #endif
-        }
+        reprojectTemporalReservoir(false, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rDiffuse, confDiffuse);
+        reprojectTemporalReservoir(true, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rSpec, confSpecular);
     }
-
     if(total > 0) {
         const bool iterate_all = total <= CANDIDATES_COUNT;
 
