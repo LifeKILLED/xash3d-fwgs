@@ -64,11 +64,9 @@ const ivec2 neighbor_offsets[8] = ivec2[](
 
 #include "ray_kusochki.glsl"
 #include "restir_common.glsl"
-
 bool in_bounds(ivec2 p, ivec2 res) {
     return all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res));
 }
-
 float deterministic_tie(ivec2 p, int channel) {
     uint h = uint(p.x) * 73856093u;
     h ^= uint(p.y) * 19349663u;
@@ -76,6 +74,40 @@ float deterministic_tie(ivec2 p, int channel) {
     h ^= (h >> 13);
     h *= 1274126177u;
     return float(h & 0x00ffffffu) * (1.0 / 16777216.0);
+}
+
+uint wish_permutation_seed(ivec2 p, int channel)
+{
+    uint h = uint(p.x) * 0x9e3779b9u;
+    h ^= uint(p.y) * 0x85ebca6bu;
+    h ^= uint(channel) * 0xc2b2ae35u;
+#if !DENOISER_STABLE_STABILIZATION
+    h ^= uint(ubo.ubo.frame_counter) * 0x27d4eb2du;
+#endif
+    h ^= (h >> 16);
+    h *= 0x7feb352du;
+    h ^= (h >> 15);
+    h *= 0x846ca68bu;
+    h ^= (h >> 16);
+    return h;
+}
+
+int wish_permutation_stride(uint seed)
+{
+    const int strides[4] = int[](1, 3, 5, 7);
+    return strides[int((seed >> 8u) & 3u)];
+}
+
+float wish_neighbor_shape_weight(ivec2 offset)
+{
+    const bool is_diagonal = (abs(offset.x) + abs(offset.y)) == 2;
+    return is_diagonal ? 0.86 : 1.0;
+}
+
+float wish_border_weight(ivec2 p, ivec2 res)
+{
+    const int edge_dist = min(min(p.x, p.y), min(res.x - 1 - p.x, res.y - 1 - p.y));
+    return clamp((float(edge_dist) + 1.0) * 0.34, 0.38, 1.0);
 }
 
 float load_raw_metric(ivec2 p, bool specular_channel)
@@ -227,17 +259,18 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specula
     ivec2 best_pix = pix;
     float best_score = 0.0;
     float best_tie = 2.0;
+    uint perm_seed = wish_permutation_seed(pix, metric_channel);
 #if !DENOISER_STABLE_STABILIZATION
-    rand01_state =
-        uint(ubo.ubo.random_seed) +
-        uint(pix.x) * 1833u +
-        uint(pix.y) * 31337u +
-        uint(metric_channel) * 977u;
+    perm_seed ^= uint(ubo.ubo.random_seed) * 0x165667b1u;
+    rand01_state = perm_seed ^ (uint(metric_channel) * 0x9e3779b9u);
 #endif
+    const int start_i = int(perm_seed & uint(NEIGHBOR_COUNT - 1));
+    const int stride_i = wish_permutation_stride(perm_seed);
 
-    int start_i = int(rand01() * float(NEIGHBOR_COUNT));
     for (int i = 0; i < NEIGHBOR_COUNT; ++i) {
-        const ivec2 q = pix + neighbor_offsets[(i + start_i) % NEIGHBOR_COUNT];
+        const int neighbor_idx = (start_i + i * stride_i) & (NEIGHBOR_COUNT - 1);
+        const ivec2 neighbor_offset = neighbor_offsets[neighbor_idx];
+        const ivec2 q = pix + neighbor_offset;
         if (!in_bounds(q, res)) {
             continue;
         }
@@ -279,6 +312,9 @@ ivec2 select_wish_channel(ivec2 pix, ivec2 res, int metric_channel, bool specula
         } else {
             score = max(bq - center_blur, 0.0);
         }
+
+        score *= wish_neighbor_shape_weight(neighbor_offset);
+        score *= wish_border_weight(q, res);
 
         if ((score > best_score + 1e-6) ||
             (abs(score - best_score) <= 1e-6 && score > 1e-6 && tie < best_tie)) {
