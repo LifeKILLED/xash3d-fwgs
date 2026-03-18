@@ -5,7 +5,8 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_control_flow_attributes2 : require
 
-#define CANDIDATES_COUNT 8
+#define CANDIDATES_COUNT_FAST 8
+#define CANDIDATES_COUNT_FULL 32
 #define CANDIDATES_RAYS false
 #define CONFIDENCE_THRESHOLD 0.3
 #define POISSON_NOISE_DITHER_SCALE 0.1
@@ -482,13 +483,16 @@ void main(){
         reprojectTemporalReservoir(true, center_prev_px, res, reproj_taps, reproj_weights, prev_P_center, prev_N_center, P, N, V, material, ctx, origin, rSpec, confSpecular);
     }
     if(total > 0) {
-        const bool iterate_all = total <= CANDIDATES_COUNT;
+        const bool reprojection_out_of_bounds = !has_reprojected_neighbors;
+        const bool use_fast_candidate_limit = !reprojection_out_of_bounds;
+        const uint candidates_count = use_fast_candidate_limit ? CANDIDATES_COUNT_FAST : CANDIDATES_COUNT_FULL;
+        const bool iterate_all = total <= candidates_count;
 
         uint first_light_id = 0u;
 #if CANDIDATE_ID_SAMPLING_MODE == STABLE_START_CANDIDATES
         const uint bayer_value = getBayer4x4Value(pix);
         const float frame_counter_f = float(ubo.ubo.frame_counter);
-        const float candidates_per_frame_f = float(CANDIDATES_COUNT);
+        const float candidates_per_frame_f = float(candidates_count);
         const float total_f = float(total);
 
         const float bayer_dither_norm = total > 1u ? (float(bayer_value) / 15.0) : 0.0;
@@ -498,11 +502,15 @@ void main(){
 #elif CANDIDATE_ID_SAMPLING_MODE == RANDOM_START_CANDIDATES
         first_light_id = uint(rand01() * float(total));
 #endif
-        
+
         LightRandomPickData diff_pick = LightRandomPickData(0,0,0,0,0,-1);
         LightRandomPickData spec_pick = LightRandomPickData(0,0,0,0,0,-1);
 
-        for (uint i = 0; i < CANDIDATES_COUNT; i++) { // always fixed cycle
+        for (uint i = 0; i < CANDIDATES_COUNT_FULL; i++) { // fixed-width loop for lower divergence
+            if (use_fast_candidate_limit && i >= CANDIDATES_COUNT_FAST) {
+                break;
+            }
+
             const bool out_of_bounds = (CANDIDATE_ID_SAMPLING_MODE != FULL_RANDOM_CANDIDATES) && iterate_all && i >= total;
             if (!out_of_bounds) {
                 uint light_id = 0u;
@@ -517,14 +525,13 @@ void main(){
 
                     const float wDiffuse = luminance(l.diffuse);
                     const float wSpec = restirCandidateSpecularWeight(l, N, V, material);
-                    
+
                     reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
                     reservoirUpdate(rSpec, l.light_id, wSpec, rand01());
                 }
             }
         }
     }
-
     // Empty reservoirs represent absence of valid light samples, not instability.
     if (rDiffuse.checked_count <= 0.0 || rDiffuse.w_sum <= 0.0 || rDiffuse.w_full <= 0.0) {
         rDiffuse.conf = 1.0;
