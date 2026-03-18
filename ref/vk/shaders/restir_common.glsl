@@ -9,6 +9,7 @@
 #define MAX_RESTIR_WEIGHT 0.02
 
 #define CONF_STORE_MULT 0.98
+#define MAX_RESTIR_PDF_WEIGHT 256.0
 
 struct Reservoir {
     uint  light_index;
@@ -34,6 +35,35 @@ Reservoir reservoirInit(float conf)
     r.checked_count = 0.0;
     r.conf = conf;
     return r;
+}
+
+bool isFiniteReservoirValue(float v)
+{
+    return !isnan(v) && !isinf(v);
+}
+
+void sanitizeReservoir(inout Reservoir r)
+{
+    r.conf = clamp(r.conf, 0.0, 1.0);
+
+    bool invalid = !isFiniteReservoirValue(r.w_sum)
+        || !isFiniteReservoirValue(r.w_clamped)
+        || !isFiniteReservoirValue(r.w_full)
+        || !isFiniteReservoirValue(r.checked_count)
+        || !isFiniteReservoirValue(r.conf);
+
+    if (invalid || r.checked_count <= 0.0 || r.w_sum <= 0.0 || r.w_clamped <= 0.0 || r.w_full < 0.0) {
+        float keep_conf = r.conf;
+        r = reservoirInit(keep_conf);
+        return;
+    }
+
+    r.checked_count = max(floor(r.checked_count), 1.0);
+    r.w_clamped = clamp(r.w_clamped, MIN_RESTIR_WEIGHT, min(1.0, MAX_RESTIR_WEIGHT));
+    r.w_full = max(r.w_full, 0.0);
+
+    float max_w_sum = r.checked_count * min(1.0, MAX_RESTIR_WEIGHT);
+    r.w_sum = clamp(r.w_sum, r.w_clamped, max_w_sum);
 }
 
 float clampRestirWeight(float w_full)
@@ -78,6 +108,7 @@ Reservoir loadReservoir(vec4 d, out bool out_of_bound)
     r.checked_count = floor(d.w);
     r.conf = fract(d.x) / CONF_STORE_MULT;
 
+    sanitizeReservoir(r);
     return r;
 }
 
@@ -103,6 +134,7 @@ Reservoir loadReservoir(vec4 d, out bool out_of_bound)
     r.checked_count = floor(d.w);
     r.conf = fract(d.x) / CONF_STORE_MULT;
 
+    sanitizeReservoir(r);
     return r;
 }
 
@@ -138,11 +170,14 @@ void restirRefreshReservoirWeightsNoConfidence(
     r.w_sum += curr_w_clamped - r.w_clamped;
     r.w_clamped = curr_w_clamped;
     r.w_full = curr_w;
+    sanitizeReservoir(r);
 }
 
 float restirLightingWeight(in Reservoir r)
 {
-    return r.w_sum / (r.checked_count * r.w_clamped);
+    sanitizeReservoir(r);
+    float denom = max(r.checked_count * r.w_clamped, 1e-6);
+    return clamp(r.w_sum / denom, 0.0, MAX_RESTIR_PDF_WEIGHT);
 }
 
 #endif // RESTIR_COMMON_GLSL

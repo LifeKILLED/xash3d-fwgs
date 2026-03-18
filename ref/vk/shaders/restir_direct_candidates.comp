@@ -7,11 +7,9 @@
 
 #define CANDIDATES_COUNT_FAST 8
 #define CANDIDATES_COUNT_FULL 32
-#define CANDIDATES_RAYS false
 #define CONFIDENCE_THRESHOLD 0.3
 #define POISSON_NOISE_DITHER_SCALE 0.1
 #define ANIMATE_PATTERN true
-#define CANDIDATES_BRDF false
 #define CANDIDATES_CLUSTERS false
 
 #define STABLE_START_CANDIDATES 0
@@ -32,6 +30,9 @@
 
 #define CONFIDENCE_BASELINE 0.35
 #define CONFIDENCE_REJECTED 0.20
+#define REPROJECTION_VISIBILITY_THRESHOLD 0.02
+#define REPROJECTION_MIN_VALID_CONFIDENCE 0.05
+#define REPROJECTION_DUPLICATE_REL_EPS 0.03
 
 //#define RANDOM_POISSON_SAMPLING 1
 #define STUPID_POLYGON_SAMPLING 1
@@ -86,6 +87,8 @@ layout(set = 0, binding=20, rgba16f) uniform image2D out_temporal_res_norm_mat;
 layout(set = 0, binding=26, rgba32f) uniform writeonly image2D out_temporal_res_position;
 
 layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
+layout(set = 0, binding = 28, rgba16f) uniform readonly image2D restir_diffuse_shadows;
+layout(set = 0, binding = 29, rgba16f) uniform readonly image2D restir_specular_shadows;
 
 #define RAY_QUERY
 
@@ -103,7 +106,9 @@ layout(set = 0, binding = 21, rgba16f) uniform image2D reprojection_uv;
 #include "restir_common.glsl"
 
 float reservoir_pdf(in Reservoir r) {
-    return r.w_sum / (r.checked_count * r.w_clamped);
+    sanitizeReservoir(r);
+    float denom = max(r.checked_count * r.w_clamped, 1e-6);
+    return clamp(r.w_sum / denom, 0.0, MAX_RESTIR_PDF_WEIGHT);
 }
 
 float reservoir_luma_estimate(in Reservoir r) {
@@ -112,7 +117,7 @@ float reservoir_luma_estimate(in Reservoir r) {
     }
 
     const float pdf = reservoir_pdf(r);
-    return r.w_full * pdf;
+    return max(r.w_full, 0.0) * max(pdf, 0.0);
 }
 
 const ivec2 OFFSETS[4] = ivec2[](ivec2(1,0), ivec2(-1,0),
@@ -181,6 +186,19 @@ vec3 loadPrevPositionOrFallback(ivec2 p, ivec2 res, vec3 fallbackP)
     return imageLoad(prev_temporal_res_position, p).xyz;
 }
 
+float loadPrevFrameVisibility(ivec2 p, ivec2 res, bool is_specular)
+{
+    if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
+        return 0.0;
+    }
+
+    float shadow_vis = is_specular
+        ? imageLoad(restir_specular_shadows, p).x
+        : imageLoad(restir_diffuse_shadows, p).x;
+
+    return clamp(shadow_vis, 0.0, 1.0);
+}
+
 vec3 samplingRandom(ivec2 pix, bool previous)
 {
 #ifdef RANDOM_POISSON_SAMPLING
@@ -194,48 +212,22 @@ vec3 samplingRandom(ivec2 pix, bool previous)
 #endif
 }
 
-float restirCandidateSpecularWeight(in LightResult l, vec3 N, vec3 V, MaterialProperties material)
+float restirCandidateSpecularWeight(in LightResult l)
 {
-    float w = luminance(l.specular);
+    return max(luminance(l.specular), 0.0);
+}
 
-    if (!CANDIDATES_BRDF) {
-        vec3 L = l.sampled_L;
-        float l_len2 = dot(L, L);
-        if (l_len2 <= 1e-8) return 0.0;
-        L *= inversesqrt(l_len2);
-
-        float NdotL = max(dot(N, L), 0.0);
-        float NdotV = max(dot(N, V), 0.0);
-        if (NdotL <= 1e-5 || NdotV <= 1e-5) return 0.0;
-
-        vec3 H = L + V;
-        float h_len2 = dot(H, H);
-        if (h_len2 <= 1e-8) return 0.0;
-        H *= inversesqrt(h_len2);
-
-        float NdotH = max(dot(N, H), 0.0);
-        float VdotH = max(dot(V, H), 0.0);
-        float a = max(material.roughness * material.roughness, 0.04);
-        float a2 = a * a;
-        float d_denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
-        float D = a2 / max(kPi * d_denom * d_denom, 1e-5);
-
-        float k = (a + 1.0);
-        k = (k * k) * 0.125;
-        float Gv = NdotV / max(NdotV * (1.0 - k) + k, 1e-5);
-        float Gl = NdotL / max(NdotL * (1.0 - k) + k, 1e-5);
-        float G = Gv * Gl;
-
-        vec3 F0 = mix(vec3(0.04), material.base_color, material.metalness);
-        vec3 F = F0 + (vec3(1.0) - F0) * pow(1.0 - VdotH, 5.0);
-        float ggx_proxy = luminance(F) * D * G * NdotL;
-
-        float legacy_proxy = max(specularWeight(N, L, V, material.roughness), 1e-4);
-        float align = clamp(ggx_proxy / legacy_proxy, 0.25, 3.0);
-        w *= align;
-    }
-
-    return max(w, 0.0);
+LightResult evaluateRestirCandidateLight(
+    vec3 P,
+    vec3 N,
+    vec3 V,
+    MaterialProperties material,
+    SampleContext ctx,
+    uint light_id,
+    vec3 rnd,
+    bool use_clusters)
+{
+    return evalUnifiedLightWeight(P, N, V, material, ctx, light_id, use_clusters);
 }
 
 Reservoir reprojectReservoir(
@@ -257,11 +249,11 @@ Reservoir reprojectReservoir(
         return reservoirInit(CONFIDENCE_REJECTED);
     }
 
-    LightResult l_prev = evalUnifiedLight(prev_evalP, prev_evalN, V, material, ctx, r.light_index, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+    LightResult l_prev = evaluateRestirCandidateLight(prev_evalP, prev_evalN, V, material, ctx, r.light_index, rnd, false);
 
     float prev_w = is_specular
-        ? restirCandidateSpecularWeight(l_prev, prev_evalN, V, material)
-        : luminance(l_prev.diffuse);
+        ? restirCandidateSpecularWeight(l_prev)
+        : max(luminance(max(l_prev.diffuse, vec3(0.0))), 0.0);
     updateRestirConfidence(r, prev_w);
 
     float kill_rnd = rand01();
@@ -278,10 +270,10 @@ Reservoir reprojectReservoir(
         return reservoirInit(CONFIDENCE_REJECTED);
     }
 
-    LightResult l_curr = evalUnifiedLight(curr_evalP, curr_evalN, V, material, ctx, r.light_index, rnd, CANDIDATES_BRDF, CANDIDATES_RAYS, false);
+    LightResult l_curr = evaluateRestirCandidateLight(curr_evalP, curr_evalN, V, material, ctx, r.light_index, rnd, false);
     float curr_w = is_specular
-        ? restirCandidateSpecularWeight(l_curr, curr_evalN, V, material)
-        : luminance(l_curr.diffuse);
+        ? restirCandidateSpecularWeight(l_curr)
+        : max(luminance(max(l_curr.diffuse, vec3(0.0))), 0.0);
     restirRefreshReservoirWeightsNoConfidence(r, curr_w);
     conf = r.conf;
 
@@ -296,6 +288,47 @@ Reservoir loadPrevTemporalReservoirAt(ivec2 p, bool is_specular, out bool out_of
     return loadReservoir(imageLoad(prev_temporal_res_diffuse, p), out_of_bound);
 }
 
+bool areReservoirsSimilarForDuplicateKill(Reservoir a, Reservoir b)
+{
+    if (a.light_index != b.light_index) {
+        return false;
+    }
+
+    float sum_scale = max(max(abs(a.w_sum), abs(b.w_sum)), 1e-6);
+    float full_scale = max(max(abs(a.w_full), abs(b.w_full)), 1e-6);
+
+    bool sum_close = abs(a.w_sum - b.w_sum) <= (REPROJECTION_DUPLICATE_REL_EPS * sum_scale);
+    bool full_close = abs(a.w_full - b.w_full) <= (REPROJECTION_DUPLICATE_REL_EPS * full_scale);
+    bool count_close = abs(a.checked_count - b.checked_count) <= 1.0;
+
+    return sum_close && full_close && count_close;
+}
+
+int countSimilarReservoirs9Tap(ivec2 center_px, ivec2 res, bool is_specular, Reservoir reference_reservoir)
+{
+    int similar_count = 0;
+
+    for (int oy = -1; oy <= 1; ++oy) {
+        for (int ox = -1; ox <= 1; ++ox) {
+            ivec2 p = center_px + ivec2(ox, oy);
+            if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
+                continue;
+            }
+
+            bool out_of_bound = false;
+            Reservoir neighbor = loadPrevTemporalReservoirAt(p, is_specular, out_of_bound);
+            if (out_of_bound || neighbor.checked_count <= 0.0 || neighbor.w_sum <= 0.0) {
+                continue;
+            }
+
+            if (areReservoirsSimilarForDuplicateKill(reference_reservoir, neighbor)) {
+                similar_count++;
+            }
+        }
+    }
+
+    return similar_count;
+}
 void reprojectTemporalReservoir(
     bool is_specular,
     ivec2 center_prev_px,
@@ -318,33 +351,95 @@ void reprojectTemporalReservoir(
     if (all(greaterThanEqual(center_prev_px, ivec2(0))) && all(lessThan(center_prev_px, res))) {
         bool out_of_bound;
         Reservoir center_reservoir = loadPrevTemporalReservoirAt(center_prev_px, is_specular, out_of_bound);
-
-    #if REPROJECTION_KILL_SAME_NEIGHBORS
-        int same_neighbors = 0;
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                if (x == 0 && y == 0)
-                    continue;
-                const ivec2 p = center_prev_px + ivec2(x, y);
-                if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
-                    continue;
-                }
-                bool out_of_bound_neighbor = false;
-                Reservoir neighbor = loadPrevTemporalReservoirAt(p, is_specular, out_of_bound_neighbor);
-                if (  !out_of_bound_neighbor &&
-                      neighbor.light_index == center_reservoir.light_index &&
-                      neighbor.w_sum == center_reservoir.w_sum) {
-                    same_neighbors++;
-                }
-            }
-        }
-        out_of_bound = same_neighbors != 0 && rand01() > (1.0 / float(same_neighbors));
-    #endif // REPROJECTION_KILL_SAME_NEIGHBORS
+        ivec2 selected_prev_px_for_dup = center_prev_px;
 
         if (!out_of_bound) {
             const vec3 sampling_rand_prev = samplingRandom(center_prev_px, true);
             out_reservoir = reprojectReservoir(center_reservoir, prev_P_center, prev_N_center, P, N, V, material, ctx, sampling_rand_prev, origin, is_specular, out_confidence);
             reprojected = true;
+
+            float center_vis = loadPrevFrameVisibility(center_prev_px, res, is_specular);
+            bool center_temporal_valid = out_reservoir.checked_count > 0.0 && out_reservoir.w_sum > 0.0;
+            bool center_visible = center_vis > REPROJECTION_VISIBILITY_THRESHOLD;
+            bool center_reuse_valid = center_temporal_valid && center_visible;
+            float center_score = center_reuse_valid
+                ? (center_vis * max(out_confidence, REPROJECTION_MIN_VALID_CONFIDENCE) * max(out_reservoir.w_sum, 1e-6))
+                : 0.0;
+
+            int best_neighbor_idx = -1;
+            float best_neighbor_score = center_score;
+            Reservoir best_neighbor_reservoir = reservoirInit(0.0);
+
+            for (int i = 0; i < 4; ++i) {
+                if (reproj_weights[i] <= 0.0) {
+                    continue;
+                }
+
+                const ivec2 npx = reproj_taps[i];
+                float neighbor_vis = loadPrevFrameVisibility(npx, res, is_specular);
+                if (neighbor_vis <= REPROJECTION_VISIBILITY_THRESHOLD) {
+                    continue;
+                }
+
+                bool neighbor_oob;
+                Reservoir nr = loadPrevTemporalReservoirAt(npx, is_specular, neighbor_oob);
+                if (neighbor_oob || nr.checked_count <= 0.0 || nr.w_sum <= 0.0) {
+                    continue;
+                }
+
+                float neighbor_score = neighbor_vis * max(nr.conf, REPROJECTION_MIN_VALID_CONFIDENCE) * max(nr.w_sum, 1e-6);
+                if (neighbor_score > best_neighbor_score) {
+                    best_neighbor_score = neighbor_score;
+                    best_neighbor_idx = i;
+                    best_neighbor_reservoir = nr;
+                }
+            }
+
+            if (best_neighbor_idx >= 0) {
+                ivec2 selected_prev_px = reproj_taps[best_neighbor_idx];
+                vec3 prev_N_selected = loadPrevShadingNormalOrFallback(selected_prev_px, res, prev_N_center);
+                vec3 prev_P_selected = loadPrevPositionOrFallback(selected_prev_px, res, prev_P_center);
+                vec3 sampling_rand_prev_neighbor = samplingRandom(selected_prev_px, true);
+                float neighbor_conf = out_confidence;
+                Reservoir neighbor_reprojected = reprojectReservoir(
+                    best_neighbor_reservoir,
+                    prev_P_selected,
+                    prev_N_selected,
+                    P,
+                    N,
+                    V,
+                    material,
+                    ctx,
+                    sampling_rand_prev_neighbor,
+                    origin,
+                    is_specular,
+                    neighbor_conf);
+
+                if (neighbor_reprojected.checked_count > 0.0 && neighbor_reprojected.w_sum > 0.0) {
+                    out_reservoir = neighbor_reprojected;
+                    out_confidence = neighbor_conf;
+                    center_reuse_valid = true;
+                    selected_prev_px_for_dup = selected_prev_px;
+                }
+            }
+
+            #if REPROJECTION_KILL_SAME_NEIGHBORS
+            if (center_reuse_valid) {
+                int similar_count = countSimilarReservoirs9Tap(selected_prev_px_for_dup, res, is_specular, out_reservoir);
+                if (similar_count > 1) {
+                    float survive_probability = 1.0 / float(similar_count);
+                    if (rand01() > survive_probability) {
+                        center_reuse_valid = false;
+                        out_confidence = CONFIDENCE_REJECTED;
+                        out_reservoir = reservoirInit(CONFIDENCE_REJECTED);
+                    }
+                }
+            }
+            #endif
+            if (!center_reuse_valid) {
+                out_confidence = CONFIDENCE_REJECTED;
+                out_reservoir = reservoirInit(CONFIDENCE_REJECTED);
+            }
         }
     }
 #else
@@ -528,10 +623,10 @@ void main(){
 #endif
 
                 if (!isFlashlightOrSky(light_id, origin, P, CANDIDATES_CLUSTERS)) {
-                    const LightResult l = evalUnifiedLight(P, N, V, material, ctx, light_id, sampling_rand_curr, CANDIDATES_BRDF, CANDIDATES_RAYS, CANDIDATES_CLUSTERS);
+                    const LightResult l = evaluateRestirCandidateLight(P, N, V, material, ctx, light_id, sampling_rand_curr, CANDIDATES_CLUSTERS);
 
-                    const float wDiffuse = luminance(l.diffuse);
-                    const float wSpec = restirCandidateSpecularWeight(l, N, V, material);
+                    const float wDiffuse = max(luminance(max(l.diffuse, vec3(0.0))), 0.0);
+                    const float wSpec = restirCandidateSpecularWeight(l);
 
                     reservoirUpdate(rDiffuse, l.light_id, wDiffuse, rand01());
                     reservoirUpdate(rSpec, l.light_id, wSpec, rand01());

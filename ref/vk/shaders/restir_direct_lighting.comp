@@ -120,20 +120,20 @@ vec3 finalShading(
     shadowValue = 1.0;
     shadowMaskEnergy = 0.0;
 
-    if (r.w_sum == 0.0 || r.w_clamped == 0.0)
+    if (r.w_sum <= 0.0 || r.w_clamped <= 0.0 || r.checked_count <= 0.0)
         return vec3(0.0);
 
-    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.light_index, rnd, true, FINAL_RAYS, false);
-    sampledL = l.sampled_L;
+    LightResult l = evalUnifiedLight(P, N, V, material, ctx, r.light_index, rnd, FINAL_RAYS, false);
+    sampledL = max(l.sampled_L, vec3(0.0));
     lightIdEncoded = encodeHistoryLightId(l.light_id);
 
-    float pdf_weight = pdf_mult * restirLightingWeight(r);
-    vec3 irradiance = is_specular ? l.specular : l.diffuse;
+    float pdf_weight = max(pdf_mult, 0.0) * max(restirLightingWeight(r), 0.0);
+    vec3 irradiance = max(is_specular ? l.specular : l.diffuse, vec3(0.0));
     shadowValue = l.shadowed ? 0.0 : 1.0;
     float shadow_amount = 1.0 - shadowValue;
     shadowMaskEnergy = max(pdf_weight, 0.0) * shadow_amount;
 
-    return irradiance * pdf_weight;
+    return max(irradiance * pdf_weight, vec3(0.0));
 }
 
 void main(){
@@ -240,9 +240,9 @@ void main(){
     }
 
     {
-        LightResult l = sampleFlashlightAndSky(P, N, V, material, sampling_rand_curr, origin, true, FINAL_RAYS, false);
-        diffuse_fs += l.diffuse;
-        specular_fs += l.specular;
+        LightResult l = sampleFlashlightAndSky(P, N, V, material, sampling_rand_curr, origin, FINAL_RAYS, false);
+        diffuse_fs += max(l.diffuse, vec3(0.0));
+        specular_fs += max(l.specular, vec3(0.0));
     }
 
     //imageStore(out_diffuse_direct, pix, vec4(vec3(diffuse_conf, 0.0, 1.0 - diffuse_conf), diffuse_conf)); // debug diffuse confidence

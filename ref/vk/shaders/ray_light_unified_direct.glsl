@@ -78,7 +78,6 @@ void main() {
 			ctx,
 			rnd,
 			true,
-			true,
 			pix);
 
 		diffuse += r.diffuse;
