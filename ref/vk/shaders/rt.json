@@ -65,8 +65,11 @@
 	"spatial_reconstruction_pass1": {
 		"comp": "spatial_reconstruction_pass1"
 	},
-	"spatial_reconstruction_pass2": {
-		"comp": "spatial_reconstruction_pass2"
+	"final_precombine": {
+		"comp": "final_precombine"
+	},
+	"final_atrous": {
+		"comp": "final_atrous"
 	},
 	"denoiser": {
 		"comp": "denoiser"
