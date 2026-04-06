@@ -16,6 +16,7 @@ static struct {
 	int num_vertices;
 	int primitive_mode;
 	int texture_index;
+	int lightmap_index;
 
 	vk_render_type_e render_type;
 
@@ -23,7 +24,11 @@ static struct {
 } g_triapi = {0};
 
 void TriSetTexture( int texture_index ) {
-	g_triapi.texture_index = texture_index;
+	 g_triapi.texture_index = texture_index;
+}
+
+void TriSetLightmap( int lightmap_index ) {
+	 g_triapi.lightmap_index = lightmap_index;
 }
 
 int TriSpriteTexture( model_t *pSpriteModel, int frame )
@@ -91,9 +96,24 @@ void TriBegin( int primitive_mode ) {
 	g_triapi.num_vertices = 0;
 }
 
-/* static int genTrianglesIndices(void) { */
-/* 	return 0; */
-/* } */
+static int genTrianglesIndices(void) {
+	int num_indices = 0;
+	uint16_t *const dst_idx = g_triapi.indices;
+	const int num_vertices = g_triapi.num_vertices - (g_triapi.num_vertices % 3);
+
+	for (int i = 0; i < num_vertices; i += 3) {
+		if (num_indices > MAX_TRIAPI_INDICES - 3) {
+			gEngine.Con_Printf(S_ERROR "Triapi ran out of indices space, max %d (vertices=%d)\n", MAX_TRIAPI_INDICES, g_triapi.num_vertices);
+			break;
+		}
+
+		dst_idx[num_indices++] = i;
+		dst_idx[num_indices++] = i + 1;
+		dst_idx[num_indices++] = i + 2;
+	}
+
+	return num_indices;
+}
 
 static int genQuadsIndices(void) {
 	int num_indices = 0;
@@ -181,9 +201,7 @@ void TriEndEx( const vec4_t color, const char* name ) {
 
 	int num_indices = 0;
 	switch(g_triapi.primitive_mode - 1) {
-		/* case TRI_TRIANGLES: */
-		/* 	num_indices = genTrianglesIndices(); */
-		/* 	break; */
+		case TRI_TRIANGLES: num_indices = genTrianglesIndices(); break;
 		case TRI_TRIANGLE_STRIP: num_indices = genTriangleStripIndices(); break;
 		case TRI_QUADS: num_indices = genQuadsIndices(); break;
 		case TRI_POLYGON: num_indices = genPolygonIndices(); break;
@@ -202,6 +220,7 @@ void TriEndEx( const vec4_t color, const char* name ) {
 			.render_type = g_triapi.render_type,
 			.material = R_VkMaterialGetForTexture(g_triapi.texture_index),
 			.ye_olde_texture = g_triapi.texture_index,
+			.lightmap = g_triapi.lightmap_index,
 			.emissive = (const vec4_t*)color,
 			.color = (const vec4_t*)color,
 		});
@@ -214,6 +233,11 @@ void TriEndEx( const vec4_t color, const char* name ) {
 void TriTexCoord2f( float u, float v ) {
 	vk_vertex_t *const ve = g_triapi.vertices + g_triapi.num_vertices;
 	Vector2Set(ve->gl_tc, u, v);
+}
+
+void TriLightmapCoord2f( float u, float v ) {
+	vk_vertex_t *const ve = g_triapi.vertices + g_triapi.num_vertices;
+	Vector2Set(ve->lm_tc, u, v);
 }
 
 void TriVertex3fv( const float *v ) {

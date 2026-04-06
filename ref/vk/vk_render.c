@@ -18,6 +18,7 @@
 #include "std/profiler.h"
 #include "r_speeds.h"
 #include "camera.h"
+#include "r_decals.h"
 
 #include "eiface.h"
 #include "xash3d_mathlib.h"
@@ -334,7 +335,7 @@ static qboolean createPipelines( void )
 				return false;
 		}
 
-				{
+		{
 			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_TRUE;
@@ -502,6 +503,7 @@ void VK_RenderBegin( qboolean ray_tracing ) {
 	g_render_state.current_frame_is_ray_traced = ray_tracing;
 
 	R_GeometryBuffer_Flip();
+	R_DecalsFrameBegin();
 
 	if (ray_tracing)
 		VK_RayFrameBegin();
@@ -1069,7 +1071,7 @@ void R_RenderDrawOnce(r_draw_once_t args) {
 		Matrix4x4_LoadIdentity(identity);
 		submitToTraditionalRender((trad_submit_t){
 			.debug_name = args.name,
-			.lightmap = 0,
+			.lightmap = args.lightmap,
 			.geometries = &geometry,
 			.geometries_count = 1,
 			.transform = &identity,

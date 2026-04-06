@@ -366,7 +366,7 @@ void RT_FrameAddOnce( rt_frame_add_once_t args ) {
 
 	for (int i = 0; i < args.geometries_count; ++i) {
 		if (dyn->geometries_count == MAX_RT_DYNAMIC_GEOMETRIES) {
-			ERROR_THROTTLED(1, "Too many dynamic geometries for mode %s\n", group_names[material_mode]);
+			ERROR_THROTTLED(1, "Too many (>%d) dynamic geometries for mode %s\n", MAX_RT_DYNAMIC_GEOMETRIES, group_names[material_mode]);
 			break;
 		}
 
