@@ -3,10 +3,8 @@
 layout (constant_id = 0) const float alpha_test_threshold = 0.;
 
 layout(set=1,binding=0) uniform sampler2D sTexture0;
-layout(set=2,binding=0) uniform sampler2D sLightmap;
 
 layout(location=2) in vec2 vTexture0;
-layout(location=3) in vec2 vLightmapUV;
 layout(location=4) in vec4 vColor;
 
 layout(location=0) out vec4 outColor;
@@ -21,6 +19,5 @@ void main() {
 	if (baseColor.a < alpha_test_threshold)
 		discard;
 
-	outColor.a = baseColor.a;
-	outColor.rgb = texture(sLightmap, vLightmapUV).rgb * baseColor.rgb;
+	outColor = baseColor;
 }

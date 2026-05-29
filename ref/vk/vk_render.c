@@ -40,8 +40,6 @@ PROFILER_SCOPES(SCOPE_DECLARE)
 typedef struct {
 	matrix4x4 mvp;
 	vec4_t color;
-	uint ignore_lightmap_and_lights;
-	float pad_[3];
 } uniform_data_t;
 
 typedef struct {
@@ -65,6 +63,12 @@ enum {
 	kVkPipeline_COUNT,
 };
 
+typedef enum {
+	kVkPipelineProgram_Brush,
+	kVkPipelineProgram_Model,
+	kVkPipelineProgram_COUNT,
+} vk_pipeline_program_e;
+
 typedef struct {
 	VkPipeline pipeline;
 #define MAX_CONCURRENT_FRAMES 2
@@ -76,7 +80,7 @@ typedef struct {
 
 static struct {
 	VkPipelineLayout pipeline_layout;
-	VkPipeline pipelines[kVkPipeline_COUNT];
+	VkPipeline pipelines[kVkPipelineProgram_COUNT][kVkPipeline_COUNT];
 
 	r_pipeline_sky_t pipeline_sky;
 
@@ -225,16 +229,17 @@ static qboolean createPipelines( void )
 			// Not used {.binding = 0, .location = 6, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(vk_vertex_t, prev_pos)},
 		};
 
-		const vk_shader_stage_t shader_stages[] = {
-		{
-			.stage = VK_SHADER_STAGE_VERTEX_BIT,
-			.filename = "brush.vert.spv",
-			.specialization_info = NULL,
-		}, {
-			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-			.filename = "brush.frag.spv",
-			.specialization_info = &shader_spec,
-		}};
+		vk_shader_stage_t shader_stages[] = {
+			{
+				.stage = VK_SHADER_STAGE_VERTEX_BIT,
+				.filename = "brush.vert.spv",
+				.specialization_info = NULL,
+			}, {
+				.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+				.filename = "brush.frag.spv",
+				.specialization_info = &shader_spec,
+			}
+		};
 
 		vk_pipeline_graphics_create_info_t ci = {
 			.layout = g_render.pipeline_layout,
@@ -255,94 +260,79 @@ static qboolean createPipelines( void )
 			.cullMode = VK_CULL_MODE_FRONT_BIT,
 		};
 
+		for( int program = 0; program < kVkPipelineProgram_COUNT; ++program )
 		{
-			spec_data.alpha_test_threshold = 0.f;
+			const qboolean brush = program == kVkPipelineProgram_Brush;
+			const char *const pipeline_prefix = brush ? "brush" : "model";
+			shader_stages[1].filename = brush ? "brush.frag.spv" : "model.frag.spv";
+
+		#define CREATE_TRAD_PIPELINE(slot, suffix, alpha) do { \
+			char name[64]; \
+			spec_data.alpha_test_threshold = alpha; \
+			Q_snprintf( name, sizeof( name ), "%s_%s", pipeline_prefix, suffix ); \
+			if( !createPipeline( &g_render.pipelines[program][slot], name, &ci ) ) \
+				return false; \
+		} while( 0 )
+
 			ci.blendEnable = VK_FALSE;
 			ci.depthWriteEnable = VK_TRUE;
 			ci.depthTestEnable = VK_TRUE;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_Solid, "solid", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_Solid, "solid", 0.f );
 
-		{
-			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_TRUE;
 			ci.depthTestEnable = VK_TRUE;
 			ci.blendEnable = VK_TRUE;
 			ci.colorBlendOp = VK_BLEND_OP_ADD;
 			ci.srcAlphaBlendFactor = ci.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 			ci.dstAlphaBlendFactor = ci.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_A_1mA_RW, "A_1ma_RW", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_A_1mA_RW, "A_1ma_RW", 0.f );
 
-		{
-			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_TRUE;
 			ci.blendEnable = VK_TRUE;
 			ci.colorBlendOp = VK_BLEND_OP_ADD;
 			ci.srcAlphaBlendFactor = ci.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 			ci.dstAlphaBlendFactor = ci.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_A_1mA_R, "A_1ma_R", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_A_1mA_R, "A_1ma_R", 0.f );
 
-		{
-			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_FALSE; // Fake bloom, should be over geometry too
 			ci.blendEnable = VK_TRUE;
 			ci.colorBlendOp = VK_BLEND_OP_ADD;
 			ci.srcAlphaBlendFactor = ci.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 			ci.dstAlphaBlendFactor = ci.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_A_1, "A_1", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_A_1, "A_1", 0.f );
 
-		{
-			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_TRUE;
 			ci.blendEnable = VK_TRUE;
 			ci.colorBlendOp = VK_BLEND_OP_ADD;
 			ci.srcAlphaBlendFactor = ci.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 			ci.dstAlphaBlendFactor = ci.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_A_1_R, "A_1_R", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_A_1_R, "A_1_R", 0.f );
 
-		{
-			spec_data.alpha_test_threshold = .25f;
 			ci.depthWriteEnable = VK_TRUE;
 			ci.depthTestEnable = VK_TRUE;
 			ci.blendEnable = VK_FALSE;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_AT, "AT", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_AT, "AT", .25f );
 
-		{
-			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_TRUE;
 			ci.blendEnable = VK_TRUE;
 			ci.colorBlendOp = VK_BLEND_OP_ADD;
 			ci.srcAlphaBlendFactor = ci.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
 			ci.dstAlphaBlendFactor = ci.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_1_1_R, "1_1_R", &ci))
-				return false;
-		}
+			CREATE_TRAD_PIPELINE( kVkPipeline_1_1_R, "1_1_R", 0.f );
 
-		{
-			spec_data.alpha_test_threshold = 0.f;
 			ci.depthWriteEnable = VK_FALSE;
 			ci.depthTestEnable = VK_TRUE;
 			ci.blendEnable = VK_TRUE;
 			ci.colorBlendOp = VK_BLEND_OP_ADD;
 			ci.srcAlphaBlendFactor = ci.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 			ci.dstAlphaBlendFactor = ci.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-			if (!createPipeline(g_render.pipelines + kVkPipeline_Decal, "Decal", &ci))
-				return false;
+			CREATE_TRAD_PIPELINE( kVkPipeline_Decal, "Decal", 0.f );
+
+		#undef CREATE_TRAD_PIPELINE
 		}
 	}
 
@@ -359,6 +349,7 @@ typedef struct render_draw_s {
 	uint32_t ubo_offset; // FIXME move this to draw
 	int lightmap, texture;
 	int pipeline_index;
+	int pipeline_program;
 	uint32_t element_count;
 	uint32_t index_offset, vertex_offset;
 } render_draw_t;
@@ -450,8 +441,9 @@ qboolean VK_RenderInit( void ) {
 
 void VK_RenderShutdown( void )
 {
-	for (int i = 0; i < ARRAYSIZE(g_render.pipelines); ++i)
-		vkDestroyPipeline(vk_core.device, g_render.pipelines[i], NULL);
+	for( int program = 0; program < kVkPipelineProgram_COUNT; ++program )
+		for( int i = 0; i < kVkPipeline_COUNT; ++i )
+			vkDestroyPipeline(vk_core.device, g_render.pipelines[program][i], NULL);
 	vkDestroyPipelineLayout( vk_core.device, g_render.pipeline_layout, NULL );
 
 	vkDestroyPipeline(vk_core.device, g_render.pipeline_sky.pipeline, NULL);
@@ -554,8 +546,10 @@ static void drawCmdPushDraw( const render_draw_t *draw )
 	draw_command_t *draw_command;
 
 	ASSERT(draw->pipeline_index >= 0);
-	ASSERT(draw->pipeline_index < ARRAYSIZE(g_render.pipelines));
-	ASSERT(draw->lightmap >= 0);
+	ASSERT(draw->pipeline_index < kVkPipeline_COUNT);
+	ASSERT(draw->pipeline_program >= 0);
+	ASSERT(draw->pipeline_program < kVkPipelineProgram_COUNT);
+	ASSERT(draw->pipeline_program != kVkPipelineProgram_Brush || draw->lightmap >= 0);
 	ASSERT(draw->texture >= 0);
 	ASSERT(draw->texture < MAX_TEXTURES);
 
@@ -718,8 +712,10 @@ void VK_RenderEnd( vk_combuf_t* combuf, qboolean draw, uint32_t width, uint32_t 
 		}
 
 		ASSERT(draw->draw.pipeline_index >= 0);
-		ASSERT(draw->draw.pipeline_index < COUNTOF(g_render.pipelines));
-		const VkPipeline pipeline = g_render.pipelines[draw->draw.pipeline_index];
+		ASSERT(draw->draw.pipeline_index < kVkPipeline_COUNT);
+		ASSERT(draw->draw.pipeline_program >= 0);
+		ASSERT(draw->draw.pipeline_program < kVkPipelineProgram_COUNT);
+		const VkPipeline pipeline = g_render.pipelines[draw->draw.pipeline_program][draw->draw.pipeline_index];
 
 		if (cur.pipeline != pipeline) {
 			cur.pipeline = pipeline;
@@ -732,7 +728,7 @@ void VK_RenderEnd( vk_combuf_t* combuf, qboolean draw, uint32_t width, uint32_t 
 			vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_render.pipeline_layout, 0, 1, vk_desc_fixme.ubo_sets, 1, &cur.ubo_offset);
 		}
 
-		if (cur.lightmap != draw->draw.lightmap) {
+		if (draw->draw.pipeline_program == kVkPipelineProgram_Brush && cur.lightmap != draw->draw.lightmap) {
 			cur.lightmap = draw->draw.lightmap;
 			const VkDescriptorSet lm_unorm = R_VkTextureGetDescriptorUnorm(cur.lightmap);
 			vkCmdBindDescriptorSets(cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, g_render.pipeline_layout, 2, 1, &lm_unorm, 0, NULL);
@@ -836,7 +832,6 @@ typedef struct {
 	const vec4_t *color;
 	int render_type;
 	int textures_override;
-	qboolean ignore_lightmap_and_lights;
 } trad_submit_t;
 
 static void submitToTraditionalRender( trad_submit_t args ) {
@@ -848,10 +843,12 @@ static void submitToTraditionalRender( trad_submit_t args ) {
 	// TODO get rid of this dirty ubo thing
 	uboComputeAndSetMVPFromModel( *args.transform );
 	Vector4Copy(*args.color, g_render_state.dirty_uniform_data.color);
-	g_render_state.dirty_uniform_data.ignore_lightmap_and_lights = (uint)args.ignore_lightmap_and_lights;
 
+	ASSERT(args.lightmap >= 0);
 	ASSERT(args.lightmap <= MAX_LIGHTMAPS);
-	const int lightmap = args.lightmap > 0 ? tglob.lightmapTextures[args.lightmap - 1] : tglob.whiteTexture;
+	const qboolean use_lightmap = args.lightmap > 0;
+	const int lightmap = use_lightmap ? tglob.lightmapTextures[args.lightmap - 1] : -1;
+	const int pipeline_program = use_lightmap ? kVkPipelineProgram_Brush : kVkPipelineProgram_Model;
 
 	drawCmdPushDebugLabelBegin( args.debug_name );
 
@@ -885,13 +882,14 @@ static void submitToTraditionalRender( trad_submit_t args ) {
 					});
 				} else {
 					render_draw_t draw = {
-				.lightmap = lightmap,
-				.texture = current_texture,
-				.pipeline_index = args.render_type,
-				.element_count = element_count,
-				.vertex_offset = vertex_offset,
-				.index_offset = index_offset,
-			};
+						.lightmap = lightmap,
+						.texture = current_texture,
+						.pipeline_index = args.render_type,
+						.pipeline_program = pipeline_program,
+						.element_count = element_count,
+						.vertex_offset = vertex_offset,
+						.index_offset = index_offset,
+					};
 
 					drawCmdPushDraw( &draw );
 				}
@@ -920,6 +918,7 @@ static void submitToTraditionalRender( trad_submit_t args ) {
 				.lightmap = lightmap,
 				.texture = current_texture,
 				.pipeline_index = args.render_type,
+				.pipeline_program = pipeline_program,
 				.element_count = element_count,
 				.vertex_offset = vertex_offset,
 				.index_offset = index_offset,
@@ -959,7 +958,6 @@ void R_RenderModelDraw(const vk_render_model_t *model, r_model_draw_t args) {
 			.color = args.color,
 			.render_type = args.render_type,
 			.textures_override = args.override.old_texture,
-			.ignore_lightmap_and_lights = args.ignore_lightmap_and_lights,
 		});
 	}
 }
@@ -1006,7 +1004,6 @@ void R_RenderDrawOnce(r_draw_once_t args) {
 			.geometries = &geometry,
 			.geometries_count = 1,
 			.transform = &identity,
-			.ignore_lightmap_and_lights = 0,
 			.color = args.color,
 			.render_type = args.render_type,
 			.textures_override = -1,
