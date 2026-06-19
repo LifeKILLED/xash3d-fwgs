@@ -25,8 +25,82 @@ layout(set = 0, binding = 19, rgba16f) uniform readonly image2D refraction_light
 layout(set = 0, binding = 20, rgba16f) uniform readonly image2D refraction_light_point_specular;
 
 layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_precombined_refraction;
+layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_temporal_refraction_ray_length;
+layout(set = 0, binding = 23, rgba16f) uniform readonly image2D prev_temporal_refraction_ray_length;
 
 #include "refraction_ris_common.glsl"
+
+const float REFRACTION_RAY_LENGTH_SOFT_RANGE = 1.0 / 3.0;
+
+struct RefractionRayLengthStats {
+	float min_ray_length;
+	float max_ray_length;
+};
+
+ivec2 refractionRayLengthNeighborhoodOffset(int index)
+{
+	if (index == 0) return ivec2(0, 0);
+	if (index == 1) return ivec2(1, 0);
+	if (index == 2) return ivec2(-1, 0);
+	if (index == 3) return ivec2(0, 1);
+	return ivec2(0, -1);
+}
+
+float loadFirstRefractionRayLength(ivec2 local_pix)
+{
+	const ivec2 layer_size = refractionRisLayerSize();
+	if (any(lessThan(local_pix, ivec2(0))) || any(greaterThanEqual(local_pix, layer_size))) {
+		return 0.0;
+	}
+
+	const vec4 first_hit = imageLoad(refraction_hit_pos, refractionRisAtlasPixel(local_pix, REFRACTION_RIS_LAYER_0));
+	return max(first_hit.w, 0.0);
+}
+
+RefractionRayLengthStats sampleRefractionRayLengthStats(ivec2 local_pix)
+{
+	const ivec2 layer_size = refractionRisLayerSize();
+	RefractionRayLengthStats stats;
+	stats.min_ray_length = 0.0;
+	stats.max_ray_length = 0.0;
+
+	bool has_ray_length = false;
+	for (int i = 0; i < 5; ++i) {
+		const ivec2 sample_pix = local_pix + refractionRayLengthNeighborhoodOffset(i);
+		if (any(lessThan(sample_pix, ivec2(0))) || any(greaterThanEqual(sample_pix, layer_size))) {
+			continue;
+		}
+
+		const float ray_length = loadFirstRefractionRayLength(sample_pix);
+		if (ray_length <= 0.0) {
+			continue;
+		}
+
+		stats.min_ray_length = has_ray_length ? min(stats.min_ray_length, ray_length) : ray_length;
+		stats.max_ray_length = has_ray_length ? max(stats.max_ray_length, ray_length) : ray_length;
+		has_ray_length = true;
+	}
+
+	return stats;
+}
+
+float computeRefractionRayLengthConfidence(float current_length, float previous_length, RefractionRayLengthStats stats)
+{
+	if (current_length <= 0.0 || stats.max_ray_length <= 0.0) {
+		return 0.0;
+	}
+	if (previous_length <= 0.0) {
+		return 1.0;
+	}
+
+	const float min_ray_length = min(stats.min_ray_length, current_length);
+	const float max_ray_length = max(stats.max_ray_length, current_length);
+	const float lower_soft_range = max(min_ray_length * REFRACTION_RAY_LENGTH_SOFT_RANGE, 1e-3);
+	const float upper_soft_range = max(max_ray_length * REFRACTION_RAY_LENGTH_SOFT_RANGE, 1e-3);
+	const float lower_weight = smoothstep(max(min_ray_length - lower_soft_range, 0.0), min_ray_length, previous_length);
+	const float upper_weight = 1.0 - smoothstep(max_ray_length, max_ray_length + upper_soft_range, previous_length);
+	return clamp(min(lower_weight, upper_weight), 0.0, 1.0);
+}
 
 vec3 resolveRefractionLayer(ivec2 atlas_pix, vec3 behind_color, inout bool has_refraction)
 {
@@ -62,7 +136,12 @@ vec3 resolveRefractionLayer(ivec2 atlas_pix, vec3 behind_color, inout bool has_r
 	return emissive + mix(behind_color, lit_color, opacity);
 }
 
-void storeUpscaledRefraction(ivec2 local_pix, vec4 value)
+void storeUpscaledRefraction(
+	ivec2 local_pix,
+	vec3 refraction,
+	bool has_refraction,
+	float ray_length,
+	RefractionRayLengthStats ray_length_stats)
 {
 	for (int y = 0; y < 2; ++y) {
 		for (int x = 0; x < 2; ++x) {
@@ -71,7 +150,12 @@ void storeUpscaledRefraction(ivec2 local_pix, vec4 value)
 				continue;
 			}
 
-			imageStore(out_precombined_refraction, dst_pix, value);
+			const float previous_ray_length = imageLoad(prev_temporal_refraction_ray_length, dst_pix).r;
+			const float confidence = has_refraction
+				? computeRefractionRayLengthConfidence(ray_length, previous_ray_length, ray_length_stats)
+				: 0.0;
+			imageStore(out_precombined_refraction, dst_pix, vec4(refraction, confidence));
+			imageStore(out_temporal_refraction_ray_length, dst_pix, vec4(ray_length, 0.0, 0.0, 0.0));
 		}
 	}
 }
@@ -93,5 +177,7 @@ void main()
 
 	DEBUG_VALIDATE_RANGE_VEC3("refraction_ris_resolve.refraction", refraction, 0.0, 1e6);
 
-	storeUpscaledRefraction(local_pix, vec4(refraction, has_refraction ? 1.0 : 0.0));
+	const float ray_length = loadFirstRefractionRayLength(local_pix);
+	const RefractionRayLengthStats ray_length_stats = sampleRefractionRayLengthStats(local_pix);
+	storeUpscaledRefraction(local_pix, refraction, has_refraction, ray_length, ray_length_stats);
 }

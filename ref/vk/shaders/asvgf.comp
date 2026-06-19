@@ -871,10 +871,10 @@ void main() {
 					history_refraction_stats,
 					refraction_history_samples,
 					has_refraction_history),
-				legacy_bounce ? neutral_gate : refraction_external_gate,
-				indirect_dependency_gate,
-				true,
-				legacy_bounce));
+				refraction_external_gate,
+				neutral_gate,
+				false,
+				false));
 
 		direct_diffuse = direct_diffuse_result.color;
 		diffuse_history_samples = direct_diffuse_result.history_samples;

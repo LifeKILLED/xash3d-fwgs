@@ -272,7 +272,6 @@ static void makeDefaultAsvgfLobeParams(asvgf_lobe_id_t lobe, struct AsvgfReproje
 		break;
 
 	case ASVGF_LOBE_INDIRECT_SPECULAR:
-	case ASVGF_LOBE_REFRACTION:
 		params->variance_stage_mix = 0.45f;
 		params->variance_gate_floor = 0.35f;
 		params->reset_min_scale = 0.30f;
@@ -282,6 +281,17 @@ static void makeDefaultAsvgfLobeParams(asvgf_lobe_id_t lobe, struct AsvgfReproje
 		params->external_gate_hard_threshold = 0.01f;
 		params->dependency_strategy = ASVGF_DEPENDENCY_VARIANCE_CARRY;
 		params->use_dependency_reset_as_gate = 1u;
+		break;
+
+	case ASVGF_LOBE_REFRACTION:
+		params->variance_stage_mix = 0.45f;
+		params->variance_gate_floor = 0.35f;
+		params->reset_min_scale = 0.30f;
+		params->reset_hard_variance_gate = 1.01f;
+		params->reset_hard_compatibility = 0.0f;
+		params->reset_hard_factor = -1.0f;
+		params->external_gate_hard_threshold = 0.01f;
+		params->use_dependency_reset_as_gate = 0u;
 		break;
 	}
 }
