@@ -46,14 +46,6 @@ const float shadow_offset_fudge = .1;
 #define RIS_WEIGHT_EPSILON 1e-5
 #endif
 
-#ifndef RIS_INV_LIGHT_PDF_SOFT_CAP
-#define RIS_INV_LIGHT_PDF_SOFT_CAP 16.0
-#endif
-
-#ifndef RIS_INV_LIGHT_PDF_HARD_CAP
-#define RIS_INV_LIGHT_PDF_HARD_CAP 64.0
-#endif
-
 #ifndef RIS_PRIMARY_SAMPLE_MIX
 #define RIS_PRIMARY_SAMPLE_MIX 0.2
 #endif
@@ -61,6 +53,9 @@ const float shadow_offset_fudge = .1;
 #ifndef RIS_SECONDARY_SAMPLE_MIX
 #define RIS_SECONDARY_SAMPLE_MIX 0.8
 #endif
+
+#define RIS_LOBE_DIFFUSE 0u
+#define RIS_LOBE_SPECULAR 1u
 
 struct RisReservoir {
 	uint valid;
@@ -131,17 +126,6 @@ vec3 risBlendPrimarySecondary(RisReservoir primary_reservoir, vec3 secondary_con
 	return vec3(0.0);
 }
 
-float risStabilizeInvLightPdf(float inv_light_pdf)
-{
-	if (inv_light_pdf <= RIS_INV_LIGHT_PDF_SOFT_CAP) {
-		return inv_light_pdf;
-	}
-
-	const float range = max(RIS_INV_LIGHT_PDF_HARD_CAP - RIS_INV_LIGHT_PDF_SOFT_CAP, 1e-3);
-	const float overshoot = inv_light_pdf - RIS_INV_LIGHT_PDF_SOFT_CAP;
-	return RIS_INV_LIGHT_PDF_SOFT_CAP + range * overshoot / (overshoot + range);
-}
-
 uint risBayer8(ivec2 p)
 {
 	const uint bayer[64] = uint[64](
@@ -158,12 +142,25 @@ uint risBayer8(ivec2 p)
 	return bayer[q.y * 8 + q.x];
 }
 
-float risBayerRandom01(ivec2 pix, uint cluster_index, uint salt)
+float risPrimaryBayerRandom01(ivec2 pix, uint salt)
 {
-	const uint h = xxhash32(uvec4(ubo.ubo.random_seed, ubo.ubo.frame_counter, cluster_index, salt));
-	const uint rank = (risBayer8(pix) + (h & 63u)) & 63u;
-	const float jitter = uintToFloat01(xxhash32(h ^ 0x51ed270bu));
-	return (float(rank) + jitter) * (1.0 / 64.0);
+	const uint rank = (risBayer8(pix) + salt + ubo.ubo.frame_counter) & 63u;
+	return (float(rank) + 0.5) * (1.0 / 64.0);
+}
+
+uint risPrimaryCandidateOffset(ivec2 pix, uint lights_num_in_cluster, uint salt)
+{
+	if (lights_num_in_cluster <= 1u) {
+		return 0u;
+	}
+
+	const uint bayer_offset = (((risBayer8(pix) + salt) & 63u) * lights_num_in_cluster) >> 6u;
+	return (bayer_offset + ubo.ubo.frame_counter) % lights_num_in_cluster;
+}
+
+float risSelectLobeWeight(vec2 weights, uint lobe)
+{
+	return (lobe == RIS_LOBE_SPECULAR) ? weights.y : weights.x;
 }
 
 uint risLocalIndex()

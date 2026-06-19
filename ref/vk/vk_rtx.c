@@ -566,12 +566,12 @@ static void produceUboResource(struct Producer* p, struct vk_combuf_s *combuf, c
 	const size_t ubo_slot_offset = (ctx->frame_sequence % MAX_FRAMES_IN_FLIGHT) * g_rtx.uniform.unit_size;
 	struct UniformBuffer *const ubo = PTR_CAST(struct UniformBuffer, (char*)g_rtx.uniform.buffer.mapped + ubo_slot_offset);
 	g_rtx.uniform.resource->offset = ubo_slot_offset;
-	ubo->frame_counter = ctx->frame_sequence;
 	memcpy(ubo, &g_rtx.uniform.current, sizeof(struct UniformBuffer));
+	ubo->frame_counter = ctx->frame_sequence;
 }
 
-static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args_t *args, float fov_angle_y, int frame_width, int frame_height ) {
-	struct UniformBuffer ret;
+static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args_t *args, float fov_angle_y, int frame_width, int frame_height, uint32_t frame_counter ) {
+	struct UniformBuffer ret = {0};
 	matrix4x4 proj_inv, view_inv;
 	Matrix4x4_Invert_Full(proj_inv, *args->projection);
 	Matrix4x4_ToArrayFloatGL(proj_inv, (float*)ret.inv_proj);
@@ -590,6 +590,7 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	ret.res[0] = frame_width;
 	ret.res[1] = frame_height;
 	ret.ray_cone_width = atanf((2.0f*tanf(DEG2RAD(fov_angle_y) * 0.5f)) / (float)frame_height);
+	ret.frame_counter = frame_counter;
 	ret.skybox_exposure = R_TexturesGetSkyboxInfo().exposure;
 
 	parseDebugDisplayValue();
@@ -638,7 +639,7 @@ static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_
 	const VkCommandBuffer cmdbuf = combuf->cmdbuf;
 	DEBUG_BEGIN(cmdbuf, "yay tracing");
 
-	g_rtx.uniform.current = prepareUniformBuffer(args->render_args, args->fov_angle_y, args->frame_width, args->frame_height);
+	g_rtx.uniform.current = prepareUniformBuffer(args->render_args, args->fov_angle_y, args->frame_width, args->frame_height, args->frame_counter);
 
 	ASSERT(g_rtx.meatpipe);
 	r_vk_image_t *const ret = R_VkMeatpipeDispatch(g_rtx.meatpipe, (vk_meatpipe_dispatch_t){
