@@ -23,11 +23,11 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef RIS_NEIGHBOR_CANDIDATES
-#define RIS_NEIGHBOR_CANDIDATES 7
+#define RIS_NEIGHBOR_CANDIDATES 4
 #endif
 
-#ifndef RIS_NEIGHBOR_RADIUS
-#define RIS_NEIGHBOR_RADIUS 3
+#ifndef RIS_POISSON_POOL_SIZE
+#define RIS_POISSON_POOL_SIZE 8
 #endif
 
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
@@ -135,19 +135,55 @@ bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 	return plane_distance <= RIS_PLANE_DISTANCE_MAX;
 }
 
-ivec2 risRandomNeighborOffset(uint candidate_index, ivec2 pix)
+float risSpatialRandom01(ivec2 pix, uint candidate_index, uint salt)
 {
-	const uvec4 seed = uvec4(
+	return uintToFloat01(xxhash32(uvec4(
 		uint(pix.x),
 		uint(pix.y),
 		ubo.ubo.frame_counter ^ ubo.ubo.random_seed,
-		candidate_index + 0x9e3779b9u);
-	const uvec4 h = pcg4d(seed);
-	const int diameter = RIS_NEIGHBOR_RADIUS * 2 + 1;
+		candidate_index ^ salt)));
+}
 
-	return ivec2(
-		int(h.x % uint(diameter)) - RIS_NEIGHBOR_RADIUS,
-		int(h.y % uint(diameter)) - RIS_NEIGHBOR_RADIUS);
+ivec2 risRotateOffset(ivec2 offset, uint rotation)
+{
+	if (rotation == 1u) {
+		return ivec2(-offset.y, offset.x);
+	}
+	if (rotation == 2u) {
+		return -offset;
+	}
+	if (rotation == 3u) {
+		return ivec2(offset.y, -offset.x);
+	}
+	return offset;
+}
+
+ivec2 risPoissonNeighborOffset(uint candidate_index, ivec2 pix)
+{
+	const ivec2 poisson_offsets[RIS_POISSON_POOL_SIZE] = ivec2[RIS_POISSON_POOL_SIZE](
+		ivec2( 3,  0),
+		ivec2(-3,  1),
+		ivec2( 2,  3),
+		ivec2(-1,  4),
+		ivec2(-4,  0),
+		ivec2(-2, -3),
+		ivec2( 1, -4),
+		ivec2( 4, -2)
+	);
+
+	const uint h = xxhash32(uvec4(
+		uint(pix.x),
+		uint(pix.y),
+		ubo.ubo.frame_counter ^ ubo.ubo.random_seed,
+		0x706f6973u));
+	const uint index = (candidate_index + h) & (RIS_POISSON_POOL_SIZE - 1u);
+	ivec2 offset = poisson_offsets[index];
+
+	if (((h >> 8u) & 1u) != 0u) {
+		offset.x = -offset.x;
+	}
+
+	return risRotateOffset(offset, (h >> 9u) & 3u);
 }
 
 #endif // LIGHT_RIS_COMMON_GLSL_INCLUDED

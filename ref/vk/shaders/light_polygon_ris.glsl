@@ -12,6 +12,7 @@ struct RisPolySharedSample {
 	uint light_id;
 	uint cluster_index;
 	float inv_pdf;
+	vec2 reuse_weights;
 	vec3 sample_pos;
 	vec3 source_P;
 	vec3 source_N;
@@ -137,6 +138,7 @@ void risStoreInitialPolygonSample(uint cluster_index, vec3 P, vec3 N, vec3 V, Ma
 	shared_sample.light_id = 0u;
 	shared_sample.cluster_index = cluster_index;
 	shared_sample.inv_pdf = 0.0;
+	shared_sample.reuse_weights = vec2(0.0);
 	shared_sample.sample_pos = vec3(0.0);
 	shared_sample.source_P = P;
 	shared_sample.source_N = N;
@@ -160,6 +162,7 @@ void risStoreInitialPolygonSample(uint cluster_index, vec3 P, vec3 N, vec3 V, Ma
 							shared_sample.valid = 1u;
 							shared_sample.light_id = light_id;
 							shared_sample.inv_pdf = inv_pdf;
+							shared_sample.reuse_weights = lightPolygonWeightCalculation(poly, P, N, V, material.roughness);
 							shared_sample.sample_pos = sample_pos;
 						}
 					}
@@ -241,12 +244,25 @@ void computePolygonLightingRIS(
 	risReservoirInit(specular_reservoir);
 
 	if (ris_active) {
-		for (uint i = 0u; i <= RIS_NEIGHBOR_CANDIDATES; ++i) {
-			ivec2 local_pos = ivec2(gl_LocalInvocationID.xy);
-			if (i > 0u) {
-				local_pos += risRandomNeighborOffset(i, pix);
+		const RisPolySharedSample own_sample = ris_poly_shared[risLocalIndex()];
+		if (own_sample.valid != 0u && own_sample.cluster_index == cluster_index) {
+			vec3 candidate_diffuse;
+			vec3 candidate_specular;
+			vec2 candidate_weights;
+			if (risEvaluatePolygonSample(own_sample, P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
+				risReservoirUpdate(diffuse_reservoir, candidate_weights.x, candidate_diffuse);
+				risReservoirUpdate(specular_reservoir, candidate_weights.y, candidate_specular);
 			}
+		}
 
+		uint pool_indices[RIS_POISSON_POOL_SIZE];
+		vec2 pool_weights[RIS_POISSON_POOL_SIZE];
+		uint pool_count = 0u;
+		float diffuse_weight_sum = 0.0;
+		float specular_weight_sum = 0.0;
+
+		for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
+			const ivec2 local_pos = ivec2(gl_LocalInvocationID.xy) + risPoissonNeighborOffset(i, pix);
 			if (any(lessThan(local_pos, ivec2(0))) || local_pos.x >= RIS_LOCAL_SIZE_X || local_pos.y >= RIS_LOCAL_SIZE_Y) {
 				continue;
 			}
@@ -262,15 +278,64 @@ void computePolygonLightingRIS(
 				continue;
 			}
 
-			vec3 candidate_diffuse;
-			vec3 candidate_specular;
-			vec2 candidate_weights;
-			if (!risEvaluatePolygonSample(shared_sample, P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
+			const vec2 reuse_weights = max(shared_sample.reuse_weights, vec2(0.0));
+			if (!any(greaterThan(reuse_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				continue;
 			}
 
-			risReservoirUpdate(diffuse_reservoir, candidate_weights.x, candidate_diffuse);
-			risReservoirUpdate(specular_reservoir, candidate_weights.y, candidate_specular);
+			pool_indices[pool_count] = sample_index;
+			pool_weights[pool_count] = reuse_weights;
+			diffuse_weight_sum += reuse_weights.x;
+			specular_weight_sum += reuse_weights.y;
+			pool_count += 1u;
+		}
+
+		for (uint pick = 0u; pick < RIS_NEIGHBOR_CANDIDATES; ++pick) {
+			if (diffuse_weight_sum > RIS_WEIGHT_EPSILON) {
+				const float target_weight = risSpatialRandom01(pix, pick, 0x64696666u) * diffuse_weight_sum;
+				float weight_prefix = 0.0;
+				uint selected = 0u;
+				for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
+					if (i >= pool_count) {
+						break;
+					}
+					weight_prefix += pool_weights[i].x;
+					selected = i;
+					if (target_weight <= weight_prefix || i + 1u == pool_count) {
+						break;
+					}
+				}
+
+				vec3 candidate_diffuse;
+				vec3 candidate_specular;
+				vec2 candidate_weights;
+				if (risEvaluatePolygonSample(ris_poly_shared[pool_indices[selected]], P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
+					risReservoirUpdate(diffuse_reservoir, candidate_weights.x, candidate_diffuse);
+				}
+			}
+
+			if (specular_weight_sum > RIS_WEIGHT_EPSILON) {
+				const float target_weight = risSpatialRandom01(pix, pick, 0x73706563u) * specular_weight_sum;
+				float weight_prefix = 0.0;
+				uint selected = 0u;
+				for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
+					if (i >= pool_count) {
+						break;
+					}
+					weight_prefix += pool_weights[i].y;
+					selected = i;
+					if (target_weight <= weight_prefix || i + 1u == pool_count) {
+						break;
+					}
+				}
+
+				vec3 candidate_diffuse;
+				vec3 candidate_specular;
+				vec2 candidate_weights;
+				if (risEvaluatePolygonSample(ris_poly_shared[pool_indices[selected]], P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
+					risReservoirUpdate(specular_reservoir, candidate_weights.y, candidate_specular);
+				}
+			}
 		}
 	}
 

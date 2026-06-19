@@ -43,6 +43,14 @@
 #define LIGHT_SPECULAR_GAIN_MAX 2.0
 #endif
 
+#ifndef LIGHT_SPECULAR_PROPOSAL_DIFFUSE_MIN
+#define LIGHT_SPECULAR_PROPOSAL_DIFFUSE_MIN 0.15
+#endif
+
+#ifndef LIGHT_SPECULAR_PROPOSAL_DIFFUSE_SMOOTH
+#define LIGHT_SPECULAR_PROPOSAL_DIFFUSE_SMOOTH 1.0
+#endif
+
 #ifndef NON_BRDF_POINT_LIGHTS_MULTIPLIER
 #define NON_BRDF_POINT_LIGHTS_MULTIPLIER 2.0
 #endif
@@ -70,6 +78,15 @@ float computeSpecularAngularRadius(float source_extent, float dist)
 float computeSpecularCompensation(float angular_radius)
 {
 	return clamp(1.0 + angular_radius * LIGHT_SPECULAR_GAIN_FROM_ANGULAR, 1.0, LIGHT_SPECULAR_GAIN_MAX);
+}
+
+float computeSpecularProposalWeight(float light_weight, float guided_specular_weight, float roughness)
+{
+	const float diffuse_floor = mix(
+		LIGHT_SPECULAR_PROPOSAL_DIFFUSE_SMOOTH,
+		LIGHT_SPECULAR_PROPOSAL_DIFFUSE_MIN,
+		roughness) * light_weight;
+	return max(guided_specular_weight, diffuse_floor);
 }
 
 vec2 lightPointWeightCalculation(
@@ -110,7 +127,11 @@ vec2 lightPointWeightCalculation(
 		const float roughness_for_spec = clamp(roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
 		const float light_weight = geom_weight * luminance(pl.color_stopdot.rgb);
 		const float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-		result = vec2(light_weight, light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius));
+		const float spec_proposal_weight = computeSpecularProposalWeight(
+			light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius),
+			light_weight,
+			roughness * roughness);
+		result = vec2(light_weight, spec_proposal_weight);
 	}
 
 	return result;
@@ -145,7 +166,11 @@ vec2 lightPolygonWeightCalculation(
 				const float roughness_for_spec = clamp(roughness + spec_angular_radius * LIGHT_SPECULAR_ROUGHNESS_FROM_ANGULAR, 0.0, 1.0);
 				const float light_weight = geom_weight * luminance(poly.emissive);
 				const float spec_weight = specularWeight(N, L, V, roughness_for_spec);
-				result = vec2(light_weight, light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius));
+				const float spec_proposal_weight = computeSpecularProposalWeight(
+					light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius),
+					light_weight,
+					roughness * roughness);
+				result = vec2(light_weight, spec_proposal_weight);
 			}
 		}
 	}
