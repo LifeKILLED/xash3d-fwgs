@@ -10,7 +10,8 @@
 #endif
 
 bool projectWorldToPrevFramePixel(vec3 world_position, ivec2 res, out ivec2 reproj_pix, out float clip_w) {
-	const vec4 clip_space = inverse(ubo.ubo.prev_inv_proj) * vec4((inverse(ubo.ubo.prev_inv_view) * vec4(world_position, 1.0)).xyz, 1.0);
+	const vec4 prev_view_position = ubo.ubo.prev_view * vec4(world_position, 1.0);
+	const vec4 clip_space = ubo.ubo.prev_proj * vec4(prev_view_position.xyz, 1.0);
 	clip_w = clip_space.w;
 	if (clip_w <= 0.0) {
 		reproj_pix = ivec2(-1);

@@ -319,6 +319,7 @@ struct AsvgfParams {
 
 struct UniformBuffer {
 	mat4 inv_proj, inv_view;
+	mat4 prev_proj, prev_view;
 	mat4 prev_inv_proj, prev_inv_view;
 	ivec2 res;
 	float ray_cone_width;

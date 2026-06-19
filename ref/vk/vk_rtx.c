@@ -50,6 +50,7 @@ static struct {
 	struct vk_meatpipe_s *meatpipe;
 	rt_resource_t *meatpipe_out;
 
+	matrix4x4 prev_proj, prev_view;
 	matrix4x4 prev_inv_proj, prev_inv_view;
 
 	qboolean reload_pipeline;
@@ -582,8 +583,12 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	Matrix4x4_ToArrayFloatGL(view_inv, (float*)ret.inv_view);
 
 	// previous frame matrices
+	Matrix4x4_ToArrayFloatGL(g_rtx.prev_proj, (float*)ret.prev_proj);
+	Matrix4x4_ToArrayFloatGL(g_rtx.prev_view, (float*)ret.prev_view);
 	Matrix4x4_ToArrayFloatGL(g_rtx.prev_inv_proj, (float*)ret.prev_inv_proj);
 	Matrix4x4_ToArrayFloatGL(g_rtx.prev_inv_view, (float*)ret.prev_inv_view);
+	Matrix4x4_Copy(g_rtx.prev_proj, *args->projection);
+	Matrix4x4_Copy(g_rtx.prev_view, *args->view);
 	Matrix4x4_Copy(g_rtx.prev_inv_view, view_inv);
 	Matrix4x4_Copy(g_rtx.prev_inv_proj, proj_inv);
 
