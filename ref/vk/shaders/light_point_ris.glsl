@@ -484,14 +484,26 @@ void computePointLightingRISApply(
 	const bool secondary_visibility_test = RIS_APPLY_VISIBILITY_TEST != 0;
 
 	if (ris_active) {
-		uint pool_light_ids[RIS_POISSON_POOL_SIZE];
-		vec2 pool_weights[RIS_POISSON_POOL_SIZE];
+		uint pool_light_ids[RIS_SPATIAL_POOL_CAPACITY];
+		vec2 pool_weights[RIS_SPATIAL_POOL_CAPACITY];
 		uint pool_count = 0u;
 		float diffuse_weight_sum = 0.0;
 		float specular_weight_sum = 0.0;
 		uint secondary_diffuse_target_count;
 		uint secondary_specular_target_count;
 		risSecondarySampleCounts(material.metalness, secondary_diffuse_target_count, secondary_specular_target_count);
+
+		const RisCandidateImageSample self_candidate = risDecodeCandidateImageSample(imageLoad(RIS_POINT_CANDIDATE_IMAGE, pix));
+		if (risCandidateImageSampleValid(self_candidate) && risIsPointLightCandidate(self_candidate.light_id)) {
+			const vec2 self_weights = max(self_candidate.weights, vec2(0.0));
+			if (any(greaterThan(self_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+				pool_light_ids[pool_count] = self_candidate.light_id;
+				pool_weights[pool_count] = self_weights;
+				diffuse_weight_sum += self_weights.x;
+				specular_weight_sum += self_weights.y;
+				pool_count += 1u;
+			}
+		}
 
 		for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
 			const ivec2 sample_pix = pix + risPoissonNeighborOffset(i, pix);
@@ -523,11 +535,13 @@ void computePointLightingRISApply(
 				continue;
 			}
 
-			pool_light_ids[pool_count] = image_candidate.light_id;
-			pool_weights[pool_count] = reuse_weights;
-			diffuse_weight_sum += reuse_weights.x;
-			specular_weight_sum += reuse_weights.y;
-			pool_count += 1u;
+			if (pool_count < uint(RIS_SPATIAL_POOL_CAPACITY)) {
+				pool_light_ids[pool_count] = image_candidate.light_id;
+				pool_weights[pool_count] = reuse_weights;
+				diffuse_weight_sum += reuse_weights.x;
+				specular_weight_sum += reuse_weights.y;
+				pool_count += 1u;
+			}
 		}
 
 		if (diffuse_weight_sum > RIS_WEIGHT_EPSILON) {
@@ -539,7 +553,7 @@ void computePointLightingRISApply(
 				const float target_weight = risSpatialRandom01(pix, pick, 0x64696666u) * diffuse_weight_sum;
 				float weight_prefix = 0.0;
 				uint selected = 0u;
-				for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
+				for (uint i = 0u; i < uint(RIS_SPATIAL_POOL_CAPACITY); ++i) {
 					if (i >= pool_count) {
 						break;
 					}
@@ -574,7 +588,7 @@ void computePointLightingRISApply(
 				const float target_weight = risSpatialRandom01(pix, pick, 0x73706563u) * specular_weight_sum;
 				float weight_prefix = 0.0;
 				uint selected = 0u;
-				for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
+				for (uint i = 0u; i < uint(RIS_SPATIAL_POOL_CAPACITY); ++i) {
 					if (i >= pool_count) {
 						break;
 					}

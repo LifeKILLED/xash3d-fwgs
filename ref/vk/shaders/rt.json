@@ -47,6 +47,9 @@
 	"bounce_light_point_ris_apply": {
 		"comp": "bounce_light_point_ris_apply"
 	},
+	"bounce_light_ris_resolve": {
+		"comp": "bounce_light_ris_resolve"
+	},
 	"light_direct_poly_ris_init": {
 		"comp": "ray_light_direct_poly_ris_init"
 	},
@@ -100,4 +103,3 @@
 	},
 	//"RESOURCES": { "position_t_prev": { "previous_frame": "position_t" }, },
 }
-

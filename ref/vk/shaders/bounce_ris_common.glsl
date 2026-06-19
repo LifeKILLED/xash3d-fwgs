@@ -19,6 +19,26 @@ const uint BOUNCE_RIS_SPECULAR_LANE = 3u;
 #define BOUNCE_RIS_LIGHTING_NORMAL_OFFSET 0.01
 #endif
 
+#ifndef RIS_NORMAL_COMPATIBILITY_MIN
+#define RIS_NORMAL_COMPATIBILITY_MIN 0.85
+#endif
+
+#define RIS_CUSTOM_SURFACE_COMPATIBILITY_WEIGHT 1
+float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
+{
+	const float normal_alignment = dot(N, sample_N);
+	if (normal_alignment < RIS_NORMAL_COMPATIBILITY_MIN) {
+		return 0.0;
+	}
+
+	const float normal_weight = clamp(
+		(normal_alignment - RIS_NORMAL_COMPATIBILITY_MIN) / max(1.0 - RIS_NORMAL_COMPATIBILITY_MIN, 1e-3),
+		0.0,
+		1.0);
+	const float spatial_distance = length(P - sample_P);
+	return normal_weight / (1.0 + spatial_distance);
+}
+
 ivec2 bounceRisLaneSize()
 {
 	return ubo.ubo.res / 2;

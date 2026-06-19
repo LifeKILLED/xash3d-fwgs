@@ -47,6 +47,10 @@ const float shadow_offset_fudge = .1;
 #define RIS_POISSON_POOL_SIZE 8
 #endif
 
+#ifndef RIS_SPATIAL_POOL_CAPACITY
+#define RIS_SPATIAL_POOL_CAPACITY (RIS_POISSON_POOL_SIZE + 1)
+#endif
+
 #ifndef RIS_PRIMARY_CANDIDATES
 #define RIS_PRIMARY_CANDIDATES 8
 #endif
@@ -423,6 +427,7 @@ bool risComputeClusterIndex(vec3 P, out uint cluster_index)
 	return true;
 }
 
+#ifndef RIS_CUSTOM_SURFACE_COMPATIBILITY_WEIGHT
 float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 {
 	const float normal_alignment = dot(N, sample_N);
@@ -444,6 +449,7 @@ float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N
 	const float distance_weight = 1.0 - spatial_distance2 / spatial_distance_max2;
 	return normal_weight * distance_weight;
 }
+#endif
 
 bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 {
