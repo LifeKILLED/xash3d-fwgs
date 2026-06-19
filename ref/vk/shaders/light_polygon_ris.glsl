@@ -41,8 +41,22 @@ bool risSelectPolygonLight(
 {
 	float total_weight = 0.0;
 	const uint num_polygons = uint(light_grid.clusters_[cluster_index].num_polygons);
-	for (uint i = 0u; i < num_polygons; ++i) {
-		total_weight += risSelectLobeWeight(risPolygonProposalWeights(uint(light_grid.clusters_[cluster_index].polygons[i]), P, N, V, material), lobe);
+	const uint candidate_count = risPrimaryCandidateCount(num_polygons);
+	if (candidate_count == 0u) {
+		light_id = 0u;
+		inv_light_pdf = 0.0;
+		return false;
+	}
+
+	const uint salt = (lobe == RIS_LOBE_SPECULAR) ? 17u : 0u;
+	const uint candidate_offset = risPrimaryCandidateOffset(pix, num_polygons, salt);
+	for (uint i = 0u; i < uint(RIS_PRIMARY_CANDIDATES); ++i) {
+		if (i >= candidate_count) {
+			break;
+		}
+
+		const uint candidate_index = (candidate_offset + i) % num_polygons;
+		total_weight += risSelectLobeWeight(risPolygonProposalWeights(uint(light_grid.clusters_[cluster_index].polygons[candidate_index]), P, N, V, material), lobe);
 	}
 
 	if (total_weight <= RIS_WEIGHT_EPSILON) {
@@ -51,11 +65,13 @@ bool risSelectPolygonLight(
 		return false;
 	}
 
-	const uint salt = (lobe == RIS_LOBE_SPECULAR) ? 17u : 0u;
-	const uint candidate_offset = risPrimaryCandidateOffset(pix, num_polygons, salt);
-	const float target_weight = risPrimaryBayerRandom01(pix, salt) * total_weight;
+	const float target_weight = risPrimaryRandom01(pix, salt) * total_weight;
 	float weight_prefix = 0.0;
-	for (uint i = 0u; i < num_polygons; ++i) {
+	for (uint i = 0u; i < uint(RIS_PRIMARY_CANDIDATES); ++i) {
+		if (i >= candidate_count) {
+			break;
+		}
+
 		const uint candidate_index = (i + candidate_offset) % num_polygons;
 		const uint candidate_id = uint(light_grid.clusters_[cluster_index].polygons[candidate_index]);
 		const float candidate_weight = risSelectLobeWeight(risPolygonProposalWeights(candidate_id, P, N, V, material), lobe);
@@ -64,9 +80,9 @@ bool risSelectPolygonLight(
 		}
 
 		weight_prefix += candidate_weight;
-		if (target_weight <= weight_prefix || i + 1u == num_polygons) {
+		if (target_weight <= weight_prefix || i + 1u == candidate_count) {
 			light_id = candidate_id;
-			inv_light_pdf = total_weight / candidate_weight;
+			inv_light_pdf = risStabilizeInvLightPdf(risPrimaryWindowInvPdfScale(num_polygons, candidate_count) * total_weight / candidate_weight);
 			return true;
 		}
 	}

@@ -30,6 +30,10 @@ const float shadow_offset_fudge = .1;
 #define RIS_POISSON_POOL_SIZE 8
 #endif
 
+#ifndef RIS_PRIMARY_CANDIDATES
+#define RIS_PRIMARY_CANDIDATES 8
+#endif
+
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
 #define RIS_NORMAL_COMPATIBILITY_MIN 0.85
 #endif
@@ -44,6 +48,14 @@ const float shadow_offset_fudge = .1;
 
 #ifndef RIS_WEIGHT_EPSILON
 #define RIS_WEIGHT_EPSILON 1e-5
+#endif
+
+#ifndef RIS_INV_LIGHT_PDF_SOFT_CAP
+#define RIS_INV_LIGHT_PDF_SOFT_CAP 16.0
+#endif
+
+#ifndef RIS_INV_LIGHT_PDF_HARD_CAP
+#define RIS_INV_LIGHT_PDF_HARD_CAP 64.0
 #endif
 
 #ifndef RIS_PRIMARY_SAMPLE_MIX
@@ -126,36 +138,66 @@ vec3 risBlendPrimarySecondary(RisReservoir primary_reservoir, vec3 secondary_con
 	return vec3(0.0);
 }
 
-uint risBayer8(ivec2 p)
+float risStabilizeInvLightPdf(float inv_light_pdf)
 {
-	const uint bayer[64] = uint[64](
-		 0u, 32u,  8u, 40u,  2u, 34u, 10u, 42u,
-		48u, 16u, 56u, 24u, 50u, 18u, 58u, 26u,
-		12u, 44u,  4u, 36u, 14u, 46u,  6u, 38u,
-		60u, 28u, 52u, 20u, 62u, 30u, 54u, 22u,
-		 3u, 35u, 11u, 43u,  1u, 33u,  9u, 41u,
-		51u, 19u, 59u, 27u, 49u, 17u, 57u, 25u,
-		15u, 47u,  7u, 39u, 13u, 45u,  5u, 37u,
-		63u, 31u, 55u, 23u, 61u, 29u, 53u, 21u
-	);
-	const ivec2 q = p & ivec2(7);
-	return bayer[q.y * 8 + q.x];
+	if (inv_light_pdf <= RIS_INV_LIGHT_PDF_SOFT_CAP) {
+		return inv_light_pdf;
+	}
+
+	const float range = max(RIS_INV_LIGHT_PDF_HARD_CAP - RIS_INV_LIGHT_PDF_SOFT_CAP, 1e-3);
+	const float overshoot = inv_light_pdf - RIS_INV_LIGHT_PDF_SOFT_CAP;
+	return RIS_INV_LIGHT_PDF_SOFT_CAP + range * overshoot / (overshoot + range);
 }
 
-float risPrimaryBayerRandom01(ivec2 pix, uint salt)
+uint risBayer4(ivec2 p)
 {
-	const uint rank = (risBayer8(pix) + salt + ubo.ubo.frame_counter) & 63u;
-	return (float(rank) + 0.5) * (1.0 / 64.0);
+	const uint bayer[16] = uint[16](
+		 0u,  8u,  2u, 10u,
+		12u,  4u, 14u,  6u,
+		 3u, 11u,  1u,  9u,
+		15u,  7u, 13u,  5u
+	);
+	const ivec2 q = p & ivec2(3);
+	return bayer[q.y * 4 + q.x];
+}
+
+uint risPrimarySeedPhase(uint salt)
+{
+	return xxhash32(uvec4(ubo.ubo.random_seed, salt, 0x72697370u, 0x70686173u));
+}
+
+float risPrimaryRandom01(ivec2 pix, uint salt)
+{
+	return uintToFloat01(xxhash32(uvec4(
+		uint(pix.x),
+		uint(pix.y),
+		ubo.ubo.random_seed,
+		salt)));
+}
+
+uint risPrimaryCandidateCount(uint lights_num_in_cluster)
+{
+	return min(lights_num_in_cluster, uint(RIS_PRIMARY_CANDIDATES));
 }
 
 uint risPrimaryCandidateOffset(ivec2 pix, uint lights_num_in_cluster, uint salt)
 {
-	if (lights_num_in_cluster <= 1u) {
+	if (lights_num_in_cluster <= uint(RIS_PRIMARY_CANDIDATES)) {
 		return 0u;
 	}
 
-	const uint bayer_offset = (((risBayer8(pix) + salt) & 63u) * lights_num_in_cluster) >> 6u;
+	const uint phase = risPrimarySeedPhase(salt ^ 0x6f666673u);
+	const uint bayer_offset = (((risBayer4(pix) + (phase & 15u)) & 15u) * lights_num_in_cluster) >> 4u;
 	return (bayer_offset + ubo.ubo.frame_counter) % lights_num_in_cluster;
+}
+
+float risPrimaryWindowInvPdfScale(uint lights_num_in_cluster, uint candidate_count)
+{
+	if (candidate_count == 0u) {
+		return 0.0;
+	}
+
+	return float(lights_num_in_cluster) / float(candidate_count);
 }
 
 float risSelectLobeWeight(vec2 weights, uint lobe)
@@ -207,7 +249,7 @@ float risSpatialRandom01(ivec2 pix, uint candidate_index, uint salt)
 	return uintToFloat01(xxhash32(uvec4(
 		uint(pix.x),
 		uint(pix.y),
-		ubo.ubo.frame_counter ^ ubo.ubo.random_seed,
+		ubo.ubo.random_seed,
 		candidate_index ^ salt)));
 }
 
@@ -241,7 +283,7 @@ ivec2 risPoissonNeighborOffset(uint candidate_index, ivec2 pix)
 	const uint h = xxhash32(uvec4(
 		uint(pix.x),
 		uint(pix.y),
-		ubo.ubo.frame_counter ^ ubo.ubo.random_seed,
+		ubo.ubo.random_seed,
 		0x706f6973u));
 	const uint index = (candidate_index + h) & (RIS_POISSON_POOL_SIZE - 1u);
 	ivec2 offset = poisson_offsets[index];

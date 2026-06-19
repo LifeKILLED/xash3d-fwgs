@@ -47,8 +47,22 @@ bool risSelectPointLight(
 {
 	float total_weight = 0.0;
 	const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
-	for (uint j = 0u; j < num_point_lights; ++j) {
-		total_weight += risSelectLobeWeight(risPointProposalWeights(uint(light_grid.clusters_[cluster_index].point_lights[j]), P, N, V, material), lobe);
+	const uint candidate_count = risPrimaryCandidateCount(num_point_lights);
+	if (candidate_count == 0u) {
+		light_id = 0u;
+		inv_light_pdf = 0.0;
+		return false;
+	}
+
+	const uint salt = (lobe == RIS_LOBE_SPECULAR) ? 17u : 0u;
+	const uint candidate_offset = risPrimaryCandidateOffset(pix, num_point_lights, salt);
+	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
+		if (j >= candidate_count) {
+			break;
+		}
+
+		const uint candidate_index = (candidate_offset + j) % num_point_lights;
+		total_weight += risSelectLobeWeight(risPointProposalWeights(uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]), P, N, V, material), lobe);
 	}
 
 	if (total_weight <= RIS_WEIGHT_EPSILON) {
@@ -57,11 +71,13 @@ bool risSelectPointLight(
 		return false;
 	}
 
-	const uint salt = (lobe == RIS_LOBE_SPECULAR) ? 17u : 0u;
-	const uint candidate_offset = risPrimaryCandidateOffset(pix, num_point_lights, salt);
-	const float target_weight = risPrimaryBayerRandom01(pix, salt) * total_weight;
+	const float target_weight = risPrimaryRandom01(pix, salt) * total_weight;
 	float weight_prefix = 0.0;
-	for (uint j = 0u; j < num_point_lights; ++j) {
+	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
+		if (j >= candidate_count) {
+			break;
+		}
+
 		const uint candidate_index = (j + candidate_offset) % num_point_lights;
 		const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
 		const float candidate_weight = risSelectLobeWeight(risPointProposalWeights(candidate_id, P, N, V, material), lobe);
@@ -70,9 +86,9 @@ bool risSelectPointLight(
 		}
 
 		weight_prefix += candidate_weight;
-		if (target_weight <= weight_prefix || j + 1u == num_point_lights) {
+		if (target_weight <= weight_prefix || j + 1u == candidate_count) {
 			light_id = candidate_id;
-			inv_light_pdf = total_weight / candidate_weight;
+			inv_light_pdf = risStabilizeInvLightPdf(risPrimaryWindowInvPdfScale(num_point_lights, candidate_count) * total_weight / candidate_weight);
 			return true;
 		}
 	}
