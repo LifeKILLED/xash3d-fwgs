@@ -79,12 +79,20 @@ const float shadow_offset_fudge = .1;
 #define RIS_INV_LIGHT_PDF_HARD_CAP 64.0
 #endif
 
+#ifndef RIS_STABILIZE_INV_LIGHT_PDF
+#define RIS_STABILIZE_INV_LIGHT_PDF 0
+#endif
+
 #ifndef RIS_PRIMARY_SAMPLE_MIX
 #define RIS_PRIMARY_SAMPLE_MIX 0.2
 #endif
 
 #ifndef RIS_SECONDARY_SAMPLE_MIX
 #define RIS_SECONDARY_SAMPLE_MIX 0.8
+#endif
+
+#ifndef RIS_PRIMARY_CONTRIBUTE_TO_OUTPUT
+#define RIS_PRIMARY_CONTRIBUTE_TO_OUTPUT 0
 #endif
 
 #ifndef RIS_TEMPORAL_WEIGHT_DELTA_RESET
@@ -173,6 +181,7 @@ vec3 risBlendPrimarySecondary(RisReservoir primary_reservoir, vec3 secondary_con
 
 float risStabilizeInvLightPdf(float inv_light_pdf)
 {
+#if RIS_STABILIZE_INV_LIGHT_PDF
 	if (inv_light_pdf <= RIS_INV_LIGHT_PDF_SOFT_CAP) {
 		return inv_light_pdf;
 	}
@@ -180,32 +189,9 @@ float risStabilizeInvLightPdf(float inv_light_pdf)
 	const float range = max(RIS_INV_LIGHT_PDF_HARD_CAP - RIS_INV_LIGHT_PDF_SOFT_CAP, 1e-3);
 	const float overshoot = inv_light_pdf - RIS_INV_LIGHT_PDF_SOFT_CAP;
 	return RIS_INV_LIGHT_PDF_SOFT_CAP + range * overshoot / (overshoot + range);
-}
-
-uint risBayer4(ivec2 p)
-{
-	const uint bayer[16] = uint[16](
-		 0u,  8u,  2u, 10u,
-		12u,  4u, 14u,  6u,
-		 3u, 11u,  1u,  9u,
-		15u,  7u, 13u,  5u
-	);
-	const ivec2 q = p & ivec2(3);
-	return bayer[q.y * 4 + q.x];
-}
-
-uint risPrimarySeedPhase(uint salt)
-{
-	return xxhash32(uvec4(ubo.ubo.random_seed, salt, 0x72697370u, 0x70686173u));
-}
-
-float risPrimaryRandom01(ivec2 pix, uint salt)
-{
-	return uintToFloat01(xxhash32(uvec4(
-		uint(pix.x),
-		uint(pix.y),
-		ubo.ubo.random_seed,
-		salt)));
+#else
+	return inv_light_pdf;
+#endif
 }
 
 uint risPrimaryCandidateCount(uint lights_num_in_cluster)
@@ -213,15 +199,13 @@ uint risPrimaryCandidateCount(uint lights_num_in_cluster)
 	return min(lights_num_in_cluster, uint(RIS_PRIMARY_CANDIDATES));
 }
 
-uint risPrimaryCandidateOffset(ivec2 pix, uint lights_num_in_cluster, uint salt)
+uint risPrimaryCandidateIndex(uint lights_num_in_cluster, uint candidate_ordinal)
 {
 	if (lights_num_in_cluster <= uint(RIS_PRIMARY_CANDIDATES)) {
-		return 0u;
+		return candidate_ordinal;
 	}
 
-	const uint phase = risPrimarySeedPhase(salt ^ 0x6f666673u);
-	const uint bayer_offset = (((risBayer4(pix) + (phase & 15u)) & 15u) * lights_num_in_cluster) >> 4u;
-	return (bayer_offset + ubo.ubo.frame_counter) % lights_num_in_cluster;
+	return min(uint(rand01() * float(lights_num_in_cluster)), lights_num_in_cluster - 1u);
 }
 
 float risPrimaryWindowInvPdfScale(uint lights_num_in_cluster, uint candidate_count)

@@ -120,8 +120,6 @@ bool risSelectPointLight(
 		return false;
 	}
 
-	const uint salt = 23u;
-	const uint candidate_offset = risPrimaryCandidateOffset(pix, num_point_lights, salt);
 	uint candidate_ids[RIS_PRIMARY_CANDIDATES];
 	float candidate_weights[RIS_PRIMARY_CANDIDATES];
 	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
@@ -129,7 +127,7 @@ bool risSelectPointLight(
 			break;
 		}
 
-		const uint candidate_index = (candidate_offset + j) % num_point_lights;
+		const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, j);
 		const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
 		const float candidate_weight = risPrimaryMixedWeight(risPointProposalWeights(candidate_id, P, N, V, material), material.metalness);
 		candidate_ids[j] = candidate_id;
@@ -143,7 +141,7 @@ bool risSelectPointLight(
 		return false;
 	}
 
-	const float target_weight = risPrimaryRandom01(pix, salt) * total_weight;
+	const float target_weight = rand01() * total_weight;
 	float weight_prefix = 0.0;
 	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
 		if (j >= candidate_count) {
@@ -486,10 +484,12 @@ void computePointLightingRIS(
 	risReservoirInit(primary_specular_reservoir);
 
 	if (ris_active) {
+#if RIS_PRIMARY_CONTRIBUTE_TO_OUTPUT
 		if (any(greaterThan(primary_candidate_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 			risReservoirUpdate(primary_diffuse_reservoir, primary_candidate_weights.x, primary_candidate_diffuse);
 			risReservoirUpdate(primary_specular_reservoir, primary_candidate_weights.y, primary_candidate_specular);
 		}
+#endif
 
 		uint pool_light_ids[RIS_POISSON_POOL_SIZE];
 		vec2 pool_weights[RIS_POISSON_POOL_SIZE];
