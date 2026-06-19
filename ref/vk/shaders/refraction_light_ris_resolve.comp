@@ -1,0 +1,97 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+
+#include "debug.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D refraction_throughput;
+layout(set = 0, binding = 11, rgba32f) uniform readonly image2D refraction_hit_pos;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D refraction_normals_gs;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D refraction_material_rmxx;
+layout(set = 0, binding = 14, rgba8) uniform readonly image2D refraction_base_color_a;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D refraction_view_dir;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D refraction_emissive;
+layout(set = 0, binding = 17, rgba16f) uniform readonly image2D refraction_light_poly_diffuse;
+layout(set = 0, binding = 18, rgba16f) uniform readonly image2D refraction_light_poly_specular;
+layout(set = 0, binding = 19, rgba16f) uniform readonly image2D refraction_light_point_diffuse;
+layout(set = 0, binding = 20, rgba16f) uniform readonly image2D refraction_light_point_specular;
+
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_precombined_refraction;
+
+#include "refraction_ris_common.glsl"
+
+vec3 resolveRefractionLayer(ivec2 atlas_pix, vec3 behind_color, inout bool has_refraction)
+{
+	const vec3 emissive = imageLoad(refraction_emissive, atlas_pix).rgb;
+
+	vec3 P;
+	vec3 geometry_N;
+	vec3 shading_N;
+	vec3 V;
+	vec3 throughput;
+	vec3 unused_emissive;
+	MaterialProperties material;
+	const bool surface_active = refractionRisLoadSurface(atlas_pix, P, geometry_N, shading_N, V, material, throughput, unused_emissive);
+	if (!surface_active) {
+		if (dot(emissive, emissive) > 0.0) {
+			has_refraction = true;
+			return emissive;
+		}
+
+		return behind_color;
+	}
+
+	const vec3 diffuse_light =
+		imageLoad(refraction_light_poly_diffuse, atlas_pix).rgb +
+		imageLoad(refraction_light_point_diffuse, atlas_pix).rgb;
+	const vec3 specular_light =
+		imageLoad(refraction_light_poly_specular, atlas_pix).rgb +
+		imageLoad(refraction_light_point_specular, atlas_pix).rgb;
+	const vec3 lit_color = throughput * mixFinalColor(material.base_color, diffuse_light, specular_light, material.metalness);
+	const float opacity = clamp(imageLoad(refraction_base_color_a, atlas_pix).a, 0.0, 1.0);
+
+	has_refraction = true;
+	return emissive + mix(behind_color, lit_color, opacity);
+}
+
+void storeUpscaledRefraction(ivec2 local_pix, vec4 value)
+{
+	for (int y = 0; y < 2; ++y) {
+		for (int x = 0; x < 2; ++x) {
+			const ivec2 dst_pix = local_pix * 2 + ivec2(x, y);
+			if (any(greaterThanEqual(dst_pix, ubo.ubo.res))) {
+				continue;
+			}
+
+			imageStore(out_precombined_refraction, dst_pix, value);
+		}
+	}
+}
+
+void main()
+{
+	const ivec2 local_pix = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 layer_size = refractionRisLayerSize();
+	if (any(greaterThanEqual(local_pix, layer_size))) {
+		return;
+	}
+
+	vec3 refraction = vec3(0.0);
+	bool has_refraction = false;
+
+	for (int layer = int(REFRACTION_RIS_LAYER_COUNT) - 1; layer >= 0; --layer) {
+		refraction = resolveRefractionLayer(refractionRisAtlasPixel(local_pix, uint(layer)), refraction, has_refraction);
+	}
+
+	DEBUG_VALIDATE_RANGE_VEC3("refraction_ris_resolve.refraction", refraction, 0.0, 1e6);
+
+	storeUpscaledRefraction(local_pix, vec4(refraction, has_refraction ? 1.0 : 0.0));
+}

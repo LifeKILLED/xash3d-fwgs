@@ -124,17 +124,17 @@ bool bounceRisLoadSurface(
 	out vec3 V,
 	out MaterialProperties material,
 	out vec3 throughput,
-	out vec3 seed_radiance)
+	out vec3 emissive_radiance)
 {
 	V = vec3(0.0, 0.0, 1.0);
 	material.base_color = vec3(0.0);
 	material.metalness = 0.0;
 	material.roughness = 1.0;
 	throughput = vec3(0.0);
-	seed_radiance = vec3(0.0);
+	emissive_radiance = vec3(0.0);
 
 	if (!bounceRisLoadSpatialSurfaceRaw(pix, P, geometry_N, shading_N)) {
-		seed_radiance = imageLoad(bounce_seed_radiance, pix).rgb;
+		emissive_radiance = imageLoad(bounce_emissive, pix).rgb;
 		return false;
 	}
 
@@ -142,7 +142,7 @@ bool bounceRisLoadSurface(
 	V = dot(stored_view, stored_view) > 1e-6 ? normalize(stored_view) : shading_N;
 	material = bounceRisLoadMaterial(pix);
 	throughput = imageLoad(bounce_throughput, pix).rgb;
-	seed_radiance = imageLoad(bounce_seed_radiance, pix).rgb;
+	emissive_radiance = imageLoad(bounce_emissive, pix).rgb;
 	P += geometry_N * BOUNCE_RIS_LIGHTING_NORMAL_OFFSET;
 	return any(greaterThan(throughput, vec3(1e-6)));
 }

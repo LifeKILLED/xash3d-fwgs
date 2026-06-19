@@ -43,6 +43,12 @@ layout(set = 0, binding = 27, rgba32f) uniform readonly image2D prev_temporal_as
 layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_temporal_asvgf_indirect_specular_stats;
 layout(set = 0, binding = 29, rgba32f) uniform readonly image2D prev_temporal_asvgf_indirect_specular_stats;
 layout(set = 0, binding = 30, rgba32f) uniform readonly image2D final_atrous_indirect_diffuse_stats;
+layout(set = 0, binding = 31, rgba16f) uniform writeonly image2D out_temporal_asvgf_refraction;
+layout(set = 0, binding = 32, rgba16f) uniform readonly image2D prev_temporal_asvgf_refraction;
+layout(set = 0, binding = 33, rgba16f) uniform readonly image2D final_atrous_refraction;
+layout(set = 0, binding = 34, rgba32f) uniform readonly image2D final_atrous_refraction_stats;
+layout(set = 0, binding = 35, rgba32f) uniform writeonly image2D out_temporal_asvgf_refraction_stats;
+layout(set = 0, binding = 36, rgba32f) uniform readonly image2D prev_temporal_asvgf_refraction_stats;
 
 #define LOAD_REFLECTION_RAY_LENGTH(pix) imageLoad(indirect_specular_ray_length, pix).r
 #define ASVGF_REPROJECTION_PARAMS ubo.ubo.asvgf.direct_diffuse
@@ -68,6 +74,7 @@ struct CurrentLuminanceStats {
 	LuminanceStats direct_specular;
 	LuminanceStats indirect_diffuse;
 	LuminanceStats indirect_specular;
+	LuminanceStats refraction;
 };
 
 struct AsvgfGateState {
@@ -139,12 +146,14 @@ CurrentLuminanceStats loadCurrentStatsFromBuffer(ivec2 pix) {
 	const vec4 direct_stats = imageLoad(final_atrous_direct_stats, pix);
 	const vec4 indirect_diff_stats = imageLoad(final_atrous_indirect_diffuse_stats, pix);
 	const vec4 indirect_spec_stats = imageLoad(final_atrous_indirect_specular_stats, pix);
+	const vec4 refraction_stats = imageLoad(final_atrous_refraction_stats, pix);
 
 	CurrentLuminanceStats stats;
 	stats.direct_diffuse = makeLuminanceStats(direct_stats.x, direct_stats.y);
 	stats.direct_specular = makeLuminanceStats(direct_stats.z, direct_stats.w);
 	stats.indirect_diffuse = makeLuminanceStats(indirect_diff_stats.x, indirect_diff_stats.y);
 	stats.indirect_specular = makeLuminanceStats(indirect_spec_stats.x, indirect_spec_stats.y);
+	stats.refraction = makeLuminanceStats(refraction_stats.x, refraction_stats.y);
 	return stats;
 }
 
@@ -580,27 +589,32 @@ void main() {
 	const vec4 pre_asvgf_direct_diffuse_sample = imageLoad(final_atrous_direct_diffuse, pix);
 	const vec4 pre_asvgf_direct_specular_sample = imageLoad(final_atrous_direct_specular, pix);
 	const vec4 pre_asvgf_indirect_specular_sample = imageLoad(final_atrous_indirect_specular, pix);
+	const vec4 pre_asvgf_refraction_sample = imageLoad(final_atrous_refraction, pix);
 
 	vec3 direct_diffuse = pre_asvgf_direct_diffuse_sample.rgb;
 	vec3 indirect_diffuse = imageLoad(precombined_indirect_diffuse, pix).rgb;
 	vec3 direct_specular = pre_asvgf_direct_specular_sample.rgb;
 	vec3 indirect_specular = pre_asvgf_indirect_specular_sample.rgb;
+	vec3 refraction = pre_asvgf_refraction_sample.rgb;
 
 	const CurrentLuminanceStats current_stats = loadCurrentStatsFromBuffer(pix);
 	const LuminanceStats current_direct_diffuse_stats = current_stats.direct_diffuse;
 	const LuminanceStats current_direct_specular_stats = current_stats.direct_specular;
 	const LuminanceStats current_indirect_diffuse_stats = current_stats.indirect_diffuse;
 	const LuminanceStats current_indirect_specular_stats = current_stats.indirect_specular;
+	const LuminanceStats current_refraction_stats = current_stats.refraction;
 
 	LuminanceStats asvgf_direct_diffuse_stats = current_direct_diffuse_stats;
 	LuminanceStats asvgf_direct_specular_stats = current_direct_specular_stats;
 	LuminanceStats asvgf_indirect_diffuse_stats = current_indirect_diffuse_stats;
 	LuminanceStats asvgf_indirect_specular_stats = current_indirect_specular_stats;
+	LuminanceStats asvgf_refraction_stats = current_refraction_stats;
 
 	float diffuse_history_samples = 1.0;
 	float indirect_diffuse_history_samples = 1.0;
 	float direct_specular_history_samples = 1.0;
 	float indirect_specular_history_samples = 1.0;
+	float refraction_history_samples = 1.0;
 
 	const vec3 origin = (ubo.ubo.inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	const float depth = length(origin - position);
@@ -621,21 +635,25 @@ void main() {
 		vec3 history_diffuse = direct_diffuse;
 		vec3 history_indirect_diffuse = indirect_diffuse;
 		vec3 history_indirect_specular = indirect_specular;
+		vec3 history_refraction = refraction;
 
 		diffuse_history_samples = 1.0;
 		indirect_diffuse_history_samples = 1.0;
 		direct_specular_history_samples = 1.0;
 		indirect_specular_history_samples = 1.0;
+		refraction_history_samples = 1.0;
 
 		float diffuse_compatibility = 0.0;
 		float indirect_diffuse_history_compatibility = 0.0;
 		float direct_specular_history_compatibility = 0.0;
 		float indirect_specular_history_compatibility = 0.0;
+		float refraction_history_compatibility = 0.0;
 
 		LuminanceStats history_diffuse_stats = current_direct_diffuse_stats;
 		LuminanceStats history_direct_specular_stats = current_direct_specular_stats;
 		LuminanceStats history_indirect_diffuse_stats = current_indirect_diffuse_stats;
 		LuminanceStats history_indirect_specular_stats = current_indirect_specular_stats;
+		LuminanceStats history_refraction_stats = current_refraction_stats;
 
 		const float current_diffuse_luma = luminance(direct_diffuse);
 		const float current_indirect_diffuse_luma = luminance(indirect_diffuse);
@@ -646,6 +664,7 @@ void main() {
 		const float indirect_diffuse_direct_compatibility = direct_diffuse_compatibility;
 		const float direct_specular_compatibility = 1.0;
 		const float indirect_specular_compatibility = clamp(pre_asvgf_indirect_specular_sample.a, 0.0, 1.0);
+		const float refraction_compatibility = clamp(pre_asvgf_refraction_sample.a, 0.0, 1.0);
 		const bool mirror_surface = (metalness >= 0.999) && (current_roughness <= 0.001);
 
 		if (all(greaterThanEqual(reproj_pix, ivec2(0))) && all(lessThan(reproj_pix, res))) {
@@ -676,6 +695,7 @@ void main() {
 					if (depth_offset < history_depth_threshold && depth_score < better_depth_score) {
 						const vec4 history_diffuse_sample = imageLoad(prev_temporal_asvgf_direct_diffuse, candidate_pix);
 						const vec4 history_indirect_diffuse_sample = imageLoad(prev_temporal_asvgf_indirect_diffuse, candidate_pix);
+						const vec4 history_refraction_sample = imageLoad(prev_temporal_asvgf_refraction, candidate_pix);
 						reproj_pix = candidate_pix;
 						better_depth_offset = depth_offset;
 						better_depth_score = depth_score;
@@ -683,12 +703,16 @@ void main() {
 						has_base_history = true;
 						history_diffuse = history_diffuse_sample.rgb;
 						history_indirect_diffuse = history_indirect_diffuse_sample.rgb;
+						history_refraction = history_refraction_sample.rgb;
 						diffuse_history_samples = max(history_diffuse_sample.a, 0.0);
 						indirect_diffuse_history_samples = max(history_indirect_diffuse_sample.a, 0.0);
+						refraction_history_samples = max(history_refraction_sample.a, 0.0);
 						diffuse_compatibility = direct_diffuse_compatibility;
 						indirect_diffuse_history_compatibility = indirect_diffuse_direct_compatibility;
+						refraction_history_compatibility = refraction_compatibility;
 						history_diffuse_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_direct_diffuse_stats, candidate_pix));
 						history_indirect_diffuse_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_indirect_diffuse_stats, candidate_pix));
+						history_refraction_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_refraction_stats, candidate_pix));
 					}
 				}
 			}
@@ -766,12 +790,14 @@ void main() {
 		bool has_indirect_diffuse_history = has_base_history;
 		bool has_direct_specular_history = has_base_history;
 		bool has_indirect_specular_history = has_base_history;
+		bool has_refraction_history = has_base_history;
 
 		AsvgfGateState neutral_gate = makeNeutralGate();
 		AsvgfGateState direct_diffuse_external_gate = makeGate(diffuse_compatibility, diffuse_compatibility <= ASVGF.direct_diffuse.external_gate_hard_threshold);
 		AsvgfGateState direct_specular_external_gate = makeGate(direct_specular_history_compatibility, direct_specular_history_compatibility <= ASVGF.direct_specular.external_gate_hard_threshold);
 		AsvgfGateState indirect_diffuse_external_gate = makeGate(indirect_diffuse_history_compatibility, indirect_diffuse_history_compatibility <= ASVGF.indirect_diffuse.external_gate_hard_threshold);
 		AsvgfGateState indirect_specular_external_gate = makeGate(indirect_specular_history_compatibility, indirect_specular_history_compatibility <= ASVGF.indirect_specular.external_gate_hard_threshold);
+		AsvgfGateState refraction_external_gate = makeGate(refraction_history_compatibility, refraction_history_compatibility <= ASVGF.refraction.external_gate_hard_threshold);
 
 		AsvgfLobeReprojectionResult direct_diffuse_result = reprojectAsvgfLobe(
 			ASVGF.direct_diffuse,
@@ -835,6 +861,21 @@ void main() {
 				true,
 				legacy_bounce));
 
+		AsvgfLobeReprojectionResult refraction_result = reprojectAsvgfLobe(
+			ASVGF.refraction,
+			makeLobeReprojectionInput(
+				makeLobeContext(
+					refraction,
+					history_refraction,
+					current_refraction_stats,
+					history_refraction_stats,
+					refraction_history_samples,
+					has_refraction_history),
+				legacy_bounce ? neutral_gate : refraction_external_gate,
+				indirect_dependency_gate,
+				true,
+				legacy_bounce));
+
 		direct_diffuse = direct_diffuse_result.color;
 		diffuse_history_samples = direct_diffuse_result.history_samples;
 		asvgf_direct_diffuse_stats = direct_diffuse_result.stats;
@@ -850,21 +891,28 @@ void main() {
 		indirect_specular = indirect_specular_result.color;
 		indirect_specular_history_samples = indirect_specular_result.history_samples;
 		asvgf_indirect_specular_stats = indirect_specular_result.stats;
+
+		refraction = refraction_result.color;
+		refraction_history_samples = refraction_result.history_samples;
+		asvgf_refraction_stats = refraction_result.stats;
 	}
 
 	DEBUG_VALIDATE_RANGE_VEC3("asvgf.direct_diffuse", direct_diffuse, 0.0, 1e6);
 	DEBUG_VALIDATE_RANGE_VEC3("asvgf.indirect_diffuse", indirect_diffuse, 0.0, 1e6);
 	DEBUG_VALIDATE_RANGE_VEC3("asvgf.direct_specular", direct_specular, 0.0, 1e6);
 	DEBUG_VALIDATE_RANGE_VEC3("asvgf.indirect_specular", indirect_specular, 0.0, 1e6);
+	DEBUG_VALIDATE_RANGE_VEC3("asvgf.refraction", refraction, 0.0, 1e6);
 
 	imageStore(out_temporal_asvgf_direct_diffuse, pix, vec4(direct_diffuse, diffuse_history_samples));
 	imageStore(out_temporal_asvgf_indirect_diffuse, pix, vec4(indirect_diffuse, indirect_diffuse_history_samples));
 	imageStore(out_temporal_asvgf_direct_specular, pix, vec4(direct_specular, direct_specular_history_samples));
 	imageStore(out_temporal_asvgf_indirect_specular, pix, vec4(indirect_specular, indirect_specular_history_samples));
+	imageStore(out_temporal_asvgf_refraction, pix, vec4(refraction, refraction_history_samples));
 	imageStore(out_temporal_asvgf_direct_diffuse_stats, pix, encodeLuminanceStats(asvgf_direct_diffuse_stats));
 	imageStore(out_temporal_asvgf_direct_specular_stats, pix, encodeLuminanceStats(asvgf_direct_specular_stats));
 	imageStore(out_temporal_asvgf_indirect_diffuse_stats, pix, encodeLuminanceStats(asvgf_indirect_diffuse_stats));
 	imageStore(out_temporal_asvgf_indirect_specular_stats, pix, encodeLuminanceStats(asvgf_indirect_specular_stats));
+	imageStore(out_temporal_asvgf_refraction_stats, pix, encodeLuminanceStats(asvgf_refraction_stats));
 
 	vec2 asvgf_shading_normal = normalEncode(shading_normal);
 	imageStore(out_temporal_asvgf_reproj_depth, pix, vec4(encodeReprojectionDepth(depth), current_roughness, asvgf_shading_normal.x, asvgf_shading_normal.y));

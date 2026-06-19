@@ -31,7 +31,7 @@ layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_bounce_norm
 layout(set = 0, binding = 23, rgba8) uniform writeonly image2D out_bounce_material_rmxx;
 layout(set = 0, binding = 24, rgba8) uniform writeonly image2D out_bounce_base_color_a;
 layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_bounce_view_dir;
-layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_bounce_seed_radiance;
+layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_bounce_emissive;
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_first_bounce_direction;
 layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_reflection_direction_pdf;
 
@@ -114,14 +114,14 @@ void clearBounceSample(ivec2 pix)
 	imageStore(out_bounce_material_rmxx, pix, vec4(0.0));
 	imageStore(out_bounce_base_color_a, pix, vec4(0.0));
 	imageStore(out_bounce_view_dir, pix, vec4(0.0));
-	imageStore(out_bounce_seed_radiance, pix, vec4(0.0));
+	imageStore(out_bounce_emissive, pix, vec4(0.0));
 }
 
 void storeBounceHit(
 	ivec2 pix,
 	RayPayloadPrimary payload,
 	vec3 throughput,
-	vec3 seed_radiance,
+	vec3 emissive_radiance,
 	vec3 view_dir)
 {
 	imageStore(out_bounce_throughput, pix, vec4(throughput, 0.0));
@@ -130,10 +130,10 @@ void storeBounceHit(
 	imageStore(out_bounce_material_rmxx, pix, payload.material_rmxx);
 	imageStore(out_bounce_base_color_a, pix, LINEARtoSRGB(payload.base_color_a));
 	imageStore(out_bounce_view_dir, pix, vec4(view_dir, 0.0));
-	imageStore(out_bounce_seed_radiance, pix, vec4(seed_radiance, 0.0));
+	imageStore(out_bounce_emissive, pix, vec4(emissive_radiance, 0.0));
 }
 
-void storeBounceMiss(ivec2 pix, vec3 seed_radiance)
+void storeBounceMiss(ivec2 pix, vec3 emissive_radiance)
 {
 	imageStore(out_bounce_throughput, pix, vec4(0.0));
 	imageStore(out_bounce_hit_pos, pix, vec4(0.0));
@@ -141,7 +141,7 @@ void storeBounceMiss(ivec2 pix, vec3 seed_radiance)
 	imageStore(out_bounce_material_rmxx, pix, vec4(0.0));
 	imageStore(out_bounce_base_color_a, pix, vec4(0.0));
 	imageStore(out_bounce_view_dir, pix, vec4(0.0));
-	imageStore(out_bounce_seed_radiance, pix, vec4(seed_radiance, 0.0));
+	imageStore(out_bounce_emissive, pix, vec4(emissive_radiance, 0.0));
 }
 
 void main()
@@ -242,8 +242,8 @@ void main()
 
 		if (!did_hit) {
 			if (i + 1 == target_bounce_count) {
-				const vec3 seed_radiance = throughput * (SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a);
-				storeBounceMiss(pix, seed_radiance);
+				const vec3 emissive_radiance = throughput * (SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a);
+				storeBounceMiss(pix, emissive_radiance);
 			}
 			return;
 		}
@@ -251,9 +251,9 @@ void main()
 		traceDecals(payload);
 
 		if (i + 1 == target_bounce_count) {
-			const vec3 seed_radiance = throughput * SRGBtoLINEAR(blend.rgb);
+			const vec3 emissive_radiance = throughput * SRGBtoLINEAR(blend.rgb);
 			const vec3 stored_throughput = throughput * blend.a;
-			storeBounceHit(pix, payload, stored_throughput, seed_radiance, -bounce_direction);
+			storeBounceHit(pix, payload, stored_throughput, emissive_radiance, -bounce_direction);
 
 			const vec3 segment = payload.hit_t.xyz - first_pos;
 			if (lane == BOUNCE_RIS_DIFFUSE_LANE_0) {

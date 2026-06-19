@@ -62,6 +62,24 @@
 	"light_direct_point": {
 		"comp": "ray_light_direct_point_ris_apply"
 	},
+	"refraction_primary_rays": {
+		"comp": "refraction_primary_rays"
+	},
+	"refraction_light_poly_ris_init": {
+		"comp": "refraction_light_poly_ris_init"
+	},
+	"refraction_light_poly_ris_apply": {
+		"comp": "refraction_light_poly_ris_apply"
+	},
+	"refraction_light_point_ris_init": {
+		"comp": "refraction_light_point_ris_init"
+	},
+	"refraction_light_point_ris_apply": {
+		"comp": "refraction_light_point_ris_apply"
+	},
+	"refraction_light_ris_resolve": {
+		"comp": "refraction_light_ris_resolve"
+	},
 	"indiff_at1": {
 		"comp": "indirect_diffuse_atrous1"
 	},

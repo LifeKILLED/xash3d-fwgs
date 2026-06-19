@@ -184,6 +184,7 @@ typedef enum {
 	ASVGF_LOBE_DIRECT_SPECULAR,
 	ASVGF_LOBE_INDIRECT_DIFFUSE,
 	ASVGF_LOBE_INDIRECT_SPECULAR,
+	ASVGF_LOBE_REFRACTION,
 } asvgf_lobe_id_t;
 
 static const struct AsvgfReprojectionParams asvgf_default_reprojection_params = {
@@ -271,6 +272,7 @@ static void makeDefaultAsvgfLobeParams(asvgf_lobe_id_t lobe, struct AsvgfReproje
 		break;
 
 	case ASVGF_LOBE_INDIRECT_SPECULAR:
+	case ASVGF_LOBE_REFRACTION:
 		params->variance_stage_mix = 0.45f;
 		params->variance_gate_floor = 0.35f;
 		params->reset_min_scale = 0.30f;
@@ -313,6 +315,7 @@ static void makeDefaultAsvgfParams(struct AsvgfParams *params) {
 	makeDefaultAsvgfLobeParams(ASVGF_LOBE_DIRECT_SPECULAR, &params->direct_specular);
 	makeDefaultAsvgfLobeParams(ASVGF_LOBE_INDIRECT_DIFFUSE, &params->indirect_diffuse);
 	makeDefaultAsvgfLobeParams(ASVGF_LOBE_INDIRECT_SPECULAR, &params->indirect_specular);
+	makeDefaultAsvgfLobeParams(ASVGF_LOBE_REFRACTION, &params->refraction);
 }
 
 static void resetAsvgfParams( void ) {
@@ -459,6 +462,10 @@ static void denoiserIndirectDiffuseParamCmd( void ) {
 
 static void denoiserIndirectSpecularParamCmd( void ) {
 	denoiserLobeParamCmd("rt_denoiser_indirect_specular", "indirect_specular", ASVGF_LOBE_INDIRECT_SPECULAR, &g_rtx.asvgf_params.indirect_specular);
+}
+
+static void denoiserRefractionParamCmd( void ) {
+	denoiserLobeParamCmd("rt_denoiser_refraction", "refraction", ASVGF_LOBE_REFRACTION, &g_rtx.asvgf_params.refraction);
 }
 
 #undef LIST_ASVGF_REPROJECTION_FLOAT_PARAMS
@@ -841,6 +848,7 @@ qboolean VK_RayInit( void )
 	gEngine.Cmd_AddCommand("rt_denoiser_direct_specular", denoiserDirectSpecularParamCmd, "Denoiser direct specular params");
 	gEngine.Cmd_AddCommand("rt_denoiser_indirect_diffuse", denoiserIndirectDiffuseParamCmd, "Denoiser indirect diffuse params");
 	gEngine.Cmd_AddCommand("rt_denoiser_indirect_specular", denoiserIndirectSpecularParamCmd, "Denoiser indirect specular params");
+	gEngine.Cmd_AddCommand("rt_denoiser_refraction", denoiserRefractionParamCmd, "Denoiser refraction params");
 	gEngine.Cmd_AddCommand("rt_denoiser_console_setup_reset", denoiserConsoleSetupResetCmd, "Reset all denoiser settings to default");
 
 #define X(name, info) #name ", "

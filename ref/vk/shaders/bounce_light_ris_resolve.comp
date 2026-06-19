@@ -18,7 +18,7 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D bounce_normals_g
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D bounce_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D bounce_base_color_a;
 layout(set = 0, binding = 15, rgba16f) uniform readonly image2D bounce_view_dir;
-layout(set = 0, binding = 16, rgba16f) uniform readonly image2D bounce_seed_radiance;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D bounce_emissive;
 layout(set = 0, binding = 17, rgba16f) uniform readonly image2D bounce_light_poly_diffuse;
 layout(set = 0, binding = 18, rgba16f) uniform readonly image2D bounce_light_poly_specular;
 layout(set = 0, binding = 19, rgba16f) uniform readonly image2D bounce_light_point_diffuse;
@@ -31,11 +31,11 @@ layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_indirect_sp
 
 void accumulateBounceLane(ivec2 atlas_pix, uint lane, inout vec3 indirect_diffuse, inout vec3 indirect_specular)
 {
-	const vec3 seed_radiance = imageLoad(bounce_seed_radiance, atlas_pix).rgb;
+	const vec3 emissive_radiance = imageLoad(bounce_emissive, atlas_pix).rgb;
 	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-		indirect_specular += seed_radiance;
+		indirect_specular += emissive_radiance;
 	} else {
-		indirect_diffuse += seed_radiance;
+		indirect_diffuse += emissive_radiance;
 	}
 
 	vec3 P;
@@ -43,9 +43,9 @@ void accumulateBounceLane(ivec2 atlas_pix, uint lane, inout vec3 indirect_diffus
 	vec3 shading_N;
 	vec3 V;
 	vec3 throughput;
-	vec3 unused_seed;
+	vec3 unused_emissive;
 	MaterialProperties material;
-	const bool surface_active = bounceRisLoadSurface(atlas_pix, P, geometry_N, shading_N, V, material, throughput, unused_seed);
+	const bool surface_active = bounceRisLoadSurface(atlas_pix, P, geometry_N, shading_N, V, material, throughput, unused_emissive);
 	if (!surface_active) {
 		return;
 	}

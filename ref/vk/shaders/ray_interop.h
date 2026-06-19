@@ -315,6 +315,7 @@ struct AsvgfParams {
 	STRUCT AsvgfReprojectionParams direct_specular;
 	STRUCT AsvgfReprojectionParams indirect_diffuse;
 	STRUCT AsvgfReprojectionParams indirect_specular;
+	STRUCT AsvgfReprojectionParams refraction;
 };
 
 struct UniformBuffer {

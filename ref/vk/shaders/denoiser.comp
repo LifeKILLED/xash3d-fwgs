@@ -30,6 +30,8 @@ layout(set = 0, binding = 9, rgba16f) uniform readonly image2D temporal_asvgf_in
 layout(set = 0, binding = 10, rgba16f) uniform readonly image2D legacy_blend;
 layout(set = 0, binding = 11, rgba16f) uniform readonly image2D final_atrous_flashlight_diffuse;
 layout(set = 0, binding = 12, rgba16f) uniform readonly image2D final_atrous_flashlight_specular;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D temporal_asvgf_refraction;
+layout(set = 0, binding = 14, rgba32f) uniform readonly image2D position_t;
 
 //#define DEBUG_NOISE
 #ifdef DEBUG_NOISE
@@ -87,7 +89,10 @@ void main() {
 		return;
 	}
 
-	const vec3 base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+	const vec4 base_color_a_sample = imageLoad(base_color_a, pix);
+	const vec3 base_color = SRGBtoLINEAR(base_color_a_sample.rgb);
+	const float primary_opacity = clamp(base_color_a_sample.a, 0.0, 1.0);
+	const bool has_primary_surface = imageLoad(position_t, pix).w > 0.0;
 	const float metalness = imageLoad(material_rmxx, pix).g;
 	const bool separated_reflection = (ubo.ubo.renderer_flags & RENDERER_FLAG_SEPARATED_REFLECTION) != 0;
 
@@ -125,6 +130,7 @@ void main() {
 	const vec4 asvgf_direct_specular_sample = imageLoad(temporal_asvgf_direct_specular, pix);
 	const vec4 asvgf_indirect_specular_sample = imageLoad(temporal_asvgf_indirect_specular, pix);
 	const vec4 asvgf_indirect_diffuse_sample = imageLoad(temporal_asvgf_indirect_diffuse, pix);
+	const vec4 asvgf_refraction_sample = imageLoad(temporal_asvgf_refraction, pix);
 	const vec3 flashlight_diffuse = imageLoad(final_atrous_flashlight_diffuse, pix).rgb;
 	const vec3 flashlight_specular = imageLoad(final_atrous_flashlight_specular, pix).rgb;
 
@@ -132,6 +138,7 @@ void main() {
 	vec3 indirect_diffuse = asvgf_indirect_diffuse_sample.rgb;
 	vec3 direct_specular = asvgf_direct_specular_sample.rgb;
 	vec3 indirect_specular = asvgf_indirect_specular_sample.rgb;
+	vec3 refraction = asvgf_refraction_sample.rgb;
 
 	vec3 diffuse = direct_diffuse + indirect_diffuse;
 	vec3 indirect_specular_colored = separated_reflection ? restoreSpecular(indirect_specular, base_color, metalness) : indirect_specular;
@@ -181,6 +188,7 @@ void main() {
 
 	DEBUG_VALIDATE_RANGE_VEC3("denoiser.diffuse", diffuse, 0.0, 1e6);
 	DEBUG_VALIDATE_RANGE_VEC3("denoiser.specular", specular, 0.0, 1e6);
+	DEBUG_VALIDATE_RANGE_VEC3("denoiser.refraction", refraction, 0.0, 1e6);
 
 	diffuse += flashlight_diffuse;
 	specular += flashlight_specular;
@@ -196,6 +204,11 @@ void main() {
 	const vec4 legacy_blend_sample = imageLoad(legacy_blend, pix);
 
 	colour += imageLoad(emissive, pix).rgb;
+
+	if (has_primary_surface && primary_opacity < 0.999) {
+		colour = mix(refraction, colour, primary_opacity);
+	}
+
 	// Revealage. TODO: which colorspace?
 	colour *= legacy_blend_sample.a;
 

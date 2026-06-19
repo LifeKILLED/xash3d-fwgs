@@ -25,7 +25,7 @@ layout(set = 0, binding = 12, rgba16f) uniform readonly image2D bounce_normals_g
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D bounce_material_rmxx;
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D bounce_base_color_a;
 layout(set = 0, binding = 15, rgba16f) uniform readonly image2D bounce_view_dir;
-layout(set = 0, binding = 16, rgba16f) uniform readonly image2D bounce_seed_radiance;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D bounce_emissive;
 layout(set = 0, binding = 17, rgba32f) uniform readonly image2D prev_bounce_hit_pos;
 
 layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_bounce_ris_point_candidate;
@@ -61,8 +61,8 @@ void main()
 	vec3 shading_N;
 	vec3 V;
 	vec3 throughput;
-	vec3 seed_radiance;
+	vec3 emissive_radiance;
 	MaterialProperties material;
-	const bool surface_active = bounceRisLoadSurface(pix, P, geometry_N, shading_N, V, material, throughput, seed_radiance);
+	const bool surface_active = bounceRisLoadSurface(pix, P, geometry_N, shading_N, V, material, throughput, emissive_radiance);
 	computeLightingRISInit(P, geometry_N, shading_N, V, material, pix, surface_active);
 }
