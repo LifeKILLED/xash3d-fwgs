@@ -1,0 +1,189 @@
+#ifndef BOUNCE_RIS_COMMON_GLSL_INCLUDED
+#define BOUNCE_RIS_COMMON_GLSL_INCLUDED
+
+#include "utils.glsl"
+#include "color_spaces.glsl"
+#include "noise.glsl"
+#include "brdf.glsl"
+
+const uint BOUNCE_RIS_DIFFUSE_LANE_0 = 0u;
+const uint BOUNCE_RIS_DIFFUSE_LANE_1 = 1u;
+const uint BOUNCE_RIS_DIFFUSE_LANE_2 = 2u;
+const uint BOUNCE_RIS_SPECULAR_LANE = 3u;
+
+#ifndef BOUNCE_RIS_HISTORY_DISTANCE_MAX
+#define BOUNCE_RIS_HISTORY_DISTANCE_MAX 32.0
+#endif
+
+#ifndef BOUNCE_RIS_LIGHTING_NORMAL_OFFSET
+#define BOUNCE_RIS_LIGHTING_NORMAL_OFFSET 0.01
+#endif
+
+ivec2 bounceRisLaneSize()
+{
+	return ubo.ubo.res / 2;
+}
+
+uint bounceRisLaneFromPixel(ivec2 pix)
+{
+	const ivec2 lane_size = bounceRisLaneSize();
+	return uint(pix.x >= lane_size.x) | (uint(pix.y >= lane_size.y) << 1u);
+}
+
+ivec2 bounceRisLaneOrigin(uint lane)
+{
+	const ivec2 lane_size = bounceRisLaneSize();
+	return ivec2(int(lane & 1u), int((lane >> 1u) & 1u)) * lane_size;
+}
+
+ivec2 bounceRisLaneLocalPixel(ivec2 pix)
+{
+	return pix - bounceRisLaneOrigin(bounceRisLaneFromPixel(pix));
+}
+
+ivec2 bounceRisAtlasPixel(ivec2 local_pix, uint lane)
+{
+	return bounceRisLaneOrigin(lane) + local_pix;
+}
+
+bool bounceRisPixelInBounds(ivec2 pix)
+{
+	const ivec2 lane_size = bounceRisLaneSize();
+	const ivec2 local_pix = bounceRisLaneLocalPixel(pix);
+	return all(greaterThanEqual(pix, ivec2(0))) &&
+		all(lessThan(pix, ubo.ubo.res)) &&
+		all(greaterThanEqual(local_pix, ivec2(0))) &&
+		all(lessThan(local_pix, lane_size));
+}
+
+bool bounceRisSameLaneAndInBounds(ivec2 center_pix, ivec2 sample_pix)
+{
+	return bounceRisPixelInBounds(sample_pix) &&
+		bounceRisLaneFromPixel(center_pix) == bounceRisLaneFromPixel(sample_pix);
+}
+
+#ifndef BOUNCE_RIS_COORDS_ONLY
+
+bool bounceRisLoadSpatialSurfaceRaw(ivec2 pix, out vec3 P, out vec3 geometry_N, out vec3 shading_N)
+{
+	P = vec3(0.0);
+	geometry_N = vec3(0.0, 0.0, 1.0);
+	shading_N = vec3(0.0, 0.0, 1.0);
+
+	if (!bounceRisPixelInBounds(pix)) {
+		return false;
+	}
+
+	const vec4 pos_t = imageLoad(bounce_hit_pos, pix);
+	if (pos_t.w <= 0.0) {
+		return false;
+	}
+
+	const vec4 packed_normal = imageLoad(bounce_normals_gs, pix);
+	geometry_N = normalDecode(packed_normal.xy);
+	shading_N = normalDecode(packed_normal.zw);
+	P = pos_t.xyz;
+	return true;
+}
+
+MaterialProperties bounceRisLoadMaterial(ivec2 pix)
+{
+	const vec4 material_data = imageLoad(bounce_material_rmxx, pix);
+	MaterialProperties material;
+	material.base_color = SRGBtoLINEAR(imageLoad(bounce_base_color_a, pix).rgb);
+	material.metalness = material_data.g;
+	material.roughness = material_data.r;
+	return material;
+}
+
+bool bounceRisLoadSurface(
+	ivec2 pix,
+	out vec3 P,
+	out vec3 geometry_N,
+	out vec3 shading_N,
+	out vec3 V,
+	out MaterialProperties material,
+	out vec3 throughput,
+	out vec3 seed_radiance)
+{
+	V = vec3(0.0, 0.0, 1.0);
+	material.base_color = vec3(0.0);
+	material.metalness = 0.0;
+	material.roughness = 1.0;
+	throughput = vec3(0.0);
+	seed_radiance = vec3(0.0);
+
+	if (!bounceRisLoadSpatialSurfaceRaw(pix, P, geometry_N, shading_N)) {
+		seed_radiance = imageLoad(bounce_seed_radiance, pix).rgb;
+		return false;
+	}
+
+	const vec3 stored_view = imageLoad(bounce_view_dir, pix).xyz;
+	V = dot(stored_view, stored_view) > 1e-6 ? normalize(stored_view) : shading_N;
+	material = bounceRisLoadMaterial(pix);
+	throughput = imageLoad(bounce_throughput, pix).rgb;
+	seed_radiance = imageLoad(bounce_seed_radiance, pix).rgb;
+	P += geometry_N * BOUNCE_RIS_LIGHTING_NORMAL_OFFSET;
+	return any(greaterThan(throughput, vec3(1e-6)));
+}
+
+#define RIS_PIXEL_IN_BOUNDS(pix_) bounceRisPixelInBounds(pix_)
+#define RIS_SPATIAL_SAMPLE_COMPATIBLE(center_pix_, sample_pix_) bounceRisSameLaneAndInBounds((center_pix_), (sample_pix_))
+
+#define RIS_CUSTOM_SPATIAL_SURFACE 1
+bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
+{
+	vec3 geometry_N;
+	return bounceRisLoadSpatialSurfaceRaw(pix, P, geometry_N, N);
+}
+
+#if RIS_INIT_PASS
+#define RIS_CUSTOM_TEMPORAL_HISTORY 1
+bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
+{
+	history_pix = ivec2(-1);
+
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0) {
+		return false;
+	}
+
+	const uint lane = bounceRisLaneFromPixel(pix);
+	const ivec2 local_pix = bounceRisLaneLocalPixel(pix);
+	const ivec2 lane_size = bounceRisLaneSize();
+	const vec4 current_pos_t = imageLoad(bounce_hit_pos, pix);
+	if (current_pos_t.w <= 0.0) {
+		return false;
+	}
+
+	float best_dist2 = BOUNCE_RIS_HISTORY_DISTANCE_MAX * BOUNCE_RIS_HISTORY_DISTANCE_MAX;
+	for (int y = -1; y <= 1; ++y) {
+		for (int x = -1; x <= 1; ++x) {
+			const ivec2 sample_local = local_pix + ivec2(x, y);
+			if (any(lessThan(sample_local, ivec2(0))) || any(greaterThanEqual(sample_local, lane_size))) {
+				continue;
+			}
+
+			const ivec2 sample_pix = bounceRisAtlasPixel(sample_local, lane);
+			const vec4 history_pos_t = imageLoad(prev_bounce_hit_pos, sample_pix);
+			if (history_pos_t.w <= 0.0) {
+				continue;
+			}
+
+			const vec3 delta = history_pos_t.xyz - current_pos_t.xyz;
+			const float dist2 = dot(delta, delta);
+			if (dist2 < best_dist2) {
+				best_dist2 = dist2;
+				history_pix = sample_pix;
+			}
+		}
+	}
+
+	return history_pix.x >= 0;
+}
+
+#define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(bounce_hit_pos, (pix_)).xyz
+#endif
+
+#endif // BOUNCE_RIS_COORDS_ONLY
+
+#endif // BOUNCE_RIS_COMMON_GLSL_INCLUDED

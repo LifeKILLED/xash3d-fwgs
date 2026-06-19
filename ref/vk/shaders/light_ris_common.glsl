@@ -208,7 +208,10 @@ bool risCandidateImageSampleValid(RisCandidateImageSample candidate)
 
 bool risPixelInBounds(ivec2 pix)
 {
-	return all(greaterThanEqual(pix, ivec2(0))) && all(lessThan(pix, ubo.ubo.res));
+#ifndef RIS_PIXEL_IN_BOUNDS
+#define RIS_PIXEL_IN_BOUNDS(pix_) (all(greaterThanEqual((pix_), ivec2(0))) && all(lessThan((pix_), ubo.ubo.res)))
+#endif
+	return RIS_PIXEL_IN_BOUNDS(pix);
 }
 
 float risEncodeLightId(uint light_id)
@@ -357,6 +360,7 @@ RisTemporalReservoir risUpdateTemporalReservoir(
 }
 
 #if RIS_INIT_PASS
+#ifndef RIS_CUSTOM_TEMPORAL_HISTORY
 bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
 	history_pix = ivec2(-1);
@@ -386,6 +390,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	const float threshold = makeReprojectionDepthThreshold(expected_depth, history_depth, depth_threshold);
 	return abs(history_depth - expected_depth) < threshold;
 }
+#endif
 #endif
 
 uint risRoundSampleCount(float value)
@@ -445,6 +450,11 @@ bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 	return risSurfaceCompatibilityWeight(P, N, sample_P, sample_N) > RIS_WEIGHT_EPSILON;
 }
 
+#ifndef RIS_SPATIAL_SAMPLE_COMPATIBLE
+#define RIS_SPATIAL_SAMPLE_COMPATIBLE(center_pix_, sample_pix_) true
+#endif
+
+#ifndef RIS_CUSTOM_SPATIAL_SURFACE
 bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 {
 	P = vec3(0.0);
@@ -465,6 +475,7 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 	N = normalDecode(packed_normal.zw);
 	return true;
 }
+#endif
 
 float risSpatialRandom01(ivec2 pix, uint candidate_index, uint salt)
 {

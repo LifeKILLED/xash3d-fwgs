@@ -3,6 +3,26 @@
 
 #include "light_ris_common.glsl"
 
+#ifndef RIS_LOAD_TEMPORAL_REFERENCE_POSITION
+#define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(geometry_prev_position, (pix_)).rgb
+#endif
+
+#ifndef RIS_POINT_OUT_CANDIDATE_IMAGE
+#define RIS_POINT_OUT_CANDIDATE_IMAGE out_ris_point_candidate
+#endif
+
+#ifndef RIS_POINT_CANDIDATE_IMAGE
+#define RIS_POINT_CANDIDATE_IMAGE ris_point_candidate
+#endif
+
+#ifndef RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE
+#define RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE out_temporal_ris_point_reservoir
+#endif
+
+#ifndef RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE
+#define RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_ris_point_reservoir
+#endif
+
 bool risIsPointLightCandidate(uint light_id)
 {
 	if (light_id >= lights.m.num_point_lights) {
@@ -66,13 +86,13 @@ bool risLoadPreviousPointReservoir(
 	reservoir = risInvalidTemporalReservoir();
 	current_mixed_weight = 0.0;
 
-	const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
+	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix);
 	ivec2 history_pix;
 	if (!risFindTemporalHistoryPixel(pix, prev_position, geometry_N, history_pix)) {
 		return false;
 	}
 
-	RisTemporalReservoir history_reservoir = risDecodeTemporalReservoir(imageLoad(prev_temporal_ris_point_reservoir, history_pix));
+	RisTemporalReservoir history_reservoir = risDecodeTemporalReservoir(imageLoad(RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE, history_pix));
 	if (!risTemporalReservoirValid(history_reservoir) || !risIsPointLightCandidate(history_reservoir.light_id)) {
 		return false;
 	}
@@ -380,8 +400,8 @@ void computePointLightingRISInit(
 	}
 
 	if (risPixelInBounds(pix)) {
-		imageStore(out_temporal_ris_point_reservoir, pix, risEncodeTemporalReservoir(merged_reservoir));
-		imageStore(out_ris_point_candidate, pix, risEncodeCandidateImageSample(image_candidate));
+		imageStore(RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, risEncodeTemporalReservoir(merged_reservoir));
+		imageStore(RIS_POINT_OUT_CANDIDATE_IMAGE, pix, risEncodeCandidateImageSample(image_candidate));
 	}
 }
 #endif
@@ -478,8 +498,11 @@ void computePointLightingRISApply(
 			if (!risPixelInBounds(sample_pix)) {
 				continue;
 			}
+			if (!RIS_SPATIAL_SAMPLE_COMPATIBLE(pix, sample_pix)) {
+				continue;
+			}
 
-			const RisCandidateImageSample image_candidate = risDecodeCandidateImageSample(imageLoad(ris_point_candidate, sample_pix));
+			const RisCandidateImageSample image_candidate = risDecodeCandidateImageSample(imageLoad(RIS_POINT_CANDIDATE_IMAGE, sample_pix));
 			if (!risCandidateImageSampleValid(image_candidate) || !risIsPointLightCandidate(image_candidate.light_id)) {
 				continue;
 			}
