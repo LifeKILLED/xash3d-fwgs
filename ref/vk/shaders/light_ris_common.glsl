@@ -22,8 +22,24 @@ const float shadow_offset_fudge = .1;
 #define RIS_SHARED_SAMPLE_COUNT (RIS_LOCAL_SIZE_X * RIS_LOCAL_SIZE_Y)
 #endif
 
-#ifndef RIS_NEIGHBOR_CANDIDATES
-#define RIS_NEIGHBOR_CANDIDATES 4
+#ifndef RIS_SECONDARY_MAX_SAMPLES
+#define RIS_SECONDARY_MAX_SAMPLES 4
+#endif
+
+#ifndef RIS_SECONDARY_DIELECTRIC_DIFFUSE_SAMPLES
+#define RIS_SECONDARY_DIELECTRIC_DIFFUSE_SAMPLES 3
+#endif
+
+#ifndef RIS_SECONDARY_DIELECTRIC_SPECULAR_SAMPLES
+#define RIS_SECONDARY_DIELECTRIC_SPECULAR_SAMPLES 1
+#endif
+
+#ifndef RIS_SECONDARY_METALLIC_DIFFUSE_SAMPLES
+#define RIS_SECONDARY_METALLIC_DIFFUSE_SAMPLES 0
+#endif
+
+#ifndef RIS_SECONDARY_METALLIC_SPECULAR_SAMPLES
+#define RIS_SECONDARY_METALLIC_SPECULAR_SAMPLES 4
 #endif
 
 #ifndef RIS_POISSON_POOL_SIZE
@@ -200,6 +216,24 @@ float risPrimaryWindowInvPdfScale(uint lights_num_in_cluster, uint candidate_cou
 	return float(lights_num_in_cluster) / float(candidate_count);
 }
 
+uint risRoundSampleCount(float value)
+{
+	return uint(floor(max(value, 0.0) + 0.5));
+}
+
+void risSecondarySampleCounts(float metalness, out uint diffuse_count, out uint specular_count)
+{
+	const float dielectric_diffuse = float(RIS_SECONDARY_DIELECTRIC_DIFFUSE_SAMPLES);
+	const float metallic_diffuse = float(RIS_SECONDARY_METALLIC_DIFFUSE_SAMPLES);
+	const float dielectric_total = float(RIS_SECONDARY_DIELECTRIC_DIFFUSE_SAMPLES + RIS_SECONDARY_DIELECTRIC_SPECULAR_SAMPLES);
+	const float metallic_total = float(RIS_SECONDARY_METALLIC_DIFFUSE_SAMPLES + RIS_SECONDARY_METALLIC_SPECULAR_SAMPLES);
+	const float t = clamp(metalness, 0.0, 1.0);
+
+	const uint total_count = min(risRoundSampleCount(mix(dielectric_total, metallic_total, t)), uint(RIS_SECONDARY_MAX_SAMPLES));
+	diffuse_count = min(risRoundSampleCount(mix(dielectric_diffuse, metallic_diffuse, t)), total_count);
+	specular_count = total_count - diffuse_count;
+}
+
 float risSelectLobeWeight(vec2 weights, uint lobe)
 {
 	return (lobe == RIS_LOBE_SPECULAR) ? weights.y : weights.x;
@@ -229,13 +263,18 @@ float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N
 		return 0.0;
 	}
 
-	const float spatial_distance = length(P - sample_P);
-	if (spatial_distance >= RIS_SPATIAL_DISTANCE_MAX) {
+	const vec3 surface_delta = P - sample_P;
+	const float spatial_distance2 = dot(surface_delta, surface_delta);
+	const float spatial_distance_max2 = RIS_SPATIAL_DISTANCE_MAX * RIS_SPATIAL_DISTANCE_MAX;
+	if (spatial_distance2 >= spatial_distance_max2) {
 		return 0.0;
 	}
 
-	const float normal_weight = smoothstep(RIS_NORMAL_COMPATIBILITY_MIN, 1.0, normal_alignment);
-	const float distance_weight = 1.0 - spatial_distance / RIS_SPATIAL_DISTANCE_MAX;
+	const float normal_weight = clamp(
+		(normal_alignment - RIS_NORMAL_COMPATIBILITY_MIN) / max(1.0 - RIS_NORMAL_COMPATIBILITY_MIN, 1e-3),
+		0.0,
+		1.0);
+	const float distance_weight = 1.0 - spatial_distance2 / spatial_distance_max2;
 	return normal_weight * distance_weight;
 }
 
