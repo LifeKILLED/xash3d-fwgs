@@ -87,6 +87,10 @@ const float shadow_offset_fudge = .1;
 #define RIS_APPLY_PASS 0
 #endif
 
+#ifndef RIS_APPLY_VISIBILITY_TEST
+#define RIS_APPLY_VISIBILITY_TEST 1
+#endif
+
 #ifndef RIS_TEMPORAL_WEIGHT_DELTA_RESET
 #define RIS_TEMPORAL_WEIGHT_DELTA_RESET 0.3
 #endif

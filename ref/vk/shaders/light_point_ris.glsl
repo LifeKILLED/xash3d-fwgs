@@ -428,6 +428,7 @@ void computePointLightingRISApply(
 	vec3 secondary_diffuse_sum = vec3(0.0);
 	vec3 secondary_specular_sum = vec3(0.0);
 	uint secondary_sample_count = 0u;
+	const bool secondary_visibility_test = RIS_APPLY_VISIBILITY_TEST != 0;
 
 	if (ris_active) {
 		uint pool_light_ids[RIS_POISSON_POOL_SIZE];
@@ -501,7 +502,7 @@ void computePointLightingRISApply(
 				const PointLight point_light = lights.m.point_lights[pool_light_ids[selected]];
 				const float secondary_inv_light_pdf = diffuse_weight_sum / max(pool_weights[selected].x, RIS_WEIGHT_EPSILON);
 				secondary_sample_count += 1u;
-				if (risEvaluatePointLightContribution(point_light, P, N, V, material, secondary_inv_light_pdf, true, candidate_diffuse, candidate_specular)) {
+				if (risEvaluatePointLightContribution(point_light, P, N, V, material, secondary_inv_light_pdf, secondary_visibility_test, candidate_diffuse, candidate_specular)) {
 					secondary_diffuse_sum += candidate_diffuse;
 					secondary_specular_sum += candidate_specular;
 				}
@@ -536,7 +537,7 @@ void computePointLightingRISApply(
 				const PointLight point_light = lights.m.point_lights[pool_light_ids[selected]];
 				const float secondary_inv_light_pdf = specular_weight_sum / max(pool_weights[selected].y, RIS_WEIGHT_EPSILON);
 				secondary_sample_count += 1u;
-				if (risEvaluatePointLightContribution(point_light, P, N, V, material, secondary_inv_light_pdf, true, candidate_diffuse, candidate_specular)) {
+				if (risEvaluatePointLightContribution(point_light, P, N, V, material, secondary_inv_light_pdf, secondary_visibility_test, candidate_diffuse, candidate_specular)) {
 					secondary_diffuse_sum += candidate_diffuse;
 					secondary_specular_sum += candidate_specular;
 				}

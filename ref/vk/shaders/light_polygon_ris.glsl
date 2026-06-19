@@ -211,6 +211,7 @@ bool risEvaluatePolygonSamplePositionWithInvPdf(
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
+	bool visibility_test,
 	out vec3 diffuse,
 	out vec3 specular)
 {
@@ -234,7 +235,7 @@ bool risEvaluatePolygonSamplePositionWithInvPdf(
 		return false;
 	}
 
-	if (shadowed(P, L, dist)) {
+	if (visibility_test && shadowed(P, L, dist)) {
 		return false;
 	}
 
@@ -255,6 +256,7 @@ bool risEvaluatePolygonLightSample(
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
+	bool visibility_test,
 	out vec3 diffuse,
 	out vec3 specular)
 {
@@ -272,7 +274,7 @@ bool risEvaluatePolygonLightSample(
 		return false;
 	}
 
-	return risEvaluatePolygonSamplePositionWithInvPdf(poly, sample_pos, inv_light_pdf * inv_area_pdf, P, N, V, material, diffuse, specular);
+	return risEvaluatePolygonSamplePositionWithInvPdf(poly, sample_pos, inv_light_pdf * inv_area_pdf, P, N, V, material, visibility_test, diffuse, specular);
 }
 
 bool risEvaluatePolygonLightSampleWithWeights(
@@ -282,13 +284,14 @@ bool risEvaluatePolygonLightSampleWithWeights(
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
+	bool visibility_test,
 	out vec3 diffuse,
 	out vec3 specular,
 	out vec2 weights)
 {
 	weights = vec2(0.0);
 
-	if (!risEvaluatePolygonLightSample(light_id, inv_light_pdf, P, N, V, material, diffuse, specular)) {
+	if (!risEvaluatePolygonLightSample(light_id, inv_light_pdf, P, N, V, material, visibility_test, diffuse, specular)) {
 		return false;
 	}
 
@@ -333,7 +336,7 @@ void computePolygonLightingRISInit(
 			vec3 primary_diffuse;
 			vec3 primary_specular;
 			vec2 weights;
-			if (risEvaluatePolygonLightSampleWithWeights(light_id, inv_light_pdf, P, N, V, material, primary_diffuse, primary_specular, weights)) {
+			if (risEvaluatePolygonLightSampleWithWeights(light_id, inv_light_pdf, P, N, V, material, true, primary_diffuse, primary_specular, weights)) {
 				if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
 					new_candidate.light_id = light_id;
 					new_candidate.light_hash = risPolygonLightHash(light_id);
@@ -387,6 +390,7 @@ void computePolygonLightingRISApply(
 	vec3 secondary_diffuse_sum = vec3(0.0);
 	vec3 secondary_specular_sum = vec3(0.0);
 	uint secondary_sample_count = 0u;
+	const bool secondary_visibility_test = RIS_APPLY_VISIBILITY_TEST != 0;
 
 	if (ris_active) {
 		uint pool_light_ids[RIS_POISSON_POOL_SIZE];
@@ -459,7 +463,7 @@ void computePolygonLightingRISApply(
 				vec3 candidate_specular;
 				const float secondary_inv_light_pdf = diffuse_weight_sum / max(pool_weights[selected].x, RIS_WEIGHT_EPSILON);
 				secondary_sample_count += 1u;
-				if (risEvaluatePolygonLightSample(pool_light_ids[selected], secondary_inv_light_pdf, P, N, V, material, candidate_diffuse, candidate_specular)) {
+				if (risEvaluatePolygonLightSample(pool_light_ids[selected], secondary_inv_light_pdf, P, N, V, material, secondary_visibility_test, candidate_diffuse, candidate_specular)) {
 					secondary_diffuse_sum += candidate_diffuse;
 					secondary_specular_sum += candidate_specular;
 				}
@@ -493,7 +497,7 @@ void computePolygonLightingRISApply(
 				vec3 candidate_specular;
 				const float secondary_inv_light_pdf = specular_weight_sum / max(pool_weights[selected].y, RIS_WEIGHT_EPSILON);
 				secondary_sample_count += 1u;
-				if (risEvaluatePolygonLightSample(pool_light_ids[selected], secondary_inv_light_pdf, P, N, V, material, candidate_diffuse, candidate_specular)) {
+				if (risEvaluatePolygonLightSample(pool_light_ids[selected], secondary_inv_light_pdf, P, N, V, material, secondary_visibility_test, candidate_diffuse, candidate_specular)) {
 					secondary_diffuse_sum += candidate_diffuse;
 					secondary_specular_sum += candidate_specular;
 				}

@@ -36,6 +36,8 @@ layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } ku
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
 layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
+#define RIS_APPLY_VISIBILITY_TEST 0
+
 #define RAY_QUERY
 #define RIS_APPLY_PASS 1
 #define LIGHT_POINT 1
