@@ -26,6 +26,70 @@ vec2 risPolygonProposalWeights(uint light_id, vec3 P, vec3 N, vec3 V, MaterialPr
 	return max(lightPolygonWeightCalculation(lights.m.polygons[light_id], P, N, V, material.roughness), vec2(0.0));
 }
 
+uint risPolygonLightHash(uint light_id)
+{
+	if (light_id >= lights.m.num_polygons) {
+		return 0u;
+	}
+
+	const PolygonLight poly = lights.m.polygons[light_id];
+	uint hash_value = xxhash32(uvec4(
+		floatBitsToUint(poly.plane.x),
+		floatBitsToUint(poly.plane.y),
+		floatBitsToUint(poly.plane.z),
+		floatBitsToUint(poly.plane.w)));
+	hash_value ^= xxhash32(uvec4(
+		floatBitsToUint(poly.center.x),
+		floatBitsToUint(poly.center.y),
+		floatBitsToUint(poly.center.z),
+		floatBitsToUint(poly.area)));
+	hash_value ^= xxhash32(uvec4(
+		floatBitsToUint(poly.emissive.x),
+		floatBitsToUint(poly.emissive.y),
+		floatBitsToUint(poly.emissive.z),
+		poly.vertices_count_offset));
+	return risFoldTemporalHash(hash_value);
+}
+
+bool risLoadPreviousPolygonReservoir(
+	vec3 P,
+	vec3 geometry_N,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	out RisTemporalReservoir reservoir,
+	out float current_mixed_weight)
+{
+	reservoir = risInvalidTemporalReservoir();
+	current_mixed_weight = 0.0;
+
+	const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
+	ivec2 history_pix;
+	if (!risFindTemporalHistoryPixel(pix, prev_position, geometry_N, history_pix)) {
+		return false;
+	}
+
+	RisTemporalReservoir history_reservoir = risDecodeTemporalReservoir(imageLoad(prev_temporal_ris_poly_reservoir, history_pix));
+	if (!risTemporalReservoirValid(history_reservoir) || history_reservoir.light_id >= lights.m.num_polygons) {
+		return false;
+	}
+
+	const uint current_hash = risPolygonLightHash(history_reservoir.light_id);
+	if (current_hash != history_reservoir.light_hash) {
+		return false;
+	}
+
+	const vec2 current_weights = risPolygonProposalWeights(history_reservoir.light_id, P, N, V, material);
+	current_mixed_weight = risPrimaryMixedWeight(current_weights, material.metalness);
+	if (current_mixed_weight <= RIS_WEIGHT_EPSILON) {
+		return false;
+	}
+
+	reservoir = history_reservoir;
+	return true;
+}
+
 bool risSelectPolygonLight(
 	uint cluster_index,
 	vec3 P,
@@ -245,6 +309,7 @@ bool risEvaluatePolygonLightSampleWithWeights(
 void risStoreInitialPolygonSample(
 	uint cluster_index,
 	vec3 P,
+	vec3 geometry_N,
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
@@ -266,6 +331,25 @@ void risStoreInitialPolygonSample(
 	primary_specular = vec3(0.0);
 	primary_weights = vec2(0.0);
 
+	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
+	float old_current_mixed_weight = 0.0;
+	if (ris_active) {
+		risLoadPreviousPolygonReservoir(
+			P,
+			geometry_N,
+			N,
+			V,
+			material,
+			pix,
+			old_reservoir,
+			old_current_mixed_weight);
+	}
+
+	RisTemporalCandidate new_candidate;
+	new_candidate.light_id = RIS_INVALID_LIGHT_ID;
+	new_candidate.light_hash = 0u;
+	new_candidate.mixed_weight = 0.0;
+
 	if (ris_active) {
 		uint light_id;
 		float inv_light_pdf;
@@ -274,12 +358,48 @@ void risStoreInitialPolygonSample(
 			if (risEvaluatePolygonLightSampleWithWeights(light_id, inv_light_pdf, P, N, V, material, primary_diffuse, primary_specular, weights)) {
 				primary_weights = vec2(1.0);
 				if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
-					shared_sample.valid = 1u;
-					shared_sample.light_id = light_id;
-					shared_sample.reuse_weights = weights;
+					new_candidate.light_id = light_id;
+					new_candidate.light_hash = risPolygonLightHash(light_id);
+					new_candidate.mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
 				}
 			}
 		}
+	}
+
+	const float temporal_rand_reset = risTemporalRandom01(pix, 0x72737430u);
+	const float temporal_rand_lifetime = risTemporalRandom01(pix, 0x72737431u);
+	const bool old_reservoir_survives = risTemporalOldReservoirSurvives(
+		old_reservoir,
+		old_current_mixed_weight,
+		temporal_rand_reset,
+		temporal_rand_lifetime);
+
+	RisTemporalReservoir merged_reservoir = risUpdateTemporalReservoir(
+		old_reservoir,
+		old_current_mixed_weight,
+		new_candidate,
+		temporal_rand_reset,
+		temporal_rand_lifetime,
+		risTemporalRandom01(pix, 0x72737432u));
+
+	const uint shared_light_id = risSelectTemporalSharedLight(
+		old_reservoir,
+		old_current_mixed_weight,
+		old_reservoir_survives,
+		new_candidate,
+		risTemporalRandom01(pix, 0x72737433u));
+
+	if (shared_light_id != RIS_INVALID_LIGHT_ID) {
+		const vec2 merged_weights = risPolygonProposalWeights(shared_light_id, P, N, V, material);
+		if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+			shared_sample.valid = 1u;
+			shared_sample.light_id = shared_light_id;
+			shared_sample.reuse_weights = merged_weights;
+		}
+	}
+
+	if (risPixelInBounds(pix)) {
+		imageStore(out_temporal_ris_poly_reservoir, pix, risEncodeTemporalReservoir(merged_reservoir));
 	}
 
 	ris_poly_shared[shared_index] = shared_sample;
@@ -287,6 +407,7 @@ void risStoreInitialPolygonSample(
 
 void computePolygonLightingRIS(
 	vec3 P,
+	vec3 geometry_N,
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
@@ -305,6 +426,7 @@ void computePolygonLightingRIS(
 	risStoreInitialPolygonSample(
 		cluster_index,
 		P,
+		geometry_N,
 		N,
 		V,
 		material,

@@ -10,6 +10,11 @@ const float shadow_offset_fudge = .1;
 #include "light_common.glsl"
 #include "light_weight.glsl"
 
+#ifndef LOAD_REFLECTION_RAY_LENGTH
+#define LOAD_REFLECTION_RAY_LENGTH(pix) 0.0
+#endif
+#include "temporal_reprojection.glsl"
+
 #ifndef RIS_LOCAL_SIZE_X
 #define RIS_LOCAL_SIZE_X 8
 #endif
@@ -47,7 +52,7 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef RIS_PRIMARY_CANDIDATES
-#define RIS_PRIMARY_CANDIDATES 8
+#define RIS_PRIMARY_CANDIDATES 16
 #endif
 
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
@@ -81,6 +86,21 @@ const float shadow_offset_fudge = .1;
 #ifndef RIS_SECONDARY_SAMPLE_MIX
 #define RIS_SECONDARY_SAMPLE_MIX 0.8
 #endif
+
+#ifndef RIS_TEMPORAL_WEIGHT_DELTA_RESET
+#define RIS_TEMPORAL_WEIGHT_DELTA_RESET 0.3
+#endif
+
+#ifndef RIS_TEMPORAL_RANDOM_RESET_PROBABILITY
+#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY 0.001
+#endif
+
+#ifndef RIS_TEMPORAL_MAX_RESERVOIR_MASS
+#define RIS_TEMPORAL_MAX_RESERVOIR_MASS 8.0
+#endif
+
+const uint RIS_INVALID_LIGHT_ID = 0xffffffffu;
+const uint RIS_TEMPORAL_HASH_MASK = 0x00ffffffu;
 
 struct RisReservoir {
 	uint valid;
@@ -217,6 +237,214 @@ float risPrimaryMixedWeight(vec2 weights, float metalness)
 {
 	const float dielectric = clamp(1.0 - metalness, 0.0, 1.0);
 	return max(weights.x * dielectric + weights.y, 0.0);
+}
+
+struct RisTemporalReservoir {
+	uint light_id;
+	uint light_hash;
+	float mixed_weight;
+	float weight_sum;
+};
+
+struct RisTemporalCandidate {
+	uint light_id;
+	uint light_hash;
+	float mixed_weight;
+};
+
+RisTemporalReservoir risInvalidTemporalReservoir()
+{
+	RisTemporalReservoir reservoir;
+	reservoir.light_id = RIS_INVALID_LIGHT_ID;
+	reservoir.light_hash = 0u;
+	reservoir.mixed_weight = 0.0;
+	reservoir.weight_sum = 0.0;
+	return reservoir;
+}
+
+bool risTemporalReservoirValid(RisTemporalReservoir reservoir)
+{
+	return reservoir.light_id != RIS_INVALID_LIGHT_ID &&
+		reservoir.mixed_weight > RIS_WEIGHT_EPSILON &&
+		reservoir.weight_sum > RIS_WEIGHT_EPSILON;
+}
+
+bool risPixelInBounds(ivec2 pix)
+{
+	return all(greaterThanEqual(pix, ivec2(0))) && all(lessThan(pix, ubo.ubo.res));
+}
+
+float risEncodeLightId(uint light_id)
+{
+	return light_id == RIS_INVALID_LIGHT_ID ? 0.0 : float(light_id) + 1.0;
+}
+
+uint risDecodeLightId(float encoded_id)
+{
+	if (!(encoded_id > 0.0) || isnan(encoded_id) || isinf(encoded_id)) {
+		return RIS_INVALID_LIGHT_ID;
+	}
+
+	return uint(max(floor(encoded_id + 0.5) - 1.0, 0.0));
+}
+
+uint risFoldTemporalHash(uint light_hash)
+{
+	return light_hash & RIS_TEMPORAL_HASH_MASK;
+}
+
+RisTemporalReservoir risDecodeTemporalReservoir(vec4 encoded)
+{
+	RisTemporalReservoir reservoir;
+	reservoir.light_id = risDecodeLightId(encoded.x);
+	reservoir.light_hash = uint(clamp(floor(encoded.y + 0.5), 0.0, float(RIS_TEMPORAL_HASH_MASK)));
+	reservoir.mixed_weight = max(encoded.z, 0.0);
+	reservoir.weight_sum = max(encoded.w, 0.0);
+
+	if (!risTemporalReservoirValid(reservoir)) {
+		return risInvalidTemporalReservoir();
+	}
+
+	return reservoir;
+}
+
+vec4 risEncodeTemporalReservoir(RisTemporalReservoir reservoir)
+{
+	if (!risTemporalReservoirValid(reservoir)) {
+		return vec4(0.0);
+	}
+
+	return vec4(
+		risEncodeLightId(reservoir.light_id),
+		float(risFoldTemporalHash(reservoir.light_hash)),
+		reservoir.mixed_weight,
+		reservoir.weight_sum);
+}
+
+float risTemporalRandom01(ivec2 pix, uint salt)
+{
+	return uintToFloat01(xxhash32(uvec4(
+		uint(pix.x),
+		uint(pix.y),
+		ubo.ubo.random_seed,
+		salt)));
+}
+
+float risTemporalResetProbability(float previous_weight, float current_weight)
+{
+	const float reference_weight = max(max(previous_weight, current_weight), RIS_WEIGHT_EPSILON);
+	const float relative_delta = abs(current_weight - previous_weight) / reference_weight;
+	return clamp(relative_delta / max(RIS_TEMPORAL_WEIGHT_DELTA_RESET, RIS_WEIGHT_EPSILON), 0.0, 1.0);
+}
+
+bool risTemporalOldReservoirSurvives(
+	RisTemporalReservoir old_reservoir,
+	float old_current_mixed_weight,
+	float rand_reset,
+	float rand_lifetime)
+{
+	if (!risTemporalReservoirValid(old_reservoir) || old_current_mixed_weight <= RIS_WEIGHT_EPSILON) {
+		return false;
+	}
+
+	const float reset_probability = risTemporalResetProbability(old_reservoir.mixed_weight, old_current_mixed_weight);
+	return rand_reset >= reset_probability && rand_lifetime >= RIS_TEMPORAL_RANDOM_RESET_PROBABILITY;
+}
+
+RisTemporalReservoir risUpdateTemporalReservoir(
+	RisTemporalReservoir old_reservoir,
+	float old_current_mixed_weight,
+	RisTemporalCandidate new_candidate,
+	float rand_reset,
+	float rand_lifetime,
+	float rand_select)
+{
+	const bool old_valid = risTemporalOldReservoirSurvives(old_reservoir, old_current_mixed_weight, rand_reset, rand_lifetime);
+
+	RisTemporalReservoir reservoir = risInvalidTemporalReservoir();
+
+	if (old_valid) {
+		const float reweight = old_current_mixed_weight / max(old_reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
+		reservoir = old_reservoir;
+		reservoir.mixed_weight = old_current_mixed_weight;
+		reservoir.weight_sum = max(old_reservoir.weight_sum, old_reservoir.mixed_weight) * reweight;
+	}
+
+	if (new_candidate.light_id != RIS_INVALID_LIGHT_ID && new_candidate.mixed_weight > RIS_WEIGHT_EPSILON) {
+		const float old_mass = risTemporalReservoirValid(reservoir) ? max(reservoir.weight_sum, reservoir.mixed_weight) : 0.0;
+		const float new_mass = new_candidate.mixed_weight;
+		const float total_mass = old_mass + new_mass;
+
+		if (old_mass <= RIS_WEIGHT_EPSILON || rand_select * total_mass < new_mass) {
+			reservoir.light_id = new_candidate.light_id;
+			reservoir.light_hash = new_candidate.light_hash;
+			reservoir.mixed_weight = new_candidate.mixed_weight;
+		}
+
+		reservoir.weight_sum = total_mass;
+	}
+
+	if (!risTemporalReservoirValid(reservoir)) {
+		return risInvalidTemporalReservoir();
+	}
+
+	const float selected_weight = max(reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
+	reservoir.weight_sum = clamp(reservoir.weight_sum, selected_weight, selected_weight * RIS_TEMPORAL_MAX_RESERVOIR_MASS);
+	return reservoir;
+}
+
+uint risSelectTemporalSharedLight(
+	RisTemporalReservoir old_reservoir,
+	float old_current_mixed_weight,
+	bool old_valid,
+	RisTemporalCandidate new_candidate,
+	float rand_select)
+{
+	const bool use_old = old_valid && old_reservoir.light_id != RIS_INVALID_LIGHT_ID && old_current_mixed_weight > RIS_WEIGHT_EPSILON;
+	const bool use_new = new_candidate.light_id != RIS_INVALID_LIGHT_ID && new_candidate.mixed_weight > RIS_WEIGHT_EPSILON;
+
+	if (!use_old && !use_new) {
+		return RIS_INVALID_LIGHT_ID;
+	}
+	if (!use_old) {
+		return new_candidate.light_id;
+	}
+	if (!use_new) {
+		return old_reservoir.light_id;
+	}
+
+	const float total_weight = old_current_mixed_weight + new_candidate.mixed_weight;
+	return rand_select * total_weight < new_candidate.mixed_weight ? new_candidate.light_id : old_reservoir.light_id;
+}
+
+bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
+{
+	history_pix = ivec2(-1);
+
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0) {
+		return false;
+	}
+
+	float depth_necessary = 0.0;
+	float depth_threshold = 0.0;
+	if (!reprojectToPrevFramePixel(prev_position, ubo.ubo.res, history_pix, depth_necessary, depth_threshold)) {
+		return false;
+	}
+
+	const vec4 history_depth_meta = imageLoad(prev_temporal_asvgf_reproj_depth, history_pix);
+	const float history_depth = decodeReprojectionDepth(history_depth_meta.r);
+	if (!isValidReprojectionDepth(history_depth)) {
+		return false;
+	}
+
+	float expected_depth = depth_necessary;
+	float plane_depth = 0.0;
+	if (computePlaneDepthInPrevFrame(history_pix, ubo.ubo.res, prev_position, geometry_normal, plane_depth)) {
+		expected_depth = plane_depth;
+	}
+
+	const float threshold = makeReprojectionDepthThreshold(expected_depth, history_depth, depth_threshold);
+	return abs(history_depth - expected_depth) < threshold;
 }
 
 uint risRoundSampleCount(float value)
