@@ -48,7 +48,7 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef RIS_PRIMARY_CANDIDATES
-#define RIS_PRIMARY_CANDIDATES 16
+#define RIS_PRIMARY_CANDIDATES 8
 #endif
 
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
