@@ -32,11 +32,17 @@
 	"bounce": {
 		"comp": "bounce"
 	},
+	"light_direct_poly_ris_init": {
+		"comp": "ray_light_direct_poly_ris_init"
+	},
 	"light_direct_poly": {
-		"comp": "ray_light_direct_poly_ris"
+		"comp": "ray_light_direct_poly_ris_apply"
+	},
+	"light_direct_point_ris_init": {
+		"comp": "ray_light_direct_point_ris_init"
 	},
 	"light_direct_point": {
-		"comp": "ray_light_direct_point_ris"
+		"comp": "ray_light_direct_point_ris_apply"
 	},
 	"indiff_at1": {
 		"comp": "indirect_diffuse_atrous1"

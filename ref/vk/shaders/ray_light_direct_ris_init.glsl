@@ -4,12 +4,6 @@
 #include "ray_kusochki.glsl"
 #include "color_spaces.glsl"
 
-#ifndef RIS_INIT_PASS
-#ifndef RIS_APPLY_PASS
-#define RIS_APPLY_PASS 1
-#endif
-#endif
-
 #include "light_ris.glsl"
 
 void main() {
@@ -19,7 +13,7 @@ void main() {
 	const bool in_bounds = !any(greaterThanEqual(pix, res));
 	const vec2 uv = in_bounds ? ((vec2(pix) + vec2(0.5)) / vec2(res) * 2.0 - 1.0) : vec2(0.0);
 #else
-#error RIS direct lighting currently expects RAY_QUERY compute dispatch.
+#error RIS direct lighting init currently expects RAY_QUERY compute dispatch.
 #endif
 
 	rand01_state = ubo.ubo.random_seed + uint(pix.x) * 1833u + uint(pix.y) * 31337u;
@@ -56,28 +50,6 @@ void main() {
 		}
 	}
 
-	vec3 diffuse = vec3(0.0);
-	vec3 specular = vec3(0.0);
-	vec3 flashlight_diffuse = vec3(0.0);
-	vec3 flashlight_specular = vec3(0.0);
-
 	const vec3 P = surface_active ? pos_t.xyz + geometry_normal * 0.001 : vec3(0.0);
-	computeLightingRISApply(P, shading_normal, -direction, material, pix, surface_active, diffuse, specular, flashlight_diffuse, flashlight_specular);
-
-	DEBUG_VALIDATE_RANGE_VEC3("direct_ris.diffuse", diffuse, 0.0, 1e6);
-	DEBUG_VALIDATE_RANGE_VEC3("direct_ris.specular", specular, 0.0, 1e6);
-
-	if (in_bounds) {
-#if LIGHT_POINT
-		imageStore(out_light_point_diffuse, pix, vec4(diffuse, 0.0));
-		imageStore(out_light_point_specular, pix, vec4(specular, 0.0));
-		imageStore(out_light_point_flashlight_diffuse, pix, vec4(flashlight_diffuse, 0.0));
-		imageStore(out_light_point_flashlight_specular, pix, vec4(flashlight_specular, 0.0));
-#endif
-
-#if LIGHT_POLYGON
-		imageStore(out_light_poly_diffuse, pix, vec4(diffuse, 0.0));
-		imageStore(out_light_poly_specular, pix, vec4(specular, 0.0));
-#endif
-	}
+	computeLightingRISInit(P, geometry_normal, shading_normal, -direction, material, pix, surface_active);
 }

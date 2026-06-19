@@ -3,16 +3,6 @@
 
 #include "light_ris_common.glsl"
 
-struct RisPointSharedSample {
-	uint valid;
-	uint light_id;
-	vec2 reuse_weights;
-	vec3 source_P;
-	vec3 source_N;
-};
-
-shared RisPointSharedSample ris_point_shared[RIS_SHARED_SAMPLE_COUNT];
-
 bool risIsPointLightCandidate(uint light_id)
 {
 	if (light_id >= lights.m.num_point_lights) {
@@ -62,6 +52,7 @@ uint risPointLightHash(uint light_id)
 	return risFoldTemporalHash(hash_value);
 }
 
+#if RIS_INIT_PASS
 bool risLoadPreviousPointReservoir(
 	vec3 P,
 	vec3 geometry_N,
@@ -100,6 +91,7 @@ bool risLoadPreviousPointReservoir(
 	reservoir = history_reservoir;
 	return true;
 }
+#endif
 
 bool risSelectPointLight(
 	uint cluster_index,
@@ -286,7 +278,8 @@ bool risEvaluatePointLightSample(
 	return true;
 }
 
-void risStoreInitialPointSample(
+#if RIS_INIT_PASS
+void computePointLightingRISInit(
 	uint cluster_index,
 	vec3 P,
 	vec3 geometry_N,
@@ -294,23 +287,8 @@ void risStoreInitialPointSample(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
-	bool ris_active,
-	out vec3 primary_diffuse,
-	out vec3 primary_specular,
-	out vec2 primary_weights)
+	bool ris_active)
 {
-	const uint shared_index = risLocalIndex();
-	RisPointSharedSample shared_sample;
-	shared_sample.valid = 0u;
-	shared_sample.light_id = 0u;
-	shared_sample.reuse_weights = vec2(0.0);
-	shared_sample.source_P = P;
-	shared_sample.source_N = N;
-
-	primary_diffuse = vec3(0.0);
-	primary_specular = vec3(0.0);
-	primary_weights = vec2(0.0);
-
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
 	float old_current_mixed_weight = 0.0;
 	if (ris_active) {
@@ -335,9 +313,10 @@ void risStoreInitialPointSample(
 		float inv_light_pdf;
 		if (risSelectPointLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
 			const PointLight point_light = lights.m.point_lights[light_id];
+			vec3 primary_diffuse;
+			vec3 primary_specular;
 			vec2 weights;
 			if (risEvaluatePointLightSample(point_light, P, N, V, material, inv_light_pdf, true, primary_diffuse, primary_specular, weights)) {
-				primary_weights = vec2(1.0);
 				if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
 					new_candidate.light_id = light_id;
 					new_candidate.light_hash = risPointLightHash(light_id);
@@ -349,12 +328,6 @@ void risStoreInitialPointSample(
 
 	const float temporal_rand_reset = risTemporalRandom01(pix, 0x72737440u);
 	const float temporal_rand_lifetime = risTemporalRandom01(pix, 0x72737441u);
-	const bool old_reservoir_survives = risTemporalOldReservoirSurvives(
-		old_reservoir,
-		old_current_mixed_weight,
-		temporal_rand_reset,
-		temporal_rand_lifetime);
-
 	RisTemporalReservoir merged_reservoir = risUpdateTemporalReservoir(
 		old_reservoir,
 		old_current_mixed_weight,
@@ -363,28 +336,22 @@ void risStoreInitialPointSample(
 		temporal_rand_lifetime,
 		risTemporalRandom01(pix, 0x72737442u));
 
-	const uint shared_light_id = risSelectTemporalSharedLight(
-		old_reservoir,
-		old_current_mixed_weight,
-		old_reservoir_survives,
-		new_candidate,
-		risTemporalRandom01(pix, 0x72737443u));
-
-	if (shared_light_id != RIS_INVALID_LIGHT_ID) {
-		const vec2 merged_weights = risPointProposalWeights(shared_light_id, P, N, V, material);
+	RisCandidateImageSample image_candidate = risInvalidCandidateImageSample();
+	if (risTemporalReservoirValid(merged_reservoir)) {
+		const vec2 merged_weights = risPointProposalWeights(merged_reservoir.light_id, P, N, V, material);
 		if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
-			shared_sample.valid = 1u;
-			shared_sample.light_id = shared_light_id;
-			shared_sample.reuse_weights = merged_weights;
+			image_candidate.light_id = merged_reservoir.light_id;
+			image_candidate.weights = merged_weights;
+			image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
 		}
 	}
 
 	if (risPixelInBounds(pix)) {
 		imageStore(out_temporal_ris_point_reservoir, pix, risEncodeTemporalReservoir(merged_reservoir));
+		imageStore(out_ris_point_candidate, pix, risEncodeCandidateImageSample(image_candidate));
 	}
-
-	ris_point_shared[shared_index] = shared_sample;
 }
+#endif
 
 void computePointAlwaysSampledLights(
 	vec3 P,
@@ -437,9 +404,9 @@ void computePointAlwaysSampledLights(
 	}
 }
 
-void computePointLightingRIS(
+#if RIS_APPLY_PASS
+void computePointLightingRISApply(
 	vec3 P,
-	vec3 geometry_N,
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
@@ -454,43 +421,15 @@ void computePointLightingRIS(
 	flashlight_diffuse = vec3(0.0);
 	flashlight_specular = vec3(0.0);
 
-	vec3 primary_candidate_diffuse;
-	vec3 primary_candidate_specular;
-	vec2 primary_candidate_weights;
-	risStoreInitialPointSample(
-		cluster_index,
-		P,
-		geometry_N,
-		N,
-		V,
-		material,
-		pix,
-		ris_active,
-		primary_candidate_diffuse,
-		primary_candidate_specular,
-		primary_candidate_weights);
-	barrier();
-
 	vec3 always_diffuse;
 	vec3 always_specular;
 	computePointAlwaysSampledLights(P, N, V, material, cluster_index, ris_active, always_diffuse, always_specular, flashlight_diffuse, flashlight_specular);
 
-	RisReservoir primary_diffuse_reservoir;
-	RisReservoir primary_specular_reservoir;
 	vec3 secondary_diffuse_sum = vec3(0.0);
 	vec3 secondary_specular_sum = vec3(0.0);
 	uint secondary_sample_count = 0u;
-	risReservoirInit(primary_diffuse_reservoir);
-	risReservoirInit(primary_specular_reservoir);
 
 	if (ris_active) {
-#if RIS_PRIMARY_CONTRIBUTE_TO_OUTPUT
-		if (any(greaterThan(primary_candidate_weights, vec2(RIS_WEIGHT_EPSILON)))) {
-			risReservoirUpdate(primary_diffuse_reservoir, primary_candidate_weights.x, primary_candidate_diffuse);
-			risReservoirUpdate(primary_specular_reservoir, primary_candidate_weights.y, primary_candidate_specular);
-		}
-#endif
-
 		uint pool_light_ids[RIS_POISSON_POOL_SIZE];
 		vec2 pool_weights[RIS_POISSON_POOL_SIZE];
 		uint pool_count = 0u;
@@ -501,29 +440,33 @@ void computePointLightingRIS(
 		risSecondarySampleCounts(material.metalness, secondary_diffuse_target_count, secondary_specular_target_count);
 
 		for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
-			const ivec2 local_pos = ivec2(gl_LocalInvocationID.xy) + risPoissonNeighborOffset(i, pix);
-			if (any(lessThan(local_pos, ivec2(0))) || local_pos.x >= RIS_LOCAL_SIZE_X || local_pos.y >= RIS_LOCAL_SIZE_Y) {
+			const ivec2 sample_pix = pix + risPoissonNeighborOffset(i, pix);
+			if (!risPixelInBounds(sample_pix)) {
 				continue;
 			}
 
-			const uint sample_index = uint(local_pos.y * RIS_LOCAL_SIZE_X + local_pos.x);
-			const RisPointSharedSample shared_sample = ris_point_shared[sample_index];
-
-			if (shared_sample.valid == 0u) {
+			const RisCandidateImageSample image_candidate = risDecodeCandidateImageSample(imageLoad(ris_point_candidate, sample_pix));
+			if (!risCandidateImageSampleValid(image_candidate) || !risIsPointLightCandidate(image_candidate.light_id)) {
 				continue;
 			}
 
-			const float edge_weight = risSurfaceCompatibilityWeight(P, N, shared_sample.source_P, shared_sample.source_N);
+			vec3 sample_P;
+			vec3 sample_N;
+			if (!risLoadSpatialSurface(sample_pix, sample_P, sample_N)) {
+				continue;
+			}
+
+			const float edge_weight = risSurfaceCompatibilityWeight(P, N, sample_P, sample_N);
 			if (edge_weight <= RIS_WEIGHT_EPSILON) {
 				continue;
 			}
 
-			vec2 reuse_weights = max(shared_sample.reuse_weights, vec2(0.0)) * edge_weight;
+			vec2 reuse_weights = max(image_candidate.weights, vec2(0.0)) * edge_weight;
 			if (!any(greaterThan(reuse_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				continue;
 			}
 
-			pool_light_ids[pool_count] = shared_sample.light_id;
+			pool_light_ids[pool_count] = image_candidate.light_id;
 			pool_weights[pool_count] = reuse_weights;
 			diffuse_weight_sum += reuse_weights.x;
 			specular_weight_sum += reuse_weights.y;
@@ -601,10 +544,9 @@ void computePointLightingRIS(
 		}
 	}
 
-	diffuse += always_diffuse + risBlendPrimarySecondary(primary_diffuse_reservoir, secondary_diffuse_sum, secondary_sample_count);
-	specular += always_specular + risBlendPrimarySecondary(primary_specular_reservoir, secondary_specular_sum, secondary_sample_count);
-
-	barrier();
+	diffuse += always_diffuse + risResolveSampleAverage(secondary_diffuse_sum, secondary_sample_count);
+	specular += always_specular + risResolveSampleAverage(secondary_specular_sum, secondary_sample_count);
 }
+#endif
 
 #endif // LIGHT_POINT_RIS_GLSL_INCLUDED

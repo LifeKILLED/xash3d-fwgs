@@ -4,12 +4,6 @@
 #include "ray_kusochki.glsl"
 #include "color_spaces.glsl"
 
-#ifndef RIS_INIT_PASS
-#ifndef RIS_APPLY_PASS
-#define RIS_APPLY_PASS 1
-#endif
-#endif
-
 #include "light_ris.glsl"
 
 void main() {
@@ -19,7 +13,7 @@ void main() {
 	const bool in_bounds = !any(greaterThanEqual(pix, res));
 	const vec2 uv = in_bounds ? ((vec2(pix) + vec2(0.5)) / vec2(res) * 2.0 - 1.0) : vec2(0.0);
 #else
-#error RIS direct lighting currently expects RAY_QUERY compute dispatch.
+#error RIS direct lighting apply currently expects RAY_QUERY compute dispatch.
 #endif
 
 	rand01_state = ubo.ubo.random_seed + uint(pix.x) * 1833u + uint(pix.y) * 31337u;

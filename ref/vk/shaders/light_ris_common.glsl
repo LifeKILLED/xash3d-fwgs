@@ -23,10 +23,6 @@ const float shadow_offset_fudge = .1;
 #define RIS_LOCAL_SIZE_Y 8
 #endif
 
-#ifndef RIS_SHARED_SAMPLE_COUNT
-#define RIS_SHARED_SAMPLE_COUNT (RIS_LOCAL_SIZE_X * RIS_LOCAL_SIZE_Y)
-#endif
-
 #ifndef RIS_SECONDARY_MAX_SAMPLES
 #define RIS_SECONDARY_MAX_SAMPLES 4
 #endif
@@ -83,16 +79,12 @@ const float shadow_offset_fudge = .1;
 #define RIS_STABILIZE_INV_LIGHT_PDF 0
 #endif
 
-#ifndef RIS_PRIMARY_SAMPLE_MIX
-#define RIS_PRIMARY_SAMPLE_MIX 0.2
+#ifndef RIS_INIT_PASS
+#define RIS_INIT_PASS 0
 #endif
 
-#ifndef RIS_SECONDARY_SAMPLE_MIX
-#define RIS_SECONDARY_SAMPLE_MIX 0.8
-#endif
-
-#ifndef RIS_PRIMARY_CONTRIBUTE_TO_OUTPUT
-#define RIS_PRIMARY_CONTRIBUTE_TO_OUTPUT 0
+#ifndef RIS_APPLY_PASS
+#define RIS_APPLY_PASS 0
 #endif
 
 #ifndef RIS_TEMPORAL_WEIGHT_DELTA_RESET
@@ -109,75 +101,6 @@ const float shadow_offset_fudge = .1;
 
 const uint RIS_INVALID_LIGHT_ID = 0xffffffffu;
 const uint RIS_TEMPORAL_HASH_MASK = 0x00ffffffu;
-
-struct RisReservoir {
-	uint valid;
-	float sum_weight;
-	float selected_weight;
-	uint sample_count;
-	vec3 contribution;
-};
-
-void risReservoirInit(out RisReservoir reservoir)
-{
-	reservoir.valid = 0u;
-	reservoir.sum_weight = 0.0;
-	reservoir.selected_weight = 0.0;
-	reservoir.sample_count = 0u;
-	reservoir.contribution = vec3(0.0);
-}
-
-void risReservoirUpdate(inout RisReservoir reservoir, float weight, vec3 contribution)
-{
-	if (weight <= RIS_WEIGHT_EPSILON) {
-		return;
-	}
-
-	reservoir.sample_count += 1u;
-	reservoir.sum_weight += weight;
-
-	if (rand01() * reservoir.sum_weight < weight) {
-		reservoir.valid = 1u;
-		reservoir.selected_weight = weight;
-		reservoir.contribution = contribution;
-	}
-}
-
-vec3 risReservoirResolve(RisReservoir reservoir)
-{
-	if (reservoir.valid == 0u || reservoir.sample_count == 0u || reservoir.selected_weight <= RIS_WEIGHT_EPSILON) {
-		return vec3(0.0);
-	}
-
-	return reservoir.contribution * (reservoir.sum_weight / (float(reservoir.sample_count) * reservoir.selected_weight));
-}
-
-bool risReservoirHasValue(RisReservoir reservoir)
-{
-	return reservoir.valid != 0u && reservoir.sample_count != 0u && reservoir.selected_weight > RIS_WEIGHT_EPSILON;
-}
-
-vec3 risBlendPrimarySecondary(RisReservoir primary_reservoir, vec3 secondary_contribution_sum, uint secondary_sample_count)
-{
-	const bool primary_valid = risReservoirHasValue(primary_reservoir);
-	const bool secondary_valid = secondary_sample_count != 0u;
-	const vec3 secondary_contribution = secondary_valid ? secondary_contribution_sum / float(secondary_sample_count) : vec3(0.0);
-
-	if (primary_valid && secondary_valid) {
-		return risReservoirResolve(primary_reservoir) * RIS_PRIMARY_SAMPLE_MIX +
-			secondary_contribution * RIS_SECONDARY_SAMPLE_MIX;
-	}
-
-	if (secondary_valid) {
-		return secondary_contribution;
-	}
-
-	if (primary_valid) {
-		return risReservoirResolve(primary_reservoir);
-	}
-
-	return vec3(0.0);
-}
 
 float risStabilizeInvLightPdf(float inv_light_pdf)
 {
@@ -223,6 +146,11 @@ float risPrimaryMixedWeight(vec2 weights, float metalness)
 	return max(weights.x * dielectric + weights.y, 0.0);
 }
 
+vec3 risResolveSampleAverage(vec3 contribution_sum, uint sample_count)
+{
+	return sample_count != 0u ? contribution_sum / float(sample_count) : vec3(0.0);
+}
+
 struct RisTemporalReservoir {
 	uint light_id;
 	uint light_hash;
@@ -233,6 +161,12 @@ struct RisTemporalReservoir {
 struct RisTemporalCandidate {
 	uint light_id;
 	uint light_hash;
+	float mixed_weight;
+};
+
+struct RisCandidateImageSample {
+	uint light_id;
+	vec2 weights;
 	float mixed_weight;
 };
 
@@ -251,6 +185,21 @@ bool risTemporalReservoirValid(RisTemporalReservoir reservoir)
 	return reservoir.light_id != RIS_INVALID_LIGHT_ID &&
 		reservoir.mixed_weight > RIS_WEIGHT_EPSILON &&
 		reservoir.weight_sum > RIS_WEIGHT_EPSILON;
+}
+
+RisCandidateImageSample risInvalidCandidateImageSample()
+{
+	RisCandidateImageSample candidate;
+	candidate.light_id = RIS_INVALID_LIGHT_ID;
+	candidate.weights = vec2(0.0);
+	candidate.mixed_weight = 0.0;
+	return candidate;
+}
+
+bool risCandidateImageSampleValid(RisCandidateImageSample candidate)
+{
+	return candidate.light_id != RIS_INVALID_LIGHT_ID &&
+		any(greaterThan(candidate.weights, vec2(RIS_WEIGHT_EPSILON)));
 }
 
 bool risPixelInBounds(ivec2 pix)
@@ -303,6 +252,32 @@ vec4 risEncodeTemporalReservoir(RisTemporalReservoir reservoir)
 		float(risFoldTemporalHash(reservoir.light_hash)),
 		reservoir.mixed_weight,
 		reservoir.weight_sum);
+}
+
+RisCandidateImageSample risDecodeCandidateImageSample(vec4 encoded)
+{
+	RisCandidateImageSample candidate;
+	candidate.light_id = risDecodeLightId(encoded.x);
+	candidate.weights = max(encoded.yz, vec2(0.0));
+	candidate.mixed_weight = max(encoded.w, 0.0);
+
+	if (!risCandidateImageSampleValid(candidate)) {
+		return risInvalidCandidateImageSample();
+	}
+
+	return candidate;
+}
+
+vec4 risEncodeCandidateImageSample(RisCandidateImageSample candidate)
+{
+	if (!risCandidateImageSampleValid(candidate)) {
+		return vec4(0.0);
+	}
+
+	return vec4(
+		risEncodeLightId(candidate.light_id),
+		max(candidate.weights, vec2(0.0)),
+		max(candidate.mixed_weight, 0.0));
 }
 
 float risTemporalRandom01(ivec2 pix, uint salt)
@@ -377,30 +352,7 @@ RisTemporalReservoir risUpdateTemporalReservoir(
 	return reservoir;
 }
 
-uint risSelectTemporalSharedLight(
-	RisTemporalReservoir old_reservoir,
-	float old_current_mixed_weight,
-	bool old_valid,
-	RisTemporalCandidate new_candidate,
-	float rand_select)
-{
-	const bool use_old = old_valid && old_reservoir.light_id != RIS_INVALID_LIGHT_ID && old_current_mixed_weight > RIS_WEIGHT_EPSILON;
-	const bool use_new = new_candidate.light_id != RIS_INVALID_LIGHT_ID && new_candidate.mixed_weight > RIS_WEIGHT_EPSILON;
-
-	if (!use_old && !use_new) {
-		return RIS_INVALID_LIGHT_ID;
-	}
-	if (!use_old) {
-		return new_candidate.light_id;
-	}
-	if (!use_new) {
-		return old_reservoir.light_id;
-	}
-
-	const float total_weight = old_current_mixed_weight + new_candidate.mixed_weight;
-	return rand_select * total_weight < new_candidate.mixed_weight ? new_candidate.light_id : old_reservoir.light_id;
-}
-
+#if RIS_INIT_PASS
 bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
 	history_pix = ivec2(-1);
@@ -430,6 +382,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	const float threshold = makeReprojectionDepthThreshold(expected_depth, history_depth, depth_threshold);
 	return abs(history_depth - expected_depth) < threshold;
 }
+#endif
 
 uint risRoundSampleCount(float value)
 {
@@ -447,11 +400,6 @@ void risSecondarySampleCounts(float metalness, out uint diffuse_count, out uint 
 	const uint total_count = min(risRoundSampleCount(mix(dielectric_total, metallic_total, t)), uint(RIS_SECONDARY_MAX_SAMPLES));
 	diffuse_count = min(risRoundSampleCount(mix(dielectric_diffuse, metallic_diffuse, t)), total_count);
 	specular_count = total_count - diffuse_count;
-}
-
-uint risLocalIndex()
-{
-	return gl_LocalInvocationID.y * RIS_LOCAL_SIZE_X + gl_LocalInvocationID.x;
 }
 
 bool risComputeClusterIndex(vec3 P, out uint cluster_index)
@@ -491,6 +439,27 @@ float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N
 bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 {
 	return risSurfaceCompatibilityWeight(P, N, sample_P, sample_N) > RIS_WEIGHT_EPSILON;
+}
+
+bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
+{
+	P = vec3(0.0);
+	N = vec3(0.0, 0.0, 1.0);
+
+	if (!risPixelInBounds(pix)) {
+		return false;
+	}
+
+	const vec4 pos_t = imageLoad(position_t, pix);
+	if (pos_t.w <= 0.0) {
+		return false;
+	}
+
+	const vec4 packed_normal = imageLoad(normals_gs, pix);
+	const vec3 geometry_N = normalDecode(packed_normal.xy);
+	P = pos_t.xyz + geometry_N * 0.001;
+	N = normalDecode(packed_normal.zw);
+	return true;
 }
 
 float risSpatialRandom01(ivec2 pix, uint candidate_index, uint salt)
