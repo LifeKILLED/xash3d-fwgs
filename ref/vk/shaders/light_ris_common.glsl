@@ -82,9 +82,6 @@ const float shadow_offset_fudge = .1;
 #define RIS_SECONDARY_SAMPLE_MIX 0.8
 #endif
 
-#define RIS_LOBE_DIFFUSE 0u
-#define RIS_LOBE_SPECULAR 1u
-
 struct RisReservoir {
 	uint valid;
 	float sum_weight;
@@ -216,6 +213,12 @@ float risPrimaryWindowInvPdfScale(uint lights_num_in_cluster, uint candidate_cou
 	return float(lights_num_in_cluster) / float(candidate_count);
 }
 
+float risPrimaryMixedWeight(vec2 weights, float metalness)
+{
+	const float dielectric = clamp(1.0 - metalness, 0.0, 1.0);
+	return max(weights.x * dielectric + weights.y, 0.0);
+}
+
 uint risRoundSampleCount(float value)
 {
 	return uint(floor(max(value, 0.0) + 0.5));
@@ -232,11 +235,6 @@ void risSecondarySampleCounts(float metalness, out uint diffuse_count, out uint 
 	const uint total_count = min(risRoundSampleCount(mix(dielectric_total, metallic_total, t)), uint(RIS_SECONDARY_MAX_SAMPLES));
 	diffuse_count = min(risRoundSampleCount(mix(dielectric_diffuse, metallic_diffuse, t)), total_count);
 	specular_count = total_count - diffuse_count;
-}
-
-float risSelectLobeWeight(vec2 weights, uint lobe)
-{
-	return (lobe == RIS_LOBE_SPECULAR) ? weights.y : weights.x;
 }
 
 uint risLocalIndex()

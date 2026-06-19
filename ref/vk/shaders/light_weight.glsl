@@ -97,49 +97,6 @@ float polygonSelfLightFade(float plane_dist)
 		1.0);
 }
 
-float lightPointDiffuseWeightCalculation(PointLight pl, vec3 P)
-{
-	if (pl.environment != 0) {
-		return 2.0 * kPi * (1.0 - pl.dir_stopdot2.a) * NON_BRDF_POINT_LIGHTS_MULTIPLIER * luminance(pl.color_stopdot.rgb);
-	}
-
-	const vec3 toL = pl.origin_r2.xyz - P;
-	const float dist2 = max(dot(toL, toL), EPSILON);
-	const float inv_dist = inversesqrt(dist2);
-	const vec3 L = toL * inv_dist;
-
-	const float spot_dot = dot(L, pl.dir_stopdot2.xyz);
-	const float stopdot2 = pl.dir_stopdot2.a;
-	const float stopdot = pl.color_stopdot.a;
-	const float spot_att = (spot_dot < stopdot) ? max(0.0, (spot_dot - stopdot2) / (stopdot - stopdot2)) : 1.0;
-	const float radius_ratio = sqrt(max(0.0, 1.0 - pl.origin_r2.w / dist2));
-	const float geom_weight = 2.0 * kPi * (1.0 - radius_ratio) * spot_att * NON_BRDF_POINT_LIGHTS_MULTIPLIER;
-	return max(geom_weight * luminance(pl.color_stopdot.rgb), 0.0);
-}
-
-float lightPolygonDiffuseWeightCalculation(PolygonLight poly, vec3 P)
-{
-	const vec4 plane = normalizedPolygonPlane(poly);
-	const float plane_dist = dot(plane, vec4(P, 1.0));
-
-	if (plane_dist <= POLYGON_SELF_LIGHT_PLANE_BIAS) {
-		return 0.0;
-	}
-
-	const vec3 dir = poly.center + plane.xyz * POLYGON_LIGHT_SAMPLE_NORMAL_EPSILON - P;
-	const float dist2 = max(dot(dir, dir), 1e-6);
-	const vec3 L = dir * inversesqrt(dist2);
-	const float denom = dot(L, plane.xyz);
-
-	if (denom >= -POLYGON_LIGHT_MIN_DENOM) {
-		return 0.0;
-	}
-
-	float geom_weight = poly.area * max(-denom, 0.0) * (0.4 / dist2);
-	geom_weight *= polygonSelfLightFade(plane_dist);
-	return max(geom_weight * luminance(poly.emissive), 0.0);
-}
-
 vec2 lightPointWeightCalculation(
 	PointLight pl,
 	vec3 P, vec3 N, vec3 V,
