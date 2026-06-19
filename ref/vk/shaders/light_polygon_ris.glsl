@@ -355,13 +355,11 @@ void computePolygonLightingRISInit(
 		uint light_id;
 		float inv_light_pdf;
 		if (risSelectPolygonLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
-			if (risProbePolygonLightVisibility(light_id, P)) {
-				const vec2 weights = risPolygonProposalWeights(light_id, P, N, V, material);
-				if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
-					new_candidate.light_id = light_id;
-					new_candidate.light_hash = risPolygonLightHash(light_id);
-					new_candidate.mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
-				}
+			const vec2 weights = risPolygonProposalWeights(light_id, P, N, V, material);
+			if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
+				new_candidate.light_id = light_id;
+				new_candidate.light_hash = risPolygonLightHash(light_id);
+				new_candidate.mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
 			}
 		}
 	}
@@ -378,11 +376,17 @@ void computePolygonLightingRISInit(
 
 	RisCandidateImageSample image_candidate = risInvalidCandidateImageSample();
 	if (risTemporalReservoirValid(merged_reservoir)) {
-		const vec2 merged_weights = risPolygonProposalWeights(merged_reservoir.light_id, P, N, V, material);
-		if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
-			image_candidate.light_id = merged_reservoir.light_id;
-			image_candidate.weights = merged_weights;
-			image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
+		if (risProbePolygonLightVisibility(merged_reservoir.light_id, P)) {
+			const vec2 merged_weights = risPolygonProposalWeights(merged_reservoir.light_id, P, N, V, material);
+			if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+				image_candidate.light_id = merged_reservoir.light_id;
+				image_candidate.weights = merged_weights;
+				image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
+			} else {
+				merged_reservoir = risInvalidTemporalReservoir();
+			}
+		} else {
+			merged_reservoir = risInvalidTemporalReservoir();
 		}
 	}
 

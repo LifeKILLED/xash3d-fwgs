@@ -278,6 +278,38 @@ bool risEvaluatePointLightSample(
 	return true;
 }
 
+bool risProbePointLightVisibility(uint light_id, vec3 P, vec3 N)
+{
+	if (!risIsPointLightCandidate(light_id)) {
+		return false;
+	}
+
+	const PointLight point_light = lights.m.point_lights[light_id];
+	const vec3 light_pos = point_light.origin_r2.xyz;
+	const float light_r2 = point_light.origin_r2.w;
+	const vec3 to_light = light_pos - P;
+	const float light_dist2 = dot(to_light, to_light);
+	const float d2_minus_r2 = light_dist2 - light_r2;
+	if (d2_minus_r2 <= 0.0) {
+		return false;
+	}
+
+	const float light_dist = sqrt(light_dist2);
+	const float cos_theta_max = min(1.0, sqrt(d2_minus_r2 / light_dist2));
+	const vec3 dir_sample_z = sampleConeZ(vec2(rand01(), rand01()), cos_theta_max);
+	const vec3 light_dir = normalize(orthonormalBasisZ(to_light / light_dist) * dir_sample_z);
+
+	if (dot(light_dir, N) < 1e-5) {
+		return false;
+	}
+
+	if (dot(light_dir, point_light.dir_stopdot2.xyz) < point_light.dir_stopdot2.a) {
+		return false;
+	}
+
+	return !shadowed(P, light_dir, light_dist + shadow_offset_fudge);
+}
+
 #if RIS_INIT_PASS
 void computePointLightingRISInit(
 	uint cluster_index,
@@ -312,16 +344,11 @@ void computePointLightingRISInit(
 		uint light_id;
 		float inv_light_pdf;
 		if (risSelectPointLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
-			const PointLight point_light = lights.m.point_lights[light_id];
-			vec3 primary_diffuse;
-			vec3 primary_specular;
-			vec2 weights;
-			if (risEvaluatePointLightSample(point_light, P, N, V, material, inv_light_pdf, true, primary_diffuse, primary_specular, weights)) {
-				if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
-					new_candidate.light_id = light_id;
-					new_candidate.light_hash = risPointLightHash(light_id);
-					new_candidate.mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
-				}
+			const vec2 weights = risPointProposalWeights(light_id, P, N, V, material);
+			if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
+				new_candidate.light_id = light_id;
+				new_candidate.light_hash = risPointLightHash(light_id);
+				new_candidate.mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
 			}
 		}
 	}
@@ -338,11 +365,17 @@ void computePointLightingRISInit(
 
 	RisCandidateImageSample image_candidate = risInvalidCandidateImageSample();
 	if (risTemporalReservoirValid(merged_reservoir)) {
-		const vec2 merged_weights = risPointProposalWeights(merged_reservoir.light_id, P, N, V, material);
-		if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
-			image_candidate.light_id = merged_reservoir.light_id;
-			image_candidate.weights = merged_weights;
-			image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
+		if (risProbePointLightVisibility(merged_reservoir.light_id, P, N)) {
+			const vec2 merged_weights = risPointProposalWeights(merged_reservoir.light_id, P, N, V, material);
+			if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+				image_candidate.light_id = merged_reservoir.light_id;
+				image_candidate.weights = merged_weights;
+				image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
+			} else {
+				merged_reservoir = risInvalidTemporalReservoir();
+			}
+		} else {
+			merged_reservoir = risInvalidTemporalReservoir();
 		}
 	}
 
