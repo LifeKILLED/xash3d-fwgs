@@ -38,6 +38,10 @@ const float shadow_offset_fudge = .1;
 #define RIS_PLANE_DISTANCE_MAX 16.0
 #endif
 
+#ifndef RIS_SPATIAL_DISTANCE_MAX
+#define RIS_SPATIAL_DISTANCE_MAX RIS_PLANE_DISTANCE_MAX
+#endif
+
 #ifndef RIS_WEIGHT_EPSILON
 #define RIS_WEIGHT_EPSILON 1e-5
 #endif
@@ -179,14 +183,26 @@ bool risComputeClusterIndex(vec3 P, out uint cluster_index)
 	return true;
 }
 
-bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
+float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 {
-	if (dot(N, sample_N) < RIS_NORMAL_COMPATIBILITY_MIN) {
-		return false;
+	const float normal_alignment = dot(N, sample_N);
+	if (normal_alignment < RIS_NORMAL_COMPATIBILITY_MIN) {
+		return 0.0;
 	}
 
-	const float plane_distance = abs(dot(P - sample_P, N));
-	return plane_distance <= RIS_PLANE_DISTANCE_MAX;
+	const float spatial_distance = length(P - sample_P);
+	if (spatial_distance >= RIS_SPATIAL_DISTANCE_MAX) {
+		return 0.0;
+	}
+
+	const float normal_weight = smoothstep(RIS_NORMAL_COMPATIBILITY_MIN, 1.0, normal_alignment);
+	const float distance_weight = 1.0 - spatial_distance / RIS_SPATIAL_DISTANCE_MAX;
+	return normal_weight * distance_weight;
+}
+
+bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
+{
+	return risSurfaceCompatibilityWeight(P, N, sample_P, sample_N) > RIS_WEIGHT_EPSILON;
 }
 
 float risSpatialRandom01(ivec2 pix, uint candidate_index, uint salt)

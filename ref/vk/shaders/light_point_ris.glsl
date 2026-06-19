@@ -6,8 +6,6 @@
 struct RisPointSharedSample {
 	uint valid;
 	uint light_id;
-	uint cluster_index;
-	float inv_light_pdf;
 	vec2 reuse_weights;
 	vec3 source_P;
 	vec3 source_N;
@@ -198,31 +196,39 @@ bool risEvaluatePointLightSample(
 	return true;
 }
 
-void risStoreInitialPointSample(uint cluster_index, vec3 P, vec3 N, vec3 V, MaterialProperties material, ivec2 pix, bool ris_active)
+void risStoreInitialPointSample(
+	uint cluster_index,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	bool ris_active,
+	out vec3 primary_diffuse,
+	out vec3 primary_specular,
+	out vec2 primary_weights)
 {
 	const uint shared_index = risLocalIndex();
 	RisPointSharedSample shared_sample;
 	shared_sample.valid = 0u;
 	shared_sample.light_id = 0u;
-	shared_sample.cluster_index = cluster_index;
-	shared_sample.inv_light_pdf = 0.0;
 	shared_sample.reuse_weights = vec2(0.0);
 	shared_sample.source_P = P;
 	shared_sample.source_N = N;
+
+	primary_diffuse = vec3(0.0);
+	primary_specular = vec3(0.0);
+	primary_weights = vec2(0.0);
 
 	if (ris_active) {
 		uint light_id;
 		float inv_light_pdf;
 		if (risSelectPointLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
-			vec3 diffuse;
-			vec3 specular;
-			vec2 weights;
 			const PointLight point_light = lights.m.point_lights[light_id];
-			if (risEvaluatePointLightSample(point_light, P, N, V, material, inv_light_pdf, true, diffuse, specular, weights)) {
+			if (risEvaluatePointLightSample(point_light, P, N, V, material, inv_light_pdf, true, primary_diffuse, primary_specular, primary_weights)) {
 				shared_sample.valid = 1u;
 				shared_sample.light_id = light_id;
-				shared_sample.inv_light_pdf = inv_light_pdf;
-				shared_sample.reuse_weights = weights;
+				shared_sample.reuse_weights = primary_weights;
 			}
 		}
 	}
@@ -297,7 +303,20 @@ void computePointLightingRIS(
 	flashlight_diffuse = vec3(0.0);
 	flashlight_specular = vec3(0.0);
 
-	risStoreInitialPointSample(cluster_index, P, N, V, material, pix, ris_active);
+	vec3 primary_candidate_diffuse;
+	vec3 primary_candidate_specular;
+	vec2 primary_candidate_weights;
+	risStoreInitialPointSample(
+		cluster_index,
+		P,
+		N,
+		V,
+		material,
+		pix,
+		ris_active,
+		primary_candidate_diffuse,
+		primary_candidate_specular,
+		primary_candidate_weights);
 	barrier();
 
 	vec3 always_diffuse;
@@ -314,16 +333,9 @@ void computePointLightingRIS(
 	risReservoirInit(primary_specular_reservoir);
 
 	if (ris_active) {
-		const RisPointSharedSample own_sample = ris_point_shared[risLocalIndex()];
-		if (own_sample.valid != 0u && own_sample.cluster_index == cluster_index && own_sample.inv_light_pdf > 0.0) {
-			vec3 candidate_diffuse;
-			vec3 candidate_specular;
-			vec2 candidate_weights;
-			const PointLight point_light = lights.m.point_lights[own_sample.light_id];
-			if (risEvaluatePointLightSample(point_light, P, N, V, material, own_sample.inv_light_pdf, true, candidate_diffuse, candidate_specular, candidate_weights)) {
-				risReservoirUpdate(primary_diffuse_reservoir, candidate_weights.x, candidate_diffuse);
-				risReservoirUpdate(primary_specular_reservoir, candidate_weights.y, candidate_specular);
-			}
+		if (any(greaterThan(primary_candidate_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+			risReservoirUpdate(primary_diffuse_reservoir, primary_candidate_weights.x, primary_candidate_diffuse);
+			risReservoirUpdate(primary_specular_reservoir, primary_candidate_weights.y, primary_candidate_specular);
 		}
 
 		uint pool_indices[RIS_POISSON_POOL_SIZE];
@@ -341,15 +353,16 @@ void computePointLightingRIS(
 			const uint sample_index = uint(local_pos.y * RIS_LOCAL_SIZE_X + local_pos.x);
 			const RisPointSharedSample shared_sample = ris_point_shared[sample_index];
 
-			if (shared_sample.valid == 0u || shared_sample.cluster_index != cluster_index || shared_sample.inv_light_pdf <= 0.0) {
+			if (shared_sample.valid == 0u) {
 				continue;
 			}
 
-			if (!risSurfaceCompatible(P, N, shared_sample.source_P, shared_sample.source_N)) {
+			const float edge_weight = risSurfaceCompatibilityWeight(P, N, shared_sample.source_P, shared_sample.source_N);
+			if (edge_weight <= RIS_WEIGHT_EPSILON) {
 				continue;
 			}
 
-			const vec2 reuse_weights = max(shared_sample.reuse_weights, vec2(0.0));
+			const vec2 reuse_weights = max(shared_sample.reuse_weights, vec2(0.0)) * edge_weight;
 			if (!any(greaterThan(reuse_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				continue;
 			}
