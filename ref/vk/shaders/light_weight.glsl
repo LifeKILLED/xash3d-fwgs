@@ -128,8 +128,8 @@ vec2 lightPointWeightCalculation(
 		const float light_weight = geom_weight * luminance(pl.color_stopdot.rgb);
 		const float spec_weight = specularWeight(N, L, V, roughness_for_spec);
 		const float spec_proposal_weight = computeSpecularProposalWeight(
-			light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius),
 			light_weight,
+			light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius),
 			roughness * roughness);
 		result = vec2(light_weight, spec_proposal_weight);
 	}
@@ -167,8 +167,8 @@ vec2 lightPolygonWeightCalculation(
 				const float light_weight = geom_weight * luminance(poly.emissive);
 				const float spec_weight = specularWeight(N, L, V, roughness_for_spec);
 				const float spec_proposal_weight = computeSpecularProposalWeight(
-					light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius),
 					light_weight,
+					light_weight * spec_weight * computeSpecularCompensation(spec_angular_radius),
 					roughness * roughness);
 				result = vec2(light_weight, spec_proposal_weight);
 			}

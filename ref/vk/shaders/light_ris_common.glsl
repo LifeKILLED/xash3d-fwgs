@@ -42,6 +42,22 @@ const float shadow_offset_fudge = .1;
 #define RIS_WEIGHT_EPSILON 1e-5
 #endif
 
+#ifndef RIS_INV_LIGHT_PDF_SOFT_CAP
+#define RIS_INV_LIGHT_PDF_SOFT_CAP 16.0
+#endif
+
+#ifndef RIS_INV_LIGHT_PDF_HARD_CAP
+#define RIS_INV_LIGHT_PDF_HARD_CAP 64.0
+#endif
+
+#ifndef RIS_PRIMARY_SAMPLE_MIX
+#define RIS_PRIMARY_SAMPLE_MIX 0.2
+#endif
+
+#ifndef RIS_SECONDARY_SAMPLE_MIX
+#define RIS_SECONDARY_SAMPLE_MIX 0.8
+#endif
+
 struct RisReservoir {
 	uint valid;
 	float sum_weight;
@@ -82,6 +98,44 @@ vec3 risReservoirResolve(RisReservoir reservoir)
 	}
 
 	return reservoir.contribution * (reservoir.sum_weight / (float(reservoir.sample_count) * reservoir.selected_weight));
+}
+
+bool risReservoirHasValue(RisReservoir reservoir)
+{
+	return reservoir.valid != 0u && reservoir.sample_count != 0u && reservoir.selected_weight > RIS_WEIGHT_EPSILON;
+}
+
+vec3 risBlendPrimarySecondary(RisReservoir primary_reservoir, vec3 secondary_contribution_sum, uint secondary_sample_count)
+{
+	const bool primary_valid = risReservoirHasValue(primary_reservoir);
+	const bool secondary_valid = secondary_sample_count != 0u;
+	const vec3 secondary_contribution = secondary_valid ? secondary_contribution_sum / float(secondary_sample_count) : vec3(0.0);
+
+	if (primary_valid && secondary_valid) {
+		return risReservoirResolve(primary_reservoir) * RIS_PRIMARY_SAMPLE_MIX +
+			secondary_contribution * RIS_SECONDARY_SAMPLE_MIX;
+	}
+
+	if (secondary_valid) {
+		return secondary_contribution;
+	}
+
+	if (primary_valid) {
+		return risReservoirResolve(primary_reservoir);
+	}
+
+	return vec3(0.0);
+}
+
+float risStabilizeInvLightPdf(float inv_light_pdf)
+{
+	if (inv_light_pdf <= RIS_INV_LIGHT_PDF_SOFT_CAP) {
+		return inv_light_pdf;
+	}
+
+	const float range = max(RIS_INV_LIGHT_PDF_HARD_CAP - RIS_INV_LIGHT_PDF_SOFT_CAP, 1e-3);
+	const float overshoot = inv_light_pdf - RIS_INV_LIGHT_PDF_SOFT_CAP;
+	return RIS_INV_LIGHT_PDF_SOFT_CAP + range * overshoot / (overshoot + range);
 }
 
 uint risBayer8(ivec2 p)

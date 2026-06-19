@@ -12,6 +12,7 @@ struct RisPolySharedSample {
 	uint light_id;
 	uint cluster_index;
 	float inv_pdf;
+	float inv_area_pdf;
 	vec2 reuse_weights;
 	vec3 sample_pos;
 	vec3 source_P;
@@ -64,7 +65,7 @@ bool risSelectPolygonLight(
 		weight_prefix += candidate_weight;
 		if (target_weight <= weight_prefix || i + 1u == num_polygons) {
 			light_id = candidate_id;
-			inv_light_pdf = total_weight / candidate_weight;
+			inv_light_pdf = risStabilizeInvLightPdf(total_weight / candidate_weight);
 			return true;
 		}
 	}
@@ -76,16 +77,15 @@ bool risSelectPolygonLight(
 
 bool risSampleSolidPolygon(
 	PolygonLight poly,
-	float inv_light_pdf,
 	vec3 P,
 	out vec3 sample_pos,
-	out float inv_pdf)
+	out float inv_area_pdf)
 {
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
 	const uint vertices_count = poly.vertices_count_offset >> 16;
 	if (vertices_count < 3u) {
 		sample_pos = vec3(0.0);
-		inv_pdf = 0.0;
+		inv_area_pdf = 0.0;
 		return false;
 	}
 
@@ -98,14 +98,14 @@ bool risSampleSolidPolygon(
 	const float plane_dist = dot(plane, vec4(P, 1.0));
 	if (plane_dist <= 0.0) {
 		sample_pos = vec3(0.0);
-		inv_pdf = 0.0;
+		inv_area_pdf = 0.0;
 		return false;
 	}
 
 	const solid_angle_polygon_t sap = prepare_solid_angle_polygon_sampling(vertices_count, vertices, P);
 	if (sap.solid_angle <= 1e-6) {
 		sample_pos = vec3(0.0);
-		inv_pdf = 0.0;
+		inv_area_pdf = 0.0;
 		return false;
 	}
 
@@ -113,7 +113,7 @@ bool risSampleSolidPolygon(
 	const float denom = dot(L, plane.xyz);
 	if (denom >= -1e-5) {
 		sample_pos = vec3(0.0);
-		inv_pdf = 0.0;
+		inv_area_pdf = 0.0;
 		return false;
 	}
 
@@ -121,12 +121,12 @@ bool risSampleSolidPolygon(
 	const float light_facing = max(-denom, 0.0);
 	if (dist <= 1e-4 || light_facing <= 1e-5) {
 		sample_pos = vec3(0.0);
-		inv_pdf = 0.0;
+		inv_area_pdf = 0.0;
 		return false;
 	}
 
 	sample_pos = P + L * dist;
-	inv_pdf = inv_light_pdf * sap.solid_angle * dist * dist / light_facing;
+	inv_area_pdf = sap.solid_angle * dist * dist / light_facing;
 	return true;
 }
 
@@ -138,6 +138,7 @@ void risStoreInitialPolygonSample(uint cluster_index, vec3 P, vec3 N, vec3 V, Ma
 	shared_sample.light_id = 0u;
 	shared_sample.cluster_index = cluster_index;
 	shared_sample.inv_pdf = 0.0;
+	shared_sample.inv_area_pdf = 0.0;
 	shared_sample.reuse_weights = vec2(0.0);
 	shared_sample.sample_pos = vec3(0.0);
 	shared_sample.source_P = P;
@@ -150,8 +151,8 @@ void risStoreInitialPolygonSample(uint cluster_index, vec3 P, vec3 N, vec3 V, Ma
 			if (light_id < lights.m.num_polygons) {
 				const PolygonLight poly = lights.m.polygons[light_id];
 				vec3 sample_pos;
-				float inv_pdf;
-				if (risSampleSolidPolygon(poly, inv_light_pdf, P, sample_pos, inv_pdf)) {
+				float inv_area_pdf;
+				if (risSampleSolidPolygon(poly, P, sample_pos, inv_area_pdf)) {
 					const vec3 to_light = sample_pos - P;
 					const float dist2 = dot(to_light, to_light);
 					if (dist2 > 1e-6) {
@@ -161,7 +162,8 @@ void risStoreInitialPolygonSample(uint cluster_index, vec3 P, vec3 N, vec3 V, Ma
 						if (light_facing > 0.0 && !shadowed(P, L, dist)) {
 							shared_sample.valid = 1u;
 							shared_sample.light_id = light_id;
-							shared_sample.inv_pdf = inv_pdf;
+							shared_sample.inv_pdf = inv_light_pdf * inv_area_pdf;
+							shared_sample.inv_area_pdf = inv_area_pdf;
 							shared_sample.reuse_weights = lightPolygonWeightCalculation(poly, P, N, V, material.roughness);
 							shared_sample.sample_pos = sample_pos;
 						}
@@ -174,21 +176,20 @@ void risStoreInitialPolygonSample(uint cluster_index, vec3 P, vec3 N, vec3 V, Ma
 	ris_poly_shared[shared_index] = shared_sample;
 }
 
-bool risEvaluatePolygonSample(
+bool risEvaluatePolygonContributionWithInvPdf(
 	RisPolySharedSample shared_sample,
+	float inv_pdf,
 	vec3 P,
 	vec3 N,
 	vec3 V,
 	MaterialProperties material,
 	out vec3 diffuse,
-	out vec3 specular,
-	out vec2 weights)
+	out vec3 specular)
 {
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
-	weights = vec2(0.0);
 
-	if (shared_sample.valid == 0u || shared_sample.light_id >= lights.m.num_polygons) {
+	if (shared_sample.valid == 0u || shared_sample.light_id >= lights.m.num_polygons || inv_pdf <= 0.0) {
 		return false;
 	}
 
@@ -214,11 +215,45 @@ bool risEvaluatePolygonSample(
 	vec3 brdf_specular;
 	evalSplitBRDF(N, L, V, material, brdf_diffuse, brdf_specular);
 
-	const vec3 light = poly.emissive * (light_facing * shared_sample.inv_pdf / dist2);
+	const vec3 light = poly.emissive * (light_facing * inv_pdf / dist2);
 	diffuse = light * brdf_diffuse;
 	specular = light * brdf_specular;
+	return true;
+}
+
+bool risEvaluatePolygonSampleWithInvPdf(
+	RisPolySharedSample shared_sample,
+	float inv_pdf,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	out vec3 diffuse,
+	out vec3 specular,
+	out vec2 weights)
+{
+	weights = vec2(0.0);
+
+	if (!risEvaluatePolygonContributionWithInvPdf(shared_sample, inv_pdf, P, N, V, material, diffuse, specular)) {
+		return false;
+	}
+
+	const PolygonLight poly = lights.m.polygons[shared_sample.light_id];
 	weights = lightPolygonWeightCalculation(poly, P, N, V, material.roughness);
 	return any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)));
+}
+
+bool risEvaluatePolygonSample(
+	RisPolySharedSample shared_sample,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	out vec3 diffuse,
+	out vec3 specular,
+	out vec2 weights)
+{
+	return risEvaluatePolygonSampleWithInvPdf(shared_sample, shared_sample.inv_pdf, P, N, V, material, diffuse, specular, weights);
 }
 
 void computePolygonLightingRIS(
@@ -238,10 +273,14 @@ void computePolygonLightingRIS(
 	risStoreInitialPolygonSample(cluster_index, P, N, V, material, pix, ris_active);
 	barrier();
 
-	RisReservoir diffuse_reservoir;
-	RisReservoir specular_reservoir;
-	risReservoirInit(diffuse_reservoir);
-	risReservoirInit(specular_reservoir);
+	RisReservoir primary_diffuse_reservoir;
+	RisReservoir primary_specular_reservoir;
+	vec3 secondary_diffuse_sum = vec3(0.0);
+	vec3 secondary_specular_sum = vec3(0.0);
+	uint secondary_diffuse_sample_count = 0u;
+	uint secondary_specular_sample_count = 0u;
+	risReservoirInit(primary_diffuse_reservoir);
+	risReservoirInit(primary_specular_reservoir);
 
 	if (ris_active) {
 		const RisPolySharedSample own_sample = ris_poly_shared[risLocalIndex()];
@@ -250,8 +289,8 @@ void computePolygonLightingRIS(
 			vec3 candidate_specular;
 			vec2 candidate_weights;
 			if (risEvaluatePolygonSample(own_sample, P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
-				risReservoirUpdate(diffuse_reservoir, candidate_weights.x, candidate_diffuse);
-				risReservoirUpdate(specular_reservoir, candidate_weights.y, candidate_specular);
+				risReservoirUpdate(primary_diffuse_reservoir, candidate_weights.x, candidate_diffuse);
+				risReservoirUpdate(primary_specular_reservoir, candidate_weights.y, candidate_specular);
 			}
 		}
 
@@ -270,7 +309,7 @@ void computePolygonLightingRIS(
 			const uint sample_index = uint(local_pos.y * RIS_LOCAL_SIZE_X + local_pos.x);
 			const RisPolySharedSample shared_sample = ris_poly_shared[sample_index];
 
-			if (shared_sample.valid == 0u || shared_sample.cluster_index != cluster_index) {
+			if (shared_sample.valid == 0u || shared_sample.cluster_index != cluster_index || shared_sample.inv_area_pdf <= 0.0) {
 				continue;
 			}
 
@@ -299,6 +338,9 @@ void computePolygonLightingRIS(
 					if (i >= pool_count) {
 						break;
 					}
+					if (pool_weights[i].x <= RIS_WEIGHT_EPSILON) {
+						continue;
+					}
 					weight_prefix += pool_weights[i].x;
 					selected = i;
 					if (target_weight <= weight_prefix || i + 1u == pool_count) {
@@ -308,9 +350,11 @@ void computePolygonLightingRIS(
 
 				vec3 candidate_diffuse;
 				vec3 candidate_specular;
-				vec2 candidate_weights;
-				if (risEvaluatePolygonSample(ris_poly_shared[pool_indices[selected]], P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
-					risReservoirUpdate(diffuse_reservoir, candidate_weights.x, candidate_diffuse);
+				const RisPolySharedSample selected_sample = ris_poly_shared[pool_indices[selected]];
+				const float secondary_inv_pdf = selected_sample.inv_area_pdf * (diffuse_weight_sum / max(pool_weights[selected].x, RIS_WEIGHT_EPSILON));
+				secondary_diffuse_sample_count += 1u;
+				if (risEvaluatePolygonContributionWithInvPdf(selected_sample, secondary_inv_pdf, P, N, V, material, candidate_diffuse, candidate_specular)) {
+					secondary_diffuse_sum += candidate_diffuse;
 				}
 			}
 
@@ -322,6 +366,9 @@ void computePolygonLightingRIS(
 					if (i >= pool_count) {
 						break;
 					}
+					if (pool_weights[i].y <= RIS_WEIGHT_EPSILON) {
+						continue;
+					}
 					weight_prefix += pool_weights[i].y;
 					selected = i;
 					if (target_weight <= weight_prefix || i + 1u == pool_count) {
@@ -331,16 +378,18 @@ void computePolygonLightingRIS(
 
 				vec3 candidate_diffuse;
 				vec3 candidate_specular;
-				vec2 candidate_weights;
-				if (risEvaluatePolygonSample(ris_poly_shared[pool_indices[selected]], P, N, V, material, candidate_diffuse, candidate_specular, candidate_weights)) {
-					risReservoirUpdate(specular_reservoir, candidate_weights.y, candidate_specular);
+				const RisPolySharedSample selected_sample = ris_poly_shared[pool_indices[selected]];
+				const float secondary_inv_pdf = selected_sample.inv_area_pdf * (specular_weight_sum / max(pool_weights[selected].y, RIS_WEIGHT_EPSILON));
+				secondary_specular_sample_count += 1u;
+				if (risEvaluatePolygonContributionWithInvPdf(selected_sample, secondary_inv_pdf, P, N, V, material, candidate_diffuse, candidate_specular)) {
+					secondary_specular_sum += candidate_specular;
 				}
 			}
 		}
 	}
 
-	diffuse = risReservoirResolve(diffuse_reservoir);
-	specular = risReservoirResolve(specular_reservoir);
+	diffuse = risBlendPrimarySecondary(primary_diffuse_reservoir, secondary_diffuse_sum, secondary_diffuse_sample_count);
+	specular = risBlendPrimarySecondary(primary_specular_reservoir, secondary_specular_sum, secondary_specular_sample_count);
 
 	barrier();
 }
