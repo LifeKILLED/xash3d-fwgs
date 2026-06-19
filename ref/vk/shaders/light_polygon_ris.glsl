@@ -277,26 +277,48 @@ bool risEvaluatePolygonLightSample(
 	return risEvaluatePolygonSamplePositionWithInvPdf(poly, sample_pos, inv_light_pdf * inv_area_pdf, P, N, V, material, visibility_test, diffuse, specular);
 }
 
-bool risEvaluatePolygonLightSampleWithWeights(
-	uint light_id,
-	float inv_light_pdf,
-	vec3 P,
-	vec3 N,
-	vec3 V,
-	MaterialProperties material,
-	bool visibility_test,
-	out vec3 diffuse,
-	out vec3 specular,
-	out vec2 weights)
+bool risProbePolygonLightVisibility(uint light_id, vec3 P)
 {
-	weights = vec2(0.0);
-
-	if (!risEvaluatePolygonLightSample(light_id, inv_light_pdf, P, N, V, material, visibility_test, diffuse, specular)) {
+	if (light_id >= lights.m.num_polygons) {
 		return false;
 	}
 
-	weights = lightPolygonWeightCalculation(lights.m.polygons[light_id], P, N, V, material.roughness);
-	return any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)));
+	const PolygonLight poly = lights.m.polygons[light_id];
+	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+	const uint vertices_count = poly.vertices_count_offset >> 16;
+	if (vertices_count < 3u) {
+		return false;
+	}
+
+	const vec4 plane = normalizedPolygonPlane(poly);
+	if (dot(plane, vec4(P, 1.0)) <= 0.0) {
+		return false;
+	}
+
+	const uint triangle_count = vertices_count - 2u;
+	const uint triangle_index = min(uint(rand01() * float(triangle_count)), triangle_count - 1u);
+	const vec3 v0 = lights.m.polygon_vertices[vertices_offset].xyz;
+	const vec3 v1 = lights.m.polygon_vertices[vertices_offset + triangle_index + 1u].xyz;
+	const vec3 v2 = lights.m.polygon_vertices[vertices_offset + triangle_index + 2u].xyz;
+
+	const float r0 = rand01();
+	const float r1 = rand01();
+	const float sqrt_r0 = sqrt(r0);
+	const vec3 sample_pos = v0 * (1.0 - sqrt_r0) + v1 * (sqrt_r0 * (1.0 - r1)) + v2 * (sqrt_r0 * r1);
+
+	const vec3 to_light = sample_pos - P;
+	const float dist2 = dot(to_light, to_light);
+	if (dist2 <= 1e-6) {
+		return false;
+	}
+
+	const float dist = sqrt(dist2);
+	const vec3 L = to_light / dist;
+	if (dot(-L, plane.xyz) <= 1e-5) {
+		return false;
+	}
+
+	return !shadowed(P, L, dist);
 }
 
 #if RIS_INIT_PASS
@@ -333,10 +355,8 @@ void computePolygonLightingRISInit(
 		uint light_id;
 		float inv_light_pdf;
 		if (risSelectPolygonLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
-			vec3 primary_diffuse;
-			vec3 primary_specular;
-			vec2 weights;
-			if (risEvaluatePolygonLightSampleWithWeights(light_id, inv_light_pdf, P, N, V, material, true, primary_diffuse, primary_specular, weights)) {
+			if (risProbePolygonLightVisibility(light_id, P)) {
+				const vec2 weights = risPolygonProposalWeights(light_id, P, N, V, material);
 				if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
 					new_candidate.light_id = light_id;
 					new_candidate.light_hash = risPolygonLightHash(light_id);
