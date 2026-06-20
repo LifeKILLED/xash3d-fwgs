@@ -52,12 +52,14 @@ layout(set = 0, binding = 36, rgba32f) uniform readonly image2D prev_temporal_as
 layout(set = 0, binding = 37, rgba32f) uniform readonly image2D refraction_hit_pos;
 layout(set = 0, binding = 38, rgba32f) uniform readonly image2D refraction_prev_hit_pos;
 layout(set = 0, binding = 39, rgba32f) uniform readonly image2D prev_refraction_hit_pos;
+layout(set = 0, binding = 40, rgba8) uniform readonly image2D base_color_a;
 
 #define LOAD_REFLECTION_RAY_LENGTH(pix) imageLoad(indirect_specular_ray_length, pix).r
 #define ASVGF_REPROJECTION_PARAMS ubo.ubo.asvgf.direct_diffuse
 #include "temporal_reprojection.glsl"
 
 const int ASVGF_INDIRECT_SCALE = 2;
+const float REFRACTION_PRIMARY_ALPHA_EPSILON = 0.001;
 #define ASVGF ubo.ubo.asvgf
 
 ivec2 refractionLayerSize(ivec2 res) {
@@ -68,6 +70,46 @@ bool refractionLayer0PixelFromScreenPixel(ivec2 screen_pix, ivec2 res, out ivec2
 	layer_pix = screen_pix / 2;
 	const ivec2 layer_size = refractionLayerSize(res);
 	return all(greaterThanEqual(layer_pix, ivec2(0))) && all(lessThan(layer_pix, layer_size));
+}
+
+bool refractionPrimarySurfaceFromLayerPixel(ivec2 layer_pix, ivec2 res, out vec3 prev_surface_position, out vec3 surface_normal) {
+	ivec2 primary_pix = ivec2(-1);
+	float best_t = 1e30;
+
+	prev_surface_position = vec3(0.0);
+	surface_normal = vec3(0.0, 0.0, 1.0);
+
+	for (int y = 0; y < 2; ++y) {
+		for (int x = 0; x < 2; ++x) {
+			const ivec2 candidate_pix = layer_pix * 2 + ivec2(x, y);
+			if (any(greaterThanEqual(candidate_pix, res))) {
+				continue;
+			}
+
+			const vec4 pos_t = imageLoad(position_t, candidate_pix);
+			if (pos_t.w <= 0.0) {
+				continue;
+			}
+
+			const float alpha = imageLoad(base_color_a, candidate_pix).a;
+			if (alpha >= 1.0 - REFRACTION_PRIMARY_ALPHA_EPSILON) {
+				continue;
+			}
+
+			if (pos_t.w < best_t) {
+				best_t = pos_t.w;
+				primary_pix = candidate_pix;
+			}
+		}
+	}
+
+	if (primary_pix.x < 0) {
+		return false;
+	}
+
+	surface_normal = normalDecode(imageLoad(normals_gs, primary_pix).xy);
+	prev_surface_position = imageLoad(geometry_prev_position, primary_pix).rgb;
+	return true;
 }
 
 bool refractionHistoryPositionMatches(ivec2 history_pix, ivec2 res, vec3 expected_prev_hit, vec3 prev_origin) {
@@ -821,13 +863,16 @@ void main() {
 			if (refractionLayer0PixelFromScreenPixel(pix, res, refraction_layer_pix)) {
 				const vec4 current_refraction_hit = imageLoad(refraction_hit_pos, refraction_layer_pix);
 				const vec4 current_refraction_prev_hit = imageLoad(refraction_prev_hit_pos, refraction_layer_pix);
+				vec3 refraction_plane_prev_position;
+				vec3 refraction_plane_normal;
 				ivec2 refraction_history_pix = ivec2(-1);
 				const bool has_refraction_prediction =
 					current_refraction_hit.w > 0.0
 					&& current_refraction_prev_hit.w > 0.0
+					&& refractionPrimarySurfaceFromLayerPixel(refraction_layer_pix, res, refraction_plane_prev_position, refraction_plane_normal)
 					&& refractionPlaneReprojectToPrevFramePixel(
-						prev_position,
-						geometry_normal,
+						refraction_plane_prev_position,
+						refraction_plane_normal,
 						prev_origin,
 						current_refraction_prev_hit.xyz,
 						ASVGF.refraction.refraction_eta_ratio,
