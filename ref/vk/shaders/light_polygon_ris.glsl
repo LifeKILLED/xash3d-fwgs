@@ -57,11 +57,58 @@ uint risPolygonLightHash(uint light_id)
 		floatBitsToUint(poly.emissive.x),
 		floatBitsToUint(poly.emissive.y),
 		floatBitsToUint(poly.emissive.z),
-		poly.vertices_count_offset));
+		poly.vertices_count_offset >> 16));
+
+	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+	const uint vertices_count = poly.vertices_count_offset >> 16;
+	for (uint i = 0u; i < uint(MAX_POLYGON_VERTEX_COUNT); ++i) {
+		if (i >= vertices_count) {
+			break;
+		}
+
+		const vec3 vertex = lights.m.polygon_vertices[vertices_offset + i].xyz;
+		hash_value ^= xxhash32(uvec4(
+			floatBitsToUint(vertex.x),
+			floatBitsToUint(vertex.y),
+			floatBitsToUint(vertex.z),
+			i));
+	}
 	return risFoldTemporalHash(hash_value);
 }
 
 #if RIS_INIT_PASS
+bool risPolygonLightHashMatches(uint light_id, uint light_hash)
+{
+	return light_id < lights.m.num_polygons && risPolygonLightHash(light_id) == light_hash;
+}
+
+bool risResolvePolygonReservoirLightId(inout RisTemporalReservoir reservoir)
+{
+	if (!risTemporalReservoirValid(reservoir)) {
+		return false;
+	}
+
+	if (risPolygonLightHashMatches(reservoir.light_id, reservoir.light_hash)) {
+		return true;
+	}
+
+	if (reservoir.light_id > 0u) {
+		const uint prev_light_id = reservoir.light_id - 1u;
+		if (risPolygonLightHashMatches(prev_light_id, reservoir.light_hash)) {
+			reservoir.light_id = prev_light_id;
+			return true;
+		}
+	}
+
+	const uint next_light_id = reservoir.light_id + 1u;
+	if (next_light_id > reservoir.light_id && risPolygonLightHashMatches(next_light_id, reservoir.light_hash)) {
+		reservoir.light_id = next_light_id;
+		return true;
+	}
+
+	return false;
+}
+
 bool risLoadPreviousPolygonReservoir(
 	vec3 P,
 	vec3 geometry_N,
@@ -70,24 +117,22 @@ bool risLoadPreviousPolygonReservoir(
 	MaterialProperties material,
 	ivec2 pix,
 	out RisTemporalReservoir reservoir,
-	out float current_mixed_weight)
+	out float current_mixed_weight,
+	out bool temporal_reprojection_found)
 {
 	reservoir = risInvalidTemporalReservoir();
 	current_mixed_weight = 0.0;
+	temporal_reprojection_found = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0;
 
 	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix);
 	ivec2 history_pix;
 	if (!risFindTemporalHistoryPixel(pix, prev_position, geometry_N, history_pix)) {
 		return false;
 	}
+	temporal_reprojection_found = true;
 
 	RisTemporalReservoir history_reservoir = risDecodeTemporalReservoir(imageLoad(RIS_POLY_PREV_TEMPORAL_RESERVOIR_IMAGE, history_pix));
-	if (!risTemporalReservoirValid(history_reservoir) || history_reservoir.light_id >= lights.m.num_polygons) {
-		return false;
-	}
-
-	const uint current_hash = risPolygonLightHash(history_reservoir.light_id);
-	if (current_hash != history_reservoir.light_hash) {
+	if (!risResolvePolygonReservoirLightId(history_reservoir)) {
 		return false;
 	}
 
@@ -109,26 +154,27 @@ bool risSelectPolygonLight(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
+	bool first_frame_of_texel,
 	out uint light_id,
 	out float inv_light_pdf)
 {
 	float total_weight = 0.0;
 	const uint num_polygons = uint(light_grid.clusters_[cluster_index].num_polygons);
-	const uint candidate_count = risPrimaryCandidateCount(num_polygons);
+	const uint candidate_count = risPrimaryCandidateCount(num_polygons, first_frame_of_texel);
 	if (candidate_count == 0u) {
 		light_id = 0u;
 		inv_light_pdf = 0.0;
 		return false;
 	}
 
-	uint candidate_ids[RIS_PRIMARY_CANDIDATES];
-	float candidate_weights[RIS_PRIMARY_CANDIDATES];
-	for (uint i = 0u; i < uint(RIS_PRIMARY_CANDIDATES); ++i) {
+	uint candidate_ids[RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT];
+	float candidate_weights[RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT];
+	for (uint i = 0u; i < uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT); ++i) {
 		if (i >= candidate_count) {
 			break;
 		}
 
-		const uint candidate_index = risPrimaryCandidateIndex(num_polygons, i);
+		const uint candidate_index = risPrimaryCandidateIndex(num_polygons, candidate_count, i);
 		const uint candidate_id = uint(light_grid.clusters_[cluster_index].polygons[candidate_index]);
 		const float candidate_weight = risPrimaryMixedWeight(risPolygonProposalWeights(candidate_id, P, N, V, material), material.metalness);
 		candidate_ids[i] = candidate_id;
@@ -144,7 +190,7 @@ bool risSelectPolygonLight(
 
 	const float target_weight = rand01() * total_weight;
 	float weight_prefix = 0.0;
-	for (uint i = 0u; i < uint(RIS_PRIMARY_CANDIDATES); ++i) {
+	for (uint i = 0u; i < uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT); ++i) {
 		if (i >= candidate_count) {
 			break;
 		}
@@ -354,6 +400,7 @@ void computePolygonLightingRISInit(
 {
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
 	float old_current_mixed_weight = 0.0;
+	bool temporal_reprojection_found = false;
 	if (ris_active) {
 		risLoadPreviousPolygonReservoir(
 			P,
@@ -363,8 +410,10 @@ void computePolygonLightingRISInit(
 			material,
 			pix,
 			old_reservoir,
-			old_current_mixed_weight);
+			old_current_mixed_weight,
+			temporal_reprojection_found);
 	}
+	const bool first_frame_of_texel = ris_active && !temporal_reprojection_found;
 
 	RisTemporalCandidate new_candidate;
 	new_candidate.light_id = RIS_INVALID_LIGHT_ID;
@@ -374,7 +423,7 @@ void computePolygonLightingRISInit(
 	if (ris_active) {
 		uint light_id;
 		float inv_light_pdf;
-		if (risSelectPolygonLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
+		if (risSelectPolygonLight(cluster_index, P, N, V, material, pix, first_frame_of_texel, light_id, inv_light_pdf)) {
 			const vec2 weights = risPolygonProposalWeights(light_id, P, N, V, material);
 			if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				new_candidate.light_id = light_id;

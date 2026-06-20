@@ -55,6 +55,14 @@ const float shadow_offset_fudge = .1;
 #define RIS_PRIMARY_CANDIDATES 8
 #endif
 
+#ifndef RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT
+#define RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT RIS_PRIMARY_CANDIDATES
+#endif
+
+#if RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT < RIS_PRIMARY_CANDIDATES
+#error RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT must be at least RIS_PRIMARY_CANDIDATES
+#endif
+
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
 #define RIS_NORMAL_COMPATIBILITY_MIN 0.85
 #endif
@@ -125,14 +133,17 @@ float risStabilizeInvLightPdf(float inv_light_pdf)
 #endif
 }
 
-uint risPrimaryCandidateCount(uint lights_num_in_cluster)
+uint risPrimaryCandidateCount(uint lights_num_in_cluster, bool first_frame_of_texel)
 {
-	return min(lights_num_in_cluster, uint(RIS_PRIMARY_CANDIDATES));
+	const uint max_candidate_count = first_frame_of_texel
+		? uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT)
+		: uint(RIS_PRIMARY_CANDIDATES);
+	return min(lights_num_in_cluster, max_candidate_count);
 }
 
-uint risPrimaryCandidateIndex(uint lights_num_in_cluster, uint candidate_ordinal)
+uint risPrimaryCandidateIndex(uint lights_num_in_cluster, uint candidate_count, uint candidate_ordinal)
 {
-	if (lights_num_in_cluster <= uint(RIS_PRIMARY_CANDIDATES)) {
+	if (lights_num_in_cluster <= candidate_count) {
 		return candidate_ordinal;
 	}
 

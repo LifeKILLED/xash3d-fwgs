@@ -73,6 +73,38 @@ uint risPointLightHash(uint light_id)
 }
 
 #if RIS_INIT_PASS
+bool risPointLightHashMatches(uint light_id, uint light_hash)
+{
+	return risIsPointLightCandidate(light_id) && risPointLightHash(light_id) == light_hash;
+}
+
+bool risResolvePointReservoirLightId(inout RisTemporalReservoir reservoir)
+{
+	if (!risTemporalReservoirValid(reservoir)) {
+		return false;
+	}
+
+	if (risPointLightHashMatches(reservoir.light_id, reservoir.light_hash)) {
+		return true;
+	}
+
+	if (reservoir.light_id > 0u) {
+		const uint prev_light_id = reservoir.light_id - 1u;
+		if (risPointLightHashMatches(prev_light_id, reservoir.light_hash)) {
+			reservoir.light_id = prev_light_id;
+			return true;
+		}
+	}
+
+	const uint next_light_id = reservoir.light_id + 1u;
+	if (next_light_id > reservoir.light_id && risPointLightHashMatches(next_light_id, reservoir.light_hash)) {
+		reservoir.light_id = next_light_id;
+		return true;
+	}
+
+	return false;
+}
+
 bool risLoadPreviousPointReservoir(
 	vec3 P,
 	vec3 geometry_N,
@@ -81,24 +113,22 @@ bool risLoadPreviousPointReservoir(
 	MaterialProperties material,
 	ivec2 pix,
 	out RisTemporalReservoir reservoir,
-	out float current_mixed_weight)
+	out float current_mixed_weight,
+	out bool temporal_reprojection_found)
 {
 	reservoir = risInvalidTemporalReservoir();
 	current_mixed_weight = 0.0;
+	temporal_reprojection_found = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0;
 
 	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix);
 	ivec2 history_pix;
 	if (!risFindTemporalHistoryPixel(pix, prev_position, geometry_N, history_pix)) {
 		return false;
 	}
+	temporal_reprojection_found = true;
 
 	RisTemporalReservoir history_reservoir = risDecodeTemporalReservoir(imageLoad(RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE, history_pix));
-	if (!risTemporalReservoirValid(history_reservoir) || !risIsPointLightCandidate(history_reservoir.light_id)) {
-		return false;
-	}
-
-	const uint current_hash = risPointLightHash(history_reservoir.light_id);
-	if (current_hash != history_reservoir.light_hash) {
+	if (!risResolvePointReservoirLightId(history_reservoir)) {
 		return false;
 	}
 
@@ -120,26 +150,27 @@ bool risSelectPointLight(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
+	bool first_frame_of_texel,
 	out uint light_id,
 	out float inv_light_pdf)
 {
 	float total_weight = 0.0;
 	const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
-	const uint candidate_count = risPrimaryCandidateCount(num_point_lights);
+	const uint candidate_count = risPrimaryCandidateCount(num_point_lights, first_frame_of_texel);
 	if (candidate_count == 0u) {
 		light_id = 0u;
 		inv_light_pdf = 0.0;
 		return false;
 	}
 
-	uint candidate_ids[RIS_PRIMARY_CANDIDATES];
-	float candidate_weights[RIS_PRIMARY_CANDIDATES];
-	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
+	uint candidate_ids[RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT];
+	float candidate_weights[RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT];
+	for (uint j = 0u; j < uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT); ++j) {
 		if (j >= candidate_count) {
 			break;
 		}
 
-		const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, j);
+		const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, candidate_count, j);
 		const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
 		const float candidate_weight = risPrimaryMixedWeight(risPointProposalWeights(candidate_id, P, N, V, material), material.metalness);
 		candidate_ids[j] = candidate_id;
@@ -155,7 +186,7 @@ bool risSelectPointLight(
 
 	const float target_weight = rand01() * total_weight;
 	float weight_prefix = 0.0;
-	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
+	for (uint j = 0u; j < uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT); ++j) {
 		if (j >= candidate_count) {
 			break;
 		}
@@ -343,6 +374,7 @@ void computePointLightingRISInit(
 {
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
 	float old_current_mixed_weight = 0.0;
+	bool temporal_reprojection_found = false;
 	if (ris_active) {
 		risLoadPreviousPointReservoir(
 			P,
@@ -352,8 +384,10 @@ void computePointLightingRISInit(
 			material,
 			pix,
 			old_reservoir,
-			old_current_mixed_weight);
+			old_current_mixed_weight,
+			temporal_reprojection_found);
 	}
+	const bool first_frame_of_texel = ris_active && !temporal_reprojection_found;
 
 	RisTemporalCandidate new_candidate;
 	new_candidate.light_id = RIS_INVALID_LIGHT_ID;
@@ -363,7 +397,7 @@ void computePointLightingRISInit(
 	if (ris_active) {
 		uint light_id;
 		float inv_light_pdf;
-		if (risSelectPointLight(cluster_index, P, N, V, material, pix, light_id, inv_light_pdf)) {
+		if (risSelectPointLight(cluster_index, P, N, V, material, pix, first_frame_of_texel, light_id, inv_light_pdf)) {
 			const vec2 weights = risPointProposalWeights(light_id, P, N, V, material);
 			if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				new_candidate.light_id = light_id;
