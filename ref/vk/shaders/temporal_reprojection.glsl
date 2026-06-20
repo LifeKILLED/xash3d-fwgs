@@ -63,7 +63,7 @@ float makeReprojectionDepthThreshold(float expected_depth, float stored_depth, f
 	return makeReprojectionDepthThresholdForParams(ASVGF_REPROJECTION_PARAMS, expected_depth, stored_depth, base_threshold);
 }
 
-bool reprojectToPrevFramePixel(vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
+bool reprojectToPrevFramePixelForParams(AsvgfReprojectionParams params, vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
 	float clip_w = 0.0;
 	if (!projectWorldToPrevFramePixel(prev_position, res, reproj_pix, clip_w)) {
 		depth_necessary = 0.0;
@@ -79,9 +79,13 @@ bool reprojectToPrevFramePixel(vec3 prev_position, ivec2 res, out ivec2 reproj_p
 	// threshold with the larger of both and let makeReprojectionDepthThreshold add
 	// storage/pixel-footprint tolerance.
 	float projected_depth = max(depth_necessary, abs(clip_w));
-	float base_threshold = ASVGF_REPROJECTION_PARAMS.reprojection_depth_threshold_scale * projected_depth;
-	depth_threshold = makeReprojectionDepthThreshold(depth_necessary, projected_depth, base_threshold);
+	float base_threshold = params.reprojection_depth_threshold_scale * projected_depth;
+	depth_threshold = makeReprojectionDepthThresholdForParams(params, depth_necessary, projected_depth, base_threshold);
 	return true;
+}
+
+bool reprojectToPrevFramePixel(vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
+	return reprojectToPrevFramePixelForParams(ASVGF_REPROJECTION_PARAMS, prev_position, res, reproj_pix, depth_necessary, depth_threshold);
 }
 
 bool computePlaneDepthInPrevFrame(ivec2 prev_pix, ivec2 res, vec3 plane_point, vec3 plane_normal, out float depth) {
@@ -130,6 +134,102 @@ bool computePlaneDepthInPrevFrame(ivec2 prev_pix, ivec2 res, vec3 plane_point, v
 	depth = length(ray_dir * t);
 	return isValidReprojectionDepth(depth);
 }
+
+#if defined(TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE)
+#ifndef TEMPORAL_REPROJECTION_PRIMARY_PIXEL_COMPATIBLE
+#define TEMPORAL_REPROJECTION_PRIMARY_PIXEL_COMPATIBLE(primary_pix_) true
+#endif
+
+bool loadHalfResAtlasPrimaryPlane(
+	ivec2 local_pix,
+	ivec2 half_res,
+	ivec2 primary_res,
+	out vec3 prev_position,
+	out vec3 geometry_normal)
+{
+	prev_position = vec3(0.0);
+	geometry_normal = vec3(0.0, 0.0, 1.0);
+
+	if (any(lessThan(local_pix, ivec2(0))) || any(greaterThanEqual(local_pix, half_res))) {
+		return false;
+	}
+
+	ivec2 primary_pix = ivec2(-1);
+	float best_t = 1e30;
+	for (int y = 0; y < 2; ++y) {
+		for (int x = 0; x < 2; ++x) {
+			const ivec2 candidate_pix = local_pix * 2 + ivec2(x, y);
+			if (any(greaterThanEqual(candidate_pix, primary_res))) {
+				continue;
+			}
+			if (!TEMPORAL_REPROJECTION_PRIMARY_PIXEL_COMPATIBLE(candidate_pix)) {
+				continue;
+			}
+
+			const vec4 pos_t = imageLoad(position_t, candidate_pix);
+			if (pos_t.w <= 0.0) {
+				continue;
+			}
+
+			if (pos_t.w < best_t) {
+				best_t = pos_t.w;
+				primary_pix = candidate_pix;
+			}
+		}
+	}
+
+	if (primary_pix.x < 0) {
+		return false;
+	}
+
+	prev_position = imageLoad(geometry_prev_position, primary_pix).rgb;
+	geometry_normal = normalDecode(imageLoad(normals_gs, primary_pix).xy);
+	return true;
+}
+
+bool reprojectHalfResAtlasPrimaryPlanePixel(
+	ivec2 local_pix,
+	ivec2 half_res,
+	AsvgfReprojectionParams params,
+	out ivec2 history_local_pix)
+{
+	history_local_pix = ivec2(-1);
+
+	vec3 prev_position;
+	vec3 geometry_normal;
+	if (!loadHalfResAtlasPrimaryPlane(local_pix, half_res, ubo.ubo.res, prev_position, geometry_normal)) {
+		return false;
+	}
+
+	ivec2 history_screen_pix;
+	float depth_necessary = 0.0;
+	float depth_threshold = 0.0;
+	if (!reprojectToPrevFramePixelForParams(params, prev_position, ubo.ubo.res, history_screen_pix, depth_necessary, depth_threshold)) {
+		return false;
+	}
+
+	const vec4 history_depth_meta = imageLoad(prev_temporal_asvgf_reproj_depth, history_screen_pix);
+	const float history_depth = decodeReprojectionDepth(history_depth_meta.r);
+	if (!isValidReprojectionDepth(history_depth)) {
+		return false;
+	}
+
+	float expected_depth = depth_necessary;
+	float plane_depth = 0.0;
+	if (computePlaneDepthInPrevFrame(history_screen_pix, ubo.ubo.res, prev_position, geometry_normal, plane_depth)) {
+		expected_depth = plane_depth;
+	}
+
+	const float threshold = makeReprojectionDepthThresholdForParams(params, expected_depth, history_depth, depth_threshold);
+	if (abs(history_depth - expected_depth) >= threshold) {
+		return false;
+	}
+
+	history_local_pix = history_screen_pix / 2;
+	return all(greaterThanEqual(history_local_pix, ivec2(0))) &&
+		all(lessThan(history_local_pix, half_res));
+}
+#endif
 
 float sampleAverageReflectionRayLength(ivec2 pix, ivec2 res, int indirect_scale, int kernel_radius) {
 	float average_ray_length = 0.0;

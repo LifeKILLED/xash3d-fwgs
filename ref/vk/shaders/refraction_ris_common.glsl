@@ -159,6 +159,20 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 }
 
 #if RIS_INIT_PASS
+#define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+
+#ifndef REFRACTION_RIS_PRIMARY_ALPHA_EPSILON
+#define REFRACTION_RIS_PRIMARY_ALPHA_EPSILON 0.001
+#endif
+
+#define TEMPORAL_REPROJECTION_PRIMARY_PIXEL_COMPATIBLE(primary_pix_) (imageLoad(base_color_a, (primary_pix_)).a < 1.0 - REFRACTION_RIS_PRIMARY_ALPHA_EPSILON)
+
+bool reprojectHalfResAtlasPrimaryPlanePixel(
+	ivec2 local_pix,
+	ivec2 half_res,
+	AsvgfReprojectionParams params,
+	out ivec2 history_local_pix);
+
 #define RIS_CUSTOM_TEMPORAL_HISTORY 1
 bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
@@ -169,8 +183,12 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	}
 
 	const uint layer = refractionRisLayerFromPixel(pix);
-	const ivec2 local_pix = refractionRisLayerLocalPixel(pix);
 	const ivec2 layer_size = refractionRisLayerSize();
+	ivec2 history_center_local_pix;
+	if (!reprojectHalfResAtlasPrimaryPlanePixel(refractionRisLayerLocalPixel(pix), layer_size, ubo.ubo.asvgf.refraction, history_center_local_pix)) {
+		return false;
+	}
+
 	const vec4 current_pos_t = imageLoad(refraction_hit_pos, pix);
 	if (current_pos_t.w <= 0.0) {
 		return false;
@@ -179,7 +197,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	float best_dist2 = REFRACTION_RIS_HISTORY_DISTANCE_MAX * REFRACTION_RIS_HISTORY_DISTANCE_MAX;
 	for (int y = -1; y <= 1; ++y) {
 		for (int x = -1; x <= 1; ++x) {
-			const ivec2 sample_local = local_pix + ivec2(x, y);
+			const ivec2 sample_local = history_center_local_pix + ivec2(x, y);
 			if (any(lessThan(sample_local, ivec2(0))) || any(greaterThanEqual(sample_local, layer_size))) {
 				continue;
 			}
@@ -199,7 +217,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 		}
 	}
 
-	return history_pix.x >= 0;
+	return history_pix.x >= 0 && refractionRisSameLayerAndInBounds(pix, history_pix);
 }
 
 #define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(refraction_hit_pos, (pix_)).xyz

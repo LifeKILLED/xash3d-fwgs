@@ -158,6 +158,23 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 }
 
 #if RIS_INIT_PASS
+#define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+
+bool reprojectHalfResAtlasPrimaryPlanePixel(
+	ivec2 local_pix,
+	ivec2 half_res,
+	AsvgfReprojectionParams params,
+	out ivec2 history_local_pix);
+
+AsvgfReprojectionParams bounceRisReprojectionParams(uint lane)
+{
+	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
+		return ubo.ubo.asvgf.indirect_specular;
+	}
+
+	return ubo.ubo.asvgf.indirect_diffuse;
+}
+
 #define RIS_CUSTOM_TEMPORAL_HISTORY 1
 bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
@@ -168,8 +185,12 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	}
 
 	const uint lane = bounceRisLaneFromPixel(pix);
-	const ivec2 local_pix = bounceRisLaneLocalPixel(pix);
 	const ivec2 lane_size = bounceRisLaneSize();
+	ivec2 history_center_local_pix;
+	if (!reprojectHalfResAtlasPrimaryPlanePixel(bounceRisLaneLocalPixel(pix), lane_size, bounceRisReprojectionParams(lane), history_center_local_pix)) {
+		return false;
+	}
+
 	const vec4 current_pos_t = imageLoad(bounce_hit_pos, pix);
 	if (current_pos_t.w <= 0.0) {
 		return false;
@@ -178,7 +199,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	float best_dist2 = BOUNCE_RIS_HISTORY_DISTANCE_MAX * BOUNCE_RIS_HISTORY_DISTANCE_MAX;
 	for (int y = -1; y <= 1; ++y) {
 		for (int x = -1; x <= 1; ++x) {
-			const ivec2 sample_local = local_pix + ivec2(x, y);
+			const ivec2 sample_local = history_center_local_pix + ivec2(x, y);
 			if (any(lessThan(sample_local, ivec2(0))) || any(greaterThanEqual(sample_local, lane_size))) {
 				continue;
 			}
@@ -198,7 +219,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 		}
 	}
 
-	return history_pix.x >= 0;
+	return history_pix.x >= 0 && bounceRisSameLaneAndInBounds(pix, history_pix);
 }
 
 #define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(bounce_hit_pos, (pix_)).xyz
