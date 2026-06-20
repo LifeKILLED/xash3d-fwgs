@@ -49,6 +49,9 @@ layout(set = 0, binding = 33, rgba16f) uniform readonly image2D final_atrous_ref
 layout(set = 0, binding = 34, rgba32f) uniform readonly image2D final_atrous_refraction_stats;
 layout(set = 0, binding = 35, rgba32f) uniform writeonly image2D out_temporal_asvgf_refraction_stats;
 layout(set = 0, binding = 36, rgba32f) uniform readonly image2D prev_temporal_asvgf_refraction_stats;
+layout(set = 0, binding = 37, rgba32f) uniform readonly image2D refraction_hit_pos;
+layout(set = 0, binding = 38, rgba32f) uniform readonly image2D refraction_prev_hit_pos;
+layout(set = 0, binding = 39, rgba32f) uniform readonly image2D prev_refraction_hit_pos;
 
 #define LOAD_REFLECTION_RAY_LENGTH(pix) imageLoad(indirect_specular_ray_length, pix).r
 #define ASVGF_REPROJECTION_PARAMS ubo.ubo.asvgf.direct_diffuse
@@ -56,6 +59,34 @@ layout(set = 0, binding = 36, rgba32f) uniform readonly image2D prev_temporal_as
 
 const int ASVGF_INDIRECT_SCALE = 2;
 #define ASVGF ubo.ubo.asvgf
+
+ivec2 refractionLayerSize(ivec2 res) {
+	return res / 2;
+}
+
+bool refractionLayer0PixelFromScreenPixel(ivec2 screen_pix, ivec2 res, out ivec2 layer_pix) {
+	layer_pix = screen_pix / 2;
+	const ivec2 layer_size = refractionLayerSize(res);
+	return all(greaterThanEqual(layer_pix, ivec2(0))) && all(lessThan(layer_pix, layer_size));
+}
+
+bool refractionHistoryPositionMatches(ivec2 history_pix, ivec2 res, vec3 expected_prev_hit, vec3 prev_origin) {
+	ivec2 history_layer_pix;
+	if (!refractionLayer0PixelFromScreenPixel(history_pix, res, history_layer_pix)) {
+		return false;
+	}
+
+	const vec4 history_hit = imageLoad(prev_refraction_hit_pos, history_layer_pix);
+	if (history_hit.w <= 0.0) {
+		return false;
+	}
+
+	const float expected_depth = length(expected_prev_hit - prev_origin);
+	const float history_depth = length(history_hit.xyz - prev_origin);
+	const float base_threshold = ASVGF.refraction.reprojection_depth_threshold_scale * max(expected_depth, 1.0);
+	const float threshold = makeReprojectionDepthThresholdForParams(ASVGF.refraction, expected_depth, history_depth, base_threshold) * ASVGF.refraction.parallax_depth_threshold_scale;
+	return length(history_hit.xyz - expected_prev_hit) < threshold;
+}
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 	const vec4 n = imageLoad(normals_gs, uv);
@@ -666,6 +697,9 @@ void main() {
 		const float indirect_specular_compatibility = clamp(pre_asvgf_indirect_specular_sample.a, 0.0, 1.0);
 		const float refraction_compatibility = clamp(pre_asvgf_refraction_sample.a, 0.0, 1.0);
 		const bool mirror_surface = (metalness >= 0.999) && (current_roughness <= 0.001);
+		const bool use_reflection_parallax = separated_reflection || mirror_surface;
+		const bool refraction_uses_surface_reprojection =
+			ASVGF.refraction.reprojection_strategy == ASVGF_REPROJECTION_STRATEGY_SURFACE;
 
 		if (all(greaterThanEqual(reproj_pix, ivec2(0))) && all(lessThan(reproj_pix, res))) {
 			const ivec2 projected_reproj_pix = reproj_pix;
@@ -695,7 +729,6 @@ void main() {
 					if (depth_offset < history_depth_threshold && depth_score < better_depth_score) {
 						const vec4 history_diffuse_sample = imageLoad(prev_temporal_asvgf_direct_diffuse, candidate_pix);
 						const vec4 history_indirect_diffuse_sample = imageLoad(prev_temporal_asvgf_indirect_diffuse, candidate_pix);
-						const vec4 history_refraction_sample = imageLoad(prev_temporal_asvgf_refraction, candidate_pix);
 						reproj_pix = candidate_pix;
 						better_depth_offset = depth_offset;
 						better_depth_score = depth_score;
@@ -703,22 +736,25 @@ void main() {
 						has_base_history = true;
 						history_diffuse = history_diffuse_sample.rgb;
 						history_indirect_diffuse = history_indirect_diffuse_sample.rgb;
-						history_refraction = history_refraction_sample.rgb;
 						diffuse_history_samples = max(history_diffuse_sample.a, 0.0);
 						indirect_diffuse_history_samples = max(history_indirect_diffuse_sample.a, 0.0);
-						refraction_history_samples = max(history_refraction_sample.a, 0.0);
 						diffuse_compatibility = direct_diffuse_compatibility;
 						indirect_diffuse_history_compatibility = indirect_diffuse_direct_compatibility;
-						refraction_history_compatibility = refraction_compatibility;
 						history_diffuse_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_direct_diffuse_stats, candidate_pix));
 						history_indirect_diffuse_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_indirect_diffuse_stats, candidate_pix));
-						history_refraction_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_refraction_stats, candidate_pix));
+						if (refraction_uses_surface_reprojection) {
+							const vec4 history_refraction_sample = imageLoad(prev_temporal_asvgf_refraction, candidate_pix);
+							history_refraction = history_refraction_sample.rgb;
+							refraction_history_samples = max(history_refraction_sample.a, 0.0);
+							refraction_history_compatibility = refraction_compatibility;
+							history_refraction_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_refraction_stats, candidate_pix));
+						}
 					}
 				}
 			}
 		}
 
-		const float average_ray_length = (separated_reflection || mirror_surface)
+		const float average_ray_length = use_reflection_parallax
 			? sampleAverageReflectionRayLength(pix, res, ASVGF_INDIRECT_SCALE, 1)
 			: 0.0;
 		ivec2 direct_specular_history_pix = reproj_pix;
@@ -732,7 +768,7 @@ void main() {
 
 		ivec2 indirect_parallax_pix = ivec2(-1);
 		bool has_indirect_specular_reprojection = false;
-		if (separated_reflection || mirror_surface) {
+		if (use_reflection_parallax) {
 			has_indirect_specular_reprojection = parallaxReprojectToPrevFramePixel(
 				position,
 				prev_position,
@@ -748,7 +784,7 @@ void main() {
 
 		bool use_indirect_specular_parallax = false;
 		ivec2 indirect_specular_history_pix = reproj_pix;
-		if ((separated_reflection || mirror_surface) && has_base_history && has_indirect_specular_reprojection) {
+		if (use_reflection_parallax && has_base_history && has_indirect_specular_reprojection) {
 			vec4 parallax_history_meta = imageLoad(prev_temporal_asvgf_reproj_depth, indirect_parallax_pix);
 			parallax_history_meta.r = decodeReprojectionDepth(parallax_history_meta.r);
 			float parallax_plane_depth = 0.0;
@@ -779,6 +815,39 @@ void main() {
 			history_indirect_specular_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_indirect_specular_stats, indirect_specular_history_pix));
 		}
 
+		bool has_refraction_history = refraction_uses_surface_reprojection && has_base_history;
+		if (ASVGF.refraction.reprojection_strategy == ASVGF_REPROJECTION_STRATEGY_REFRACTION_PLANE) {
+			ivec2 refraction_layer_pix;
+			if (refractionLayer0PixelFromScreenPixel(pix, res, refraction_layer_pix)) {
+				const vec4 current_refraction_hit = imageLoad(refraction_hit_pos, refraction_layer_pix);
+				const vec4 current_refraction_prev_hit = imageLoad(refraction_prev_hit_pos, refraction_layer_pix);
+				ivec2 refraction_history_pix = ivec2(-1);
+				const bool has_refraction_prediction =
+					current_refraction_hit.w > 0.0
+					&& current_refraction_prev_hit.w > 0.0
+					&& refractionPlaneReprojectToPrevFramePixel(
+						prev_position,
+						geometry_normal,
+						prev_origin,
+						current_refraction_prev_hit.xyz,
+						ASVGF.refraction.refraction_eta_ratio,
+						res,
+						refraction_history_pix)
+					&& all(greaterThanEqual(refraction_history_pix, ivec2(0)))
+					&& all(lessThan(refraction_history_pix, res))
+					&& refractionHistoryPositionMatches(refraction_history_pix, res, current_refraction_prev_hit.xyz, prev_origin);
+
+				if (has_refraction_prediction) {
+					const vec4 history_refraction_sample = imageLoad(prev_temporal_asvgf_refraction, refraction_history_pix);
+					history_refraction = history_refraction_sample.rgb;
+					refraction_history_samples = max(history_refraction_sample.a, 0.0);
+					refraction_history_compatibility = refraction_compatibility;
+					history_refraction_stats = decodeLuminanceStats(imageLoad(prev_temporal_asvgf_refraction_stats, refraction_history_pix));
+					has_refraction_history = true;
+				}
+			}
+		}
+
 #ifdef DEBUG_VALIDATE_EXTRA
 		if (IS_INVALIDV(history_direct_specular)) {
 			debugPrintfEXT("PRE pix=(%d,%d) history_direct_specular=inv", pix.x, pix.y);
@@ -790,7 +859,6 @@ void main() {
 		bool has_indirect_diffuse_history = has_base_history;
 		bool has_direct_specular_history = has_base_history;
 		bool has_indirect_specular_history = has_base_history;
-		bool has_refraction_history = has_base_history;
 
 		AsvgfGateState neutral_gate = makeNeutralGate();
 		AsvgfGateState direct_diffuse_external_gate = makeGate(diffuse_compatibility, diffuse_compatibility <= ASVGF.direct_diffuse.external_gate_hard_threshold);

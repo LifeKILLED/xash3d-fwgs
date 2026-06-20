@@ -214,6 +214,10 @@ struct LightCluster {
 #define ASVGF_DEPENDENCY_RELIGHT_CARRY 2u
 #define ASVGF_DEPENDENCY_VARIANCE_CARRY 3u
 
+#define ASVGF_REPROJECTION_STRATEGY_SURFACE 0u
+#define ASVGF_REPROJECTION_STRATEGY_REFLECTION_PARALLAX 1u
+#define ASVGF_REPROJECTION_STRATEGY_REFRACTION_PLANE 2u
+
 struct AsvgfReprojectionParams {
 	float history_samples_max;
 	float history_current_weight_min;
@@ -300,15 +304,20 @@ struct AsvgfReprojectionParams {
 
 	float parallax_roughness_threshold;
 	float parallax_shading_normal_threshold;
+	float refraction_eta_ratio;
 
 	uint variance_compatibility_strategy;
 	uint history_filter_strategy;
 	uint dependency_strategy;
+	uint reprojection_strategy;
 	uint use_dependency_reset_as_gate;
 
 	uint deflicker_enabled;
-	PAD(2)
 };
+
+#ifndef GLSL
+STATIC_ASSERT((sizeof(struct AsvgfReprojectionParams) % 16) == 0, "AsvgfReprojectionParams size must be aligned to vec4");
+#endif
 
 struct AsvgfParams {
 	STRUCT AsvgfReprojectionParams direct_diffuse;

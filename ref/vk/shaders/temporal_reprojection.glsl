@@ -43,9 +43,9 @@ float decodeReprojectionDepth(float stored_depth) {
 	return stored_depth / ASVGF_REPROJECTION_DEPTH_STORAGE_SCALE;
 }
 
-float makeReprojectionDepthThreshold(float expected_depth, float stored_depth, float base_threshold) {
+float makeReprojectionDepthThresholdForParams(AsvgfReprojectionParams params, float expected_depth, float stored_depth, float base_threshold) {
 	float reference_depth = max(max(abs(expected_depth), abs(stored_depth)), 1.0);
-	float relative_threshold = max(base_threshold, ASVGF_REPROJECTION_PARAMS.reprojection_depth_threshold_scale * reference_depth);
+	float relative_threshold = max(base_threshold, params.reprojection_depth_threshold_scale * reference_depth);
 
 	// The encoded history depth is kept in an rgba16f target. A small relative
 	// floor covers fp16 quantization after depth/64 encoding and fp32
@@ -57,6 +57,10 @@ float makeReprojectionDepthThreshold(float expected_depth, float stored_depth, f
 	float pixel_footprint_floor = reference_depth * max(ubo.ubo.ray_cone_width * 2.0, 0.0);
 
 	return max(relative_threshold, max(storage_precision_floor, pixel_footprint_floor));
+}
+
+float makeReprojectionDepthThreshold(float expected_depth, float stored_depth, float base_threshold) {
+	return makeReprojectionDepthThresholdForParams(ASVGF_REPROJECTION_PARAMS, expected_depth, stored_depth, base_threshold);
 }
 
 bool reprojectToPrevFramePixel(vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
@@ -165,6 +169,73 @@ bool parallaxReprojectToPrevFramePixel(vec3 position, vec3 prev_position, vec3 g
 
 	float clip_w = 0.0;
 	return projectWorldToPrevFramePixel(parallax_position, res, parallax_pix, clip_w);
+}
+
+bool intersectRayPlane(vec3 ray_origin, vec3 ray_direction, vec3 plane_point, vec3 plane_normal, out vec3 hit_position) {
+	hit_position = vec3(0.0);
+	const float denom = dot(plane_normal, ray_direction);
+	if (abs(denom) <= 1e-5) {
+		return false;
+	}
+
+	const float t = dot(plane_normal, plane_point - ray_origin) / denom;
+	if (t <= 0.0) {
+		return false;
+	}
+
+	hit_position = ray_origin + ray_direction * t;
+	return true;
+}
+
+bool refractionPlaneReprojectToPrevFramePixel(vec3 prev_plane_position, vec3 plane_normal, vec3 prev_origin, vec3 prev_refracted_target, float eta_ratio, ivec2 res, out ivec2 refraction_pix) {
+	refraction_pix = ivec2(-1);
+
+	const float plane_normal_len = length(plane_normal);
+	if (plane_normal_len <= 1e-6) {
+		return false;
+	}
+
+	vec3 N = plane_normal / plane_normal_len;
+	if (dot(N, prev_origin - prev_plane_position) < 0.0) {
+		N = -N;
+	}
+
+	const vec3 target_delta = prev_refracted_target - prev_origin;
+	const float target_distance = length(target_delta);
+	if (target_distance <= 1e-6) {
+		return false;
+	}
+
+	vec3 entry_position;
+	if (!intersectRayPlane(prev_origin, target_delta / target_distance, prev_plane_position, N, entry_position)) {
+		return false;
+	}
+
+	const float eta = max(eta_ratio, 0.0);
+	if (abs(eta - 1.0) > 1e-4) {
+		for (int i = 0; i < 3; ++i) {
+			const vec3 incident = normalize(entry_position - prev_origin);
+			vec3 oriented_N = N;
+			if (dot(incident, oriented_N) > 0.0) {
+				oriented_N = -oriented_N;
+			}
+
+			const vec3 refracted = refract(incident, oriented_N, eta);
+			if (dot(refracted, refracted) <= 1e-8) {
+				return false;
+			}
+
+			vec3 next_entry_position;
+			if (!intersectRayPlane(prev_refracted_target, -normalize(refracted), prev_plane_position, N, next_entry_position)) {
+				return false;
+			}
+
+			entry_position = next_entry_position;
+		}
+	}
+
+	float clip_w = 0.0;
+	return projectWorldToPrevFramePixel(entry_position, res, refraction_pix, clip_w);
 }
 
 #endif

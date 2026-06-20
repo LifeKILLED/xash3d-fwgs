@@ -144,12 +144,14 @@ static struct {
 	X(deflicker_threshold_min, 0.10f) \
 	X(deflicker_threshold_max, 0.35f) \
 	X(parallax_roughness_threshold, 0.1f) \
-	X(parallax_shading_normal_threshold, 0.01f)
+	X(parallax_shading_normal_threshold, 0.01f) \
+	X(refraction_eta_ratio, 1.0f)
 
 #define LIST_ASVGF_REPROJECTION_UINT_PARAMS(X) \
 	X(variance_compatibility_strategy, ASVGF_COMPATIBILITY_STATS) \
 	X(history_filter_strategy, ASVGF_HISTORY_FILTER_NONE) \
-	X(dependency_strategy, ASVGF_DEPENDENCY_NONE)
+	X(dependency_strategy, ASVGF_DEPENDENCY_NONE) \
+	X(reprojection_strategy, ASVGF_REPROJECTION_STRATEGY_SURFACE)
 
 #define LIST_ASVGF_REPROJECTION_BOOL_PARAMS(X) \
 	X(use_dependency_reset_as_gate, 0u) \
@@ -272,6 +274,7 @@ static void makeDefaultAsvgfLobeParams(asvgf_lobe_id_t lobe, struct AsvgfReproje
 		break;
 
 	case ASVGF_LOBE_INDIRECT_SPECULAR:
+		params->reprojection_strategy = ASVGF_REPROJECTION_STRATEGY_REFLECTION_PARALLAX;
 		params->variance_stage_mix = 0.45f;
 		params->variance_gate_floor = 0.35f;
 		params->reset_min_scale = 0.30f;
@@ -284,6 +287,7 @@ static void makeDefaultAsvgfLobeParams(asvgf_lobe_id_t lobe, struct AsvgfReproje
 		break;
 
 	case ASVGF_LOBE_REFRACTION:
+		params->reprojection_strategy = ASVGF_REPROJECTION_STRATEGY_REFRACTION_PLANE;
 		params->variance_stage_mix = 0.45f;
 		params->variance_gate_floor = 0.35f;
 		params->reset_min_scale = 0.30f;
@@ -348,6 +352,7 @@ static void printStrategyHelp( void ) {
 	gEngine.Con_Printf("\tvariance_compatibility_strategy: 0 stats, 1 luma_delta\n");
 	gEngine.Con_Printf("\thistory_filter_strategy: 0 none, 1 luma_outlier_clamp\n");
 	gEngine.Con_Printf("\tdependency_strategy: 0 none, 1 combine_min, 2 relight_carry, 3 variance_carry\n");
+	gEngine.Con_Printf("\treprojection_strategy: 0 surface, 1 reflection_parallax, 2 refraction_plane\n");
 	gEngine.Con_Printf("\tdeflicker_enabled: false/true; thresholds are relative luminance delta, defaults 0.10..0.35, enabled by default only for indirect_diffuse\n");
 }
 

@@ -29,6 +29,7 @@ layout(set = 0, binding = 23, rgba8) uniform writeonly image2D out_refraction_ma
 layout(set = 0, binding = 24, rgba8) uniform writeonly image2D out_refraction_base_color_a;
 layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_refraction_view_dir;
 layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_refraction_emissive;
+layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_refraction_prev_hit_pos;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -94,6 +95,7 @@ void clearRefractionLayer(ivec2 pix)
 	imageStore(out_refraction_base_color_a, pix, vec4(0.0));
 	imageStore(out_refraction_view_dir, pix, vec4(0.0));
 	imageStore(out_refraction_emissive, pix, vec4(0.0));
+	imageStore(out_refraction_prev_hit_pos, pix, vec4(0.0));
 }
 
 void storeRefractionHit(
@@ -110,6 +112,7 @@ void storeRefractionHit(
 	imageStore(out_refraction_base_color_a, pix, LINEARtoSRGB(payload.base_color_a));
 	imageStore(out_refraction_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_refraction_emissive, pix, vec4(emissive, 0.0));
+	imageStore(out_refraction_prev_hit_pos, pix, vec4(payload.prev_pos_t.xyz, payload.hit_t.w));
 }
 
 void storeRefractionMiss(ivec2 pix, vec3 emissive)
@@ -121,6 +124,7 @@ void storeRefractionMiss(ivec2 pix, vec3 emissive)
 	imageStore(out_refraction_base_color_a, pix, vec4(0.0));
 	imageStore(out_refraction_view_dir, pix, vec4(0.0));
 	imageStore(out_refraction_emissive, pix, vec4(emissive, 0.0));
+	imageStore(out_refraction_prev_hit_pos, pix, vec4(0.0));
 }
 
 bool selectPrimaryRefractionPixel(ivec2 local_pix, out ivec2 primary_pix)
