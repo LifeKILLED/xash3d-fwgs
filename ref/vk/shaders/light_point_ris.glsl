@@ -73,6 +73,8 @@ uint risPointLightHash(uint light_id)
 }
 
 #if RIS_INIT_PASS
+bool risProbePointLightVisibility(uint light_id, vec3 P, vec3 N);
+
 bool risPointLightHashMatches(uint light_id, uint light_hash)
 {
 	return risIsPointLightCandidate(light_id) && risPointLightHash(light_id) == light_hash;
@@ -113,19 +115,16 @@ bool risLoadPreviousPointReservoir(
 	MaterialProperties material,
 	ivec2 pix,
 	out RisTemporalReservoir reservoir,
-	out float current_mixed_weight,
-	out bool temporal_reprojection_found)
+	out float current_mixed_weight)
 {
 	reservoir = risInvalidTemporalReservoir();
 	current_mixed_weight = 0.0;
-	temporal_reprojection_found = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0;
 
 	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix);
 	ivec2 history_pix;
 	if (!risFindTemporalHistoryPixel(pix, prev_position, geometry_N, history_pix)) {
 		return false;
 	}
-	temporal_reprojection_found = true;
 
 	RisTemporalReservoir history_reservoir = risDecodeTemporalReservoir(imageLoad(RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE, history_pix));
 	if (!risResolvePointReservoirLightId(history_reservoir)) {
@@ -138,77 +137,14 @@ bool risLoadPreviousPointReservoir(
 		return false;
 	}
 
+	if (!risProbePointLightVisibility(history_reservoir.light_id, P, N)) {
+		return false;
+	}
+
 	reservoir = history_reservoir;
 	return true;
 }
 #endif
-
-bool risSelectPointLight(
-	uint cluster_index,
-	vec3 P,
-	vec3 N,
-	vec3 V,
-	MaterialProperties material,
-	ivec2 pix,
-	bool first_frame_of_texel,
-	out uint light_id,
-	out float inv_light_pdf)
-{
-	float total_weight = 0.0;
-	const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
-	const uint candidate_count = risPrimaryCandidateCount(num_point_lights, first_frame_of_texel);
-	if (candidate_count == 0u) {
-		light_id = 0u;
-		inv_light_pdf = 0.0;
-		return false;
-	}
-
-	uint candidate_ids[RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT];
-	float candidate_weights[RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT];
-	for (uint j = 0u; j < uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT); ++j) {
-		if (j >= candidate_count) {
-			break;
-		}
-
-		const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, candidate_count, j);
-		const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
-		const float candidate_weight = risPrimaryMixedWeight(risPointProposalWeights(candidate_id, P, N, V, material), material.metalness);
-		candidate_ids[j] = candidate_id;
-		candidate_weights[j] = candidate_weight;
-		total_weight += candidate_weight;
-	}
-
-	if (total_weight <= RIS_WEIGHT_EPSILON) {
-		light_id = 0u;
-		inv_light_pdf = 0.0;
-		return false;
-	}
-
-	const float target_weight = rand01() * total_weight;
-	float weight_prefix = 0.0;
-	for (uint j = 0u; j < uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT); ++j) {
-		if (j >= candidate_count) {
-			break;
-		}
-
-		const uint candidate_id = candidate_ids[j];
-		const float candidate_weight = candidate_weights[j];
-		if (candidate_weight <= RIS_WEIGHT_EPSILON) {
-			continue;
-		}
-
-		weight_prefix += candidate_weight;
-		if (target_weight <= weight_prefix || j + 1u == candidate_count) {
-			light_id = candidate_id;
-			inv_light_pdf = risStabilizeInvLightPdf(risPrimaryWindowInvPdfScale(num_point_lights, candidate_count) * total_weight / candidate_weight);
-			return true;
-		}
-	}
-
-	light_id = 0u;
-	inv_light_pdf = 0.0;
-	return false;
-}
 
 bool risEvaluatePointLightContribution(
 	PointLight point_light,
@@ -362,6 +298,48 @@ bool risProbePointLightVisibility(uint light_id, vec3 P, vec3 N)
 }
 
 #if RIS_INIT_PASS
+RisTemporalReservoir risMergeVisiblePointCandidates(
+	uint cluster_index,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	RisTemporalReservoir reservoir)
+{
+	const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
+	const uint candidate_count = risPrimaryCandidateCount(num_point_lights);
+
+	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
+		if (j >= candidate_count) {
+			break;
+		}
+
+		const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, candidate_count, j);
+		const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
+		const vec2 weights = risPointProposalWeights(candidate_id, P, N, V, material);
+		const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
+		if (mixed_weight <= RIS_WEIGHT_EPSILON) {
+			continue;
+		}
+
+		if (!risProbePointLightVisibility(candidate_id, P, N)) {
+			continue;
+		}
+
+		RisTemporalCandidate visible_candidate;
+		visible_candidate.light_id = candidate_id;
+		visible_candidate.light_hash = risPointLightHash(candidate_id);
+		visible_candidate.mixed_weight = mixed_weight;
+		reservoir = risMergeTemporalCandidate(
+			reservoir,
+			visible_candidate,
+			risTemporalRandom01(pix, 0x72737450u + j));
+	}
+
+	return reservoir;
+}
+
 void computePointLightingRISInit(
 	uint cluster_index,
 	vec3 P,
@@ -374,7 +352,6 @@ void computePointLightingRISInit(
 {
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
 	float old_current_mixed_weight = 0.0;
-	bool temporal_reprojection_found = false;
 	if (ris_active) {
 		risLoadPreviousPointReservoir(
 			P,
@@ -384,50 +361,36 @@ void computePointLightingRISInit(
 			material,
 			pix,
 			old_reservoir,
-			old_current_mixed_weight,
-			temporal_reprojection_found);
-	}
-	const bool first_frame_of_texel = ris_active && !temporal_reprojection_found;
-
-	RisTemporalCandidate new_candidate;
-	new_candidate.light_id = RIS_INVALID_LIGHT_ID;
-	new_candidate.light_hash = 0u;
-	new_candidate.mixed_weight = 0.0;
-
-	if (ris_active) {
-		uint light_id;
-		float inv_light_pdf;
-		if (risSelectPointLight(cluster_index, P, N, V, material, pix, first_frame_of_texel, light_id, inv_light_pdf)) {
-			const vec2 weights = risPointProposalWeights(light_id, P, N, V, material);
-			if (any(greaterThan(weights, vec2(RIS_WEIGHT_EPSILON)))) {
-				new_candidate.light_id = light_id;
-				new_candidate.light_hash = risPointLightHash(light_id);
-				new_candidate.mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
-			}
-		}
+			old_current_mixed_weight);
 	}
 
 	const float temporal_rand_reset = risTemporalRandom01(pix, 0x72737440u);
 	const float temporal_rand_lifetime = risTemporalRandom01(pix, 0x72737441u);
-	RisTemporalReservoir merged_reservoir = risUpdateTemporalReservoir(
+	RisTemporalReservoir merged_reservoir = risReweightTemporalReservoir(
 		old_reservoir,
 		old_current_mixed_weight,
-		new_candidate,
 		temporal_rand_reset,
-		temporal_rand_lifetime,
-		risTemporalRandom01(pix, 0x72737442u));
+		temporal_rand_lifetime);
+
+	if (ris_active) {
+		merged_reservoir = risMergeVisiblePointCandidates(
+			cluster_index,
+			P,
+			N,
+			V,
+			material,
+			pix,
+			merged_reservoir);
+	}
+	merged_reservoir = risFinalizeTemporalReservoir(merged_reservoir);
 
 	RisCandidateImageSample image_candidate = risInvalidCandidateImageSample();
 	if (risTemporalReservoirValid(merged_reservoir)) {
-		if (risProbePointLightVisibility(merged_reservoir.light_id, P, N)) {
-			const vec2 merged_weights = risPointProposalWeights(merged_reservoir.light_id, P, N, V, material);
-			if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
-				image_candidate.light_id = merged_reservoir.light_id;
-				image_candidate.weights = merged_weights;
-				image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
-			} else {
-				merged_reservoir = risInvalidTemporalReservoir();
-			}
+		const vec2 merged_weights = risPointProposalWeights(merged_reservoir.light_id, P, N, V, material);
+		if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+			image_candidate.light_id = merged_reservoir.light_id;
+			image_candidate.weights = merged_weights;
+			image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
 		} else {
 			merged_reservoir = risInvalidTemporalReservoir();
 		}

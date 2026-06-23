@@ -52,15 +52,7 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef RIS_PRIMARY_CANDIDATES
-#define RIS_PRIMARY_CANDIDATES 8
-#endif
-
-#ifndef RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT
-#define RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT RIS_PRIMARY_CANDIDATES
-#endif
-
-#if RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT < RIS_PRIMARY_CANDIDATES
-#error RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT must be at least RIS_PRIMARY_CANDIDATES
+#define RIS_PRIMARY_CANDIDATES 4
 #endif
 
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
@@ -133,12 +125,9 @@ float risStabilizeInvLightPdf(float inv_light_pdf)
 #endif
 }
 
-uint risPrimaryCandidateCount(uint lights_num_in_cluster, bool first_frame_of_texel)
+uint risPrimaryCandidateCount(uint lights_num_in_cluster)
 {
-	const uint max_candidate_count = first_frame_of_texel
-		? uint(RIS_FIRST_FRAME_OF_TEXEL_CANDIDATES_COUNT)
-		: uint(RIS_PRIMARY_CANDIDATES);
-	return min(lights_num_in_cluster, max_candidate_count);
+	return min(lights_num_in_cluster, uint(RIS_PRIMARY_CANDIDATES));
 }
 
 uint risPrimaryCandidateIndex(uint lights_num_in_cluster, uint candidate_count, uint candidate_ordinal)
@@ -332,25 +321,28 @@ bool risTemporalOldReservoirSurvives(
 	return rand_reset >= reset_probability && rand_lifetime >= RIS_TEMPORAL_RANDOM_RESET_PROBABILITY;
 }
 
-RisTemporalReservoir risUpdateTemporalReservoir(
+RisTemporalReservoir risReweightTemporalReservoir(
 	RisTemporalReservoir old_reservoir,
 	float old_current_mixed_weight,
-	RisTemporalCandidate new_candidate,
 	float rand_reset,
-	float rand_lifetime,
-	float rand_select)
+	float rand_lifetime)
 {
-	const bool old_valid = risTemporalOldReservoirSurvives(old_reservoir, old_current_mixed_weight, rand_reset, rand_lifetime);
-
-	RisTemporalReservoir reservoir = risInvalidTemporalReservoir();
-
-	if (old_valid) {
-		const float reweight = old_current_mixed_weight / max(old_reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
-		reservoir = old_reservoir;
-		reservoir.mixed_weight = old_current_mixed_weight;
-		reservoir.weight_sum = max(old_reservoir.weight_sum, old_reservoir.mixed_weight) * reweight;
+	if (!risTemporalOldReservoirSurvives(old_reservoir, old_current_mixed_weight, rand_reset, rand_lifetime)) {
+		return risInvalidTemporalReservoir();
 	}
 
+	const float reweight = old_current_mixed_weight / max(old_reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
+	RisTemporalReservoir reservoir = old_reservoir;
+	reservoir.mixed_weight = old_current_mixed_weight;
+	reservoir.weight_sum = max(old_reservoir.weight_sum, old_reservoir.mixed_weight) * reweight;
+	return reservoir;
+}
+
+RisTemporalReservoir risMergeTemporalCandidate(
+	RisTemporalReservoir reservoir,
+	RisTemporalCandidate new_candidate,
+	float rand_select)
+{
 	if (new_candidate.light_id != RIS_INVALID_LIGHT_ID && new_candidate.mixed_weight > RIS_WEIGHT_EPSILON) {
 		const float old_mass = risTemporalReservoirValid(reservoir) ? max(reservoir.weight_sum, reservoir.mixed_weight) : 0.0;
 		const float new_mass = new_candidate.mixed_weight;
@@ -365,6 +357,11 @@ RisTemporalReservoir risUpdateTemporalReservoir(
 		reservoir.weight_sum = total_mass;
 	}
 
+	return reservoir;
+}
+
+RisTemporalReservoir risFinalizeTemporalReservoir(RisTemporalReservoir reservoir)
+{
 	if (!risTemporalReservoirValid(reservoir)) {
 		return risInvalidTemporalReservoir();
 	}
