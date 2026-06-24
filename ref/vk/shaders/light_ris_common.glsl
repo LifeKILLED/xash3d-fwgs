@@ -55,6 +55,14 @@ const float shadow_offset_fudge = .1;
 #define RIS_PRIMARY_CANDIDATES 4
 #endif
 
+#ifndef RIS_PRIMARY_CANDIDATE_SCAN_WINDOW
+#define RIS_PRIMARY_CANDIDATE_SCAN_WINDOW 4
+#endif
+
+#if RIS_PRIMARY_CANDIDATE_SCAN_WINDOW < 1
+#error RIS_PRIMARY_CANDIDATE_SCAN_WINDOW must be at least 1
+#endif
+
 #ifndef RIS_NORMAL_COMPATIBILITY_MIN
 #define RIS_NORMAL_COMPATIBILITY_MIN 0.85
 #endif
@@ -125,18 +133,32 @@ float risStabilizeInvLightPdf(float inv_light_pdf)
 #endif
 }
 
-uint risPrimaryCandidateCount(uint lights_num_in_cluster)
+uint risPrimaryCandidateScanCount(uint lights_num_in_cluster)
 {
-	return min(lights_num_in_cluster, uint(RIS_PRIMARY_CANDIDATES));
+	return min(
+		lights_num_in_cluster,
+		uint(RIS_PRIMARY_CANDIDATES) * uint(RIS_PRIMARY_CANDIDATE_SCAN_WINDOW));
 }
 
-uint risPrimaryCandidateIndex(uint lights_num_in_cluster, uint candidate_count, uint candidate_ordinal)
+uint risPrimaryCandidateStartIndex(uint lights_num_in_cluster)
 {
-	if (lights_num_in_cluster <= candidate_count) {
-		return candidate_ordinal;
+	if (lights_num_in_cluster == 0u) {
+		return 0u;
 	}
 
 	return min(uint(rand01() * float(lights_num_in_cluster)), lights_num_in_cluster - 1u);
+}
+
+uint risPrimaryCandidateIndex(uint lights_num_in_cluster, uint candidate_start_index, uint candidate_ordinal)
+{
+	if (lights_num_in_cluster == 0u) {
+		return 0u;
+	}
+
+	const uint tail_count = lights_num_in_cluster - candidate_start_index;
+	return candidate_ordinal < tail_count
+		? candidate_start_index + candidate_ordinal
+		: candidate_ordinal - tail_count;
 }
 
 float risPrimaryWindowInvPdfScale(uint lights_num_in_cluster, uint candidate_count)

@@ -308,29 +308,49 @@ RisTemporalReservoir risMergeVisiblePointCandidates(
 	RisTemporalReservoir reservoir)
 {
 	const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
-	const uint candidate_count = risPrimaryCandidateCount(num_point_lights);
+	const uint candidate_count = risPrimaryCandidateScanCount(num_point_lights);
+	const uint candidate_start_index = risPrimaryCandidateStartIndex(num_point_lights);
+	uint candidate_ordinal = 0u;
 
 	for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
-		if (j >= candidate_count) {
+		if (candidate_ordinal >= candidate_count) {
 			break;
 		}
 
-		const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, candidate_count, j);
-		const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
-		const vec2 weights = risPointProposalWeights(candidate_id, P, N, V, material);
-		const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
-		if (mixed_weight <= RIS_WEIGHT_EPSILON) {
+		uint selected_id = RIS_INVALID_LIGHT_ID;
+		float selected_mixed_weight = 0.0;
+		for (uint scan = 0u; scan < uint(RIS_PRIMARY_CANDIDATE_SCAN_WINDOW); ++scan) {
+			if (candidate_ordinal >= candidate_count) {
+				break;
+			}
+
+			const uint candidate_index = risPrimaryCandidateIndex(num_point_lights, candidate_start_index, candidate_ordinal);
+			candidate_ordinal++;
+
+			const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
+			const vec2 weights = risPointProposalWeights(candidate_id, P, N, V, material);
+			const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
+			if (mixed_weight <= RIS_WEIGHT_EPSILON) {
+				continue;
+			}
+
+			selected_id = candidate_id;
+			selected_mixed_weight = mixed_weight;
+			break;
+		}
+
+		if (selected_id == RIS_INVALID_LIGHT_ID) {
 			continue;
 		}
 
-		if (!risProbePointLightVisibility(candidate_id, P, N)) {
+		if (!risProbePointLightVisibility(selected_id, P, N)) {
 			continue;
 		}
 
 		RisTemporalCandidate visible_candidate;
-		visible_candidate.light_id = candidate_id;
-		visible_candidate.light_hash = risPointLightHash(candidate_id);
-		visible_candidate.mixed_weight = mixed_weight;
+		visible_candidate.light_id = selected_id;
+		visible_candidate.light_hash = risPointLightHash(selected_id);
+		visible_candidate.mixed_weight = selected_mixed_weight;
 		reservoir = risMergeTemporalCandidate(
 			reservoir,
 			visible_candidate,
