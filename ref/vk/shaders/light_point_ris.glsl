@@ -75,6 +75,11 @@ uint risPointLightHash(uint light_id)
 #if RIS_INIT_PASS
 bool risProbePointLightVisibility(uint light_id, vec3 P, vec3 N);
 
+#if RIS_BAYER_SHARED_VISIBILITY
+shared uint risPointBayerClusterIndices[RIS_BAYER_WORKGROUP_SIZE];
+shared uint risPointBayerVisibleMasks[RIS_BAYER_WORKGROUP_SIZE];
+#endif
+
 bool risPointLightHashMatches(uint light_id, uint light_hash)
 {
 	return risIsPointLightCandidate(light_id) && risPointLightHash(light_id) == light_hash;
@@ -360,6 +365,125 @@ RisTemporalReservoir risMergeVisiblePointCandidates(
 	return reservoir;
 }
 
+#if RIS_BAYER_SHARED_VISIBILITY
+RisTemporalReservoir risMergeBayerSharedVisiblePointCandidates(
+	uint cluster_index,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	bool ris_active,
+	RisTemporalReservoir reservoir)
+{
+	const uint local_index = risBayerLocalInvocationIndex();
+	uint visible_mask = 0u;
+
+	if (ris_active) {
+		const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
+		uint segment_begin;
+		uint segment_count;
+		risBayerSegmentRange(num_point_lights, risBayerIndex(pix), segment_begin, segment_count);
+
+		for (uint bit_index = 0u; bit_index < uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES); ++bit_index) {
+			if (bit_index >= segment_count) {
+				break;
+			}
+
+			const uint candidate_index = segment_begin + bit_index;
+			const uint candidate_id = uint(light_grid.clusters_[cluster_index].point_lights[candidate_index]);
+			const vec2 weights = risPointProposalWeights(candidate_id, P, N, V, material);
+			const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
+			if (mixed_weight <= RIS_WEIGHT_EPSILON) {
+				continue;
+			}
+
+			if (!risProbePointLightVisibility(candidate_id, P, N)) {
+				continue;
+			}
+
+			visible_mask |= 1u << bit_index;
+
+			RisTemporalCandidate visible_candidate;
+			visible_candidate.light_id = candidate_id;
+			visible_candidate.light_hash = risPointLightHash(candidate_id);
+			visible_candidate.mixed_weight = mixed_weight;
+			reservoir = risMergeTemporalCandidate(
+				reservoir,
+				visible_candidate,
+				risTemporalRandom01(pix, 0x62797000u + bit_index));
+		}
+
+		risPointBayerClusterIndices[local_index] = cluster_index;
+	} else {
+		risPointBayerClusterIndices[local_index] = RIS_INVALID_LIGHT_ID;
+	}
+	risPointBayerVisibleMasks[local_index] = visible_mask;
+
+	memoryBarrierShared();
+	barrier();
+
+	if (!ris_active) {
+		return reservoir;
+	}
+
+	const ivec2 self_local_pix = ivec2(gl_LocalInvocationID.xy);
+	for (uint sample_index = 0u; sample_index < uint(RIS_BAYER_SEGMENT_COUNT); ++sample_index) {
+		const ivec2 sample_local_pix = risBayerGatherSampleLocal(sample_index);
+		if (all(equal(sample_local_pix, self_local_pix))) {
+			continue;
+		}
+
+		const uint sample_local_index = risBayerLocalIndex(sample_local_pix);
+		const uint sample_cluster_index = risPointBayerClusterIndices[sample_local_index];
+		const uint sample_visible_mask = risPointBayerVisibleMasks[sample_local_index];
+		if (sample_cluster_index >= MAX_LIGHT_CLUSTERS || sample_visible_mask == 0u) {
+			continue;
+		}
+
+		const ivec2 sample_pix = risBayerLocalToPixel(pix, sample_local_pix);
+		if (!risPixelInBounds(sample_pix)) {
+			continue;
+		}
+
+		const uint num_point_lights = uint(light_grid.clusters_[sample_cluster_index].num_point_lights);
+		uint segment_begin;
+		uint segment_count;
+		risBayerSegmentRange(num_point_lights, risBayerIndex(sample_pix), segment_begin, segment_count);
+
+		for (uint bit_index = 0u; bit_index < uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES); ++bit_index) {
+			if (bit_index >= segment_count) {
+				break;
+			}
+			if (!risBayerMaskBitSet(sample_visible_mask, bit_index)) {
+				continue;
+			}
+
+			const uint candidate_index = segment_begin + bit_index;
+			const uint candidate_id = uint(light_grid.clusters_[sample_cluster_index].point_lights[candidate_index]);
+			const vec2 weights = risPointProposalWeights(candidate_id, P, N, V, material);
+			const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
+			if (mixed_weight <= RIS_WEIGHT_EPSILON) {
+				continue;
+			}
+
+			RisTemporalCandidate visible_candidate;
+			visible_candidate.light_id = candidate_id;
+			visible_candidate.light_hash = risPointLightHash(candidate_id);
+			visible_candidate.mixed_weight = mixed_weight;
+			reservoir = risMergeTemporalCandidate(
+				reservoir,
+				visible_candidate,
+				risTemporalRandom01(
+					pix,
+					0x62797080u + sample_index * uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES) + bit_index));
+		}
+	}
+
+	return reservoir;
+}
+#endif
+
 void computePointLightingRISInit(
 	uint cluster_index,
 	vec3 P,
@@ -392,6 +516,17 @@ void computePointLightingRISInit(
 		temporal_rand_reset,
 		temporal_rand_lifetime);
 
+#if RIS_BAYER_SHARED_VISIBILITY
+	merged_reservoir = risMergeBayerSharedVisiblePointCandidates(
+		cluster_index,
+		P,
+		N,
+		V,
+		material,
+		pix,
+		ris_active,
+		merged_reservoir);
+#else
 	if (ris_active) {
 		merged_reservoir = risMergeVisiblePointCandidates(
 			cluster_index,
@@ -402,6 +537,7 @@ void computePointLightingRISInit(
 			pix,
 			merged_reservoir);
 	}
+#endif
 	merged_reservoir = risFinalizeTemporalReservoir(merged_reservoir);
 
 	RisCandidateImageSample image_candidate = risInvalidCandidateImageSample();

@@ -115,8 +115,89 @@ const float shadow_offset_fudge = .1;
 #define RIS_TEMPORAL_MAX_RESERVOIR_MASS 8.0
 #endif
 
+#ifndef RIS_BAYER_SHARED_VISIBILITY
+#define RIS_BAYER_SHARED_VISIBILITY 0
+#endif
+
+#ifndef RIS_BAYER_SEGMENT_COUNT
+#define RIS_BAYER_SEGMENT_COUNT 9
+#endif
+
+#ifndef RIS_BAYER_SEGMENT_MAX_CANDIDATES
+#define RIS_BAYER_SEGMENT_MAX_CANDIDATES 32
+#endif
+
 const uint RIS_INVALID_LIGHT_ID = 0xffffffffu;
 const uint RIS_TEMPORAL_HASH_MASK = 0x00ffffffu;
+
+#if RIS_BAYER_SHARED_VISIBILITY
+#if RIS_LOCAL_SIZE_X < 3 || RIS_LOCAL_SIZE_Y < 3
+#error RIS_BAYER_SHARED_VISIBILITY requires at least 3x3 local workgroups
+#endif
+
+#if RIS_BAYER_SEGMENT_COUNT != 9
+#error RIS_BAYER_SHARED_VISIBILITY expects a 3x3 Bayer matrix
+#endif
+
+#if RIS_BAYER_SEGMENT_MAX_CANDIDATES > 32
+#error RIS_BAYER_SEGMENT_MAX_CANDIDATES must fit in one uint mask
+#endif
+
+#define RIS_BAYER_WORKGROUP_SIZE (RIS_LOCAL_SIZE_X * RIS_LOCAL_SIZE_Y)
+
+uint risBayerIndex(ivec2 pix)
+{
+	const uint x = uint(pix.x % 3);
+	const uint y = uint(pix.y % 3);
+	const uint bayer[9] = uint[9](
+		0u, 7u, 3u,
+		6u, 5u, 2u,
+		4u, 1u, 8u);
+	return bayer[x + y * 3u];
+}
+
+void risBayerSegmentRange(uint light_count, uint bayer_index, out uint segment_begin, out uint segment_count)
+{
+	const uint clamped_index = min(bayer_index, uint(RIS_BAYER_SEGMENT_COUNT - 1));
+	segment_begin = light_count * clamped_index / uint(RIS_BAYER_SEGMENT_COUNT);
+	const uint segment_end = light_count * (clamped_index + 1u) / uint(RIS_BAYER_SEGMENT_COUNT);
+	segment_count = min(segment_end - segment_begin, uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES));
+}
+
+uint risBayerLocalIndex(ivec2 local_pix)
+{
+	return uint(local_pix.x) + uint(local_pix.y) * uint(RIS_LOCAL_SIZE_X);
+}
+
+uint risBayerLocalInvocationIndex()
+{
+	return risBayerLocalIndex(ivec2(gl_LocalInvocationID.xy));
+}
+
+ivec2 risBayerGatherCenterLocal()
+{
+	return clamp(
+		ivec2(gl_LocalInvocationID.xy),
+		ivec2(1),
+		ivec2(RIS_LOCAL_SIZE_X - 2, RIS_LOCAL_SIZE_Y - 2));
+}
+
+ivec2 risBayerGatherSampleLocal(uint sample_index)
+{
+	const ivec2 offset = ivec2(int(sample_index % 3u) - 1, int(sample_index / 3u) - 1);
+	return risBayerGatherCenterLocal() + offset;
+}
+
+ivec2 risBayerLocalToPixel(ivec2 pix, ivec2 local_pix)
+{
+	return pix + local_pix - ivec2(gl_LocalInvocationID.xy);
+}
+
+bool risBayerMaskBitSet(uint mask, uint bit_index)
+{
+	return (mask & (1u << bit_index)) != 0u;
+}
+#endif
 
 float risStabilizeInvLightPdf(float inv_light_pdf)
 {
