@@ -20,6 +20,17 @@ vec4 sampleTexture(uint tex_index, vec2 uv, vec4 uv_lods) {
 #endif
 }
 
+float applyTranslucentTirOpacityBoost(float opacity, vec3 ray_direction, vec3 surface_normal)
+{
+	// Approximate water -> air total-internal-reflection limit without bending refraction rays.
+	// TODO: add material property for IOR / critical angle instead of hard-coded water-like value.
+	const float water_ior = 1.333;
+	const float cos_critical = sqrt(max(1.0 - 1.0 / (water_ior * water_ior), 0.0));
+	const float NoV = abs(dot(normalize(surface_normal), normalize(-ray_direction)));
+	const float transmission = smoothstep(cos_critical, 1.0, NoV);
+	return clamp(mix(1.0, opacity, transmission), 0.0, 1.0);
+}
+
 void primaryRayHit(rayQueryEXT rq, inout RayPayloadPrimary payload) {
 	Geometry geom = readHitGeometry(rq, ubo.ubo.ray_cone_width, rayQueryGetIntersectionBarycentricsEXT(rq, true));
 	const float hitT = rayQueryGetIntersectionTEXT(rq, true);  //gl_HitTEXT;
@@ -132,9 +143,13 @@ void primaryRayHit(rayQueryEXT rq, inout RayPayloadPrimary payload) {
 
 	// α-masked materials leak non-1 alpha values to bounces, leading to weird translucent edges, see
 	// https://github.com/w23/xash3d-fwgs/issues/721
-	// Non-translucent materials should be fully opaque
-	if (model.mode != MATERIAL_MODE_TRANSLUCENT)
+	// Non-translucent materials should be fully opaque.
+	// Translucent materials get a water-like TIR opacity boost at grazing angles; refraction rays are not bent here.
+	if (model.mode != MATERIAL_MODE_TRANSLUCENT) {
 		payload.base_color_a.a = 1.;
+	} else {
+		payload.base_color_a.a = applyTranslucentTirOpacityBoost(payload.base_color_a.a, rayDirection, geom.normal_geometry);
+	}
 
 	if ((ubo.ubo.debug_flags & DEBUG_FLAG_WHITE_FURNACE) != 0) {
 		// White furnace mode: everything is diffuse and white
