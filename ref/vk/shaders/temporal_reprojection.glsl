@@ -9,18 +9,57 @@
 #define ASVGF_REPROJECTION_PARAMS ubo.ubo.asvgf.direct_diffuse
 #endif
 
-bool projectWorldToPrevFramePixel(vec3 world_position, ivec2 res, out ivec2 reproj_pix, out float clip_w) {
+bool projectWorldToPrevFrameUvCenter(vec3 world_position, ivec2 res, out vec2 reproj_uv_center, out float clip_w) {
 	const vec4 prev_view_position = ubo.ubo.prev_view * vec4(world_position, 1.0);
 	const vec4 clip_space = ubo.ubo.prev_proj * vec4(prev_view_position.xyz, 1.0);
 	clip_w = clip_space.w;
 	if (clip_w <= 0.0) {
+		reproj_uv_center = vec2(-1.0);
+		return false;
+	}
+
+	const vec2 reproj_ndc = clip_space.xy / clip_space.w;
+	reproj_uv_center = (reproj_ndc * 0.5 + vec2(0.5)) * vec2(res) - vec2(0.5);
+	return all(greaterThanEqual(reproj_uv_center, vec2(-0.5))) &&
+		all(lessThan(reproj_uv_center, vec2(res) - vec2(0.5)));
+}
+
+ivec2 reprojectionUvCenterToNearestTexel(vec2 reproj_uv_center) {
+	return ivec2(floor(reproj_uv_center + vec2(0.5)));
+}
+
+bool isReprojectionTexelInside(ivec2 pix, ivec2 res) {
+	return all(greaterThanEqual(pix, ivec2(0))) && all(lessThan(pix, res));
+}
+
+void buildReprojectionFootprint2x2(vec2 reproj_uv_center, out ivec2 taps[4], out float weights[4]) {
+	const ivec2 base = ivec2(floor(reproj_uv_center));
+	const vec2 f = fract(reproj_uv_center);
+
+	taps[0] = base + ivec2(0, 0);
+	taps[1] = base + ivec2(1, 0);
+	taps[2] = base + ivec2(0, 1);
+	taps[3] = base + ivec2(1, 1);
+
+	weights[0] = (1.0 - f.x) * (1.0 - f.y);
+	weights[1] =  f.x        * (1.0 - f.y);
+	weights[2] = (1.0 - f.x) *  f.y;
+	weights[3] =  f.x        *  f.y;
+}
+
+#ifndef REPROJECTION_TEXEL_SEARCH_MOTION_THRESHOLD
+#define REPROJECTION_TEXEL_SEARCH_MOTION_THRESHOLD 1.0
+#endif
+
+bool projectWorldToPrevFramePixel(vec3 world_position, ivec2 res, out ivec2 reproj_pix, out float clip_w) {
+	vec2 reproj_uv_center = vec2(-1.0);
+	if (!projectWorldToPrevFrameUvCenter(world_position, res, reproj_uv_center, clip_w)) {
 		reproj_pix = ivec2(-1);
 		return false;
 	}
 
-	const vec2 reproj_uv = clip_space.xy / clip_space.w;
-	reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
-	return all(greaterThanEqual(reproj_pix, ivec2(0))) && all(lessThan(reproj_pix, res));
+	reproj_pix = reprojectionUvCenterToNearestTexel(reproj_uv_center);
+	return isReprojectionTexelInside(reproj_pix, res);
 }
 
 bool isValidReprojectionDepth(float depth) {
@@ -63,9 +102,9 @@ float makeReprojectionDepthThreshold(float expected_depth, float stored_depth, f
 	return makeReprojectionDepthThresholdForParams(ASVGF_REPROJECTION_PARAMS, expected_depth, stored_depth, base_threshold);
 }
 
-bool reprojectToPrevFramePixelForParams(AsvgfReprojectionParams params, vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
+bool reprojectToPrevFrameUvCenterForParams(AsvgfReprojectionParams params, vec3 prev_position, ivec2 res, out vec2 reproj_uv_center, out float depth_necessary, out float depth_threshold) {
 	float clip_w = 0.0;
-	if (!projectWorldToPrevFramePixel(prev_position, res, reproj_pix, clip_w)) {
+	if (!projectWorldToPrevFrameUvCenter(prev_position, res, reproj_uv_center, clip_w)) {
 		depth_necessary = 0.0;
 		depth_threshold = 0.0;
 		return false;
@@ -82,6 +121,17 @@ bool reprojectToPrevFramePixelForParams(AsvgfReprojectionParams params, vec3 pre
 	float base_threshold = params.reprojection_depth_threshold_scale * projected_depth;
 	depth_threshold = makeReprojectionDepthThresholdForParams(params, depth_necessary, projected_depth, base_threshold);
 	return true;
+}
+
+bool reprojectToPrevFramePixelForParams(AsvgfReprojectionParams params, vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
+	vec2 reproj_uv_center = vec2(-1.0);
+	if (!reprojectToPrevFrameUvCenterForParams(params, prev_position, res, reproj_uv_center, depth_necessary, depth_threshold)) {
+		reproj_pix = ivec2(-1);
+		return false;
+	}
+
+	reproj_pix = reprojectionUvCenterToNearestTexel(reproj_uv_center);
+	return isReprojectionTexelInside(reproj_pix, res);
 }
 
 bool reprojectToPrevFramePixel(vec3 prev_position, ivec2 res, out ivec2 reproj_pix, out float depth_necessary, out float depth_threshold) {
@@ -134,6 +184,225 @@ bool computePlaneDepthInPrevFrame(ivec2 prev_pix, ivec2 res, vec3 plane_point, v
 	depth = length(ray_dir * t);
 	return isValidReprojectionDepth(depth);
 }
+
+
+#ifdef REPROJECTION_LOAD_PREV_DEPTH_META
+
+bool validateReprojectedHistoryTexelForParams(
+	AsvgfReprojectionParams params,
+	ivec2 history_pix,
+	ivec2 res,
+	vec3 prev_position,
+	vec3 geometry_normal,
+	float depth_necessary,
+	float depth_threshold,
+	out float history_depth_threshold)
+{
+	history_depth_threshold = 0.0;
+
+	if (!isReprojectionTexelInside(history_pix, res)) {
+		return false;
+	}
+
+	const vec4 history_depth_meta = REPROJECTION_LOAD_PREV_DEPTH_META(history_pix);
+	const float history_depth = decodeReprojectionDepth(history_depth_meta.r);
+	if (!isValidReprojectionDepth(history_depth)) {
+		return false;
+	}
+
+	float expected_depth = depth_necessary;
+	float plane_depth = 0.0;
+	if (computePlaneDepthInPrevFrame(history_pix, res, prev_position, geometry_normal, plane_depth)) {
+		expected_depth = plane_depth;
+	}
+
+	history_depth_threshold = makeReprojectionDepthThresholdForParams(params, expected_depth, history_depth, depth_threshold);
+	return abs(history_depth - expected_depth) < history_depth_threshold;
+}
+
+bool buildValidatedReprojectionHistoryTapsForParams(
+	AsvgfReprojectionParams params,
+	vec3 prev_position,
+	vec3 geometry_normal,
+	ivec2 current_pix,
+	ivec2 res,
+	out ivec2 history_taps[4],
+	out float history_weights[4],
+	out int history_tap_count,
+	out vec2 reproj_uv_center,
+	out float accumulated_depth_threshold)
+{
+	history_tap_count = 0;
+	accumulated_depth_threshold = 0.0;
+	for (int i = 0; i < 4; ++i) {
+		history_taps[i] = ivec2(-1);
+		history_weights[i] = 0.0;
+	}
+
+	float depth_necessary = 0.0;
+	float depth_threshold = 0.0;
+	if (!reprojectToPrevFrameUvCenterForParams(params, prev_position, res, reproj_uv_center, depth_necessary, depth_threshold)) {
+		return false;
+	}
+
+	ivec2 candidate_taps[4];
+	float candidate_weights[4];
+	int candidate_count = 1;
+	const float motion = length(reproj_uv_center - vec2(current_pix));
+	if (motion > REPROJECTION_TEXEL_SEARCH_MOTION_THRESHOLD) {
+		buildReprojectionFootprint2x2(reproj_uv_center, candidate_taps, candidate_weights);
+		candidate_count = 4;
+	} else {
+		candidate_taps[0] = reprojectionUvCenterToNearestTexel(reproj_uv_center);
+		candidate_weights[0] = 1.0;
+		for (int i = 1; i < 4; ++i) {
+			candidate_taps[i] = ivec2(-1);
+			candidate_weights[i] = 0.0;
+		}
+	}
+
+	float valid_weight_sum = 0.0;
+	float weighted_depth_threshold_sum = 0.0;
+	for (int i = 0; i < 4; ++i) {
+		if (i >= candidate_count) {
+			break;
+		}
+
+		const ivec2 candidate_pix = candidate_taps[i];
+		const float candidate_weight = candidate_weights[i];
+		if (candidate_weight <= 0.0) {
+			continue;
+		}
+
+		float candidate_depth_threshold = 0.0;
+		if (!validateReprojectedHistoryTexelForParams(params, candidate_pix, res, prev_position, geometry_normal, depth_necessary, depth_threshold, candidate_depth_threshold)) {
+			continue;
+		}
+
+		history_taps[history_tap_count] = candidate_pix;
+		history_weights[history_tap_count] = candidate_weight;
+		history_tap_count += 1;
+		valid_weight_sum += candidate_weight;
+		weighted_depth_threshold_sum += candidate_depth_threshold * candidate_weight;
+	}
+
+	if (history_tap_count <= 0 || valid_weight_sum <= 0.0) {
+		history_tap_count = 0;
+		return false;
+	}
+
+	const float inv_weight_sum = 1.0 / valid_weight_sum;
+	for (int i = 0; i < 4; ++i) {
+		if (i >= history_tap_count) {
+			break;
+		}
+		history_weights[i] *= inv_weight_sum;
+	}
+	accumulated_depth_threshold = weighted_depth_threshold_sum * inv_weight_sum;
+	return true;
+}
+
+bool buildValidatedReprojectionHistoryTaps(
+	vec3 prev_position,
+	vec3 geometry_normal,
+	ivec2 current_pix,
+	ivec2 res,
+	out ivec2 history_taps[4],
+	out float history_weights[4],
+	out int history_tap_count,
+	out vec2 reproj_uv_center,
+	out float accumulated_depth_threshold)
+{
+	return buildValidatedReprojectionHistoryTapsForParams(
+		ASVGF_REPROJECTION_PARAMS,
+		prev_position,
+		geometry_normal,
+		current_pix,
+		res,
+		history_taps,
+		history_weights,
+		history_tap_count,
+		reproj_uv_center,
+		accumulated_depth_threshold);
+}
+
+bool findBestReprojectedHistoryTexelForParams(
+	AsvgfReprojectionParams params,
+	vec3 prev_position,
+	vec3 geometry_normal,
+	ivec2 current_pix,
+	ivec2 res,
+	out ivec2 history_pix,
+	out float selected_depth_threshold)
+{
+	history_pix = ivec2(-1);
+	selected_depth_threshold = 0.0;
+
+	vec2 reproj_uv_center = vec2(-1.0);
+	float depth_necessary = 0.0;
+	float depth_threshold = 0.0;
+	if (!reprojectToPrevFrameUvCenterForParams(params, prev_position, res, reproj_uv_center, depth_necessary, depth_threshold)) {
+		return false;
+	}
+
+	ivec2 candidate_taps[4];
+	float candidate_weights[4];
+	int candidate_count = 1;
+	const float motion = length(reproj_uv_center - vec2(current_pix));
+	if (motion > REPROJECTION_TEXEL_SEARCH_MOTION_THRESHOLD) {
+		buildReprojectionFootprint2x2(reproj_uv_center, candidate_taps, candidate_weights);
+		candidate_count = 4;
+	} else {
+		candidate_taps[0] = reprojectionUvCenterToNearestTexel(reproj_uv_center);
+		candidate_weights[0] = 1.0;
+		for (int i = 1; i < 4; ++i) {
+			candidate_taps[i] = ivec2(-1);
+			candidate_weights[i] = 0.0;
+		}
+	}
+
+	float best_weight = -1.0;
+	for (int i = 0; i < 4; ++i) {
+		if (i >= candidate_count) {
+			break;
+		}
+
+		const ivec2 candidate_pix = candidate_taps[i];
+		const float candidate_weight = candidate_weights[i];
+		float candidate_depth_threshold = 0.0;
+		if (!validateReprojectedHistoryTexelForParams(params, candidate_pix, res, prev_position, geometry_normal, depth_necessary, depth_threshold, candidate_depth_threshold)) {
+			continue;
+		}
+
+		if (candidate_weight > best_weight) {
+			best_weight = candidate_weight;
+			history_pix = candidate_pix;
+			selected_depth_threshold = candidate_depth_threshold;
+		}
+	}
+
+	return best_weight >= 0.0 && isReprojectionTexelInside(history_pix, res);
+}
+
+bool findBestReprojectedHistoryTexel(
+	vec3 prev_position,
+	vec3 geometry_normal,
+	ivec2 current_pix,
+	ivec2 res,
+	out ivec2 history_pix,
+	out float selected_depth_threshold)
+{
+	return findBestReprojectedHistoryTexelForParams(
+		ASVGF_REPROJECTION_PARAMS,
+		prev_position,
+		geometry_normal,
+		current_pix,
+		res,
+		history_pix,
+		selected_depth_threshold);
+}
+
+#endif // REPROJECTION_LOAD_PREV_DEPTH_META
 
 #if defined(TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE)
 #ifndef TEMPORAL_REPROJECTION_PRIMARY_PIXEL_COMPATIBLE

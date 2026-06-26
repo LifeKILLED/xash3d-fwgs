@@ -13,7 +13,14 @@ const float shadow_offset_fudge = .1;
 #ifndef LOAD_REFLECTION_RAY_LENGTH
 #define LOAD_REFLECTION_RAY_LENGTH(pix) 0.0
 #endif
+
+#if RIS_INIT_PASS && !defined(RIS_CUSTOM_TEMPORAL_HISTORY)
+#define REPROJECTION_LOAD_PREV_DEPTH_META(pix_) imageLoad(prev_temporal_asvgf_reproj_depth, (pix_))
+#endif
 #include "temporal_reprojection.glsl"
+#if RIS_INIT_PASS && !defined(RIS_CUSTOM_TEMPORAL_HISTORY)
+#undef REPROJECTION_LOAD_PREV_DEPTH_META
+#endif
 
 #ifndef RIS_LOCAL_SIZE_X
 #define RIS_LOCAL_SIZE_X 8
@@ -484,26 +491,14 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 		return false;
 	}
 
-	float depth_necessary = 0.0;
-	float depth_threshold = 0.0;
-	if (!reprojectToPrevFramePixel(prev_position, ubo.ubo.res, history_pix, depth_necessary, depth_threshold)) {
-		return false;
-	}
-
-	const vec4 history_depth_meta = imageLoad(prev_temporal_asvgf_reproj_depth, history_pix);
-	const float history_depth = decodeReprojectionDepth(history_depth_meta.r);
-	if (!isValidReprojectionDepth(history_depth)) {
-		return false;
-	}
-
-	float expected_depth = depth_necessary;
-	float plane_depth = 0.0;
-	if (computePlaneDepthInPrevFrame(history_pix, ubo.ubo.res, prev_position, geometry_normal, plane_depth)) {
-		expected_depth = plane_depth;
-	}
-
-	const float threshold = makeReprojectionDepthThreshold(expected_depth, history_depth, depth_threshold);
-	return abs(history_depth - expected_depth) < threshold;
+	float selected_depth_threshold = 0.0;
+	return findBestReprojectedHistoryTexel(
+		prev_position,
+		geometry_normal,
+		pix,
+		ubo.ubo.res,
+		history_pix,
+		selected_depth_threshold);
 }
 #endif
 #endif
