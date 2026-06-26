@@ -47,6 +47,7 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RIS_POINT_OUT_CANDIDATE_IMAGE out_bounce_ris_point_candidate
 #define RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE out_temporal_bounce_ris_point_reservoir
 #define RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_bounce_ris_point_reservoir
+#define RIS_BAYER_SHARED_VISIBILITY 1
 
 #include "bounce_ris_common.glsl"
 #include "light_ris.glsl"
