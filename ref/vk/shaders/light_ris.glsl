@@ -3,13 +3,7 @@
 
 #include "light_ris_common.glsl"
 
-#if LIGHT_POLYGON
-#include "light_polygon_ris.glsl"
-#endif
-
-#if LIGHT_POINT
-#include "light_point_ris.glsl"
-#endif
+#include "light_ris_lights.glsl"
 
 bool computeLightingRISState(
 	vec3 P,
