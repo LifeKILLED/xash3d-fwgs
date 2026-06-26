@@ -120,7 +120,8 @@ void storeReflectionHit(
 	vec3 throughput,
 	vec3 emissive_radiance,
 	vec3 view_dir,
-	vec3 segment)
+	vec3 segment,
+	float reflection_pdf)
 {
 	imageStore(out_reflection_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_reflection_hit_pos, pix, payload.hit_t);
@@ -129,7 +130,7 @@ void storeReflectionHit(
 	imageStore(out_reflection_base_color_a, pix, LINEARtoSRGB(payload.base_color_a));
 	imageStore(out_reflection_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_reflection_emissive, pix, vec4(emissive_radiance, 0.0));
-	imageStore(out_reflection_direction_pdf, pix, vec4(segment, 0.0));
+	imageStore(out_reflection_direction_pdf, pix, vec4(segment, reflection_pdf));
 }
 
 void storeReflectionMiss(ivec2 pix, vec3 emissive_radiance)
@@ -189,6 +190,8 @@ void main()
 		return;
 	}
 
+	const float reflection_pdf = ggxReflectionPdf(mat.shading_normal, -direction, reflection_direction, mat.prop.roughness);
+
 	if (IS_INVALIDV(throughput)) {
 		throughput = vec3(0.0);
 	}
@@ -219,5 +222,5 @@ void main()
 	const vec3 emissive_radiance = throughput * SRGBtoLINEAR(blend.rgb);
 	const vec3 stored_throughput = throughput * blend.a;
 	const vec3 segment = payload.hit_t.xyz - pos_t.xyz;
-	storeReflectionHit(pix, payload, stored_throughput, emissive_radiance, -reflection_direction, segment);
+	storeReflectionHit(pix, payload, stored_throughput, emissive_radiance, -reflection_direction, segment, reflection_pdf);
 }

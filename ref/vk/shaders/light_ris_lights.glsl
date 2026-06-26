@@ -13,6 +13,36 @@
 #define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(geometry_prev_position, (pix_)).rgb
 #endif
 
+#ifndef RIS_DIRECT_SPECULAR_MIS
+#define RIS_DIRECT_SPECULAR_MIS 0
+#endif
+
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+vec3 g_ris_direct_specular_ray_dir = vec3(0.0);
+float g_ris_direct_specular_ray_pdf = 0.0;
+float g_ris_direct_specular_ray_len = 0.0;
+bool g_ris_direct_specular_ray_valid = false;
+bool g_ris_direct_specular_mis_selected_light = false;
+
+void risSetDirectSpecularMisSelectedLight(bool selected_light)
+{
+	g_ris_direct_specular_mis_selected_light = selected_light;
+}
+
+void risSetDirectSpecularMisRay(ivec2 pix)
+{
+	const vec4 ray_pdf = imageLoad(reflection_direction_pdf, pix);
+	g_ris_direct_specular_ray_len = length(ray_pdf.xyz);
+	g_ris_direct_specular_ray_pdf = ray_pdf.w;
+	g_ris_direct_specular_ray_valid = g_ris_direct_specular_ray_len > 1e-5 && g_ris_direct_specular_ray_pdf > 1e-8;
+	g_ris_direct_specular_ray_dir = g_ris_direct_specular_ray_valid ? (ray_pdf.xyz / g_ris_direct_specular_ray_len) : vec3(0.0);
+}
+#else
+void risSetDirectSpecularMisSelectedLight(bool selected_light) {}
+void risSetDirectSpecularMisRay(ivec2 pix) {}
+#endif
+
+
 #if LIGHT_POLYGON
 
 #define MAX_POLYGON_VERTEX_COUNT 8
@@ -199,6 +229,115 @@ bool risSampleSolidPolygon(
 	return true;
 }
 
+
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+bool risRayTriangleHit(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2, out float t)
+{
+	const float eps = 1e-6;
+	const vec3 e1 = v1 - v0;
+	const vec3 e2 = v2 - v0;
+	const vec3 p = cross(rd, e2);
+	const float det = dot(e1, p);
+	if (abs(det) <= eps) {
+		return false;
+	}
+
+	const float inv_det = 1.0 / det;
+	const vec3 s = ro - v0;
+	const float u = dot(s, p) * inv_det;
+	if (u < 0.0 || u > 1.0) {
+		return false;
+	}
+
+	const vec3 q = cross(s, e1);
+	const float v = dot(rd, q) * inv_det;
+	if (v < 0.0 || u + v > 1.0) {
+		return false;
+	}
+
+	t = dot(e2, q) * inv_det;
+	return t > eps;
+}
+
+bool risRayHitsPolygonLight(PolygonLight poly, vec3 P, vec3 R, out float hit_t, out float solid_angle)
+{
+	hit_t = 1e30;
+	solid_angle = 0.0;
+
+	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+	const uint vertices_count = poly.vertices_count_offset >> 16;
+	if (vertices_count < 3u) {
+		return false;
+	}
+
+	vec3 vertices[MAX_POLYGON_VERTEX_COUNT];
+	for (uint i = 0u; i < MAX_POLYGON_VERTEX_COUNT; ++i) {
+		vertices[i] = (i < vertices_count) ? lights.m.polygon_vertices[vertices_offset + i].xyz : vec3(0.0);
+	}
+
+	const solid_angle_polygon_t sap = prepare_solid_angle_polygon_sampling(vertices_count, vertices, P);
+	if (sap.solid_angle <= 1e-6) {
+		return false;
+	}
+
+	const vec4 plane = normalizedPolygonPlane(poly);
+	if (dot(plane.xyz, -R) <= 1e-6) {
+		return false;
+	}
+
+	bool hit = false;
+	const vec3 v0 = vertices[0];
+	for (uint i = 1u; i + 1u < vertices_count; ++i) {
+		float t;
+		if (risRayTriangleHit(P, R, v0, vertices[i], vertices[i + 1u], t) && t < hit_t) {
+			hit_t = t;
+			hit = true;
+		}
+	}
+
+	if (!hit || hit_t > g_ris_direct_specular_ray_len + 1e-3) {
+		return false;
+	}
+
+	solid_angle = sap.solid_angle;
+	return true;
+}
+
+bool risEvaluatePolygonReflectionMis(
+	PolygonLight poly,
+	float inv_light_pdf,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	out vec3 specular)
+{
+	specular = vec3(0.0);
+	if (!g_ris_direct_specular_ray_valid || inv_light_pdf <= 0.0) {
+		return false;
+	}
+
+	float hit_t;
+	float solid_angle;
+	if (!risRayHitsPolygonLight(poly, P, g_ris_direct_specular_ray_dir, hit_t, solid_angle)) {
+		return false;
+	}
+
+	vec3 brdf_diffuse;
+	vec3 brdf_specular;
+	evalSplitBRDF(N, g_ris_direct_specular_ray_dir, V, material, brdf_diffuse, brdf_specular);
+	if (dot(brdf_specular, brdf_specular) <= 0.0) {
+		return false;
+	}
+
+	const float inv_light_dir_pdf = inv_light_pdf * solid_angle;
+	const float p_light = 1.0 / max(inv_light_dir_pdf, 1e-20);
+	const float w_bsdf = powerHeuristic(g_ris_direct_specular_ray_pdf, p_light);
+	specular = poly.emissive * brdf_specular * (inv_light_pdf / max(g_ris_direct_specular_ray_pdf, 1e-20)) * w_bsdf;
+	return true;
+}
+#endif
+
 bool risEvaluatePolygonSamplePositionWithInvPdf(
 	PolygonLight poly,
 	vec3 sample_pos,
@@ -240,8 +379,16 @@ bool risEvaluatePolygonSamplePositionWithInvPdf(
 	evalSplitBRDF(N, L, V, material, brdf_diffuse, brdf_specular);
 
 	const vec3 light = poly.emissive * (light_facing * inv_pdf / dist2);
+	float specular_mis_weight = 1.0;
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+	if (g_ris_direct_specular_mis_selected_light) {
+		const float p_light = dist2 / max(light_facing * inv_pdf, 1e-20);
+		const float p_bsdf = ggxReflectionPdf(N, V, L, material.roughness);
+		specular_mis_weight = powerHeuristic(p_light, p_bsdf);
+	}
+#endif
 	diffuse = light * brdf_diffuse;
-	specular = light * brdf_specular;
+	specular = light * brdf_specular * specular_mis_weight;
 	return true;
 }
 
@@ -263,13 +410,26 @@ bool risEvaluateLight(
 		return false;
 	}
 
+	bool evaluated = false;
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+	risSetDirectSpecularMisSelectedLight(true);
+#endif
 	vec3 sample_pos;
 	float inv_area_pdf;
-	if (!risSampleSolidPolygon(light_sample.light, P, sample_pos, inv_area_pdf)) {
-		return false;
+	if (risSampleSolidPolygon(light_sample.light, P, sample_pos, inv_area_pdf)) {
+		evaluated = risEvaluatePolygonSamplePositionWithInvPdf(light_sample.light, sample_pos, inv_light_pdf * inv_area_pdf, P, N, V, material, visibility_test, diffuse, specular);
 	}
 
-	return risEvaluatePolygonSamplePositionWithInvPdf(light_sample.light, sample_pos, inv_light_pdf * inv_area_pdf, P, N, V, material, visibility_test, diffuse, specular);
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+	vec3 reflection_specular;
+	if (risEvaluatePolygonReflectionMis(light_sample.light, inv_light_pdf, P, N, V, material, reflection_specular)) {
+		specular += reflection_specular;
+		evaluated = true;
+	}
+	risSetDirectSpecularMisSelectedLight(false);
+#endif
+
+	return evaluated;
 }
 
 bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
@@ -448,6 +608,85 @@ RisCandidateImageSample risLoadCandidateImageSample(ivec2 pix)
 }
 #endif
 
+
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+bool risEvaluatePointReflectionMis(
+	PointLight point_light,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	float inv_light_pdf,
+	out vec3 specular)
+{
+	specular = vec3(0.0);
+	if (!g_ris_direct_specular_ray_valid || inv_light_pdf <= 0.0 || point_light.environment != 0u) {
+		return false;
+	}
+
+	const vec3 C = point_light.origin_r2.xyz;
+	const float r2 = point_light.origin_r2.w;
+	const vec3 to_center = C - P;
+	const float center_dist2 = dot(to_center, to_center);
+	const float d2_minus_r2 = center_dist2 - r2;
+	if (r2 <= 0.0 || d2_minus_r2 <= 0.0) {
+		return false;
+	}
+
+	const vec3 oc = P - C;
+	const float b = dot(oc, g_ris_direct_specular_ray_dir);
+	const float c = dot(oc, oc) - r2;
+	const float h = b * b - c;
+	if (h <= 0.0) {
+		return false;
+	}
+
+	const float hit_t = -b - sqrt(h);
+	if (hit_t <= 1e-5 || hit_t > g_ris_direct_specular_ray_len + 1e-3) {
+		return false;
+	}
+
+	if (dot(g_ris_direct_specular_ray_dir, N) < 1e-5) {
+		return false;
+	}
+
+	const vec3 spotlight_dir = point_light.dir_stopdot2.xyz;
+	const float spot_dot = dot(g_ris_direct_specular_ray_dir, spotlight_dir);
+	const float stopdot2 = point_light.dir_stopdot2.a;
+	if (spot_dot < stopdot2) {
+		return false;
+	}
+
+	float spot_attenuation = 1.0;
+	const float stopdot = point_light.color_stopdot.a;
+	if (spot_dot < stopdot) {
+		spot_attenuation = (spot_dot - stopdot2) / (stopdot - stopdot2);
+		if (spot_attenuation <= 0.0) {
+			return false;
+		}
+	}
+
+	vec3 brdf_diffuse;
+	vec3 brdf_specular;
+	evalSplitBRDF(N, g_ris_direct_specular_ray_dir, V, material, brdf_diffuse, brdf_specular);
+	if (dot(brdf_specular, brdf_specular) <= 0.0) {
+		return false;
+	}
+
+	const float cos_theta_max = min(1.0, sqrt(d2_minus_r2 / center_dist2));
+	const float solid_angle = 2.0 * kPi * max(0.0, 1.0 - cos_theta_max);
+	if (solid_angle <= 1e-8) {
+		return false;
+	}
+
+	const float inv_light_dir_pdf = solid_angle * inv_light_pdf;
+	const float p_light = 1.0 / max(inv_light_dir_pdf, 1e-20);
+	const float w_bsdf = powerHeuristic(g_ris_direct_specular_ray_pdf, p_light);
+	specular = point_light.color_stopdot.rgb * spot_attenuation * brdf_specular * (inv_light_pdf / max(g_ris_direct_specular_ray_pdf, 1e-20)) * w_bsdf;
+	return true;
+}
+#endif
+
 bool risEvaluatePointLightContribution(
 	PointLight point_light,
 	vec3 P,
@@ -523,9 +762,27 @@ bool risEvaluatePointLightContribution(
 	vec3 brdf_specular;
 	evalSplitBRDF(N, light_dir, V, material, brdf_diffuse, brdf_specular);
 
+	float specular_mis_weight = 1.0;
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+	if (g_ris_direct_specular_mis_selected_light && !is_environment && inv_light_pdf > 0.0) {
+		const vec3 light_pos = point_light.origin_r2.xyz;
+		const float light_r2 = point_light.origin_r2.w;
+		const vec3 to_light = light_pos - P;
+		const float light_dist2 = dot(to_light, to_light);
+		const float d2_minus_r2 = light_dist2 - light_r2;
+		if (d2_minus_r2 > 0.0) {
+			const float cos_theta_max = min(1.0, sqrt(d2_minus_r2 / light_dist2));
+			const float inv_light_dir_pdf = 2.0 * kPi * max(0.0, 1.0 - cos_theta_max) * inv_light_pdf;
+			const float p_light = 1.0 / max(inv_light_dir_pdf, 1e-20);
+			const float p_bsdf = ggxReflectionPdf(N, V, light_dir, material.roughness);
+			specular_mis_weight = powerHeuristic(p_light, p_bsdf);
+		}
+	}
+#endif
+
 	const vec3 color = point_light.color_stopdot.rgb * one_over_pdf;
 	diffuse = brdf_diffuse * color;
-	specular = brdf_specular * color;
+	specular = brdf_specular * color * specular_mis_weight;
 
 	const vec3 combined = diffuse + specular;
 	if (dot(combined, combined) <= 0.0) {
@@ -584,7 +841,20 @@ bool risEvaluateLight(
 	out vec3 diffuse,
 	out vec3 specular)
 {
-	return risEvaluatePointLightContribution(light_sample.light, P, N, V, material, inv_light_pdf, visibility_test, diffuse, specular);
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+	risSetDirectSpecularMisSelectedLight(true);
+#endif
+	const bool evaluated = risEvaluatePointLightContribution(light_sample.light, P, N, V, material, inv_light_pdf, visibility_test, diffuse, specular);
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+	vec3 reflection_specular;
+	if (risEvaluatePointReflectionMis(light_sample.light, P, N, V, material, inv_light_pdf, reflection_specular)) {
+		specular += reflection_specular;
+		risSetDirectSpecularMisSelectedLight(false);
+		return true;
+	}
+	risSetDirectSpecularMisSelectedLight(false);
+#endif
+	return evaluated;
 }
 
 void computePointAlwaysSampledLights(

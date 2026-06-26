@@ -385,6 +385,7 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 {
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
+	risSetDirectSpecularMisRay(pix);
 
 	vec3 secondary_diffuse_sum = vec3(0.0);
 	vec3 secondary_specular_sum = vec3(0.0);
