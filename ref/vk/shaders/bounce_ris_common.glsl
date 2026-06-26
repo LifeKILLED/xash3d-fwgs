@@ -161,7 +161,7 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 #if RIS_INIT_PASS
 #define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
 
-bool reprojectHalfResAtlasPrimaryPlanePixel(
+bool reprojectHalfResAtlasPrimaryPlanePixelLegacy(
 	ivec2 local_pix,
 	ivec2 half_res,
 	AsvgfReprojectionParams params,
@@ -184,7 +184,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	const uint lane = bounceRisLaneFromPixel(pix);
 	const ivec2 lane_size = bounceRisLaneSize();
 	ivec2 history_center_local_pix;
-	if (!reprojectHalfResAtlasPrimaryPlanePixel(bounceRisLaneLocalPixel(pix), lane_size, bounceRisReprojectionParams(lane), history_center_local_pix)) {
+	if (!reprojectHalfResAtlasPrimaryPlanePixelLegacy(bounceRisLaneLocalPixel(pix), lane_size, bounceRisReprojectionParams(lane), history_center_local_pix)) {
 		return false;
 	}
 

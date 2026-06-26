@@ -249,6 +249,22 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 			continue;
 		}
 
+		if (!RIS_SPATIAL_SAMPLE_COMPATIBLE(pix, sample_pix)) {
+			continue;
+		}
+
+#ifndef RIS_CUSTOM_SURFACE_COMPATIBILITY_WEIGHT
+		vec3 sample_P;
+		vec3 sample_N;
+		if (!risLoadSpatialSurface(sample_pix, sample_P, sample_N)) {
+			continue;
+		}
+
+		if (risSpatialCompatibilityWeight(pix, sample_pix, P, N, sample_P, sample_N) <= RIS_WEIGHT_EPSILON) {
+			continue;
+		}
+#endif
+
 		const uint num_lights = RIS_CLUSTER_LIGHT_COUNT(sample_cluster_index);
 		uint segment_begin;
 		uint segment_count;
@@ -436,7 +452,7 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 				continue;
 			}
 
-			const float edge_weight = risSurfaceCompatibilityWeight(P, N, sample_P, sample_N);
+			const float edge_weight = risSpatialCompatibilityWeight(pix, sample_pix, P, N, sample_P, sample_N);
 			if (edge_weight <= RIS_WEIGHT_EPSILON) {
 				continue;
 			}

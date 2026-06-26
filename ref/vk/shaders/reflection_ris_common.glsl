@@ -119,7 +119,7 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 }
 
 #if RIS_INIT_PASS
-bool reprojectToPrevFramePixelForParams(
+bool reprojectToPrevFramePixelForParamsLegacy(
 	AsvgfReprojectionParams params,
 	vec3 prev_position,
 	ivec2 res,
@@ -149,7 +149,7 @@ bool reflectionRisFindPrimaryHistoryPixel(ivec2 pix, out ivec2 history_center_pi
 
 	float depth_necessary = 0.0;
 	float depth_threshold = 0.0;
-	if (!reprojectToPrevFramePixelForParams(
+	if (!reprojectToPrevFramePixelForParamsLegacy(
 			ubo.ubo.asvgf.indirect_specular,
 			prev_position,
 			ubo.ubo.res,

@@ -536,24 +536,7 @@ bool risComputeClusterIndex(vec3 P, out uint cluster_index)
 #ifndef RIS_CUSTOM_SURFACE_COMPATIBILITY_WEIGHT
 float risSurfaceCompatibilityWeight(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 {
-	const float normal_alignment = dot(N, sample_N);
-	if (normal_alignment < RIS_NORMAL_COMPATIBILITY_MIN) {
-		return 0.0;
-	}
-
-	const vec3 surface_delta = P - sample_P;
-	const float spatial_distance2 = dot(surface_delta, surface_delta);
-	const float spatial_distance_max2 = RIS_SPATIAL_DISTANCE_MAX * RIS_SPATIAL_DISTANCE_MAX;
-	if (spatial_distance2 >= spatial_distance_max2) {
-		return 0.0;
-	}
-
-	const float normal_weight = clamp(
-		(normal_alignment - RIS_NORMAL_COMPATIBILITY_MIN) / max(1.0 - RIS_NORMAL_COMPATIBILITY_MIN, 1e-3),
-		0.0,
-		1.0);
-	const float distance_weight = 1.0 - spatial_distance2 / spatial_distance_max2;
-	return normal_weight * distance_weight;
+	return normalCompatibilityWeight(N, sample_N, RIS_NORMAL_COMPATIBILITY_MIN);
 }
 #endif
 
@@ -561,6 +544,38 @@ bool risSurfaceCompatible(vec3 P, vec3 N, vec3 sample_P, vec3 sample_N)
 {
 	return risSurfaceCompatibilityWeight(P, N, sample_P, sample_N) > RIS_WEIGHT_EPSILON;
 }
+
+#ifndef RIS_SPATIAL_PLANE_SAMPLE_PIXEL
+#define RIS_SPATIAL_PLANE_SAMPLE_PIXEL(center_pix_, sample_pix_) (sample_pix_)
+#endif
+
+#ifndef RIS_SPATIAL_PLANE_RES
+#define RIS_SPATIAL_PLANE_RES(center_pix_) ubo.ubo.res
+#endif
+
+#ifndef RIS_CUSTOM_SPATIAL_COMPATIBILITY_WEIGHT
+float risSpatialCompatibilityWeight(
+	ivec2 center_pix,
+	ivec2 sample_pix,
+	vec3 P,
+	vec3 N,
+	vec3 sample_P,
+	vec3 sample_N)
+{
+#ifdef RIS_CUSTOM_SURFACE_COMPATIBILITY_WEIGHT
+	return risSurfaceCompatibilityWeight(P, N, sample_P, sample_N);
+#else
+	return currentFramePlaneCompatibleTexelWeight(
+		RIS_SPATIAL_PLANE_SAMPLE_PIXEL(center_pix, sample_pix),
+		RIS_SPATIAL_PLANE_RES(center_pix),
+		P,
+		N,
+		sample_P,
+		sample_N,
+		RIS_NORMAL_COMPATIBILITY_MIN);
+#endif
+}
+#endif
 
 #ifndef RIS_SPATIAL_SAMPLE_COMPATIBLE
 #define RIS_SPATIAL_SAMPLE_COMPATIBLE(center_pix_, sample_pix_) true

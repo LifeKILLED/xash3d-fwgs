@@ -62,6 +62,20 @@ bool projectWorldToPrevFramePixel(vec3 world_position, ivec2 res, out ivec2 repr
 	return isReprojectionTexelInside(reproj_pix, res);
 }
 
+bool projectWorldToPrevFramePixelLegacy(vec3 world_position, ivec2 res, out ivec2 reproj_pix, out float clip_w) {
+	const vec4 prev_view_position = ubo.ubo.prev_view * vec4(world_position, 1.0);
+	const vec4 clip_space = ubo.ubo.prev_proj * vec4(prev_view_position.xyz, 1.0);
+	clip_w = clip_space.w;
+	if (clip_w <= 0.0) {
+		reproj_pix = ivec2(-1);
+		return false;
+	}
+
+	const vec2 reproj_uv = clip_space.xy / clip_space.w;
+	reproj_pix = ivec2((reproj_uv * 0.5 + vec2(0.5)) * vec2(res));
+	return isReprojectionTexelInside(reproj_pix, res);
+}
+
 bool isValidReprojectionDepth(float depth) {
 	return depth > 0.0 && !isnan(depth) && !isinf(depth);
 }
@@ -138,6 +152,40 @@ bool reprojectToPrevFramePixel(vec3 prev_position, ivec2 res, out ivec2 reproj_p
 	return reprojectToPrevFramePixelForParams(ASVGF_REPROJECTION_PARAMS, prev_position, res, reproj_pix, depth_necessary, depth_threshold);
 }
 
+bool reprojectToPrevFramePixelForParamsLegacy(
+	AsvgfReprojectionParams params,
+	vec3 prev_position,
+	ivec2 res,
+	out ivec2 reproj_pix,
+	out float depth_necessary,
+	out float depth_threshold)
+{
+	float clip_w = 0.0;
+	if (!projectWorldToPrevFramePixelLegacy(prev_position, res, reproj_pix, clip_w)) {
+		depth_necessary = 0.0;
+		depth_threshold = 0.0;
+		return false;
+	}
+
+	const vec3 prev_origin = (ubo.ubo.prev_inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	depth_necessary = length(prev_position - prev_origin);
+
+	float projected_depth = max(depth_necessary, abs(clip_w));
+	float base_threshold = params.reprojection_depth_threshold_scale * projected_depth;
+	depth_threshold = makeReprojectionDepthThresholdForParams(params, depth_necessary, projected_depth, base_threshold);
+	return true;
+}
+
+bool reprojectToPrevFramePixelLegacy(
+	vec3 prev_position,
+	ivec2 res,
+	out ivec2 reproj_pix,
+	out float depth_necessary,
+	out float depth_threshold)
+{
+	return reprojectToPrevFramePixelForParamsLegacy(ASVGF_REPROJECTION_PARAMS, prev_position, res, reproj_pix, depth_necessary, depth_threshold);
+}
+
 bool computePlaneDepthInPrevFrame(ivec2 prev_pix, ivec2 res, vec3 plane_point, vec3 plane_normal, out float depth) {
 	vec2 uv = ((vec2(prev_pix) + vec2(0.5)) / vec2(res)) * 2.0 - vec2(1.0);
 	vec4 clip_far = vec4(uv, 1.0, 1.0);
@@ -183,6 +231,253 @@ bool computePlaneDepthInPrevFrame(ivec2 prev_pix, ivec2 res, vec3 plane_point, v
 
 	depth = length(ray_dir * t);
 	return isValidReprojectionDepth(depth);
+}
+
+
+#ifndef REPROJECTION_PLANE_TEXEL_CHECK_MULT
+#define REPROJECTION_PLANE_TEXEL_CHECK_MULT 2.0
+#endif
+
+#ifndef REPROJECTION_PLANE_DISTANCE_MIN
+#define REPROJECTION_PLANE_DISTANCE_MIN 0.02
+#endif
+
+bool computePlanePositionInFrame(
+	ivec2 pix,
+	ivec2 res,
+	mat4 inv_proj,
+	mat4 inv_view,
+	vec3 plane_point,
+	vec3 plane_normal,
+	out vec3 plane_position)
+{
+	plane_position = vec3(0.0);
+	if (!isReprojectionTexelInside(pix, res)) {
+		return false;
+	}
+
+	const vec2 uv = ((vec2(pix) + vec2(0.5)) / vec2(res)) * 2.0 - vec2(1.0);
+	const vec4 view_far_h = inv_proj * vec4(uv, 1.0, 1.0);
+	vec3 view_far = view_far_h.xyz;
+	if (abs(view_far_h.w) > 1e-6) {
+		view_far /= view_far_h.w;
+	}
+
+	vec3 ray_dir = (inv_view * vec4(view_far, 0.0)).xyz;
+	const float ray_dir_len = length(ray_dir);
+	if (ray_dir_len <= 1e-6) {
+		return false;
+	}
+	ray_dir /= ray_dir_len;
+
+	vec3 N = plane_normal;
+	const float normal_len = length(N);
+	if (normal_len <= 1e-6) {
+		return false;
+	}
+	N /= normal_len;
+
+	const vec3 ray_origin = (inv_view * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	const float denom = dot(N, ray_dir);
+	if (abs(denom) <= 1e-5) {
+		return false;
+	}
+
+	const float t = dot(N, plane_point - ray_origin) / denom;
+	if (t <= 0.0) {
+		return false;
+	}
+
+	plane_position = ray_origin + ray_dir * t;
+	return all(not(isnan(plane_position))) && all(not(isinf(plane_position)));
+}
+
+bool computePlanePositionInCurrentFrame(
+	ivec2 pix,
+	ivec2 res,
+	vec3 plane_point,
+	vec3 plane_normal,
+	out vec3 plane_position)
+{
+	return computePlanePositionInFrame(
+		pix,
+		res,
+		ubo.ubo.inv_proj,
+		ubo.ubo.inv_view,
+		plane_point,
+		plane_normal,
+		plane_position);
+}
+
+bool computePlanePositionInPrevFrame(
+	ivec2 pix,
+	ivec2 res,
+	vec3 plane_point,
+	vec3 plane_normal,
+	out vec3 plane_position)
+{
+	return computePlanePositionInFrame(
+		pix,
+		res,
+		ubo.ubo.prev_inv_proj,
+		ubo.ubo.prev_inv_view,
+		plane_point,
+		plane_normal,
+		plane_position);
+}
+
+ivec2 reprojectionNeighborTexelForFootprint(ivec2 pix, ivec2 res, ivec2 axis)
+{
+	ivec2 p = pix + axis;
+	if (isReprojectionTexelInside(p, res)) {
+		return p;
+	}
+	p = pix - axis;
+	if (isReprojectionTexelInside(p, res)) {
+		return p;
+	}
+	return pix;
+}
+
+float estimatePlaneTexelWorldSizeInFrame(
+	ivec2 pix,
+	ivec2 res,
+	mat4 inv_proj,
+	mat4 inv_view,
+	vec3 plane_point,
+	vec3 plane_normal,
+	vec3 center_plane_position)
+{
+	float world_texel_size = 0.0;
+
+	vec3 neighbor_position = vec3(0.0);
+	const ivec2 pix_x = reprojectionNeighborTexelForFootprint(pix, res, ivec2(1, 0));
+	if (!all(equal(pix_x, pix)) &&
+		computePlanePositionInFrame(pix_x, res, inv_proj, inv_view, plane_point, plane_normal, neighbor_position)) {
+		world_texel_size = max(world_texel_size, length(neighbor_position - center_plane_position));
+	}
+
+	const ivec2 pix_y = reprojectionNeighborTexelForFootprint(pix, res, ivec2(0, 1));
+	if (!all(equal(pix_y, pix)) &&
+		computePlanePositionInFrame(pix_y, res, inv_proj, inv_view, plane_point, plane_normal, neighbor_position)) {
+		world_texel_size = max(world_texel_size, length(neighbor_position - center_plane_position));
+	}
+
+	return world_texel_size;
+}
+
+float planeTexelCompatibilityWeight(
+	vec3 expected_plane_position,
+	vec3 sample_position,
+	float world_texel_size)
+{
+	const float threshold = max(
+		REPROJECTION_PLANE_DISTANCE_MIN,
+		world_texel_size * REPROJECTION_PLANE_TEXEL_CHECK_MULT);
+	const float plane_error = length(sample_position - expected_plane_position);
+	if (!(plane_error <= threshold)) {
+		return 0.0;
+	}
+	return 1.0 - plane_error / max(threshold, 1e-6);
+}
+
+float normalCompatibilityWeight(vec3 center_normal, vec3 sample_normal, float normal_min)
+{
+	vec3 N0 = center_normal;
+	vec3 N1 = sample_normal;
+	const float len0 = length(N0);
+	const float len1 = length(N1);
+	if (len0 <= 1e-6 || len1 <= 1e-6) {
+		return 0.0;
+	}
+	N0 /= len0;
+	N1 /= len1;
+
+	const float normal_alignment = dot(N0, N1);
+	if (normal_alignment < normal_min) {
+		return 0.0;
+	}
+	return clamp((normal_alignment - normal_min) / max(1.0 - normal_min, 1e-3), 0.0, 1.0);
+}
+
+float planeCompatibleTexelWeightInFrame(
+	ivec2 sample_pix,
+	ivec2 res,
+	mat4 inv_proj,
+	mat4 inv_view,
+	vec3 plane_point,
+	vec3 plane_normal,
+	vec3 sample_position)
+{
+	vec3 expected_plane_position = vec3(0.0);
+	if (!computePlanePositionInFrame(sample_pix, res, inv_proj, inv_view, plane_point, plane_normal, expected_plane_position)) {
+		return 0.0;
+	}
+
+	const float world_texel_size = estimatePlaneTexelWorldSizeInFrame(
+		sample_pix,
+		res,
+		inv_proj,
+		inv_view,
+		plane_point,
+		plane_normal,
+		expected_plane_position);
+	return planeTexelCompatibilityWeight(expected_plane_position, sample_position, world_texel_size);
+}
+
+float currentFramePlaneCompatibleTexelWeight(
+	ivec2 sample_pix,
+	ivec2 res,
+	vec3 plane_point,
+	vec3 plane_normal,
+	vec3 sample_position)
+{
+	return planeCompatibleTexelWeightInFrame(
+		sample_pix,
+		res,
+		ubo.ubo.inv_proj,
+		ubo.ubo.inv_view,
+		plane_point,
+		plane_normal,
+		sample_position);
+}
+
+float currentFramePlaneCompatibleTexelWeight(
+	ivec2 sample_pix,
+	ivec2 res,
+	vec3 plane_point,
+	vec3 plane_normal,
+	vec3 sample_position,
+	vec3 sample_normal,
+	float normal_min)
+{
+	const float plane_weight = currentFramePlaneCompatibleTexelWeight(
+		sample_pix,
+		res,
+		plane_point,
+		plane_normal,
+		sample_position);
+	if (plane_weight <= 0.0) {
+		return 0.0;
+	}
+	return plane_weight * normalCompatibilityWeight(plane_normal, sample_normal, normal_min);
+}
+
+float prevFramePlaneCompatibleTexelWeight(
+	ivec2 sample_pix,
+	ivec2 res,
+	vec3 plane_point,
+	vec3 plane_normal,
+	vec3 sample_position)
+{
+	return planeCompatibleTexelWeightInFrame(
+		sample_pix,
+		res,
+		ubo.ubo.prev_inv_proj,
+		ubo.ubo.prev_inv_view,
+		plane_point,
+		plane_normal,
+		sample_position);
 }
 
 
@@ -474,6 +769,49 @@ bool reprojectHalfResAtlasPrimaryPlanePixel(
 	float depth_necessary = 0.0;
 	float depth_threshold = 0.0;
 	if (!reprojectToPrevFramePixelForParams(params, prev_position, ubo.ubo.res, history_screen_pix, depth_necessary, depth_threshold)) {
+		return false;
+	}
+
+	const vec4 history_depth_meta = imageLoad(prev_temporal_asvgf_reproj_depth, history_screen_pix);
+	const float history_depth = decodeReprojectionDepth(history_depth_meta.r);
+	if (!isValidReprojectionDepth(history_depth)) {
+		return false;
+	}
+
+	float expected_depth = depth_necessary;
+	float plane_depth = 0.0;
+	if (computePlaneDepthInPrevFrame(history_screen_pix, ubo.ubo.res, prev_position, geometry_normal, plane_depth)) {
+		expected_depth = plane_depth;
+	}
+
+	const float threshold = makeReprojectionDepthThresholdForParams(params, expected_depth, history_depth, depth_threshold);
+	if (abs(history_depth - expected_depth) >= threshold) {
+		return false;
+	}
+
+	history_local_pix = history_screen_pix / 2;
+	return all(greaterThanEqual(history_local_pix, ivec2(0))) &&
+		all(lessThan(history_local_pix, half_res));
+}
+
+bool reprojectHalfResAtlasPrimaryPlanePixelLegacy(
+	ivec2 local_pix,
+	ivec2 half_res,
+	AsvgfReprojectionParams params,
+	out ivec2 history_local_pix)
+{
+	history_local_pix = ivec2(-1);
+
+	vec3 prev_position;
+	vec3 geometry_normal;
+	if (!loadHalfResAtlasPrimaryPlane(local_pix, half_res, ubo.ubo.res, prev_position, geometry_normal)) {
+		return false;
+	}
+
+	ivec2 history_screen_pix;
+	float depth_necessary = 0.0;
+	float depth_threshold = 0.0;
+	if (!reprojectToPrevFramePixelForParamsLegacy(params, prev_position, ubo.ubo.res, history_screen_pix, depth_necessary, depth_threshold)) {
 		return false;
 	}
 

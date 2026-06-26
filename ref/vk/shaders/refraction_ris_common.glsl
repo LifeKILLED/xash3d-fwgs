@@ -167,7 +167,7 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 
 #define TEMPORAL_REPROJECTION_PRIMARY_PIXEL_COMPATIBLE(primary_pix_) (imageLoad(base_color_a, (primary_pix_)).a < 1.0 - REFRACTION_RIS_PRIMARY_ALPHA_EPSILON)
 
-bool reprojectHalfResAtlasPrimaryPlanePixel(
+bool reprojectHalfResAtlasPrimaryPlanePixelLegacy(
 	ivec2 local_pix,
 	ivec2 half_res,
 	AsvgfReprojectionParams params,
@@ -185,7 +185,7 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	const uint layer = refractionRisLayerFromPixel(pix);
 	const ivec2 layer_size = refractionRisLayerSize();
 	ivec2 history_center_local_pix;
-	if (!reprojectHalfResAtlasPrimaryPlanePixel(refractionRisLayerLocalPixel(pix), layer_size, ubo.ubo.asvgf.refraction, history_center_local_pix)) {
+	if (!reprojectHalfResAtlasPrimaryPlanePixelLegacy(refractionRisLayerLocalPixel(pix), layer_size, ubo.ubo.asvgf.refraction, history_center_local_pix)) {
 		return false;
 	}
 
