@@ -9,7 +9,8 @@
 const uint BOUNCE_RIS_DIFFUSE_LANE_0 = 0u;
 const uint BOUNCE_RIS_DIFFUSE_LANE_1 = 1u;
 const uint BOUNCE_RIS_DIFFUSE_LANE_2 = 2u;
-const uint BOUNCE_RIS_SPECULAR_LANE = 3u;
+const uint BOUNCE_RIS_DIFFUSE_LANE_3 = 3u;
+const uint BOUNCE_RIS_DIFFUSE_LANE_COUNT = 4u;
 
 #ifndef BOUNCE_RIS_HISTORY_DISTANCE_MAX
 #define BOUNCE_RIS_HISTORY_DISTANCE_MAX 32.0
@@ -168,10 +169,6 @@ bool reprojectHalfResAtlasPrimaryPlanePixel(
 
 AsvgfReprojectionParams bounceRisReprojectionParams(uint lane)
 {
-	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-		return ubo.ubo.asvgf.indirect_specular;
-	}
-
 	return ubo.ubo.asvgf.indirect_diffuse;
 }
 

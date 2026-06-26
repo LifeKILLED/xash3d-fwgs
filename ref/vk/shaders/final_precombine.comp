@@ -25,8 +25,6 @@ layout(set = 0, binding = 15, rgba16f) uniform writeonly image2D out_precombined
 layout(set = 0, binding = 16, rgba16f) uniform writeonly image2D out_precombined_flashlight_specular;
 layout(set = 0, binding = 17, rgba16f) uniform writeonly image2D out_precombined_indirect_diffuse;
 
-const int INDIRECT_SCALE = 2;
-
 void main() {
 	const ivec2 res = ubo.ubo.res;
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -37,8 +35,7 @@ void main() {
 	const vec3 direct_diffuse = imageLoad(light_poly_diffuse, pix).rgb + imageLoad(light_point_diffuse, pix).rgb;
 	const vec3 direct_specular = imageLoad(light_poly_specular, pix).rgb + imageLoad(light_point_specular, pix).rgb;
 
-	const ivec2 pix_indirect = pix / INDIRECT_SCALE;
-	const vec4 indirect_specular = imageLoad(indirect_specular_reconstructed, pix_indirect);
+	const vec4 indirect_specular = imageLoad(indirect_specular_reconstructed, pix);
 	const vec3 indirect_diffuse = imageLoad(indirect_diffuse_atrous1, pix).rgb + imageLoad(indirect_diffuse_denoised_by_sh, pix).rgb;
 
 	imageStore(out_precombined_direct_diffuse, pix, vec4(direct_diffuse, 1.0));

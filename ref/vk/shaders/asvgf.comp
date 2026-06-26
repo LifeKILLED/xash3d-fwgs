@@ -58,7 +58,7 @@ layout(set = 0, binding = 40, rgba8) uniform readonly image2D base_color_a;
 #define ASVGF_REPROJECTION_PARAMS ubo.ubo.asvgf.direct_diffuse
 #include "temporal_reprojection.glsl"
 
-const int ASVGF_INDIRECT_SCALE = 2;
+const int ASVGF_INDIRECT_SCALE = 1;
 const float REFRACTION_PRIMARY_ALPHA_EPSILON = 0.001;
 #define ASVGF ubo.ubo.asvgf
 

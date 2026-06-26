@@ -1,0 +1,66 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+
+#include "debug.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D reflection_throughput;
+layout(set = 0, binding = 11, rgba32f) uniform readonly image2D reflection_hit_pos;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D reflection_normals_gs;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D reflection_material_rmxx;
+layout(set = 0, binding = 14, rgba8) uniform readonly image2D reflection_base_color_a;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D reflection_view_dir;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D reflection_emissive;
+layout(set = 0, binding = 17, rgba16f) uniform readonly image2D reflection_light_poly_diffuse;
+layout(set = 0, binding = 18, rgba16f) uniform readonly image2D reflection_light_poly_specular;
+layout(set = 0, binding = 19, rgba16f) uniform readonly image2D reflection_light_point_diffuse;
+layout(set = 0, binding = 20, rgba16f) uniform readonly image2D reflection_light_point_specular;
+
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_indirect_specular;
+
+#include "reflection_ris_common.glsl"
+
+void main()
+{
+	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+	if (!reflectionRisPixelInBounds(pix)) {
+		return;
+	}
+
+	vec3 indirect_specular = vec3(0.0);
+
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) == 0) {
+		indirect_specular += imageLoad(reflection_emissive, pix).rgb;
+
+		vec3 P;
+		vec3 geometry_N;
+		vec3 shading_N;
+		vec3 V;
+		vec3 throughput;
+		vec3 unused_emissive;
+		MaterialProperties material;
+		const bool surface_active = reflectionRisLoadSurface(pix, P, geometry_N, shading_N, V, material, throughput, unused_emissive);
+		if (surface_active) {
+			const vec3 diffuse_light =
+				imageLoad(reflection_light_poly_diffuse, pix).rgb +
+				imageLoad(reflection_light_point_diffuse, pix).rgb;
+			const vec3 specular_light =
+				imageLoad(reflection_light_poly_specular, pix).rgb +
+				imageLoad(reflection_light_point_specular, pix).rgb;
+			const vec3 hit_color = mixFinalColor(material.base_color, diffuse_light, specular_light, material.metalness);
+			indirect_specular += throughput * hit_color;
+		}
+	}
+
+	DEBUG_VALIDATE_RANGE_VEC3("reflection_ris_resolve.specular", indirect_specular, 0.0, 1e6);
+
+	imageStore(out_indirect_specular, pix, vec4(indirect_specular, 0.0));
+}

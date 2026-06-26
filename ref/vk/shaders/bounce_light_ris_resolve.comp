@@ -25,18 +25,13 @@ layout(set = 0, binding = 19, rgba16f) uniform readonly image2D bounce_light_poi
 layout(set = 0, binding = 20, rgba16f) uniform readonly image2D bounce_light_point_specular;
 
 layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_indirect_diffuse;
-layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_indirect_specular;
 
 #include "bounce_ris_common.glsl"
 
-void accumulateBounceLane(ivec2 atlas_pix, uint lane, inout vec3 indirect_diffuse, inout vec3 indirect_specular)
+void accumulateBounceLane(ivec2 atlas_pix, inout vec3 indirect_diffuse)
 {
 	const vec3 emissive_radiance = imageLoad(bounce_emissive, atlas_pix).rgb;
-	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-		indirect_specular += emissive_radiance;
-	} else {
-		indirect_diffuse += emissive_radiance;
-	}
+	indirect_diffuse += emissive_radiance;
 
 	vec3 P;
 	vec3 geometry_N;
@@ -59,11 +54,7 @@ void accumulateBounceLane(ivec2 atlas_pix, uint lane, inout vec3 indirect_diffus
 	const vec3 hit_color = mixFinalColor(material.base_color, diffuse_light, specular_light, material.metalness);
 	const vec3 contribution = throughput * hit_color;
 
-	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-		indirect_specular += contribution;
-	} else {
-		indirect_diffuse += contribution;
-	}
+	indirect_diffuse += contribution;
 }
 
 void main()
@@ -75,17 +66,14 @@ void main()
 	}
 
 	vec3 indirect_diffuse = vec3(0.0);
-	vec3 indirect_specular = vec3(0.0);
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) == 0) {
-		for (uint lane = 0u; lane < 4u; ++lane) {
-			accumulateBounceLane(bounceRisAtlasPixel(pix, lane), lane, indirect_diffuse, indirect_specular);
+		for (uint lane = 0u; lane < BOUNCE_RIS_DIFFUSE_LANE_COUNT; ++lane) {
+			accumulateBounceLane(bounceRisAtlasPixel(pix, lane), indirect_diffuse);
 		}
 	}
 
 	DEBUG_VALIDATE_RANGE_VEC3("bounce_ris_resolve.diffuse", indirect_diffuse, 0.0, 1e6);
-	DEBUG_VALIDATE_RANGE_VEC3("bounce_ris_resolve.specular", indirect_specular, 0.0, 1e6);
 
 	imageStore(out_indirect_diffuse, pix, vec4(indirect_diffuse, 0.0));
-	imageStore(out_indirect_specular, pix, vec4(indirect_specular, 0.0));
 }

@@ -50,6 +50,24 @@
 	"bounce_light_ris_resolve": {
 		"comp": "bounce_light_ris_resolve"
 	},
+	"reflection_primary_rays": {
+		"comp": "reflection_primary_rays"
+	},
+	"reflection_light_poly_ris_init": {
+		"comp": "reflection_light_poly_ris_init"
+	},
+	"reflection_light_poly_ris_apply": {
+		"comp": "reflection_light_poly_ris_apply"
+	},
+	"reflection_light_point_ris_init": {
+		"comp": "reflection_light_point_ris_init"
+	},
+	"reflection_light_point_ris_apply": {
+		"comp": "reflection_light_point_ris_apply"
+	},
+	"reflection_light_ris_resolve": {
+		"comp": "reflection_light_ris_resolve"
+	},
 	"light_direct_poly_ris_init": {
 		"comp": "ray_light_direct_poly_ris_init"
 	},

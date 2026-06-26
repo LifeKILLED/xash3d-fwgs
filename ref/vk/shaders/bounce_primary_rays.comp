@@ -33,7 +33,6 @@ layout(set = 0, binding = 24, rgba8) uniform writeonly image2D out_bounce_base_c
 layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_bounce_view_dir;
 layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_bounce_emissive;
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_first_bounce_direction;
-layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_reflection_direction_pdf;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -160,9 +159,6 @@ void main()
 	if (lane == BOUNCE_RIS_DIFFUSE_LANE_0) {
 		imageStore(out_first_bounce_direction, local_pix, vec4(0.0));
 	}
-	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-		imageStore(out_reflection_direction_pdf, local_pix, vec4(0.0));
-	}
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) != 0 ||
 		any(greaterThanEqual(primary_pix, ubo.ubo.res))) {
@@ -202,12 +198,6 @@ void main()
 	}
 
 	int target_bounce_count = int(lane) + 1;
-	if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-		target_bounce_count = 1;
-		mat.prop.base_color = vec3(1.0);
-		mat.prop.metalness = 1.0;
-		mat.prop.roughness = material_data.r;
-	}
 
 	vec3 pos = pos_t.xyz;
 	const vec3 first_pos = pos;
@@ -258,9 +248,6 @@ void main()
 			const vec3 segment = payload.hit_t.xyz - first_pos;
 			if (lane == BOUNCE_RIS_DIFFUSE_LANE_0) {
 				imageStore(out_first_bounce_direction, local_pix, vec4(segment, 0.0));
-			}
-			if (lane == BOUNCE_RIS_SPECULAR_LANE) {
-				imageStore(out_reflection_direction_pdf, local_pix, vec4(segment, 0.0));
 			}
 			return;
 		}

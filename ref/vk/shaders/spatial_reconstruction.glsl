@@ -27,7 +27,10 @@
 #define SPATIAL_RECONSTRUCTION_SAMPLES 8
 #define SPATIAL_RECONSTRUCTION_ROUGHNESS_FACTOR 4.
 #define SPATIAL_RECONSTRUCTION_SIGMA 0.9
-#define INDIRECT_SCALE 2
+
+#ifndef SPATIAL_RECONSTRUCTION_SCALE
+#define SPATIAL_RECONSTRUCTION_SCALE 1
+#endif
 
 #ifndef SPATIAL_RECONSTRUCTION_USE_SOFT_DIRECTION_CONE
 #define SPATIAL_RECONSTRUCTION_USE_SOFT_DIRECTION_CONE 1
@@ -264,7 +267,7 @@ vec3 clampSpecular(vec3 specular, float maxLuminace) {
 
 void main() {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID);
-	const ivec2 res = ubo.ubo.res / INDIRECT_SCALE;
+	const ivec2 res = ubo.ubo.res / SPATIAL_RECONSTRUCTION_SCALE;
 	if (any(greaterThanEqual(pix, res))) {
 		return;
 	}
@@ -282,7 +285,8 @@ void main() {
 	}
 
 	const vec3 origin = (ubo.ubo.inv_view * vec4(0, 0, 0, 1)).xyz;
-	const vec3 position = imageLoad(position_t, pix * INDIRECT_SCALE).xyz;
+	const ivec2 primary_pix = pix * SPATIAL_RECONSTRUCTION_SCALE;
+	const vec3 position = imageLoad(position_t, primary_pix).xyz;
 
 	vec3 poisson[SPATIAL_RECONSTRUCTION_SAMPLES];
 	poisson[0] = vec3(-0.4706069, -0.4427112, +0.6461146);
@@ -295,11 +299,11 @@ void main() {
 	poisson[7] = vec3(+0.1564120, -0.8198990, +0.8346850);
 
 	vec3 geometry_normal, shading_normal;
-	readNormals(pix * INDIRECT_SCALE, geometry_normal, shading_normal);
+	readNormals(primary_pix, geometry_normal, shading_normal);
 	vec3 V = normalize(origin - position);
 	float NdotV = saturate(dot(shading_normal, V));
-	float roughness = imageLoad(material_rmxx, pix * INDIRECT_SCALE).x;
-	float metalness = imageLoad(material_rmxx, pix * INDIRECT_SCALE).y;
+	float roughness = imageLoad(material_rmxx, primary_pix).x;
+	float metalness = imageLoad(material_rmxx, primary_pix).y;
 	bool mirror_surface = (metalness >= 0.999) && (roughness <= 0.001);
 	if (mirror_surface) {
 		vec4 passthrough = imageLoad(SPECULAR_INPUT_IMAGE, pix);
@@ -313,7 +317,7 @@ void main() {
 		return;
 	}
 	const bool legacy_bounce = (ubo.ubo.renderer_flags & RENDERER_FLAG_SEPARATED_REFLECTION) == 0;
-	const vec3 center_base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix * INDIRECT_SCALE).rgb);
+	const vec3 center_base_color = SRGBtoLINEAR(imageLoad(base_color_a, primary_pix).rgb);
 	float radius = SPATIAL_RECONSTRUCTION_RADIUS;
 	vec3 centerReflectionDirection = normalize(reflect(-V, shading_normal));
 	RayNeighborhoodStats neighborhoodStats = sampleRayNeighborhoodStats(pix, res, centerReflectionDirection);
@@ -338,7 +342,7 @@ void main() {
 	for (int i = 0; i < SPATIAL_RECONSTRUCTION_SAMPLES; i++) {
 		ivec2 p = max(ivec2(0), min(ivec2(res) - ivec2(1), ivec2(pix + radius * poisson[i].xy)));
 		if (legacy_bounce) {
-			vec3 sample_base_color = SRGBtoLINEAR(imageLoad(base_color_a, p * INDIRECT_SCALE).rgb);
+			vec3 sample_base_color = SRGBtoLINEAR(imageLoad(base_color_a, p * SPATIAL_RECONSTRUCTION_SCALE).rgb);
 			if (any(greaterThan(abs(sample_base_color - center_base_color), vec3(0.05)))) {
 				continue;
 			}
