@@ -16,7 +16,7 @@ void main() {
 #error RIS direct lighting init currently expects RAY_QUERY compute dispatch.
 #endif
 
-	rand01_state = ubo.ubo.random_seed + uint(pix.x) * 1833u + uint(pix.y) * 31337u;
+	risInitRandomSeed(pix, 0u);
 
 	const vec4 target = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1.0, 1.0);
 	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0.0)).xyz);

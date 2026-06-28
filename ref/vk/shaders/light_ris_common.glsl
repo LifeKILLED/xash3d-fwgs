@@ -134,8 +134,32 @@ const float shadow_offset_fudge = .1;
 #define RIS_BAYER_SEGMENT_MAX_CANDIDATES 32
 #endif
 
+#define RIS_BAYER_SEGMENT_STRATEGY_NONE 0
+#define RIS_BAYER_SEGMENT_STRATEGY_RANDOM_LIGHT_OFFSET 1
+#define RIS_BAYER_SEGMENT_STRATEGY_RANDOM_SEGMENT_OFFSET 2
+#define RIS_BAYER_SEGMENT_STRATEGY_FRAME_SEGMENT_OFFSET 3
+
+#ifndef RIS_BAYER_SEGMENT_STRATEGY
+#define RIS_BAYER_SEGMENT_STRATEGY RIS_BAYER_SEGMENT_STRATEGY_FRAME_SEGMENT_OFFSET
+#endif
+
+#if RIS_BAYER_SEGMENT_STRATEGY < RIS_BAYER_SEGMENT_STRATEGY_NONE || RIS_BAYER_SEGMENT_STRATEGY > RIS_BAYER_SEGMENT_STRATEGY_FRAME_SEGMENT_OFFSET
+#error Unknown RIS_BAYER_SEGMENT_STRATEGY
+#endif
+
 const uint RIS_INVALID_LIGHT_ID = 0xffffffffu;
 const uint RIS_TEMPORAL_HASH_MASK = 0x00ffffffu;
+
+#if RIS_INIT_PASS
+float ris_frame_rand01 = 0.0;
+
+void risInitRandomSeed(ivec2 pix, uint salt)
+{
+	rand01_state = ubo.ubo.random_seed + salt;
+	ris_frame_rand01 = rand01();
+	rand01_state = ubo.ubo.random_seed + uint(pix.x) * 1833u + uint(pix.y) * 31337u + salt;
+}
+#endif
 
 #if RIS_BAYER_SHARED_VISIBILITY
 #if RIS_LOCAL_SIZE_X < 3 || RIS_LOCAL_SIZE_Y < 3
@@ -163,12 +187,46 @@ uint risBayerIndex(ivec2 pix)
 	return bayer[x + y * 3u];
 }
 
-void risBayerSegmentRange(uint light_count, uint bayer_index, out uint segment_begin, out uint segment_count)
+uint risBayerFrameOffset(uint count)
 {
+	if (count == 0u) {
+		return 0u;
+	}
+
+	return min(uint(ris_frame_rand01 * float(count)), count - 1u);
+}
+
+void risBayerSegmentRange(uint light_count, ivec2 pix, out uint segment_start, out uint segment_end)
+{
+	if (light_count == 0u) {
+		segment_start = 0u;
+		segment_end = 0u;
+		return;
+	}
+
+	uint bayer_index = risBayerIndex(pix);
+#if RIS_BAYER_SEGMENT_STRATEGY == RIS_BAYER_SEGMENT_STRATEGY_RANDOM_SEGMENT_OFFSET
+	bayer_index = (bayer_index + risBayerFrameOffset(uint(RIS_BAYER_SEGMENT_COUNT))) % uint(RIS_BAYER_SEGMENT_COUNT);
+#elif RIS_BAYER_SEGMENT_STRATEGY == RIS_BAYER_SEGMENT_STRATEGY_FRAME_SEGMENT_OFFSET
+	bayer_index = (bayer_index + ubo.ubo.frame_counter % uint(RIS_BAYER_SEGMENT_COUNT)) % uint(RIS_BAYER_SEGMENT_COUNT);
+#endif
+
 	const uint clamped_index = min(bayer_index, uint(RIS_BAYER_SEGMENT_COUNT - 1));
-	segment_begin = light_count * clamped_index / uint(RIS_BAYER_SEGMENT_COUNT);
-	const uint segment_end = light_count * (clamped_index + 1u) / uint(RIS_BAYER_SEGMENT_COUNT);
-	segment_count = min(segment_end - segment_begin, uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES));
+	const uint segment_begin = light_count * clamped_index / uint(RIS_BAYER_SEGMENT_COUNT);
+	const uint segment_begin_next = light_count * (clamped_index + 1u) / uint(RIS_BAYER_SEGMENT_COUNT);
+	const uint segment_count = min(segment_begin_next - segment_begin, uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES));
+
+#if RIS_BAYER_SEGMENT_STRATEGY == RIS_BAYER_SEGMENT_STRATEGY_RANDOM_LIGHT_OFFSET
+	segment_start = segment_begin + risBayerFrameOffset(light_count);
+#else
+	segment_start = segment_begin;
+#endif
+	segment_end = segment_start + segment_count;
+}
+
+uint risBayerSegmentCandidateIndex(uint light_count, uint segment_start, uint bit_index)
+{
+	return (segment_start + bit_index) % light_count;
 }
 
 uint risBayerLocalIndex(ivec2 local_pix)

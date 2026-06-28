@@ -150,19 +150,20 @@ void risStoreCandidateImageSample(ivec2 pix, RisCandidateImageSample candidate)
 }
 
 #if RIS_BAYER_SHARED_VISIBILITY
-shared uint risBayerClusterIndices[RIS_BAYER_WORKGROUP_SIZE];
-shared uint risBayerVisibleMasks[RIS_BAYER_WORKGROUP_SIZE];
+shared uvec4 risBayerVisibility[RIS_BAYER_WORKGROUP_SIZE];
 
-void risStoreBayerVisibility(uint local_index, uint cluster_index, uint visible_mask)
+void risStoreBayerVisibility(uint local_index, uint cluster_index, uint segment_start, uint segment_end, uint visible_mask)
 {
-	risBayerClusterIndices[local_index] = cluster_index;
-	risBayerVisibleMasks[local_index] = visible_mask;
+	risBayerVisibility[local_index] = uvec4(cluster_index, segment_start, segment_end, visible_mask);
 }
 
-void risLoadBayerVisibility(uint local_index, out uint cluster_index, out uint visible_mask)
+void risLoadBayerVisibility(uint local_index, out uint cluster_index, out uint segment_start, out uint segment_end, out uint visible_mask)
 {
-	cluster_index = risBayerClusterIndices[local_index];
-	visible_mask = risBayerVisibleMasks[local_index];
+	const uvec4 visibility = risBayerVisibility[local_index];
+	cluster_index = visibility.x;
+	segment_start = visibility.y;
+	segment_end = visibility.z;
+	visible_mask = visibility.w;
 }
 #endif
 #endif
@@ -584,19 +585,20 @@ void risStoreCandidateImageSample(ivec2 pix, RisCandidateImageSample candidate)
 }
 
 #if RIS_BAYER_SHARED_VISIBILITY
-shared uint risBayerClusterIndices[RIS_BAYER_WORKGROUP_SIZE];
-shared uint risBayerVisibleMasks[RIS_BAYER_WORKGROUP_SIZE];
+shared uvec4 risBayerVisibility[RIS_BAYER_WORKGROUP_SIZE];
 
-void risStoreBayerVisibility(uint local_index, uint cluster_index, uint visible_mask)
+void risStoreBayerVisibility(uint local_index, uint cluster_index, uint segment_start, uint segment_end, uint visible_mask)
 {
-	risBayerClusterIndices[local_index] = cluster_index;
-	risBayerVisibleMasks[local_index] = visible_mask;
+	risBayerVisibility[local_index] = uvec4(cluster_index, segment_start, segment_end, visible_mask);
 }
 
-void risLoadBayerVisibility(uint local_index, out uint cluster_index, out uint visible_mask)
+void risLoadBayerVisibility(uint local_index, out uint cluster_index, out uint segment_start, out uint segment_end, out uint visible_mask)
 {
-	cluster_index = risBayerClusterIndices[local_index];
-	visible_mask = risBayerVisibleMasks[local_index];
+	const uvec4 visibility = risBayerVisibility[local_index];
+	cluster_index = visibility.x;
+	segment_start = visibility.y;
+	segment_end = visibility.z;
+	visible_mask = visibility.w;
 }
 #endif
 #endif

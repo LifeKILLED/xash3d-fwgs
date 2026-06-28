@@ -59,10 +59,7 @@ void main()
 		return;
 	}
 
-	rand01_state = ubo.ubo.random_seed
-		+ uint(pix.x) * 1833u
-		+ uint(pix.y) * 31337u
-		+ 0x72706f6cu;
+	risInitRandomSeed(pix, 0x72706f6cu);
 
 	vec3 P;
 	vec3 geometry_N;

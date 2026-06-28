@@ -57,10 +57,7 @@ void main()
 {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
 
-	rand01_state = ubo.ubo.random_seed
-		+ uint(pix.x) * 1833u
-		+ uint(pix.y) * 31337u
-		+ 0x72706f69u;
+	risInitRandomSeed(pix, 0x72706f69u);
 
 	vec3 P;
 	vec3 geometry_N;

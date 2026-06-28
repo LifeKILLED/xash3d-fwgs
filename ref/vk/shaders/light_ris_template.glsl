@@ -179,16 +179,16 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 
 	if (ris_active) {
 		const uint num_lights = RIS_CLUSTER_LIGHT_COUNT(cluster_index);
-		uint segment_begin;
-		uint segment_count;
-		risBayerSegmentRange(num_lights, risBayerIndex(pix), segment_begin, segment_count);
+		uint segment_start;
+		uint segment_end;
+		risBayerSegmentRange(num_lights, pix, segment_start, segment_end);
 
 		for (uint bit_index = 0u; bit_index < uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES); ++bit_index) {
-			if (bit_index >= segment_count) {
+			if (segment_start + bit_index >= segment_end) {
 				break;
 			}
 
-			const uint candidate_index = segment_begin + bit_index;
+			const uint candidate_index = risBayerSegmentCandidateIndex(num_lights, segment_start, bit_index);
 			const uint candidate_id = RIS_CLUSTER_LIGHT_ID(cluster_index, candidate_index);
 			RIS_LIGHT_SAMPLE candidate_light;
 			if (!RIS_LOAD_LIGHT(candidate_id, candidate_light)) {
@@ -217,9 +217,9 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 				risTemporalRandom01(pix, RIS_BAYER_OWN_RANDOM_SALT + bit_index));
 		}
 
-		RIS_STORE_BAYER_VISIBILITY(local_index, cluster_index, visible_mask);
+		RIS_STORE_BAYER_VISIBILITY(local_index, cluster_index, segment_start, segment_end, visible_mask);
 	} else {
-		RIS_STORE_BAYER_VISIBILITY(local_index, RIS_INVALID_LIGHT_ID, visible_mask);
+		RIS_STORE_BAYER_VISIBILITY(local_index, RIS_INVALID_LIGHT_ID, 0u, 0u, visible_mask);
 	}
 
 	memoryBarrierShared();
@@ -238,8 +238,10 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 
 		const uint sample_local_index = risBayerLocalIndex(sample_local_pix);
 		uint sample_cluster_index;
+		uint sample_segment_start;
+		uint sample_segment_end;
 		uint sample_visible_mask;
-		RIS_LOAD_BAYER_VISIBILITY(sample_local_index, sample_cluster_index, sample_visible_mask);
+		RIS_LOAD_BAYER_VISIBILITY(sample_local_index, sample_cluster_index, sample_segment_start, sample_segment_end, sample_visible_mask);
 		if (sample_cluster_index >= MAX_LIGHT_CLUSTERS || sample_visible_mask == 0u) {
 			continue;
 		}
@@ -266,19 +268,19 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 #endif
 
 		const uint num_lights = RIS_CLUSTER_LIGHT_COUNT(sample_cluster_index);
-		uint segment_begin;
-		uint segment_count;
-		risBayerSegmentRange(num_lights, risBayerIndex(sample_pix), segment_begin, segment_count);
+		if (num_lights == 0u) {
+			continue;
+		}
 
 		for (uint bit_index = 0u; bit_index < uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES); ++bit_index) {
-			if (bit_index >= segment_count) {
+			if (sample_segment_start + bit_index >= sample_segment_end) {
 				break;
 			}
 			if (!risBayerMaskBitSet(sample_visible_mask, bit_index)) {
 				continue;
 			}
 
-			const uint candidate_index = segment_begin + bit_index;
+			const uint candidate_index = risBayerSegmentCandidateIndex(num_lights, sample_segment_start, bit_index);
 			const uint candidate_id = RIS_CLUSTER_LIGHT_ID(sample_cluster_index, candidate_index);
 			RIS_LIGHT_SAMPLE candidate_light;
 			if (!RIS_LOAD_LIGHT(candidate_id, candidate_light)) {
