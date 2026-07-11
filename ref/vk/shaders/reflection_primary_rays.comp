@@ -154,7 +154,7 @@ void main()
 
 	clearReflectionSample(pix);
 
-	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) != 0) {
+	if ((ubo.ubo.renderer_flags & (RENDERER_FLAG_DISABLE_GI | RENDERER_FLAG_DISABLE_REFLECTION)) != 0) {
 		return;
 	}
 

@@ -224,6 +224,9 @@ void main()
 	for (uint layer = 0u; layer < REFRACTION_RIS_LAYER_COUNT; ++layer) {
 		clearRefractionLayer(refractionRisAtlasPixel(local_pix, layer));
 	}
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REFRACTION) != 0) {
+		return;
+	}
 
 	ivec2 primary_pix;
 	if (!selectPrimaryRefractionPixel(local_pix, primary_pix)) {

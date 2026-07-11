@@ -43,6 +43,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_bounces = gEngine.Cvar_Get( "rt_bounces", "3", FCVAR_GLCONFIG, "Path tracing ray bounces" );
 		rt_legacy_bounce = gEngine.Cvar_Get("rt_legacy_bounce", "0", FCVAR_GLCONFIG, "Enable legacy bounce mode: random diffuse/specular per texel and permanently applied base color");
 		rt_disable_gi = gEngine.Cvar_Get("rt_disable_gi", "0", FCVAR_GLCONFIG, "Disable global illumination calculation");
+		rt_disable_reflection = gEngine.Cvar_Get("rt_disable_reflection", "0", FCVAR_GLCONFIG, "Disable reflection rays and RIS lighting for indirect specular");
+		rt_disable_refraction = gEngine.Cvar_Get("rt_disable_refraction", "0", FCVAR_GLCONFIG, "Disable refraction rays and RIS lighting for transparency refraction");
 		rt_disable_reconstruction = gEngine.Cvar_Get("rt_disable_reconstruction", "0", FCVAR_GLCONFIG, "Disable spatial reconstruction pass for indirect specular");
 		rt_disable_sh_gi_denoising = gEngine.Cvar_Get("rt_disable_sh_gi_denoising", "0", FCVAR_GLCONFIG, "Disable SH-based denoising for indirect diffuse GI");
 		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable temporal reprojection in denoiser");
