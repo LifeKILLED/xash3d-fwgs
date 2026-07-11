@@ -55,16 +55,24 @@ bool RIS_LOAD_PREVIOUS_RESERVOIR(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
+	ivec2 surface_pix,
 	out RisTemporalReservoir reservoir,
 	out float current_mixed_weight)
 {
 	reservoir = risInvalidTemporalReservoir();
 	current_mixed_weight = 0.0;
 
-	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix);
+	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(surface_pix);
 	ivec2 history_pix;
-	if (!risFindTemporalHistoryPixel(pix, prev_position, geometry_N, history_pix)) {
+	if (!risFindTemporalHistoryPixel(pix, surface_pix, prev_position, geometry_N, history_pix)) {
+	#if RIS_SAME_PIXEL_HISTORY_FALLBACK
+		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0) {
+			return false;
+		}
+		history_pix = pix;
+	#else
 		return false;
+	#endif
 	}
 
 	RisTemporalReservoir history_reservoir = RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR(history_pix);
@@ -163,7 +171,7 @@ RisTemporalReservoir RIS_MERGE_VISIBLE_CANDIDATES(
 	return reservoir;
 }
 
-#if RIS_BAYER_SHARED_VISIBILITY
+#if RIS_BAYER_CANDIDATE_SEGMENTS
 RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 	uint cluster_index,
 	vec3 P,
@@ -171,6 +179,7 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
+	ivec2 surface_pix,
 	bool ris_active,
 	RisTemporalReservoir reservoir)
 {
@@ -217,6 +226,10 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 				risTemporalRandom01(pix, RIS_BAYER_OWN_RANDOM_SALT + bit_index));
 		}
 
+	}
+
+#if RIS_BAYER_SHARED_VISIBILITY
+	if (ris_active) {
 		RIS_STORE_BAYER_VISIBILITY(local_index, cluster_index, visible_mask);
 	} else {
 		RIS_STORE_BAYER_VISIBILITY(local_index, RIS_INVALID_LIGHT_ID, visible_mask);
@@ -245,22 +258,23 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 		}
 
 		const ivec2 sample_pix = risBayerLocalToPixel(pix, sample_local_pix);
-		if (!risPixelInBounds(sample_pix)) {
+		if (!risReservoirPixelInBounds(sample_pix)) {
 			continue;
 		}
-
-		if (!RIS_SPATIAL_SAMPLE_COMPATIBLE(pix, sample_pix)) {
+		ivec2 sample_surface_pix;
+		if (!risSelectReservoirSurfacePixel(sample_pix, sample_surface_pix) ||
+			!RIS_SPATIAL_SAMPLE_COMPATIBLE(surface_pix, sample_surface_pix)) {
 			continue;
 		}
 
 #ifndef RIS_CUSTOM_SURFACE_COMPATIBILITY_WEIGHT
 		vec3 sample_P;
 		vec3 sample_N;
-		if (!risLoadSpatialSurface(sample_pix, sample_P, sample_N)) {
+		if (!risLoadSpatialSurface(sample_surface_pix, sample_P, sample_N)) {
 			continue;
 		}
 
-		if (risSpatialCompatibilityWeight(pix, sample_pix, P, N, sample_P, sample_N) <= RIS_WEIGHT_EPSILON) {
+		if (risSpatialCompatibilityWeight(surface_pix, sample_surface_pix, P, N, sample_P, sample_N) <= RIS_WEIGHT_EPSILON) {
 			continue;
 		}
 #endif
@@ -303,6 +317,7 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 					RIS_BAYER_NEIGHBOR_RANDOM_SALT + sample_index * uint(RIS_BAYER_SEGMENT_MAX_CANDIDATES) + bit_index));
 		}
 	}
+#endif
 
 	return reservoir;
 }
@@ -316,6 +331,7 @@ void RIS_COMPUTE_LIGHTING_INIT(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
+	ivec2 surface_pix,
 	bool ris_active)
 {
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
@@ -328,6 +344,7 @@ void RIS_COMPUTE_LIGHTING_INIT(
 			V,
 			material,
 			pix,
+			surface_pix,
 			old_reservoir,
 			old_current_mixed_weight);
 	}
@@ -340,7 +357,7 @@ void RIS_COMPUTE_LIGHTING_INIT(
 		temporal_rand_reset,
 		temporal_rand_lifetime);
 
-#if RIS_BAYER_SHARED_VISIBILITY
+#if RIS_BAYER_CANDIDATE_SEGMENTS
 	merged_reservoir = RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 		cluster_index,
 		P,
@@ -348,6 +365,7 @@ void RIS_COMPUTE_LIGHTING_INIT(
 		V,
 		material,
 		pix,
+		surface_pix,
 		ris_active,
 		merged_reservoir);
 #else
@@ -381,7 +399,7 @@ void RIS_COMPUTE_LIGHTING_INIT(
 		}
 	}
 
-	if (risPixelInBounds(pix)) {
+	if (risReservoirPixelInBounds(pix)) {
 		RIS_STORE_TEMPORAL_RESERVOIR(pix, merged_reservoir);
 		RIS_STORE_CANDIDATE_IMAGE_SAMPLE(pix, image_candidate);
 	}
@@ -408,7 +426,8 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 	uint secondary_sample_count = 0u;
 	const bool secondary_visibility_test = RIS_APPLY_VISIBILITY_TEST != 0;
 
-	if (ris_active) {
+	const ivec2 reservoir_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(pix);
+	if (ris_active && risReservoirPixelInBounds(reservoir_pix)) {
 		uint pool_light_ids[RIS_SPATIAL_POOL_CAPACITY];
 		vec2 pool_weights[RIS_SPATIAL_POOL_CAPACITY];
 		uint pool_count = 0u;
@@ -418,10 +437,14 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 		uint secondary_specular_target_count;
 		risSecondarySampleCounts(material.metalness, secondary_diffuse_target_count, secondary_specular_target_count);
 
-		const RisCandidateImageSample self_candidate = RIS_LOAD_CANDIDATE_IMAGE_SAMPLE(pix);
+		const RisCandidateImageSample self_candidate = RIS_LOAD_CANDIDATE_IMAGE_SAMPLE(reservoir_pix);
 		RIS_LIGHT_SAMPLE self_light;
 		if (risCandidateImageSampleValid(self_candidate) && RIS_LOAD_LIGHT(self_candidate.light_id, self_light)) {
+	#if RIS_INIT_HALF_RES
+			const vec2 self_weights = RIS_LIGHT_WEIGHTS(self_light, P, N, V, material);
+	#else
 			const vec2 self_weights = max(self_candidate.weights, vec2(0.0));
+	#endif
 			if (any(greaterThan(self_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				pool_light_ids[pool_count] = self_candidate.light_id;
 				pool_weights[pool_count] = self_weights;
@@ -432,32 +455,37 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 		}
 
 		for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
-			const ivec2 sample_pix = pix + risPoissonNeighborOffset(i, pix);
-			if (!risPixelInBounds(sample_pix)) {
-				continue;
-			}
-			if (!RIS_SPATIAL_SAMPLE_COMPATIBLE(pix, sample_pix)) {
+			const ivec2 sample_reservoir_pix = reservoir_pix + risPoissonNeighborOffset(i, reservoir_pix);
+			if (!risReservoirPixelInBounds(sample_reservoir_pix)) {
 				continue;
 			}
 
-			const RisCandidateImageSample image_candidate = RIS_LOAD_CANDIDATE_IMAGE_SAMPLE(sample_pix);
+			ivec2 sample_surface_pix;
+			vec3 sample_P;
+			vec3 sample_N;
+			if (!risLoadReservoirSpatialSurface(sample_reservoir_pix, sample_surface_pix, sample_P, sample_N)) {
+				continue;
+			}
+			if (!RIS_SPATIAL_SAMPLE_COMPATIBLE(pix, sample_surface_pix)) {
+				continue;
+			}
+
+			const RisCandidateImageSample image_candidate = RIS_LOAD_CANDIDATE_IMAGE_SAMPLE(sample_reservoir_pix);
 			RIS_LIGHT_SAMPLE image_light;
 			if (!risCandidateImageSampleValid(image_candidate) || !RIS_LOAD_LIGHT(image_candidate.light_id, image_light)) {
 				continue;
 			}
 
-			vec3 sample_P;
-			vec3 sample_N;
-			if (!risLoadSpatialSurface(sample_pix, sample_P, sample_N)) {
-				continue;
-			}
-
-			const float edge_weight = risSpatialCompatibilityWeight(pix, sample_pix, P, N, sample_P, sample_N);
+			const float edge_weight = risSpatialCompatibilityWeight(pix, sample_surface_pix, P, N, sample_P, sample_N);
 			if (edge_weight <= RIS_WEIGHT_EPSILON) {
 				continue;
 			}
 
+	#if RIS_INIT_HALF_RES
+			vec2 reuse_weights = RIS_LIGHT_WEIGHTS(image_light, P, N, V, material) * edge_weight;
+	#else
 			vec2 reuse_weights = max(image_candidate.weights, vec2(0.0)) * edge_weight;
+	#endif
 			if (!any(greaterThan(reuse_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				continue;
 			}

@@ -1,6 +1,7 @@
 #ifndef REFLECTION_RIS_COMMON_GLSL_INCLUDED
 #define REFLECTION_RIS_COMMON_GLSL_INCLUDED
 
+#include "light_ris_experimental.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
 #include "noise.glsl"
@@ -109,6 +110,34 @@ bool reflectionRisLoadSurface(
 	return any(greaterThan(throughput, vec3(1e-6)));
 }
 
+#define RIS_CUSTOM_RESERVOIR_SURFACE_SELECTION 1
+bool risSelectReservoirSurfacePixel(ivec2 reservoir_pix, out ivec2 surface_pix)
+{
+	const ivec2 block_origin = RIS_RESERVOIR_BLOCK_ORIGIN(reservoir_pix);
+	surface_pix = block_origin;
+#if RIS_INIT_HALF_RES
+	float best_t = 1e30;
+	bool found = false;
+	for (int y = 0; y < 2; ++y) {
+		for (int x = 0; x < 2; ++x) {
+			const ivec2 candidate_pix = block_origin + ivec2(x, y);
+			if (!reflectionRisPixelInBounds(candidate_pix)) {
+				continue;
+			}
+			const vec4 pos_t = imageLoad(reflection_hit_pos, candidate_pix);
+			if (pos_t.w > 0.0 && pos_t.w < best_t) {
+				best_t = pos_t.w;
+				surface_pix = candidate_pix;
+				found = true;
+			}
+		}
+	}
+	return found;
+#else
+	return reflectionRisPixelInBounds(surface_pix);
+#endif
+}
+
 #define RIS_PIXEL_IN_BOUNDS(pix_) reflectionRisPixelInBounds(pix_)
 
 #define RIS_CUSTOM_SPATIAL_SURFACE 1
@@ -180,7 +209,7 @@ bool reflectionRisFindPrimaryHistoryPixel(ivec2 pix, out ivec2 history_center_pi
 }
 
 #define RIS_CUSTOM_TEMPORAL_HISTORY 1
-bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
+bool risFindTemporalHistoryPixel(ivec2 pix, ivec2 surface_pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
 	history_pix = ivec2(-1);
 
@@ -189,15 +218,16 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 	}
 
 	ivec2 history_center_pix;
-	if (!reflectionRisFindPrimaryHistoryPixel(pix, history_center_pix)) {
+	if (!reflectionRisFindPrimaryHistoryPixel(surface_pix, history_center_pix)) {
 		return false;
 	}
 
-	const vec4 current_pos_t = imageLoad(reflection_hit_pos, pix);
+	const vec4 current_pos_t = imageLoad(reflection_hit_pos, surface_pix);
 	if (current_pos_t.w <= 0.0) {
 		return false;
 	}
 
+	ivec2 history_surface_pix = ivec2(-1);
 	float best_dist2 = REFLECTION_RIS_HISTORY_DISTANCE_MAX * REFLECTION_RIS_HISTORY_DISTANCE_MAX;
 	for (int y = -1; y <= 1; ++y) {
 		for (int x = -1; x <= 1; ++x) {
@@ -215,12 +245,16 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 			const float dist2 = dot(delta, delta);
 			if (dist2 < best_dist2) {
 				best_dist2 = dist2;
-				history_pix = sample_pix;
+				history_surface_pix = sample_pix;
 			}
 		}
 	}
 
-	return history_pix.x >= 0 && reflectionRisPixelInBounds(history_pix);
+	if (history_surface_pix.x < 0 || !reflectionRisPixelInBounds(history_surface_pix)) {
+		return false;
+	}
+	history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_surface_pix);
+	return true;
 }
 
 #define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(reflection_hit_pos, (pix_)).xyz

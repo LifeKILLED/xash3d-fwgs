@@ -1,6 +1,7 @@
 #ifndef REFRACTION_RIS_COMMON_GLSL_INCLUDED
 #define REFRACTION_RIS_COMMON_GLSL_INCLUDED
 
+#include "light_ris_experimental.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"
 #include "noise.glsl"
@@ -148,6 +149,35 @@ bool refractionRisLoadSurface(
 	return any(greaterThan(throughput, vec3(1e-6)));
 }
 
+#define RIS_CUSTOM_RESERVOIR_SURFACE_SELECTION 1
+bool risSelectReservoirSurfacePixel(ivec2 reservoir_pix, out ivec2 surface_pix)
+{
+	const ivec2 block_origin = RIS_RESERVOIR_BLOCK_ORIGIN(reservoir_pix);
+	surface_pix = block_origin;
+#if RIS_INIT_HALF_RES
+	const uint layer = refractionRisLayerFromPixel(block_origin);
+	float best_t = 1e30;
+	bool found = false;
+	for (int y = 0; y < 2; ++y) {
+		for (int x = 0; x < 2; ++x) {
+			const ivec2 candidate_pix = block_origin + ivec2(x, y);
+			if (!refractionRisPixelInBounds(candidate_pix) || refractionRisLayerFromPixel(candidate_pix) != layer) {
+				continue;
+			}
+			const vec4 pos_t = imageLoad(refraction_hit_pos, candidate_pix);
+			if (pos_t.w > 0.0 && pos_t.w < best_t) {
+				best_t = pos_t.w;
+				surface_pix = candidate_pix;
+				found = true;
+			}
+		}
+	}
+	return found;
+#else
+	return refractionRisPixelInBounds(surface_pix);
+#endif
+}
+
 #define RIS_PIXEL_IN_BOUNDS(pix_) refractionRisPixelInBounds(pix_)
 #define RIS_SPATIAL_SAMPLE_COMPATIBLE(center_pix_, sample_pix_) refractionRisSameLayerAndInBounds((center_pix_), (sample_pix_))
 
@@ -174,7 +204,7 @@ bool reprojectHalfResAtlasPrimaryPlanePixelLegacy(
 	out ivec2 history_local_pix);
 
 #define RIS_CUSTOM_TEMPORAL_HISTORY 1
-bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
+bool risFindTemporalHistoryPixel(ivec2 pix, ivec2 surface_pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
 	history_pix = ivec2(-1);
 
@@ -182,18 +212,19 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 		return false;
 	}
 
-	const uint layer = refractionRisLayerFromPixel(pix);
+	const uint layer = refractionRisLayerFromPixel(surface_pix);
 	const ivec2 layer_size = refractionRisLayerSize();
 	ivec2 history_center_local_pix;
-	if (!reprojectHalfResAtlasPrimaryPlanePixelLegacy(refractionRisLayerLocalPixel(pix), layer_size, ubo.ubo.asvgf.refraction, history_center_local_pix)) {
+	if (!reprojectHalfResAtlasPrimaryPlanePixelLegacy(refractionRisLayerLocalPixel(surface_pix), layer_size, ubo.ubo.asvgf.refraction, history_center_local_pix)) {
 		return false;
 	}
 
-	const vec4 current_pos_t = imageLoad(refraction_hit_pos, pix);
+	const vec4 current_pos_t = imageLoad(refraction_hit_pos, surface_pix);
 	if (current_pos_t.w <= 0.0) {
 		return false;
 	}
 
+	ivec2 history_surface_pix = ivec2(-1);
 	float best_dist2 = REFRACTION_RIS_HISTORY_DISTANCE_MAX * REFRACTION_RIS_HISTORY_DISTANCE_MAX;
 	for (int y = -1; y <= 1; ++y) {
 		for (int x = -1; x <= 1; ++x) {
@@ -212,12 +243,16 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 			const float dist2 = dot(delta, delta);
 			if (dist2 < best_dist2) {
 				best_dist2 = dist2;
-				history_pix = sample_pix;
+				history_surface_pix = sample_pix;
 			}
 		}
 	}
 
-	return history_pix.x >= 0 && refractionRisSameLayerAndInBounds(pix, history_pix);
+	if (history_surface_pix.x < 0 || !refractionRisSameLayerAndInBounds(surface_pix, history_surface_pix)) {
+		return false;
+	}
+	history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_surface_pix);
+	return true;
 }
 
 #define RIS_LOAD_TEMPORAL_REFERENCE_POSITION(pix_) imageLoad(refraction_hit_pos, (pix_)).xyz

@@ -25,6 +25,7 @@ void computeLightingRISInit(
 	vec3 V,
 	MaterialProperties material,
 	ivec2 pix,
+	ivec2 surface_pix,
 	bool surface_active)
 {
 	uint cluster_index;
@@ -32,11 +33,11 @@ void computeLightingRISInit(
 	computeLightingRISState(P, surface_active, cluster_index, ris_active);
 
 #if LIGHT_POLYGON
-	computePolygonLightingRISInit(cluster_index, P, geometry_N, shading_N, V, material, pix, ris_active);
+	computePolygonLightingRISInit(cluster_index, P, geometry_N, shading_N, V, material, pix, surface_pix, ris_active);
 #endif
 
 #if LIGHT_POINT
-	computePointLightingRISInit(cluster_index, P, geometry_N, shading_N, V, material, pix, ris_active);
+	computePointLightingRISInit(cluster_index, P, geometry_N, shading_N, V, material, pix, surface_pix, ris_active);
 #endif
 }
 #endif

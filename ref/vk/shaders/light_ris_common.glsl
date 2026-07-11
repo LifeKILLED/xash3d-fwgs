@@ -4,6 +4,7 @@
 #include "debug.glsl"
 #include "noise.glsl"
 #include "brdf.glsl"
+#include "light_ris_experimental.glsl"
 
 const float shadow_offset_fudge = .1;
 
@@ -123,7 +124,11 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef RIS_BAYER_SHARED_VISIBILITY
-#define RIS_BAYER_SHARED_VISIBILITY 0
+#define RIS_BAYER_SHARED_VISIBILITY RIS_INIT_SHARED_NEIGHBOR_VISIBILITY_REUSE
+#endif
+
+#ifndef RIS_BAYER_CANDIDATE_SEGMENTS
+#define RIS_BAYER_CANDIDATE_SEGMENTS 1
 #endif
 
 #ifndef RIS_BAYER_SEGMENT_COUNT
@@ -137,13 +142,13 @@ const float shadow_offset_fudge = .1;
 const uint RIS_INVALID_LIGHT_ID = 0xffffffffu;
 const uint RIS_TEMPORAL_HASH_MASK = 0x00ffffffu;
 
-#if RIS_BAYER_SHARED_VISIBILITY
+#if RIS_BAYER_CANDIDATE_SEGMENTS
 #if RIS_LOCAL_SIZE_X < 3 || RIS_LOCAL_SIZE_Y < 3
-#error RIS_BAYER_SHARED_VISIBILITY requires at least 3x3 local workgroups
+#error RIS_BAYER_CANDIDATE_SEGMENTS requires at least 3x3 local workgroups
 #endif
 
 #if RIS_BAYER_SEGMENT_COUNT != 9
-#error RIS_BAYER_SHARED_VISIBILITY expects a 3x3 Bayer matrix
+#error RIS_BAYER_CANDIDATE_SEGMENTS expects a 3x3 Bayer matrix
 #endif
 
 #if RIS_BAYER_SEGMENT_MAX_CANDIDATES > 32
@@ -328,6 +333,59 @@ bool risPixelInBounds(ivec2 pix)
 	return RIS_PIXEL_IN_BOUNDS(pix);
 }
 
+ivec2 risReservoirResolution()
+{
+#if RIS_INIT_HALF_RES
+	return (ubo.ubo.res + ivec2(1)) / 2;
+#else
+	return ubo.ubo.res;
+#endif
+}
+
+bool risReservoirPixelInBounds(ivec2 pix)
+{
+	return all(greaterThanEqual(pix, ivec2(0))) && all(lessThan(pix, risReservoirResolution()));
+}
+
+#ifndef RIS_CUSTOM_RESERVOIR_SURFACE_SELECTION
+bool risSelectReservoirSurfacePixel(ivec2 reservoir_pix, out ivec2 surface_pix)
+{
+	const ivec2 block_origin = RIS_RESERVOIR_BLOCK_ORIGIN(reservoir_pix);
+	surface_pix = block_origin;
+#if RIS_INIT_HALF_RES
+	float best_t = 1e30;
+	bool found = false;
+	for (int y = 0; y < 2; ++y) {
+		for (int x = 0; x < 2; ++x) {
+			const ivec2 candidate_pix = block_origin + ivec2(x, y);
+			if (!risPixelInBounds(candidate_pix)) {
+				continue;
+			}
+			const vec4 pos_t = imageLoad(position_t, candidate_pix);
+			if (pos_t.w > 0.0 && pos_t.w < best_t) {
+				best_t = pos_t.w;
+				surface_pix = candidate_pix;
+				found = true;
+			}
+		}
+	}
+	return found;
+#else
+	return risPixelInBounds(surface_pix);
+#endif
+}
+#endif
+
+bool risInitWorkgroupOutsideBounds()
+{
+#if RIS_INIT_PASS && RIS_INIT_HALF_RES
+	const ivec2 group_origin = ivec2(gl_WorkGroupID.xy) * ivec2(RIS_LOCAL_SIZE_X, RIS_LOCAL_SIZE_Y);
+	return any(greaterThanEqual(group_origin, risReservoirResolution()));
+#else
+	return false;
+#endif
+}
+
 float risEncodeLightId(uint light_id)
 {
 	return light_id == RIS_INVALID_LIGHT_ID ? 0.0 : float(light_id) + 1.0;
@@ -483,7 +541,7 @@ RisTemporalReservoir risFinalizeTemporalReservoir(RisTemporalReservoir reservoir
 
 #if RIS_INIT_PASS
 #ifndef RIS_CUSTOM_TEMPORAL_HISTORY
-bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
+bool risFindTemporalHistoryPixel(ivec2 pix, ivec2 surface_pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
 {
 	history_pix = ivec2(-1);
 
@@ -491,14 +549,19 @@ bool risFindTemporalHistoryPixel(ivec2 pix, vec3 prev_position, vec3 geometry_no
 		return false;
 	}
 
+	ivec2 history_surface_pix;
 	float selected_depth_threshold = 0.0;
-	return findBestReprojectedHistoryTexel(
+	const bool found = findBestReprojectedHistoryTexel(
 		prev_position,
 		geometry_normal,
-		pix,
+		surface_pix,
 		ubo.ubo.res,
-		history_pix,
+		history_surface_pix,
 		selected_depth_threshold);
+	if (found) {
+		history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_surface_pix);
+	}
+	return found;
 }
 #endif
 #endif
@@ -603,6 +666,14 @@ bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N)
 	return true;
 }
 #endif
+
+bool risLoadReservoirSpatialSurface(ivec2 reservoir_pix, out ivec2 surface_pix, out vec3 P, out vec3 N)
+{
+	if (!risReservoirPixelInBounds(reservoir_pix) || !risSelectReservoirSurfacePixel(reservoir_pix, surface_pix)) {
+		return false;
+	}
+	return risLoadSpatialSurface(surface_pix, P, N);
+}
 
 float risSpatialRandom01(ivec2 pix, uint candidate_index, uint salt)
 {

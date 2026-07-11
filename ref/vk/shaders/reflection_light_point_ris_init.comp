@@ -47,30 +47,37 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RIS_POINT_OUT_CANDIDATE_IMAGE out_reflection_ris_point_candidate
 #define RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE out_temporal_reflection_ris_point_reservoir
 #define RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_reflection_ris_point_reservoir
-#define RIS_BAYER_SHARED_VISIBILITY 1
-
 #include "reflection_ris_common.glsl"
 #include "light_ris.glsl"
 
 void main()
 {
-	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
-	if (!reflectionRisPixelInBounds(pix)) {
+	const ivec2 ris_pix = ivec2(gl_GlobalInvocationID.xy);
+	if (risInitWorkgroupOutsideBounds()) {
 		return;
 	}
+	ivec2 pix;
+	const bool surface_selected = risSelectReservoirSurfacePixel(ris_pix, pix);
 
 	rand01_state = ubo.ubo.random_seed
 		+ uint(pix.x) * 1833u
 		+ uint(pix.y) * 31337u
 		+ 0x72706f69u;
 
-	vec3 P;
-	vec3 geometry_N;
-	vec3 shading_N;
-	vec3 V;
-	vec3 throughput;
-	vec3 emissive_radiance;
+	vec3 P = vec3(0.0);
+	vec3 geometry_N = vec3(0.0, 0.0, 1.0);
+	vec3 shading_N = geometry_N;
+	vec3 V = vec3(0.0, 0.0, 1.0);
+	vec3 throughput = vec3(0.0);
+	vec3 emissive_radiance = vec3(0.0);
 	MaterialProperties material;
-	const bool surface_active = reflectionRisLoadSurface(pix, P, geometry_N, shading_N, V, material, throughput, emissive_radiance);
-	computeLightingRISInit(P, geometry_N, shading_N, V, material, pix, surface_active);
+	material.base_color = vec3(0.0);
+	material.metalness = 0.0;
+	material.roughness = 1.0;
+	bool surface_loaded = false;
+	if (surface_selected) {
+		surface_loaded = reflectionRisLoadSurface(pix, P, geometry_N, shading_N, V, material, throughput, emissive_radiance);
+	}
+	const bool surface_active = surface_selected && surface_loaded;
+	computeLightingRISInit(P, geometry_N, shading_N, V, material, ris_pix, pix, surface_active);
 }
