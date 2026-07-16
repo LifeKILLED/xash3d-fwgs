@@ -846,7 +846,8 @@ static void submitToTraditionalRender( trad_submit_t args ) {
 	Vector4Copy(*args.color, g_render_state.dirty_uniform_data.color);
 
 	ASSERT(args.lightmap <= MAX_LIGHTMAPS);
-	const int lightmap = args.lightmap > 0 ? tglob.lightmapTextures[args.lightmap - 1] : tglob.whiteTexture;
+	// brush.frag applies 2x overbright, making the half-gray texture neutral.
+	const int lightmap = args.lightmap > 0 ? tglob.lightmapTextures[args.lightmap - 1] : tglob.grayTexture;
 
 	drawCmdPushDebugLabelBegin( args.debug_name );
 
