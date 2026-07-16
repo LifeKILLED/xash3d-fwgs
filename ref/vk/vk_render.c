@@ -844,10 +844,15 @@ static void submitToTraditionalRender( trad_submit_t args ) {
 	// TODO get rid of this dirty ubo thing
 	uboComputeAndSetMVPFromModel( *args.transform );
 	Vector4Copy(*args.color, g_render_state.dirty_uniform_data.color);
+	if( args.lightmap <= 0 )
+	{
+		// compensate unlightmapped models for GL-style 2x overbright in brush.frag
+		VectorScale( g_render_state.dirty_uniform_data.color, 0.5f,
+			g_render_state.dirty_uniform_data.color );
+	}
 
 	ASSERT(args.lightmap <= MAX_LIGHTMAPS);
-	// brush.frag applies 2x overbright, making the half-gray texture neutral.
-	const int lightmap = args.lightmap > 0 ? tglob.lightmapTextures[args.lightmap - 1] : tglob.grayTexture;
+	const int lightmap = args.lightmap > 0 ? tglob.lightmapTextures[args.lightmap - 1] : tglob.whiteTexture;
 
 	drawCmdPushDebugLabelBegin( args.debug_name );
 
