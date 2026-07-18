@@ -429,10 +429,12 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 	const ivec2 reservoir_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(pix);
 	if (ris_active && risReservoirPixelInBounds(reservoir_pix)) {
 		uint pool_light_ids[RIS_SPATIAL_POOL_CAPACITY];
-		vec2 pool_weights[RIS_SPATIAL_POOL_CAPACITY];
+		vec2 pool_target_weights[RIS_SPATIAL_POOL_CAPACITY];
+		vec2 pool_selection_masses[RIS_SPATIAL_POOL_CAPACITY];
 		uint pool_count = 0u;
-		float diffuse_weight_sum = 0.0;
-		float specular_weight_sum = 0.0;
+		vec2 selection_mass_sum = vec2(0.0);
+		// Self always represents one estimator, including when it is empty.
+		float confidence_sum = 1.0;
 		uint secondary_diffuse_target_count;
 		uint secondary_specular_target_count;
 		risSecondarySampleCounts(material.metalness, secondary_diffuse_target_count, secondary_specular_target_count);
@@ -447,9 +449,9 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 	#endif
 			if (any(greaterThan(self_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				pool_light_ids[pool_count] = self_candidate.light_id;
-				pool_weights[pool_count] = self_weights;
-				diffuse_weight_sum += self_weights.x;
-				specular_weight_sum += self_weights.y;
+				pool_target_weights[pool_count] = self_weights;
+				pool_selection_masses[pool_count] = self_weights;
+				selection_mass_sum += self_weights;
 				pool_count += 1u;
 			}
 		}
@@ -471,53 +473,54 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 				continue;
 			}
 
+			const float edge_weight = risSpatialCompatibilityWeight(pix, sample_surface_pix, P, N, sample_P, sample_N);
+			if (edge_weight <= RIS_WEIGHT_EPSILON) {
+				continue;
+			}
 			const RisCandidateImageSample image_candidate = RIS_LOAD_CANDIDATE_IMAGE_SAMPLE(sample_reservoir_pix);
 			RIS_LIGHT_SAMPLE image_light;
 			if (!risCandidateImageSampleValid(image_candidate) || !RIS_LOAD_LIGHT(image_candidate.light_id, image_light)) {
 				continue;
 			}
 
-			const float edge_weight = risSpatialCompatibilityWeight(pix, sample_surface_pix, P, N, sample_P, sample_N);
-			if (edge_weight <= RIS_WEIGHT_EPSILON) {
-				continue;
-			}
-
 	#if RIS_INIT_HALF_RES
-			vec2 reuse_weights = RIS_LIGHT_WEIGHTS(image_light, P, N, V, material) * edge_weight;
+			vec2 reuse_weights = RIS_LIGHT_WEIGHTS(image_light, P, N, V, material);
 	#else
-			vec2 reuse_weights = max(image_candidate.weights, vec2(0.0)) * edge_weight;
+			vec2 reuse_weights = max(image_candidate.weights, vec2(0.0));
 	#endif
 			if (!any(greaterThan(reuse_weights, vec2(RIS_WEIGHT_EPSILON)))) {
 				continue;
 			}
 
 			if (pool_count < uint(RIS_SPATIAL_POOL_CAPACITY)) {
+				const vec2 reuse_masses = reuse_weights * edge_weight;
 				pool_light_ids[pool_count] = image_candidate.light_id;
-				pool_weights[pool_count] = reuse_weights;
-				diffuse_weight_sum += reuse_weights.x;
-				specular_weight_sum += reuse_weights.y;
+				pool_target_weights[pool_count] = reuse_weights;
+				pool_selection_masses[pool_count] = reuse_masses;
+				selection_mass_sum += reuse_masses;
+				confidence_sum += edge_weight;
 				pool_count += 1u;
 			}
 		}
 #endif
 
-		if (diffuse_weight_sum > RIS_WEIGHT_EPSILON) {
+		if (selection_mass_sum.x > RIS_WEIGHT_EPSILON) {
 			for (uint pick = 0u; pick < uint(RIS_SECONDARY_MAX_SAMPLES); ++pick) {
 				if (pick >= secondary_diffuse_target_count) {
 					break;
 				}
 
-				const float target_weight = risSpatialRandom01(pix, pick, 0x64696666u) * diffuse_weight_sum;
+				const float target_weight = risSpatialRandom01(pix, pick, 0x64696666u) * selection_mass_sum.x;
 				float weight_prefix = 0.0;
 				uint selected = 0u;
 				for (uint i = 0u; i < uint(RIS_SPATIAL_POOL_CAPACITY); ++i) {
 					if (i >= pool_count) {
 						break;
 					}
-					if (pool_weights[i].x <= RIS_WEIGHT_EPSILON) {
+					if (pool_selection_masses[i].x <= RIS_WEIGHT_EPSILON) {
 						continue;
 					}
-					weight_prefix += pool_weights[i].x;
+					weight_prefix += pool_selection_masses[i].x;
 					selected = i;
 					if (target_weight <= weight_prefix || i + 1u == pool_count) {
 						break;
@@ -526,7 +529,8 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 
 				vec3 candidate_diffuse;
 				vec3 candidate_specular;
-				const float secondary_inv_light_pdf = diffuse_weight_sum / max(pool_weights[selected].x, RIS_WEIGHT_EPSILON);
+				const float secondary_inv_light_pdf = selection_mass_sum.x /
+					max(confidence_sum * pool_target_weights[selected].x, RIS_WEIGHT_EPSILON);
 				secondary_sample_count += 1u;
 				RIS_LIGHT_SAMPLE selected_light;
 				if (RIS_LOAD_LIGHT(pool_light_ids[selected], selected_light) &&
@@ -537,23 +541,23 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 			}
 		}
 
-		if (specular_weight_sum > RIS_WEIGHT_EPSILON) {
+		if (selection_mass_sum.y > RIS_WEIGHT_EPSILON) {
 			for (uint pick = 0u; pick < uint(RIS_SECONDARY_MAX_SAMPLES); ++pick) {
 				if (pick >= secondary_specular_target_count) {
 					break;
 				}
 
-				const float target_weight = risSpatialRandom01(pix, pick, 0x73706563u) * specular_weight_sum;
+				const float target_weight = risSpatialRandom01(pix, pick, 0x73706563u) * selection_mass_sum.y;
 				float weight_prefix = 0.0;
 				uint selected = 0u;
 				for (uint i = 0u; i < uint(RIS_SPATIAL_POOL_CAPACITY); ++i) {
 					if (i >= pool_count) {
 						break;
 					}
-					if (pool_weights[i].y <= RIS_WEIGHT_EPSILON) {
+					if (pool_selection_masses[i].y <= RIS_WEIGHT_EPSILON) {
 						continue;
 					}
-					weight_prefix += pool_weights[i].y;
+					weight_prefix += pool_selection_masses[i].y;
 					selected = i;
 					if (target_weight <= weight_prefix || i + 1u == pool_count) {
 						break;
@@ -562,7 +566,8 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 
 				vec3 candidate_diffuse;
 				vec3 candidate_specular;
-				const float secondary_inv_light_pdf = specular_weight_sum / max(pool_weights[selected].y, RIS_WEIGHT_EPSILON);
+				const float secondary_inv_light_pdf = selection_mass_sum.y /
+					max(confidence_sum * pool_target_weights[selected].y, RIS_WEIGHT_EPSILON);
 				secondary_sample_count += 1u;
 				RIS_LIGHT_SAMPLE selected_light;
 				if (RIS_LOAD_LIGHT(pool_light_ids[selected], selected_light) &&
