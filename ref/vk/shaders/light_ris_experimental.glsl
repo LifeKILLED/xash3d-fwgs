@@ -8,6 +8,12 @@
 #define RIS_INIT_SHARED_NEIGHBOR_VISIBILITY_REUSE 1
 #endif
 
+// Gather candidates from neighboring reservoirs during apply. Disable this to
+// evaluate only the reservoir that belongs to the current logical texel.
+#ifndef RIS_APPLY_SPATIAL_REUSE
+#define RIS_APPLY_SPATIAL_REUSE 0
+#endif
+
 // Store RIS init reservoirs/candidates in the upper-left half-resolution
 // region of the existing full-size images. Apply remains full resolution.
 #ifndef RIS_INIT_HALF_RES

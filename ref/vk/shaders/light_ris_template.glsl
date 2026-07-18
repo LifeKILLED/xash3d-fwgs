@@ -454,6 +454,7 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 			}
 		}
 
+#if RIS_APPLY_SPATIAL_REUSE
 		for (uint i = 0u; i < RIS_POISSON_POOL_SIZE; ++i) {
 			const ivec2 sample_reservoir_pix = reservoir_pix + risPoissonNeighborOffset(i, reservoir_pix);
 			if (!risReservoirPixelInBounds(sample_reservoir_pix)) {
@@ -498,6 +499,7 @@ void RIS_COMPUTE_LIGHTING_APPLY(
 				pool_count += 1u;
 			}
 		}
+#endif
 
 		if (diffuse_weight_sum > RIS_WEIGHT_EPSILON) {
 			for (uint pick = 0u; pick < uint(RIS_SECONDARY_MAX_SAMPLES); ++pick) {

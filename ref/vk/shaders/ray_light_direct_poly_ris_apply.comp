@@ -36,6 +36,7 @@ layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } 
 layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
 #define RIS_APPLY_VISIBILITY_TEST 0
+#define RIS_APPLY_SPATIAL_REUSE 1
 
 #define RAY_QUERY
 #define RIS_APPLY_PASS 1
