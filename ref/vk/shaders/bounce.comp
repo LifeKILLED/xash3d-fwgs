@@ -288,12 +288,6 @@ void main() {
 	}
 	const vec2 uv = (gl_GlobalInvocationID.xy + .5) / res * 2. - 1.;
 
-	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) != 0) {
-		imageStore(out_indirect_diffuse, pix, vec4(0.));
-		imageStore(out_indirect_specular, pix, vec4(0.));
-		return;
-	}
-
 #ifdef BRDF_COMPARE
 	g_mat_gltf2 = pix.x > ubo.ubo.res.x / INDIRECT_SCALE / 2.;
 #endif
@@ -327,11 +321,13 @@ void main() {
 			mat.prop.roughness = material_data.r;
 		}
 
-		computeBounces(mat, pos_t.xyz, direction, kMaxBounces, diffuse, specular, first_bounce_direction);
+		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) == 0) {
+			computeBounces(mat, pos_t.xyz, direction, kMaxBounces, diffuse, specular, first_bounce_direction);
 
-		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_ONLY_DIFFUSE_GI) != 0) {
-			diffuse += specular;
-			specular = vec3(0.);
+			if ((ubo.ubo.renderer_flags & RENDERER_FLAG_ONLY_DIFFUSE_GI) != 0) {
+				diffuse += specular;
+				specular = vec3(0.);
+			}
 		}
 
 		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_SEPARATED_REFLECTION) != 0) {
