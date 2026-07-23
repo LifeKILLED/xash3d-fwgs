@@ -526,6 +526,7 @@ static void parseDebugDisplayValue( void ) {
 	X(MATERIAL, "red = roughness, green = metalness") \
 	X(DIFFUSE, "direct + indirect diffuse, spatially denoised") \
 	X(SPECULAR, "direct + indirect specular, spatially denoised") \
+	X(RESERVOIR_REUSING, "lighting from direct-light reservoirs reused by secondary passes") \
 
 #define X(suffix, info) \
 	if (0 == Q_stricmp(cvalue, #suffix)) { \
@@ -595,6 +596,8 @@ static void produceUboResource(struct Producer* p, struct vk_combuf_s *combuf, c
 
 static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args_t *args, float fov_angle_y, int frame_width, int frame_height, uint32_t frame_counter ) {
 	struct UniformBuffer ret = {0};
+	Matrix4x4_ToArrayFloatGL(*args->projection, (float*)ret.proj);
+	Matrix4x4_ToArrayFloatGL(*args->view, (float*)ret.view);
 	matrix4x4 proj_inv, view_inv;
 	Matrix4x4_Invert_Full(proj_inv, *args->projection);
 	Matrix4x4_ToArrayFloatGL(proj_inv, (float*)ret.inv_proj);
@@ -640,6 +643,7 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 					  SET_RENDERER_FLAG(RENDERER_FLAG_SEPARATED_REFLECTION) |
 					  (disable_sh_gi_denoising ? 0 : RENDERER_FLAG_DENOISE_GI_BY_SH) |
 					  (disable_reconstruction ? 0 : RENDERER_FLAG_SPATIAL_RECONSTRUCTION) |
+					  (CVAR_TO_BOOL(rt_disable_reservoir_reusing) ? RENDERER_FLAG_DISABLE_RESERVOIR_REUSING : 0) |
 					  (CVAR_TO_BOOL(rt_disable_gi) ? RENDERER_FLAG_DISABLE_GI : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reprojection) ? RENDERER_FLAG_DISABLE_REPROJECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reflection) ? RENDERER_FLAG_DISABLE_REFLECTION : 0) |

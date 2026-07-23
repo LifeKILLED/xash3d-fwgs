@@ -139,9 +139,20 @@ RisTemporalReservoir risLoadPreviousTemporalReservoir(ivec2 pix)
 	return risDecodeTemporalReservoir(imageLoad(RIS_POLY_PREV_TEMPORAL_RESERVOIR_IMAGE, pix));
 }
 
+#ifdef RIS_REUSE_DIRECT_RESERVOIR
+RisTemporalReservoir risLoadDirectTemporalReservoir(ivec2 pix)
+{
+	return risDecodeTemporalReservoir(imageLoad(direct_reusing_ris_poly_reservoir, pix));
+}
+#endif
+
 void risStoreTemporalReservoir(ivec2 pix, RisTemporalReservoir reservoir)
 {
-	imageStore(RIS_POLY_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, risEncodeTemporalReservoir(reservoir));
+	const vec4 encoded = risEncodeTemporalReservoir(reservoir);
+	imageStore(RIS_POLY_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, encoded);
+#ifdef RIS_OUT_REUSE_IMAGE
+	imageStore(RIS_OUT_REUSE_IMAGE, pix, encoded);
+#endif
 }
 
 void risStoreCandidateImageSample(ivec2 pix, RisCandidateImageSample candidate)
@@ -573,9 +584,20 @@ RisTemporalReservoir risLoadPreviousTemporalReservoir(ivec2 pix)
 	return risDecodeTemporalReservoir(imageLoad(RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE, pix));
 }
 
+#ifdef RIS_REUSE_DIRECT_RESERVOIR
+RisTemporalReservoir risLoadDirectTemporalReservoir(ivec2 pix)
+{
+	return risDecodeTemporalReservoir(imageLoad(direct_reusing_ris_point_reservoir, pix));
+}
+#endif
+
 void risStoreTemporalReservoir(ivec2 pix, RisTemporalReservoir reservoir)
 {
-	imageStore(RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, risEncodeTemporalReservoir(reservoir));
+	const vec4 encoded = risEncodeTemporalReservoir(reservoir);
+	imageStore(RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, encoded);
+#ifdef RIS_OUT_REUSE_IMAGE
+	imageStore(RIS_OUT_REUSE_IMAGE, pix, encoded);
+#endif
 }
 
 void risStoreCandidateImageSample(ivec2 pix, RisCandidateImageSample candidate)
@@ -927,6 +949,7 @@ void computePointAlwaysSampledLights(
 #define RIS_LIGHT_VISIBLE risLightVisible
 #define RIS_EVALUATE_LIGHT risEvaluateLight
 #define RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR risLoadPreviousTemporalReservoir
+#define RIS_LOAD_DIRECT_TEMPORAL_RESERVOIR risLoadDirectTemporalReservoir
 #define RIS_STORE_TEMPORAL_RESERVOIR risStoreTemporalReservoir
 #define RIS_STORE_CANDIDATE_IMAGE_SAMPLE risStoreCandidateImageSample
 #define RIS_LOAD_CANDIDATE_IMAGE_SAMPLE risLoadCandidateImageSample
@@ -949,6 +972,7 @@ void computePointAlwaysSampledLights(
 #undef RIS_LIGHT_VISIBLE
 #undef RIS_EVALUATE_LIGHT
 #undef RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR
+#undef RIS_LOAD_DIRECT_TEMPORAL_RESERVOIR
 #undef RIS_STORE_TEMPORAL_RESERVOIR
 #undef RIS_STORE_CANDIDATE_IMAGE_SAMPLE
 #undef RIS_LOAD_CANDIDATE_IMAGE_SAMPLE

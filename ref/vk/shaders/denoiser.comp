@@ -167,6 +167,9 @@ void main() {
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIFFUSE) {
 		imageStore(out_dest, pix, vec4(LINEARtoSRGB(indirect_diffuse + direct_diffuse + flashlight_diffuse), 0.0));
 		return;
+	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_RESERVOIR_REUSING) {
+		imageStore(out_dest, pix, vec4(LINEARtoSRGB(indirect_diffuse + indirect_specular_colored + refraction), 0.0));
+		return;
 	} else if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_SPECULAR) {
 		imageStore(out_dest, pix, vec4(LINEARtoSRGB(indirect_specular + direct_specular + flashlight_specular), 0.0));
 		return;

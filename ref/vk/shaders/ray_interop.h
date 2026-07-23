@@ -192,6 +192,7 @@ struct LightCluster {
 #define DEBUG_DISPLAY_MATERIAL 15
 #define DEBUG_DISPLAY_DIFFUSE 16
 #define DEBUG_DISPLAY_SPECULAR 17
+#define DEBUG_DISPLAY_RESERVOIR_REUSING 18
 // add more when needed
 
 #define DEBUG_FLAG_WHITE_FURNACE (1<<0)
@@ -201,6 +202,7 @@ struct LightCluster {
 #define RENDERER_FLAG_DENOISE_GI_BY_SH (1<<2)
 #define RENDERER_FLAG_DISABLE_GI (1<<3)
 #define RENDERER_FLAG_SPATIAL_RECONSTRUCTION (1<<4)
+#define RENDERER_FLAG_DISABLE_RESERVOIR_REUSING (1<<5)
 #define RENDERER_FLAG_DISABLE_REPROJECTION (1<<6)
 #define RENDERER_FLAG_DISABLE_REFLECTION (1<<7)
 #define RENDERER_FLAG_DISABLE_REFRACTION (1<<8)
@@ -330,6 +332,7 @@ struct AsvgfParams {
 };
 
 struct UniformBuffer {
+	mat4 proj, view;
 	mat4 inv_proj, inv_view;
 	mat4 prev_proj, prev_view;
 	mat4 prev_inv_proj, prev_inv_view;

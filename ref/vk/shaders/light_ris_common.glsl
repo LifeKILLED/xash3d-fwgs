@@ -310,6 +310,45 @@ bool risTemporalReservoirValid(RisTemporalReservoir reservoir)
 		reservoir.weight_sum > RIS_WEIGHT_EPSILON;
 }
 
+#if RIS_INIT_PASS && defined(RIS_REUSE_DIRECT_RESERVOIR)
+bool risFindDirectReservoirPixel(vec3 P, vec3 geometry_N, out ivec2 direct_reservoir_pix)
+{
+	direct_reservoir_pix = ivec2(-1);
+
+	const vec4 clip = ubo.ubo.proj * ubo.ubo.view * vec4(P, 1.0);
+	if (clip.w <= 0.0) {
+		return false;
+	}
+
+	const vec2 ndc = clip.xy / clip.w;
+	if (any(greaterThan(abs(ndc), vec2(1.0)))) {
+		return false;
+	}
+
+	const ivec2 projected_pix = ivec2((ndc * 0.5 + 0.5) * vec2(ubo.ubo.res));
+	if (any(lessThan(projected_pix, ivec2(0))) || any(greaterThanEqual(projected_pix, ubo.ubo.res))) {
+		return false;
+	}
+
+	direct_reservoir_pix = RIS_DIRECT_RESERVOIR_PIXEL_FROM_SURFACE(projected_pix);
+	const ivec2 direct_surface_pix = projected_pix;
+
+	const vec4 direct_pos_t = imageLoad(position_t, direct_surface_pix);
+	if (direct_pos_t.w <= 0.0) {
+		return false;
+	}
+
+	const vec3 direct_geometry_N = normalDecode(imageLoad(normals_gs, direct_surface_pix).xy);
+	if (dot(geometry_N, direct_geometry_N) < 0.25) {
+		return false;
+	}
+
+	const float pixel_footprint = max(direct_pos_t.w * ubo.ubo.ray_cone_width, 0.01);
+	const float position_tolerance = max(0.25, pixel_footprint * 8.0);
+	return distance(P, direct_pos_t.xyz) <= position_tolerance;
+}
+#endif
+
 RisCandidateImageSample risInvalidCandidateImageSample()
 {
 	RisCandidateImageSample candidate;
@@ -375,6 +414,7 @@ bool risSelectReservoirSurfacePixel(ivec2 reservoir_pix, out ivec2 surface_pix)
 #endif
 }
 #endif
+
 
 bool risInitWorkgroupOutsideBounds()
 {

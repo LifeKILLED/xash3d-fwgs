@@ -16,8 +16,22 @@
 
 // Store RIS init reservoirs/candidates in the upper-left half-resolution
 // region of the existing full-size images. Apply remains full resolution.
+// Direct-light reservoirs are consumed by secondary RIS init passes. Keep
+// their addressing independent from the consumer's own init resolution.
+#ifndef RIS_DIRECT_INIT_HALF_RES
+#define RIS_DIRECT_INIT_HALF_RES 1
+#endif
+
 #ifndef RIS_INIT_HALF_RES
-#define RIS_INIT_HALF_RES 1
+#define RIS_INIT_HALF_RES RIS_DIRECT_INIT_HALF_RES
+#endif
+
+#if RIS_DIRECT_INIT_HALF_RES
+#define RIS_DIRECT_RESERVOIR_BLOCK_ORIGIN(pix_) ((pix_) * 2)
+#define RIS_DIRECT_RESERVOIR_PIXEL_FROM_SURFACE(pix_) ((pix_) / 2)
+#else
+#define RIS_DIRECT_RESERVOIR_BLOCK_ORIGIN(pix_) (pix_)
+#define RIS_DIRECT_RESERVOIR_PIXEL_FROM_SURFACE(pix_) (pix_)
 #endif
 
 // If normal temporal reprojection fails, try the reservoir at the same

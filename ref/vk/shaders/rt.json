@@ -32,6 +32,18 @@
 //	"bounce": {
 //		"comp": "bounce"
 //	},
+	"light_direct_poly_ris_init": {
+		"comp": "ray_light_direct_poly_ris_init"
+	},
+	"light_direct_poly": {
+		"comp": "ray_light_direct_poly_ris_apply"
+	},
+	"light_direct_point_ris_init": {
+		"comp": "ray_light_direct_point_ris_init"
+	},
+	"light_direct_point": {
+		"comp": "ray_light_direct_point_ris_apply"
+	},
 	"bounce_primary_rays": {
 		"comp": "bounce_primary_rays"
 	},
@@ -67,18 +79,6 @@
 	},
 	"reflection_light_ris_resolve": {
 		"comp": "reflection_light_ris_resolve"
-	},
-	"light_direct_poly_ris_init": {
-		"comp": "ray_light_direct_poly_ris_init"
-	},
-	"light_direct_poly": {
-		"comp": "ray_light_direct_poly_ris_apply"
-	},
-	"light_direct_point_ris_init": {
-		"comp": "ray_light_direct_point_ris_init"
-	},
-	"light_direct_point": {
-		"comp": "ray_light_direct_point_ris_apply"
 	},
 	"refraction_primary_rays": {
 		"comp": "refraction_primary_rays"

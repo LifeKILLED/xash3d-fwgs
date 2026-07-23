@@ -334,9 +334,34 @@ void RIS_COMPUTE_LIGHTING_INIT(
 	ivec2 surface_pix,
 	bool ris_active)
 {
+#if defined(RIS_REUSE_DIRECT_RESERVOIR)
+	const bool reuse_only = ubo.ubo.debug_display_only == DEBUG_DISPLAY_RESERVOIR_REUSING;
+	const bool reuse_enabled =
+		(ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_RESERVOIR_REUSING) == 0 ||
+		reuse_only;
+	bool is_diffuse_ris_reused = false;
+	RisTemporalReservoir direct_reservoir = risInvalidTemporalReservoir();
+
+	if (reuse_enabled && ris_active) {
+		ivec2 direct_reservoir_pix;
+		if (risFindDirectReservoirPixel(P, geometry_N, direct_reservoir_pix)) {
+			direct_reservoir = RIS_LOAD_DIRECT_TEMPORAL_RESERVOIR(direct_reservoir_pix);
+			is_diffuse_ris_reused = risTemporalReservoirValid(direct_reservoir);
+		}
+	}
+
+	const bool skip_own_ris =
+		reuse_enabled && (reuse_only || is_diffuse_ris_reused);
+	const bool own_ris_active = ris_active && !skip_own_ris;
+#else
+	const bool is_diffuse_ris_reused = false;
+	const bool skip_own_ris = false;
+	const bool own_ris_active = ris_active;
+#endif
+
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
 	float old_current_mixed_weight = 0.0;
-	if (ris_active) {
+	if (own_ris_active) {
 		RIS_LOAD_PREVIOUS_RESERVOIR(
 			P,
 			geometry_N,
@@ -357,6 +382,12 @@ void RIS_COMPUTE_LIGHTING_INIT(
 		temporal_rand_reset,
 		temporal_rand_lifetime);
 
+#if defined(RIS_REUSE_DIRECT_RESERVOIR)
+	if (is_diffuse_ris_reused) {
+		merged_reservoir = direct_reservoir;
+	}
+#endif
+
 #if RIS_BAYER_CANDIDATE_SEGMENTS
 	merged_reservoir = RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 		cluster_index,
@@ -366,10 +397,10 @@ void RIS_COMPUTE_LIGHTING_INIT(
 		material,
 		pix,
 		surface_pix,
-		ris_active,
+		own_ris_active,
 		merged_reservoir);
 #else
-	if (ris_active) {
+	if (own_ris_active) {
 		merged_reservoir = RIS_MERGE_VISIBLE_CANDIDATES(
 			cluster_index,
 			P,
@@ -380,22 +411,27 @@ void RIS_COMPUTE_LIGHTING_INIT(
 			merged_reservoir);
 	}
 #endif
-	merged_reservoir = risFinalizeTemporalReservoir(merged_reservoir);
 
 	RisCandidateImageSample image_candidate = risInvalidCandidateImageSample();
-	if (risTemporalReservoirValid(merged_reservoir)) {
-		RIS_LIGHT_SAMPLE merged_light;
-		if (RIS_LOAD_LIGHT(merged_reservoir.light_id, merged_light)) {
-			const vec2 merged_weights = RIS_LIGHT_WEIGHTS(merged_light, P, N, V, material);
-			if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
-				image_candidate.light_id = merged_reservoir.light_id;
-				image_candidate.weights = merged_weights;
-				image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
-			} else {
+	if (is_diffuse_ris_reused || !skip_own_ris) {
+		if (!is_diffuse_ris_reused) {
+			merged_reservoir = risFinalizeTemporalReservoir(merged_reservoir);
+		}
+
+		if (risTemporalReservoirValid(merged_reservoir)) {
+			RIS_LIGHT_SAMPLE merged_light;
+			if (RIS_LOAD_LIGHT(merged_reservoir.light_id, merged_light)) {
+				const vec2 merged_weights = RIS_LIGHT_WEIGHTS(merged_light, P, N, V, material);
+				if (any(greaterThan(merged_weights, vec2(RIS_WEIGHT_EPSILON)))) {
+					image_candidate.light_id = merged_reservoir.light_id;
+					image_candidate.weights = merged_weights;
+					image_candidate.mixed_weight = risPrimaryMixedWeight(merged_weights, material.metalness);
+				} else if (!is_diffuse_ris_reused) {
+					merged_reservoir = risInvalidTemporalReservoir();
+				}
+			} else if (!is_diffuse_ris_reused) {
 				merged_reservoir = risInvalidTemporalReservoir();
 			}
-		} else {
-			merged_reservoir = risInvalidTemporalReservoir();
 		}
 	}
 
