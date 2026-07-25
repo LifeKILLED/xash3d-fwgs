@@ -18,6 +18,22 @@
 		*/
 		"comp": "ray_primary"
 	},
+	// "camera_decals": {
+	// 	"rgen": "camera_decals_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_decals"}]
+	// },
+	// "camera_legacy_blending": {
+	// 	"rgen": "camera_legacy_blending_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_legacy"}]
+	// },
+	"camera_decals": {
+		"comp": "camera_decals_query"
+	},
+	"camera_legacy_blending": {
+		"comp": "camera_legacy_blending_query"
+	},
 //	"light_direct": {
 //		"template": true,
 //		"miss": [
@@ -53,6 +69,22 @@
 	"bounce_primary_rays": {
 		"comp": "bounce_primary_rays"
 	},
+	// "bounce_decals": {
+	// 	"rgen": "bounce_decals_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_decals"}]
+	// },
+	// "bounce_legacy_blending": {
+	// 	"rgen": "bounce_legacy_blending_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_legacy"}]
+	// },
+	"bounce_decals": {
+		"comp": "bounce_decals_query"
+	},
+	"bounce_legacy_blending": {
+		"comp": "bounce_legacy_blending_query"
+	},
 	"bounce_light_poly_ris_init": {
 		"comp": "bounce_light_poly_ris_init"
 	},
@@ -71,6 +103,22 @@
 	"reflection_primary_rays": {
 		"comp": "reflection_primary_rays"
 	},
+	// "reflection_decals": {
+	// 	"rgen": "reflection_decals_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_decals"}]
+	// },
+	// "reflection_legacy_blending": {
+	// 	"rgen": "reflection_legacy_blending_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_legacy"}]
+	// },
+	"reflection_decals": {
+		"comp": "reflection_decals_query"
+	},
+	"reflection_legacy_blending": {
+		"comp": "reflection_legacy_blending_query"
+	},
 	"reflection_light_poly_ris_init": {
 		"comp": "reflection_light_poly_ris_init"
 	},
@@ -88,6 +136,22 @@
 	},
 	"refraction_primary_rays": {
 		"comp": "refraction_primary_rays"
+	},
+	// "refraction_decals": {
+	// 	"rgen": "refraction_decals_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_decals"}]
+	// },
+	// "refraction_legacy_blending": {
+	// 	"rgen": "refraction_legacy_blending_pipeline",
+	// 	"miss": ["empty"],
+	// 	"hit": [{}, {}, {"any": "trace_post_legacy"}]
+	// },
+	"refraction_decals": {
+		"comp": "refraction_decals_query"
+	},
+	"refraction_legacy_blending": {
+		"comp": "refraction_legacy_blending_query"
 	},
 	"refraction_light_poly_ris_init": {
 		"comp": "refraction_light_poly_ris_init"

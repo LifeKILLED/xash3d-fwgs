@@ -1,0 +1,15 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query : require
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+#define TRACE_POST_USE_RAY_QUERY 1
+#define TRACE_POST_LAUNCH_ID gl_GlobalInvocationID.xy
+#define TRACE_POST_HIT_POS reflection_hit_pos
+#define TRACE_POST_NORMALS reflection_normals_gs
+#define TRACE_POST_OUT_BASE_COLOR out_reflection_base_color_a
+#define TRACE_POST_OUT_MATERIAL out_reflection_material_rmxx
+#include "trace_post_decals_surface.glsl"

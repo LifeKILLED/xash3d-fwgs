@@ -30,6 +30,7 @@ layout(set = 0, binding = 24, rgba8) uniform writeonly image2D out_refraction_ba
 layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_refraction_view_dir;
 layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_refraction_emissive;
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_refraction_prev_hit_pos;
+layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_refraction_ray_origin_length;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -41,8 +42,6 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define REFRACTION_RIS_COORDS_ONLY 1
 #include "refraction_ris_common.glsl"
 #undef REFRACTION_RIS_COORDS_ONLY
-#include "trace_simple_blending.glsl"
-#include "trace_decals.glsl"
 #include "skybox.glsl"
 
 const float kRefractionPrimaryAlphaEpsilon = 0.001;
@@ -96,6 +95,7 @@ void clearRefractionLayer(ivec2 pix)
 	imageStore(out_refraction_view_dir, pix, vec4(0.0));
 	imageStore(out_refraction_emissive, pix, vec4(0.0));
 	imageStore(out_refraction_prev_hit_pos, pix, vec4(0.0));
+	imageStore(out_refraction_ray_origin_length, pix, vec4(0.0));
 }
 
 void storeRefractionHit(
@@ -103,7 +103,9 @@ void storeRefractionHit(
 	RayPayloadPrimary payload,
 	vec3 throughput,
 	vec3 emissive,
-	vec3 view_dir)
+	vec3 view_dir,
+	vec3 ray_origin,
+	float ray_length)
 {
 	imageStore(out_refraction_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_refraction_hit_pos, pix, payload.hit_t);
@@ -113,18 +115,25 @@ void storeRefractionHit(
 	imageStore(out_refraction_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_refraction_emissive, pix, vec4(emissive, 0.0));
 	imageStore(out_refraction_prev_hit_pos, pix, vec4(payload.prev_pos_t.xyz, payload.hit_t.w));
+	imageStore(out_refraction_ray_origin_length, pix, vec4(ray_origin, ray_length));
 }
 
-void storeRefractionMiss(ivec2 pix, vec3 emissive)
+void storeRefractionMiss(
+	ivec2 pix,
+	vec3 emissive,
+	vec3 view_dir,
+	vec3 ray_origin,
+	float ray_length)
 {
 	imageStore(out_refraction_throughput, pix, vec4(0.0));
 	imageStore(out_refraction_hit_pos, pix, vec4(0.0));
 	imageStore(out_refraction_normals_gs, pix, vec4(0.0));
 	imageStore(out_refraction_material_rmxx, pix, vec4(0.0));
 	imageStore(out_refraction_base_color_a, pix, vec4(0.0));
-	imageStore(out_refraction_view_dir, pix, vec4(0.0));
+	imageStore(out_refraction_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_refraction_emissive, pix, vec4(emissive, 0.0));
 	imageStore(out_refraction_prev_hit_pos, pix, vec4(0.0));
+	imageStore(out_refraction_ray_origin_length, pix, vec4(ray_origin, ray_length));
 }
 
 bool selectPrimaryRefractionPixel(ivec2 local_pix, out ivec2 primary_pix)
@@ -247,16 +256,12 @@ void main()
 
 		const bool did_hit = getRefractionHit(ray_origin, ray_dir, remaining_dist, payload);
 		const float blend_dist = did_hit ? payload.hit_t.w : remaining_dist;
-		const vec4 blend = traceLegacyBlending(ray_origin, ray_dir, blend_dist);
 
 		if (!did_hit) {
 			const ivec2 layer_pix = refractionRisAtlasPixel(local_pix, layer);
-			const vec3 emissive = SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a;
-			storeRefractionMiss(layer_pix, emissive);
+			storeRefractionMiss(layer_pix, payload.emissive.rgb, -ray_dir, ray_origin, blend_dist);
 			return;
 		}
-
-		traceDecals(payload);
 
 		const float alpha = clamp(payload.base_color_a.a, 0.0, 1.0);
 		const vec3 geometry_N = normalDecode(payload.normals_gs.xy);
@@ -271,9 +276,16 @@ void main()
 		}
 
 		const ivec2 layer_pix = refractionRisAtlasPixel(local_pix, layer);
-		const vec3 layer_emissive = SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a;
-		const vec3 layer_throughput = vec3(blend.a);
-		storeRefractionHit(layer_pix, payload, layer_throughput, layer_emissive, -ray_dir);
+		const vec3 layer_emissive = payload.emissive.rgb;
+		const vec3 layer_throughput = vec3(1.0);
+		storeRefractionHit(
+			layer_pix,
+			payload,
+			layer_throughput,
+			layer_emissive,
+			-ray_dir,
+			ray_origin,
+			blend_dist);
 
 		if (alpha >= 1.0 - kRefractionPrimaryAlphaEpsilon) {
 			return;

@@ -110,11 +110,10 @@ bool bounceRisLoadSpatialSurfaceRaw(ivec2 pix, out vec3 P, out vec3 geometry_N, 
 
 MaterialProperties bounceRisLoadMaterial(ivec2 pix)
 {
-	const vec4 material_data = imageLoad(bounce_material_rmxx, pix);
 	MaterialProperties material;
 	material.base_color = SRGBtoLINEAR(imageLoad(bounce_base_color_a, pix).rgb);
-	material.metalness = material_data.g;
-	material.roughness = material_data.r;
+	material.metalness = 0.0;
+	material.roughness = 1.0;
 	return material;
 }
 

@@ -33,6 +33,7 @@ layout(set = 0, binding = 24, rgba8) uniform writeonly image2D out_reflection_ba
 layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_reflection_view_dir;
 layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_reflection_emissive;
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_reflection_direction_pdf;
+layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_reflection_ray_origin_length;
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -43,8 +44,6 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #include "ray_primary_hit.glsl"
 #include "noise.glsl"
 #include "brdf.glsl"
-#include "trace_simple_blending.glsl"
-#include "trace_decals.glsl"
 #include "skybox.glsl"
 
 struct MaterialEx {
@@ -112,6 +111,7 @@ void clearReflectionSample(ivec2 pix)
 	imageStore(out_reflection_view_dir, pix, vec4(0.0));
 	imageStore(out_reflection_emissive, pix, vec4(0.0));
 	imageStore(out_reflection_direction_pdf, pix, vec4(0.0));
+	imageStore(out_reflection_ray_origin_length, pix, vec4(0.0));
 }
 
 void storeReflectionHit(
@@ -121,7 +121,9 @@ void storeReflectionHit(
 	vec3 emissive_radiance,
 	vec3 view_dir,
 	vec3 segment,
-	float reflection_pdf)
+	float reflection_pdf,
+	vec3 ray_origin,
+	float ray_length)
 {
 	imageStore(out_reflection_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_reflection_hit_pos, pix, payload.hit_t);
@@ -131,18 +133,26 @@ void storeReflectionHit(
 	imageStore(out_reflection_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_reflection_emissive, pix, vec4(emissive_radiance, 0.0));
 	imageStore(out_reflection_direction_pdf, pix, vec4(segment, reflection_pdf));
+	imageStore(out_reflection_ray_origin_length, pix, vec4(ray_origin, ray_length));
 }
 
-void storeReflectionMiss(ivec2 pix, vec3 emissive_radiance)
+void storeReflectionMiss(
+	ivec2 pix,
+	vec3 throughput,
+	vec3 emissive_radiance,
+	vec3 view_dir,
+	vec3 ray_origin,
+	float ray_length)
 {
-	imageStore(out_reflection_throughput, pix, vec4(0.0));
+	imageStore(out_reflection_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_reflection_hit_pos, pix, vec4(0.0));
 	imageStore(out_reflection_normals_gs, pix, vec4(0.0));
 	imageStore(out_reflection_material_rmxx, pix, vec4(0.0));
 	imageStore(out_reflection_base_color_a, pix, vec4(0.0));
-	imageStore(out_reflection_view_dir, pix, vec4(0.0));
+	imageStore(out_reflection_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_reflection_emissive, pix, vec4(emissive_radiance, 0.0));
 	imageStore(out_reflection_direction_pdf, pix, vec4(0.0));
+	imageStore(out_reflection_ray_origin_length, pix, vec4(ray_origin, ray_length));
 }
 
 void main()
@@ -209,18 +219,27 @@ void main()
 
 	const vec3 reflection_ray_origin = offsetReflectionRayOrigin(pos_t.xyz, mat.geometry_normal, reflection_direction, kRayNormalOffsetFudge);
 	const bool did_hit = getReflectionHit(reflection_ray_origin, reflection_direction, payload);
-	const vec4 blend = traceLegacyBlending(reflection_ray_origin, reflection_direction, payload.hit_t.w);
 
 	if (!did_hit) {
-		const vec3 emissive_radiance = throughput * (SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a);
-		storeReflectionMiss(pix, emissive_radiance);
+		storeReflectionMiss(
+			pix,
+			throughput,
+			payload.emissive.rgb,
+			-reflection_direction,
+			reflection_ray_origin,
+			payload.hit_t.w);
 		return;
 	}
 
-	traceDecals(payload);
-
-	const vec3 emissive_radiance = throughput * SRGBtoLINEAR(blend.rgb);
-	const vec3 stored_throughput = throughput * blend.a;
 	const vec3 segment = payload.hit_t.xyz - pos_t.xyz;
-	storeReflectionHit(pix, payload, stored_throughput, emissive_radiance, -reflection_direction, segment, reflection_pdf);
+	storeReflectionHit(
+		pix,
+		payload,
+		throughput,
+		vec3(0.0),
+		-reflection_direction,
+		segment,
+		reflection_pdf,
+		reflection_ray_origin,
+		payload.hit_t.w);
 }
