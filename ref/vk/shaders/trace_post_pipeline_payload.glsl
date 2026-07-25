@@ -8,12 +8,6 @@
 #define TRACE_POST_RT_KUSOK_BITS 15u
 #define TRACE_POST_RT_KUSOK_MASK 0x7fffu
 
-struct TracePostRtDecalPayload {
-	uint count;
-	uvec2 hits[TRACE_POST_RT_MAX_ENTRIES];
-	uint barycentrics[TRACE_POST_RT_MAX_ENTRIES];
-};
-
 struct TracePostRtLegacyPayload {
 	uint count;
 	uvec2 hits[TRACE_POST_RT_MAX_ENTRIES];

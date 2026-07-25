@@ -27,11 +27,6 @@ struct TracePostLegacyPayload {
 	float depths[TRACE_POST_MAX_ENTRIES];
 };
 
-struct TracePostDecalPayload {
-	uint count;
-	TracePostHit hits[TRACE_POST_MAX_ENTRIES];
-};
-
 TracePostHit tracePostMakeHit(uint kusok_index, uint primitive_index, vec2 bary, uint model_index)
 {
 	TracePostHit hit;
@@ -116,47 +111,6 @@ vec4 tracePostCompositeLegacy(inout TracePostLegacyPayload payload)
 	}
 
 	return vec4(emissive, revealage);
-}
-
-void tracePostSortDecals(inout TracePostDecalPayload payload)
-{
-	for (uint i = 0u; i < payload.count; ++i) {
-		uint min_i = i;
-		for (uint j = i + 1u; j < payload.count; ++j) {
-			if (payload.hits[min_i].kusok_index < payload.hits[j].kusok_index) {
-				min_i = j;
-			}
-		}
-		if (min_i != i) {
-			TracePostHit hit = payload.hits[min_i];
-			payload.hits[min_i] = payload.hits[i];
-			payload.hits[i] = hit;
-		}
-	}
-}
-
-void tracePostCompositeDecals(
-	inout TracePostDecalPayload payload,
-	inout vec4 base_color_a,
-	inout vec4 material_rmxx)
-{
-	tracePostSortDecals(payload);
-
-	for (uint i = 0u; i < payload.count; ++i) {
-		const TracePostHit hit = payload.hits[i];
-		const TracePostMiniGeometry geom = tracePostReadMiniGeometry(hit);
-		const Kusok kusok = getKusok(hit.kusok_index);
-		const ModelHeader model = getModelHeader(hit.model_index);
-		const vec4 texture_color = texture(
-			textures[nonuniformEXT(kusok.material.tex_base_color)], geom.uv);
-		const vec4 mm_color = model.color * kusok.material.base_color;
-		const float alpha = mm_color.a * texture_color.a * geom.vertex_color_srgb.a;
-		const vec3 color = mm_color.rgb * texture_color.rgb * SRGBtoLINEAR(geom.vertex_color_srgb.rgb);
-		const vec4 decal_material = vec4(kusok.material.roughness, kusok.material.metalness, 0.0, 0.0);
-
-		base_color_a = mix(base_color_a, vec4(color, 1.0), alpha);
-		material_rmxx = mix(material_rmxx, decal_material, alpha);
-	}
 }
 
 #endif

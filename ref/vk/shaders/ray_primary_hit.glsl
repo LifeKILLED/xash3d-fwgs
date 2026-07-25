@@ -9,6 +9,7 @@
 #include "rt_geometry.glsl"
 #include "color_spaces.glsl"
 #include "skybox.glsl"
+#include "rt_decals.glsl"
 
 #include "noise.glsl" // for DEBUG_DISPLAY_SURFHASH
 
@@ -150,6 +151,11 @@ void primaryRayHit(rayQueryEXT rq, inout RayPayloadPrimary payload) {
 	} else {
 		payload.base_color_a.a = applyTranslucentTirOpacityBoost(payload.base_color_a.a, rayDirection, geom.normal_geometry);
 	}
+	applyRtDecals(
+		geom.kusok_index,
+		geom.pos_object,
+		payload.base_color_a,
+		payload.material_rmxx);
 
 	if ((ubo.ubo.debug_flags & DEBUG_FLAG_WHITE_FURNACE) != 0) {
 		// White furnace mode: everything is diffuse and white

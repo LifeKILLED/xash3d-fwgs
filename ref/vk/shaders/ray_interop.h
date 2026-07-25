@@ -129,6 +129,20 @@ struct Kusok {
 
 	// TODO reference into material table
 	STRUCT Material material;
+
+};
+
+#define RT_DECAL_INVALID_ID 0xffffffffu
+
+struct RtDecal {
+	uint next_decal_id;
+	uint tex_base_color;
+	float roughness;
+	float metalness;
+
+	vec4 base_color;
+	vec4 projection_u;
+	vec4 projection_v;
 };
 
 struct PointLight {

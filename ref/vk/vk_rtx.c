@@ -16,6 +16,7 @@
 #include "vulkan/VCombuf.h"
 #include "vk_logs.h"
 #include "rt_kusochki.h"
+#include "rt_decals.h"
 
 #include "std/profiler.h"
 
@@ -858,6 +859,9 @@ qboolean VK_RayInit( void )
 		// TODO cleanup
 		return false;
 	}
+	if (!RT_DecalsInit()) {
+		return false;
+	}
 
 	reloadMeatpipe();
 	if (!g_rtx.meatpipe)
@@ -892,6 +896,7 @@ void VK_RayShutdown( void ) {
 
 	destroyMeatpipe();
 
+	RT_DecalsShutdown();
 	RT_KusochkiShutdown();
 	VK_BufferDestroy(&g_rtx.uniform.buffer);
 

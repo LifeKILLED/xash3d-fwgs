@@ -1,6 +1,10 @@
 #pragma once
 
 #include "xash3d_types.h"
+#include "protocol.h"
+
+const decal_t *R_GetDecalPool( int *count );
+uint32_t R_GetDecalId( const decal_t *decal );
 
 void R_ClearDecals( void );
 void R_DecalsFrameBegin( void );

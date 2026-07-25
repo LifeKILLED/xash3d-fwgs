@@ -5,6 +5,7 @@
 #include "vk_render.h" // vk_render_geometry_t
 #include "vulkan/VBuffer.h"
 #include "vk_logs.h"
+#include "rt_decals.h"
 
 #include "xash3d_mathlib.h" // VectorCopy, ...
 
@@ -26,6 +27,7 @@ static struct {
 
 void RT_KusochkiClear(void) {
 	R_DEBuffer_Init(&g_kusochki.alloc, MAX_KUSOCHKI / 2, MAX_KUSOCHKI / 2);
+	RT_DecalsClearKusochki();
 }
 
 void RT_KusochkiFlip(void) {
@@ -61,6 +63,7 @@ uint32_t RT_KusochkiAllocOnce(int count) {
 }
 
 void RT_KusochkiFree(const rt_kusochki_t *kusochki) {
+	RT_DecalsFreeKusochki(kusochki->offset, kusochki->count);
 	// TODO block alloc
 	PRINT_NOT_IMPLEMENTED();
 }
@@ -128,6 +131,7 @@ qboolean RT_KusochkiUpload(uint32_t kusochki_offset, const struct vk_render_geom
 		const vk_render_geometry_t *geom = geoms + i;
 		applyMaterialToKusok(p + i, geom, override_material, override_colors ? override_colors[i] : NULL);
 	}
+	RT_DecalsSetKusochki(kusochki_offset, geoms, geoms_count);
 
 	R_VkBufferUnlock(lock);
 	return true;

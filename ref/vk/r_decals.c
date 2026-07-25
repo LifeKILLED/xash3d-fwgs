@@ -156,6 +156,18 @@ static void R_DecalUnlink( decal_t *pdecal )
 	pdecal->polys = NULL;
 }
 
+const decal_t *R_GetDecalPool( int *count )
+{
+	if( count ) *count = gDecalCount;
+	return gDecalPool;
+}
+
+uint32_t R_GetDecalId( const decal_t *decal )
+{
+	ASSERT( decal >= gDecalPool && decal < gDecalPool + MAX_RENDER_DECALS );
+	return (uint32_t)(decal - gDecalPool);
+}
+
 // Just reuse next decal in list
 // A decal that spans multiple surfaces will use multiple decal_t pool entries,
 // as each surface needs it's own.

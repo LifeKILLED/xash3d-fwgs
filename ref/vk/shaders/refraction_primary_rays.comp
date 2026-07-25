@@ -21,6 +21,7 @@ layout(set = 0, binding = 7) uniform samplerCube skybox;
 
 layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 11, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
 
 layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_refraction_throughput;
 layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_refraction_hit_pos;
@@ -43,10 +44,35 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #include "refraction_ris_common.glsl"
 #undef REFRACTION_RIS_COORDS_ONLY
 #include "skybox.glsl"
+#include "noise.glsl"
 
 const float kRefractionPrimaryAlphaEpsilon = 0.001;
 const float kRefractionRayOffset = 0.1;
 const int kRefractionMaxTraceSteps = 12;
+
+vec3 scatterRefractionDirection(vec3 direction, float roughness)
+{
+	const float r = clamp(roughness, 0.0, 1.0);
+	if (r <= 1e-4) {
+		return direction;
+	}
+
+	const vec2 rnd = vec2(rand01(), rand01());
+	const float spread = r * r;
+	const float cos_theta_max = sqrt(max(0.0, 1.0 - spread * spread));
+	const float cos_theta = mix(1.0, cos_theta_max, rnd.x);
+	const float sin_theta = sqrt(max(0.0, 1.0 - cos_theta * cos_theta));
+	const float phi = rnd.y * 6.28318530718;
+
+	const vec3 N = normalize(direction);
+	const vec3 tangent_seed = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+	const vec3 T = normalize(cross(tangent_seed, N));
+	const vec3 B = cross(N, T);
+	return normalize(
+		T * (cos(phi) * sin_theta) +
+		B * (sin(phi) * sin_theta) +
+		N * cos_theta);
+}
 
 struct Ray {
 	vec3 origin, direction;
@@ -245,9 +271,14 @@ void main()
 	const vec2 uv = (vec2(primary_pix) + vec2(0.5)) / vec2(ubo.ubo.res);
 	const Ray primary_ray = getPrimaryRay(uv);
 	const vec4 primary_pos_t = imageLoad(position_t, primary_pix);
+	rand01_state = ubo.ubo.random_seed
+		+ uint(primary_pix.x) * 1833u
+		+ uint(primary_pix.y) * 31337u
+		+ 0x72656672u;
 
-	vec3 ray_origin = primary_pos_t.xyz + primary_ray.direction * kRefractionRayOffset;
-	vec3 ray_dir = primary_ray.direction;
+	const float primary_roughness = imageLoad(material_rmxx, primary_pix).r;
+	vec3 ray_dir = scatterRefractionDirection(primary_ray.direction, primary_roughness);
+	vec3 ray_origin = primary_pos_t.xyz + ray_dir * kRefractionRayOffset;
 	float remaining_dist = max(primary_ray.dist - primary_pos_t.w - kRefractionRayOffset, 0.0);
 
 	uint layer = 0u;
@@ -264,13 +295,15 @@ void main()
 		}
 
 		const float alpha = clamp(payload.base_color_a.a, 0.0, 1.0);
+		const float roughness = clamp(payload.material_rmxx.r, 0.0, 1.0);
 		const vec3 geometry_N = normalDecode(payload.normals_gs.xy);
 		const bool translucent_hit = alpha < 1.0 - kRefractionPrimaryAlphaEpsilon;
 		const bool front_facing = dot(geometry_N, ray_dir) < 0.0;
 		const float step_dist = payload.hit_t.w + kRefractionRayOffset;
 
 		if (translucent_hit && !front_facing) {
-			ray_origin += ray_dir * step_dist;
+			ray_dir = scatterRefractionDirection(ray_dir, roughness);
+			ray_origin = payload.hit_t.xyz + ray_dir * kRefractionRayOffset;
 			remaining_dist = max(remaining_dist - step_dist, 0.0);
 			continue;
 		}
@@ -291,7 +324,8 @@ void main()
 			return;
 		}
 
-		ray_origin += ray_dir * step_dist;
+		ray_dir = scatterRefractionDirection(ray_dir, roughness);
+		ray_origin = payload.hit_t.xyz + ray_dir * kRefractionRayOffset;
 		remaining_dist = max(remaining_dist - step_dist, 0.0);
 		layer += 1u;
 	}

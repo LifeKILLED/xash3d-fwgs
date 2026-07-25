@@ -45,6 +45,7 @@ vec4 computeAnisotropicEllipseAxes(in vec3 P, in vec3 f,
 
 struct Geometry {
 	vec3 pos;
+	vec3 pos_object;
 	vec3 prev_pos;
 
 	vec2 uv;
@@ -87,10 +88,15 @@ Geometry readHitGeometry(vec2 bary, float ray_cone_width) {
 	const uint vi2 = uint(getIndex(first_index_offset+1)) + kusok.vertex_offset;
 	const uint vi3 = uint(getIndex(first_index_offset+2)) + kusok.vertex_offset;
 
+	const vec3 pos_object[3] = {
+		GET_VERTEX(vi1).pos,
+		GET_VERTEX(vi2).pos,
+		GET_VERTEX(vi3).pos,
+	};
 	const vec3 pos[3] = {
-		objectToWorld * vec4(GET_VERTEX(vi1).pos, 1.f),
-		objectToWorld * vec4(GET_VERTEX(vi2).pos, 1.f),
-		objectToWorld * vec4(GET_VERTEX(vi3).pos, 1.f),
+		objectToWorld * vec4(pos_object[0], 1.f),
+		objectToWorld * vec4(pos_object[1], 1.f),
+		objectToWorld * vec4(pos_object[2], 1.f),
 	};
 
 	const ModelHeader model = getModelHeader(model_index);
@@ -107,6 +113,7 @@ Geometry readHitGeometry(vec2 bary, float ray_cone_width) {
 	};
 
 	geom.pos = baryMix(pos[0], pos[1], pos[2], bary);
+	geom.pos_object = baryMix(pos_object[0], pos_object[1], pos_object[2], bary);
 	geom.prev_pos = baryMix(prev_pos[0], prev_pos[1], prev_pos[2], bary);
 	geom.uv = baryMix(uvs[0], uvs[1], uvs[2], bary);
 	//TODO or not TODO? const vec2 texture_uv = texture_uv_stationary + push_constants.time * kusok.uv_speed;
@@ -166,6 +173,7 @@ Geometry readHitGeometry(vec2 bary, float ray_cone_width) {
 #ifdef RAY_QUERY
 struct MiniGeometry {
 	vec2 uv;
+	vec3 pos_object;
 	uint kusok_index;
 	vec4 vertex_color_srgb;
 };
@@ -204,6 +212,11 @@ MiniGeometry readCandidateMiniGeometry(rayQueryEXT rq) {
 
 		MiniGeometry ret;
 		ret.uv = uv;
+		ret.pos_object = baryMix(
+			GET_VERTEX(vi1).pos,
+			GET_VERTEX(vi2).pos,
+			GET_VERTEX(vi3).pos,
+			bary);
 		ret.kusok_index = kusok_index;
 		ret.vertex_color_srgb = baryMix(colors_srgb[0], colors_srgb[1], colors_srgb[2], bary);
 		return ret;

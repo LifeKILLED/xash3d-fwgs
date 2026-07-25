@@ -27,6 +27,7 @@ hitAttributeEXT vec2 bary;
 #include "color_spaces.glsl"
 
 #include "rt_geometry.glsl"
+#include "rt_decals.glsl"
 #include "skybox.glsl"
 
 vec4 sampleTexture(uint tex_index, vec2 uv, vec4 uv_lods) {
@@ -73,4 +74,10 @@ void main() {
 	if (any(greaterThan(kusok.emissive, vec3(0.))))
 		payload.emissive.rgb = payload.base_color_a.rgb;
 #endif
+
+	applyRtDecals(
+		geom.kusok_index,
+		geom.pos_object,
+		payload.base_color_a,
+		payload.material_rmxx);
 }

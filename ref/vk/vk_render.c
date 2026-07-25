@@ -1034,6 +1034,11 @@ void R_RenderModelDraw(const vk_render_model_t *model, r_model_draw_t args) {
 }
 
 void R_RenderDrawOnce(r_draw_once_t args) {
+	// BSP decals are applied from their CPU-linked-list mirror in primary rays.
+	// Keep their traditional submission intact, but don't build transient RT geometry.
+	if (g_render_state.current_frame_is_ray_traced && args.render_type == kVkRenderType_Decal)
+		return;
+
 	r_geometry_buffer_lock_t buffer;
 	if (!R_GeometryBufferAllocOnceAndLock( &buffer, args.vertices_count, args.indices_count)) {
 		gEngine.Con_Printf(S_ERROR "Cannot allocate geometry for dynamic draw\n");
