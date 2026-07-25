@@ -35,7 +35,6 @@ layout(set = 0, binding = 23, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 24, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 25, rgba32f) uniform readonly image2D geometry_prev_position;
 layout(set = 0, binding = 26, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
-layout(set = 0, binding = 28, rgba32f) uniform readonly image2D direct_reusing_ris_point_reservoir;
 layout(set = 0, binding = 27, rgba8) uniform readonly image2D base_color_a;
 
 layout(set = 0, binding = 29, rgba32f) uniform readonly image2D regir_onion_point;
@@ -46,7 +45,6 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #define RAY_QUERY
 #define RIS_INIT_PASS 1
-#define RIS_REUSE_DIRECT_RESERVOIR 1
 #define LIGHT_POINT 1
 #define REGIR_ONION_IMAGE regir_onion_point
 #define RIS_POINT_OUT_CANDIDATE_IMAGE out_refraction_ris_point_candidate

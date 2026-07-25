@@ -37,5 +37,7 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #define RAY_QUERY
 #define RIS_APPLY_PASS 1
+#define RIS_APPLY_VISIBILITY_TEST 0
+#define RIS_APPLY_SPATIAL_REUSE 0
 #define LIGHT_POINT 1
 #include "ray_light_direct_ris_apply.glsl"

@@ -47,7 +47,6 @@ void VK_LoadCvarsAfterInit( void )
 		rt_disable_refraction = gEngine.Cvar_Get("rt_disable_refraction", "0", FCVAR_GLCONFIG, "Disable refraction rays and RIS lighting for transparency refraction");
 		rt_disable_reconstruction = gEngine.Cvar_Get("rt_disable_reconstruction", "0", FCVAR_GLCONFIG, "Disable spatial reconstruction pass for indirect specular");
 		rt_disable_sh_gi_denoising = gEngine.Cvar_Get("rt_disable_sh_gi_denoising", "0", FCVAR_GLCONFIG, "Disable SH-based denoising for indirect diffuse GI");
-		rt_disable_reservoir_reusing = gEngine.Cvar_Get("rt_disable_reservoir_reusing", "0", FCVAR_GLCONFIG, "Disable reusing reservoirs from direct lighting in other passes");
 		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable temporal reprojection in denoiser");
 		rt_disable_regir = gEngine.Cvar_Get("rt_disable_regir", "0", FCVAR_GLCONFIG, "Disable ReGIR Onion candidates and use random RIS candidates");
 		rt_regir_onion_radius = gEngine.Cvar_Get("rt_regir_onion_radius", "8192", FCVAR_GLCONFIG, "Maximum camera-centered ReGIR Onion radius");
