@@ -132,9 +132,9 @@ void storeBounceHit(
 	imageStore(out_bounce_emissive, pix, vec4(emissive_radiance, 0.0));
 }
 
-void storeBounceMiss(ivec2 pix, vec3 emissive_radiance)
+void storeBounceMiss(ivec2 pix, vec3 throughput, vec3 emissive_radiance)
 {
-	imageStore(out_bounce_throughput, pix, vec4(0.0));
+	imageStore(out_bounce_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_bounce_hit_pos, pix, vec4(0.0));
 	imageStore(out_bounce_normals_gs, pix, vec4(0.0));
 	imageStore(out_bounce_material_rmxx, pix, vec4(0.0));
@@ -195,10 +195,15 @@ void main()
 
 	vec3 pos = pos_t.xyz;
 	const vec3 first_pos = pos;
-	vec3 throughput = vec3(1.0);
+	int previous_brdf_type = BRDF_TYPE_NONE;
 
 	for (uint bounce = 0u; bounce < BOUNCE_RIS_DIFFUSE_LANE_COUNT; ++bounce) {
 		const ivec2 pix = bounceRisAtlasPixel(local_pix, bounce);
+		vec3 throughput = vec3(1.0);
+		if (previous_brdf_type == BRDF_TYPE_DIFFUSE) {
+			throughput = mix(mat.prop.base_color, vec3(0.0), mat.prop.metalness);
+		}
+
 		vec3 bounce_direction;
 		const vec2 rnd = vec2(rand01(), rand01());
 		const int brdf_type = brdfGetSample(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal, bounce_direction, throughput);
@@ -226,14 +231,14 @@ void main()
 		const vec4 blend = traceLegacyBlending(bounce_ray_origin, bounce_direction, payload.hit_t.w);
 
 		if (!did_hit) {
-			const vec3 emissive_radiance = throughput * (SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a);
-			storeBounceMiss(pix, emissive_radiance);
+			const vec3 emissive_radiance = SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a;
+			storeBounceMiss(pix, throughput, emissive_radiance);
 			return;
 		}
 
 		traceDecals(payload);
 
-		const vec3 emissive_radiance = throughput * SRGBtoLINEAR(blend.rgb);
+		const vec3 emissive_radiance = SRGBtoLINEAR(blend.rgb);
 		const vec3 stored_throughput = throughput * blend.a;
 		storeBounceHit(pix, payload, stored_throughput, emissive_radiance, -bounce_direction);
 
@@ -249,10 +254,6 @@ void main()
 		mat.prop.roughness = payload.material_rmxx.r;
 		mat.geometry_normal = normalDecode(payload.normals_gs.xy);
 		mat.shading_normal = normalDecode(payload.normals_gs.zw);
-
-		if (brdf_type == BRDF_TYPE_DIFFUSE) {
-			const vec3 diffuse_color = mix(payload.base_color_a.rgb, vec3(0.0), payload.material_rmxx.g);
-			throughput *= diffuse_color;
-		}
+		previous_brdf_type = brdf_type;
 	}
 }

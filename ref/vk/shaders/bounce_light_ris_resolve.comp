@@ -28,10 +28,13 @@ layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_indirect_di
 
 #include "bounce_ris_common.glsl"
 
-void accumulateBounceLane(ivec2 atlas_pix, inout vec3 indirect_diffuse)
+void accumulateBounceLane(ivec2 atlas_pix, inout vec3 path_throughput, inout vec3 indirect_diffuse)
 {
+	const vec3 stage_throughput = imageLoad(bounce_throughput, atlas_pix).rgb;
+	path_throughput *= stage_throughput;
+
 	const vec3 emissive_radiance = imageLoad(bounce_emissive, atlas_pix).rgb;
-	indirect_diffuse += emissive_radiance;
+	indirect_diffuse += path_throughput * emissive_radiance;
 
 	vec3 P;
 	vec3 geometry_N;
@@ -52,7 +55,7 @@ void accumulateBounceLane(ivec2 atlas_pix, inout vec3 indirect_diffuse)
 		imageLoad(bounce_light_poly_specular, atlas_pix).rgb +
 		imageLoad(bounce_light_point_specular, atlas_pix).rgb;
 	const vec3 hit_color = mixFinalColor(material.base_color, diffuse_light, specular_light, material.metalness);
-	const vec3 contribution = throughput * hit_color;
+	const vec3 contribution = path_throughput * hit_color;
 
 	indirect_diffuse += contribution;
 }
@@ -66,10 +69,11 @@ void main()
 	}
 
 	vec3 indirect_diffuse = vec3(0.0);
+	vec3 path_throughput = vec3(1.0);
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) == 0) {
 		for (uint lane = 0u; lane < BOUNCE_RIS_DIFFUSE_LANE_COUNT; ++lane) {
-			accumulateBounceLane(bounceRisAtlasPixel(pix, lane), indirect_diffuse);
+			accumulateBounceLane(bounceRisAtlasPixel(pix, lane), path_throughput, indirect_diffuse);
 		}
 	}
 
