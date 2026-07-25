@@ -97,6 +97,92 @@ float polygonSelfLightFade(float plane_dist)
 		1.0);
 }
 
+float onionCellMaxDirectionDot(vec3 center_dir, vec3 axis, float sin_half_angle)
+{
+	const float center_dot = clamp(dot(center_dir, axis), -1.0, 1.0);
+	const float sin_angle = clamp(sin_half_angle, 0.0, 1.0);
+	const float cos_angle = sqrt(max(1.0 - sin_angle * sin_angle, 0.0));
+	const float sin_center = sqrt(max(1.0 - center_dot * center_dot, 0.0));
+
+	if (center_dot >= cos_angle) {
+		return 1.0;
+	}
+
+	return clamp(center_dot * cos_angle + sin_center * sin_angle, -1.0, 1.0);
+}
+
+float lightPointOnionWeightCalculation(PointLight pl, vec3 cell_center, float cell_radius)
+{
+	const float volume_radius = max(cell_radius, 0.0);
+	const vec3 to_light = pl.origin_r2.xyz - cell_center;
+	const float center_dist2 = dot(to_light, to_light);
+	const float center_dist = sqrt(max(center_dist2, EPSILON));
+	const vec3 center_dir = to_light / center_dist;
+
+	const float light_radius = sqrt(max(pl.origin_r2.w, 0.0));
+	const float effective_radius = light_radius + volume_radius;
+
+	float solid_angle = 2.0 * kPi;
+
+	if (center_dist > effective_radius) {
+		const float radius_ratio2 = clamp(
+			effective_radius * effective_radius / max(center_dist2, EPSILON), 0.0, 1.0);
+		solid_angle = 2.0 * kPi * (1.0 - sqrt(max(1.0 - radius_ratio2, 0.0)));
+	}
+
+	const float stopdot2 = pl.dir_stopdot2.a;
+	const float stopdot = pl.color_stopdot.a;
+	float spot_att = 1.0;
+
+	if (stopdot2 > -1.0) {
+		float max_spot_dot = 1.0;
+
+		if (center_dist > volume_radius) {
+			max_spot_dot = onionCellMaxDirectionDot(
+				center_dir, pl.dir_stopdot2.xyz, clamp(volume_radius / center_dist, 0.0, 1.0));
+		}
+
+		if (max_spot_dot < stopdot) {
+			spot_att = max(0.0, (max_spot_dot - stopdot2) / max(stopdot - stopdot2, EPSILON));
+		}
+	}
+
+	return solid_angle * spot_att * NON_BRDF_POINT_LIGHTS_MULTIPLIER
+		* luminance(pl.color_stopdot.rgb);
+}
+
+float lightPolygonOnionWeightCalculation(PolygonLight poly, vec3 cell_center, float cell_radius)
+{
+	const float volume_radius = max(cell_radius, 0.0);
+	const vec4 plane = normalizedPolygonPlane(poly);
+	const float max_plane_dist = dot(plane, vec4(cell_center, 1.0)) + volume_radius;
+
+	if (max_plane_dist <= POLYGON_SELF_LIGHT_PLANE_BIAS) {
+		return 0.0;
+	}
+
+	const vec3 from_light = cell_center - poly.center;
+	const float center_dist2 = dot(from_light, from_light);
+	const float center_dist = sqrt(max(center_dist2, EPSILON));
+	const vec3 center_dir = from_light / center_dist;
+	float light_facing = 1.0;
+
+	if (center_dist > volume_radius) {
+		light_facing = max(onionCellMaxDirectionDot(
+			center_dir, plane.xyz, clamp(volume_radius / center_dist, 0.0, 1.0)), 0.0);
+	}
+
+	if (light_facing <= 0.0) {
+		return 0.0;
+	}
+
+	const float polygon_radius = sqrt(max(poly.area, 0.0) * (1.0 / kPi));
+	const float volume_dist = max(center_dist - volume_radius, max(polygon_radius, EPSILON));
+	const float geom_weight = poly.area * light_facing * (0.4 / (volume_dist * volume_dist));
+
+	return geom_weight * polygonSelfLightFade(max_plane_dist) * luminance(poly.emissive);
+}
+
 vec2 lightPointWeightCalculation(
 	PointLight pl,
 	vec3 P, vec3 N, vec3 V,

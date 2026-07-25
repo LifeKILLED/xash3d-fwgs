@@ -37,6 +37,7 @@ layout(set = 0, binding = 25, rgba32f) uniform readonly image2D geometry_prev_po
 layout(set = 0, binding = 26, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
 layout(set = 0, binding = 28, rgba32f) uniform readonly image2D direct_reusing_ris_point_reservoir;
 
+layout(set = 0, binding = 29, rgba32f) uniform readonly image2D regir_onion_point;
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
@@ -46,6 +47,7 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RIS_INIT_PASS 1
 #define RIS_REUSE_DIRECT_RESERVOIR 1
 #define LIGHT_POINT 1
+#define REGIR_ONION_IMAGE regir_onion_point
 #define RIS_POINT_OUT_CANDIDATE_IMAGE out_reflection_ris_point_candidate
 #define RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE out_temporal_reflection_ris_point_reservoir
 #define RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_reflection_ris_point_reservoir

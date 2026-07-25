@@ -49,6 +49,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_disable_sh_gi_denoising = gEngine.Cvar_Get("rt_disable_sh_gi_denoising", "0", FCVAR_GLCONFIG, "Disable SH-based denoising for indirect diffuse GI");
 		rt_disable_reservoir_reusing = gEngine.Cvar_Get("rt_disable_reservoir_reusing", "0", FCVAR_GLCONFIG, "Disable reusing reservoirs from direct lighting in other passes");
 		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable temporal reprojection in denoiser");
+		rt_disable_regir = gEngine.Cvar_Get("rt_disable_regir", "0", FCVAR_GLCONFIG, "Disable ReGIR Onion candidates and use random RIS candidates");
+		rt_regir_onion_radius = gEngine.Cvar_Get("rt_regir_onion_radius", "8192", FCVAR_GLCONFIG, "Maximum camera-centered ReGIR Onion radius");
 		rt_denoiser_console_setup_enable = gEngine.Cvar_Get("rt_denoiser_console_setup_enable", "0", FCVAR_GLCONFIG, "Allow to setup denoiser in console. ALERT: if enabled, settings from new versions of application will not be applied without a manual reset!");
 	} else {
 		rt_enable = gEngine.Cvar_Get( "rt_enable", "0", FCVAR_READ_ONLY, "DISABLED: Ray tracing is not supported by your hardware/drivers" );

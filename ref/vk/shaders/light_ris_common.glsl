@@ -10,6 +10,9 @@ const float shadow_offset_fudge = .1;
 
 #include "light_common.glsl"
 #include "light_weight.glsl"
+#if RIS_INIT_PASS && defined(REGIR_ONION_IMAGE)
+#include "regir_onion.glsl"
+#endif
 
 #ifndef LOAD_REFLECTION_RAY_LENGTH
 #define LOAD_REFLECTION_RAY_LENGTH(pix) 0.0
@@ -124,11 +127,11 @@ const float shadow_offset_fudge = .1;
 #endif
 
 #ifndef RIS_BAYER_SHARED_VISIBILITY
-#define RIS_BAYER_SHARED_VISIBILITY RIS_INIT_SHARED_NEIGHBOR_VISIBILITY_REUSE
+#define RIS_BAYER_SHARED_VISIBILITY 0
 #endif
 
 #ifndef RIS_BAYER_CANDIDATE_SEGMENTS
-#define RIS_BAYER_CANDIDATE_SEGMENTS 1
+#define RIS_BAYER_CANDIDATE_SEGMENTS 0
 #endif
 
 #ifndef RIS_BAYER_SEGMENT_COUNT
@@ -565,6 +568,27 @@ RisTemporalReservoir risMergeTemporalCandidate(
 		reservoir.weight_sum = total_mass;
 	}
 
+	return reservoir;
+}
+
+RisTemporalReservoir risMergeTemporalCandidateWeighted(
+	RisTemporalReservoir reservoir,
+	RisTemporalCandidate new_candidate,
+	float selection_mass,
+	float rand_select)
+{
+	if (new_candidate.light_id != RIS_INVALID_LIGHT_ID &&
+		new_candidate.mixed_weight > RIS_WEIGHT_EPSILON &&
+		selection_mass > RIS_WEIGHT_EPSILON) {
+		const float old_mass = risTemporalReservoirValid(reservoir) ? max(reservoir.weight_sum, reservoir.mixed_weight) : 0.0;
+		const float total_mass = old_mass + selection_mass;
+		if (old_mass <= RIS_WEIGHT_EPSILON || rand_select * total_mass < selection_mass) {
+			reservoir.light_id = new_candidate.light_id;
+			reservoir.light_hash = new_candidate.light_hash;
+			reservoir.mixed_weight = new_candidate.mixed_weight;
+		}
+		reservoir.weight_sum = total_mass;
+	}
 	return reservoir;
 }
 

@@ -206,6 +206,7 @@ struct LightCluster {
 #define RENDERER_FLAG_DISABLE_REPROJECTION (1<<6)
 #define RENDERER_FLAG_DISABLE_REFLECTION (1<<7)
 #define RENDERER_FLAG_DISABLE_REFRACTION (1<<8)
+#define RENDERER_FLAG_DISABLE_REGIR (1<<9)
 
 #define ASVGF_COMPATIBILITY_STATS 0u
 #define ASVGF_COMPATIBILITY_LUMA_DELTA 1u
@@ -346,7 +347,8 @@ struct UniformBuffer {
 	uint debug_flags;
 
 	uint renderer_flags;
-	PAD(3)
+	float regir_onion_radius;
+	PAD(2)
 
 	STRUCT AsvgfParams asvgf;
 };

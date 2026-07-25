@@ -1,0 +1,35 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 7) readonly buffer SBOLights { LightsMetadata m; } lights;
+
+layout(set = 0, binding = 20, rgba32f) uniform image2D out_regir_onion_poly;
+
+#include "utils.glsl"
+#include "noise.glsl"
+#include "light_weight.glsl"
+#include "regir_onion.glsl"
+
+#define REGIR_ONION_OUTPUT out_regir_onion_poly
+
+uint regirBuildLightCount()
+{
+	return lights.m.num_polygons;
+}
+
+float regirBuildTarget(uint light_id, RegirOnionCellVolume cell)
+{
+	return lightPolygonOnionWeightCalculation(
+		lights.m.polygons[light_id],
+		cell.center,
+		cell.radius);
+}
+
+#include "regir_onion_build.glsl"

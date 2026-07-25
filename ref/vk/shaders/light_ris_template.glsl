@@ -171,6 +171,61 @@ RisTemporalReservoir RIS_MERGE_VISIBLE_CANDIDATES(
 	return reservoir;
 }
 
+#if defined(REGIR_ONION_IMAGE)
+RisTemporalReservoir RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	RisTemporalReservoir reservoir,
+	out bool accepted_any)
+{
+	accepted_any = false;
+	uint rnd = regirHash(ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^ uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
+	uint cell_index;
+
+	if (!regirSelectOnionCell(P, rnd, cell_index)) {
+		return reservoir;
+	}
+
+	for (uint j = 0u; j < REGIR_ONION_LOOKUP_CANDIDATES; ++j) {
+		RegirOnionCandidate onion_candidate;
+
+		if (!regirLoadOnionCandidate(cell_index, j, rnd, onion_candidate)) {
+			continue;
+		}
+
+		RIS_LIGHT_SAMPLE light;
+		if (!RIS_LOAD_LIGHT(onion_candidate.light_id, light)) {
+			continue;
+		}
+
+		accepted_any = true;
+
+		const vec2 weights = RIS_LIGHT_WEIGHTS(light, P, N, V, material);
+		const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
+
+		if (mixed_weight <= RIS_WEIGHT_EPSILON || !RIS_LIGHT_VISIBLE(light, P, N)) {
+			continue;
+		}
+
+		RisTemporalCandidate candidate;
+		candidate.light_id = onion_candidate.light_id;
+		candidate.light_hash = RIS_LIGHT_HASH(light);
+		candidate.mixed_weight = mixed_weight;
+
+		reservoir = risMergeTemporalCandidateWeighted(
+			reservoir,
+			candidate,
+			mixed_weight * onion_candidate.inv_source_pdf,
+			regirRandom(rnd));
+	}
+
+	return reservoir;
+}
+#endif
+
 #if RIS_BAYER_CANDIDATE_SEGMENTS
 RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 	uint cluster_index,
@@ -388,7 +443,17 @@ void RIS_COMPUTE_LIGHTING_INIT(
 	}
 #endif
 
-#if RIS_BAYER_CANDIDATE_SEGMENTS
+#if defined(REGIR_ONION_IMAGE)
+	bool regir_accepted = false;
+	if (own_ris_active && (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u) {
+		merged_reservoir = RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
+			P, N, V, material, pix, merged_reservoir, regir_accepted);
+	}
+	if (own_ris_active && !regir_accepted) {
+		merged_reservoir = RIS_MERGE_VISIBLE_CANDIDATES(
+			cluster_index, P, N, V, material, pix, merged_reservoir);
+	}
+#elif RIS_BAYER_CANDIDATE_SEGMENTS
 	merged_reservoir = RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 		cluster_index,
 		P,

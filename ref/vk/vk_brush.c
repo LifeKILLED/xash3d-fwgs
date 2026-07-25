@@ -1860,6 +1860,13 @@ qboolean R_BrushModelLoad( model_t *mod, qboolean is_worldmodel ) {
 	const qboolean is_static = is_worldmodel || (func_any && func_any->origin_patched);
 
 	if (is_worldmodel) {
+		// debug info for better choose of ReGIR radius
+		vec3_t map_size;
+		VectorSubtract(mod->maxs, mod->mins, map_size);
+		const float map_diameter = VectorLength(map_size);
+		INFO("ReGIR map bounds: %.0f x %.0f x %.0f, maximum diameter %.0f, centered radius %.0f",
+			map_size[0], map_size[1], map_size[2], map_diameter, map_diameter * 0.5f);
+
 		tglob.current_map_has_surf_sky = sizes.sky_surfaces_count != 0;
 		DEBUG("sky_surfaces_count=%d, current_map_has_surf_sky=%d", sizes.sky_surfaces_count, tglob.current_map_has_surf_sky);
 	}

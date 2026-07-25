@@ -1,4 +1,10 @@
 {
+	"regir_onion_point": {
+		"comp": "regir_onion_point"
+	},
+	"regir_onion_poly": {
+		"comp": "regir_onion_poly"
+	},
 	"primary_ray": {
 		/*
 		"rgen": "ray_primary",
