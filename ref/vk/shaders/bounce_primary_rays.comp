@@ -145,20 +145,18 @@ void storeBounceMiss(ivec2 pix, vec3 emissive_radiance)
 
 void main()
 {
-	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
-	if (!bounceRisPixelInBounds(pix)) {
+	const ivec2 local_pix = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 lane_size = bounceRisLaneSize();
+	if (any(greaterThanEqual(local_pix, lane_size))) {
 		return;
 	}
 
-	clearBounceSample(pix);
-
-	const uint lane = bounceRisLaneFromPixel(pix);
-	const ivec2 local_pix = bounceRisLaneLocalPixel(pix);
+	for (uint lane = 0u; lane < BOUNCE_RIS_DIFFUSE_LANE_COUNT; ++lane) {
+		clearBounceSample(bounceRisAtlasPixel(local_pix, lane));
+	}
 	const ivec2 primary_pix = local_pix * 2;
 
-	if (lane == BOUNCE_RIS_DIFFUSE_LANE_0) {
-		imageStore(out_first_bounce_direction, local_pix, vec4(0.0));
-	}
+	imageStore(out_first_bounce_direction, local_pix, vec4(0.0));
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) != 0 ||
 		any(greaterThanEqual(primary_pix, ubo.ubo.res))) {
@@ -173,10 +171,8 @@ void main()
 	rand01_state = ubo.ubo.random_seed
 		+ uint(local_pix.x) * 1833u
 		+ uint(local_pix.y) * 31337u
-		+ lane * 7919u
 		+ 12u;
 
-	const ivec2 lane_size = bounceRisLaneSize();
 	const vec2 uv = (vec2(local_pix) + vec2(0.5)) / vec2(lane_size) * 2.0 - 1.0;
 	const vec4 target = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1.0, 1.0);
 	vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0.0)).xyz);
@@ -197,13 +193,12 @@ void main()
 		mat.prop.roughness = 1.0;
 	}
 
-	int target_bounce_count = int(lane) + 1;
-
 	vec3 pos = pos_t.xyz;
 	const vec3 first_pos = pos;
 	vec3 throughput = vec3(1.0);
 
-	for (int i = 0; i < target_bounce_count; ++i) {
+	for (uint bounce = 0u; bounce < BOUNCE_RIS_DIFFUSE_LANE_COUNT; ++bounce) {
+		const ivec2 pix = bounceRisAtlasPixel(local_pix, bounce);
 		vec3 bounce_direction;
 		const vec2 rnd = vec2(rand01(), rand01());
 		const int brdf_type = brdfGetSample(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal, bounce_direction, throughput);
@@ -231,25 +226,20 @@ void main()
 		const vec4 blend = traceLegacyBlending(bounce_ray_origin, bounce_direction, payload.hit_t.w);
 
 		if (!did_hit) {
-			if (i + 1 == target_bounce_count) {
-				const vec3 emissive_radiance = throughput * (SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a);
-				storeBounceMiss(pix, emissive_radiance);
-			}
+			const vec3 emissive_radiance = throughput * (SRGBtoLINEAR(blend.rgb) + payload.emissive.rgb * blend.a);
+			storeBounceMiss(pix, emissive_radiance);
 			return;
 		}
 
 		traceDecals(payload);
 
-		if (i + 1 == target_bounce_count) {
-			const vec3 emissive_radiance = throughput * SRGBtoLINEAR(blend.rgb);
-			const vec3 stored_throughput = throughput * blend.a;
-			storeBounceHit(pix, payload, stored_throughput, emissive_radiance, -bounce_direction);
+		const vec3 emissive_radiance = throughput * SRGBtoLINEAR(blend.rgb);
+		const vec3 stored_throughput = throughput * blend.a;
+		storeBounceHit(pix, payload, stored_throughput, emissive_radiance, -bounce_direction);
 
+		if (bounce == BOUNCE_RIS_DIFFUSE_LANE_0) {
 			const vec3 segment = payload.hit_t.xyz - first_pos;
-			if (lane == BOUNCE_RIS_DIFFUSE_LANE_0) {
-				imageStore(out_first_bounce_direction, local_pix, vec4(segment, 0.0));
-			}
-			return;
+			imageStore(out_first_bounce_direction, local_pix, vec4(segment, 0.0));
 		}
 
 		pos = payload.hit_t.xyz;
