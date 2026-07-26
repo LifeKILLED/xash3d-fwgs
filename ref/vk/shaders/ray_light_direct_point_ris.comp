@@ -7,6 +7,10 @@
 #include "ray_interop.h"
 #undef GLSL
 
+#ifndef RIS_SPLIT_LOBE_RESERVOIRS
+#define RIS_SPLIT_LOBE_RESERVOIRS 1
+#endif
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
@@ -34,6 +38,12 @@ layout(set = 0, binding = 25, rgba32f) uniform writeonly image2D out_temporal_ri
 layout(set = 0, binding = 26, rgba32f) uniform readonly image2D prev_temporal_ris_point_random;
 layout(set = 0, binding = 34, rgba16f) uniform writeonly image2D out_light_point_flashlight_diffuse;
 layout(set = 0, binding = 35, rgba16f) uniform writeonly image2D out_light_point_flashlight_specular;
+#if RIS_SPLIT_LOBE_RESERVOIRS
+layout(set = 0, binding = 38, rgba32f) uniform writeonly image2D out_temporal_ris_point_specular_reservoir;
+layout(set = 0, binding = 39, rgba32f) uniform readonly image2D prev_temporal_ris_point_specular_reservoir;
+layout(set = 0, binding = 40, rgba32f) uniform writeonly image2D out_temporal_ris_point_specular_random;
+layout(set = 0, binding = 41, rgba32f) uniform readonly image2D prev_temporal_ris_point_specular_random;
+#endif
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -43,6 +53,12 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RAY_QUERY
 #define RIS_INIT_PASS 1
 #define RIS_UNIFIED_PASS 1
+#if RIS_SPLIT_LOBE_RESERVOIRS
+#define RIS_SPLIT_OUT_SPECULAR_RESERVOIR_IMAGE out_temporal_ris_point_specular_reservoir
+#define RIS_SPLIT_PREV_SPECULAR_RESERVOIR_IMAGE prev_temporal_ris_point_specular_reservoir
+#define RIS_SPLIT_OUT_SPECULAR_RANDOM_IMAGE out_temporal_ris_point_specular_random
+#define RIS_SPLIT_PREV_SPECULAR_RANDOM_IMAGE prev_temporal_ris_point_specular_random
+#endif
 #define RIS_DIRECT_INIT_HALF_RES 0
 #define LIGHT_POINT 1
 #include "ray_light_direct_ris.glsl"
