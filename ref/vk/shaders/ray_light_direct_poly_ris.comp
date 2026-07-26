@@ -12,6 +12,10 @@
 #define RIS_SPLIT_LOBE_RESERVOIRS 1
 #endif
 
+#ifndef RIS_POLYGON_ANALYTIC_DIFFUSE
+#define RIS_POLYGON_ANALYTIC_DIFFUSE 1
+#endif
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;

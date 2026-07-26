@@ -51,6 +51,10 @@ void risSetDirectSpecularMisRay(ivec2 pix) {}
 #define RIS_POLYGON_LTC_SPECULAR 1
 #endif
 
+#ifndef RIS_POLYGON_ANALYTIC_DIFFUSE
+#define RIS_POLYGON_ANALYTIC_DIFFUSE 0
+#endif
+
 #include "utils.glsl"
 #include "peters2021-sampling/polygon_sampling.glsl"
 #include "ltc_polygon.glsl"
@@ -265,6 +269,35 @@ bool risSampleSolidPolygon(
 	return true;
 }
 
+// Cheap visibility-only sample: choose a fan triangle uniformly, regardless
+// of its area, then choose a uniform barycentric point inside that triangle.
+bool risSampleUniformPolygonTriangle(
+	PolygonLight poly,
+	vec3 sample_random,
+	out vec3 sample_pos)
+{
+	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+	const uint vertices_count = poly.vertices_count_offset >> 16;
+	if (vertices_count < 3u) {
+		sample_pos = vec3(0.0);
+		return false;
+	}
+
+	const uint triangle_count = vertices_count - 2u;
+	const uint triangle_index = min(
+		uint(clamp(sample_random.x, 0.0, 0.99999994) * float(triangle_count)),
+		triangle_count - 1u);
+	const vec3 v0 = lights.m.polygon_vertices[vertices_offset].xyz;
+	const vec3 v1 = lights.m.polygon_vertices[vertices_offset + triangle_index + 1u].xyz;
+	const vec3 v2 = lights.m.polygon_vertices[vertices_offset + triangle_index + 2u].xyz;
+	const float sqrt_u = sqrt(clamp(sample_random.y, 0.0, 1.0));
+	const float b0 = 1.0 - sqrt_u;
+	const float b1 = sqrt_u * (1.0 - clamp(sample_random.z, 0.0, 1.0));
+	const float b2 = sqrt_u * clamp(sample_random.z, 0.0, 1.0);
+	sample_pos = v0 * b0 + v1 * b1 + v2 * b2;
+	return true;
+}
+
 // Reconstruct a surface-area sample independently of the shaded point.  The
 // first component selects a triangle in the polygon fan proportionally to its
 // area; the other two generate uniform barycentric coordinates.
@@ -457,7 +490,7 @@ bool risEvaluatePolygonSamplePositionWithInvPdf(
 	const float dist = sqrt(dist2);
 	const vec3 L = to_light / dist;
 	const float light_facing = max(dot(-L, normalizedPolygonPlane(poly).xyz), 0.0);
-	if (light_facing <= 0.0) {
+	if (light_facing <= 0.0 || dot(N, L) <= 1e-5) {
 		return false;
 	}
 
@@ -533,6 +566,27 @@ bool risEvaluateLight(
 	return evaluated;
 }
 
+bool risPolygonSamplePositionVisible(
+	PolygonLight poly,
+	vec3 sample_pos,
+	vec3 P,
+	vec3 N,
+	bool visibility_test)
+{
+	const vec3 to_light = sample_pos - P;
+	const float dist2 = dot(to_light, to_light);
+	if (dist2 <= 1e-6) {
+		return false;
+	}
+	const float dist = sqrt(dist2);
+	const vec3 L = to_light / dist;
+	const vec3 light_N = normalizedPolygonPlane(poly).xyz;
+	if (dot(N, L) <= 1e-5 || dot(-L, light_N) <= 1e-5) {
+		return false;
+	}
+	return !visibility_test || !shadowed(P, L, dist);
+}
+
 bool risEvaluateConcreteSample(
 	RisLightSample light_sample,
 	vec3 sample_random,
@@ -546,11 +600,29 @@ bool risEvaluateConcreteSample(
 {
 	vec3 sample_pos;
 	float inv_area_pdf;
+#if RIS_POLYGON_ANALYTIC_DIFFUSE && RIS_POLYGON_LTC_SPECULAR
+	if (!risSampleUniformPolygonTriangle(light_sample.light, sample_random, sample_pos)) {
+#else
 	if (!risSampleAreaPolygon(light_sample.light, sample_random, sample_pos, inv_area_pdf)) {
+#endif
 		diffuse = vec3(0.0);
 		specular = vec3(0.0);
 		return false;
 	}
+#if RIS_POLYGON_ANALYTIC_DIFFUSE && RIS_POLYGON_LTC_SPECULAR
+	// The saved random chooses a fan triangle without area weighting and then a
+	// barycentric point used only by visibility. Lighting never evaluates
+	// a solid-angle PDF or a BRDF at this random direction.
+	if (!risPolygonSamplePositionVisible(
+		light_sample.light, sample_pos, P, N, visibility_test)) {
+		diffuse = vec3(0.0);
+		specular = vec3(0.0);
+		return false;
+	}
+	diffuse = ltcPolygonDiffuse(light_sample.light, P, N, V, material);
+	specular = ltcPolygonSpecular(light_sample.light, P, N, V, material);
+	return dot(diffuse + specular, diffuse + specular) > 0.0;
+#else
 	const bool evaluated = risEvaluatePolygonSamplePositionWithInvPdf(
 		light_sample.light, sample_pos, inv_area_pdf, P, N, V, material,
 		visibility_test, diffuse, specular);
@@ -559,7 +631,13 @@ bool risEvaluateConcreteSample(
 		specular = ltcPolygonSpecular(light_sample.light, P, N, V, material);
 	}
 	#endif
+	#if RIS_POLYGON_ANALYTIC_DIFFUSE
+	if (evaluated) {
+		diffuse = ltcPolygonDiffuse(light_sample.light, P, N, V, material);
+	}
+	#endif
 	return evaluated;
+#endif
 }
 
 bool risConcreteSampleVisible(
@@ -569,24 +647,13 @@ bool risConcreteSampleVisible(
 	vec3 N)
 {
 	vec3 sample_pos;
-	float unused_inv_area_pdf;
-	if (!risSampleAreaPolygon(
-		light_sample.light, sample_random, sample_pos, unused_inv_area_pdf)) {
+	if (!risSampleUniformPolygonTriangle(
+		light_sample.light, sample_random, sample_pos)) {
 		return false;
 	}
 
-	const vec3 to_light = sample_pos - P;
-	const float dist2 = dot(to_light, to_light);
-	if (dist2 <= 1e-6) {
-		return false;
-	}
-	const float dist = sqrt(dist2);
-	const vec3 L = to_light / dist;
-	const vec3 light_N = normalizedPolygonPlane(light_sample.light).xyz;
-	if (dot(N, L) <= 1e-5 || dot(-L, light_N) <= 1e-5) {
-		return false;
-	}
-	return !shadowed(P, L, dist);
+	return risPolygonSamplePositionVisible(
+		light_sample.light, sample_pos, P, N, true);
 }
 
 bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)

@@ -8,9 +8,10 @@
 const float LTC_LUT_SIZE = 64.0;
 const float LTC_LUT_SCALE = (LTC_LUT_SIZE - 1.0) / LTC_LUT_SIZE;
 const float LTC_LUT_BIAS = 0.5 / LTC_LUT_SIZE;
-const float LTC_MIN_ROUGHNESS = 0.01;
+const float LTC_MIN_ROUGHNESS = 0.05;
 const float LTC_LIGHT_PLANE_MIN_DISTANCE = 0.01;
 const float LTC_EDGE_MIN_SINE = 1e-5;
+const float LTC_DIFFUSE_CORRECTION = 4.0;
 
 #ifndef LTC_SIGNED_DISTANCE_CULLING
 #define LTC_SIGNED_DISTANCE_CULLING 1
@@ -31,6 +32,70 @@ vec3 ltcIntegrateEdgeVector(vec3 v1, vec3 v2)
 		? v
 		: 0.5 * inversesqrt(max(1.0 - x * x, 1e-7)) - v;
 	return edge_cross * theta_over_sin_theta;
+}
+
+vec3 ltcPolygonDiffuse(
+	PolygonLight poly,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material)
+{
+	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+	const uint vertices_count = min(
+		poly.vertices_count_offset >> 16,
+		uint(MAX_POLYGON_VERTEX_COUNT));
+	if (vertices_count < 3u || material.metalness >= 1.0) {
+		return vec3(0.0);
+	}
+
+#if LTC_SIGNED_DISTANCE_CULLING
+	const float receiver_plane_distance = dot(normalizedPolygonPlane(poly), vec4(P, 1.0));
+	if (receiver_plane_distance <= LTC_LIGHT_PLANE_MIN_DISTANCE) {
+		return vec3(0.0);
+	}
+#endif
+
+	vec3 edge_sum = vec3(0.0);
+	for (uint i = 0u; i < uint(MAX_POLYGON_VERTEX_COUNT); ++i) {
+		if (i >= vertices_count) {
+			break;
+		}
+		const uint next_i = i + 1u == vertices_count ? 0u : i + 1u;
+		const vec3 edge1 = lights.m.polygon_vertices[vertices_offset + i].xyz - P;
+		const vec3 edge2 = lights.m.polygon_vertices[vertices_offset + next_i].xyz - P;
+		const float length1_squared = dot(edge1, edge1);
+		const float length2_squared = dot(edge2, edge2);
+		if (length1_squared <= 1e-12 || length2_squared <= 1e-12) {
+			return vec3(0.0);
+		}
+		edge_sum += ltcIntegrateEdgeVector(
+			edge1 * inversesqrt(length1_squared),
+			edge2 * inversesqrt(length2_squared));
+	}
+
+	// The visibility sample rejects the back side and the shading horizon. We
+	// deliberately integrate the un-clipped contour here to avoid clipping
+	// topology artifacts; partially horizon-crossing lights are approximate.
+	const float cosine_integral = abs(dot(N, edge_sum)) * (0.5 * kOneOverPi);
+	if (cosine_integral <= 1e-8) {
+		return vec3(0.0);
+	}
+
+	vec3 center_direction = poly.center - P;
+	float fresnel_factor = 0.0;
+	if (dot(center_direction, center_direction) > 1e-10) {
+		center_direction = normalize(center_direction);
+		const vec3 half_vector_sum = center_direction + V;
+		if (dot(half_vector_sum, half_vector_sum) > 1e-10) {
+			const vec3 H = normalize(half_vector_sum);
+			fresnel_factor = pow(max(1.0 - abs(dot(H, V)), 0.0), 5.0);
+		}
+	}
+	const float diffuse_amplitude =
+		(1.0 - material.metalness) * 0.96 * (1.0 - fresnel_factor);
+	
+	return poly.emissive * cosine_integral * max(diffuse_amplitude, 0.0) * LTC_DIFFUSE_CORRECTION;
 }
 
 vec3 ltcPolygonSpecular(
