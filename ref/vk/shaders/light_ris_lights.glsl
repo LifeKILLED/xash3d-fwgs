@@ -562,6 +562,33 @@ bool risEvaluateConcreteSample(
 	return evaluated;
 }
 
+bool risConcreteSampleVisible(
+	RisLightSample light_sample,
+	vec3 sample_random,
+	vec3 P,
+	vec3 N)
+{
+	vec3 sample_pos;
+	float unused_inv_area_pdf;
+	if (!risSampleAreaPolygon(
+		light_sample.light, sample_random, sample_pos, unused_inv_area_pdf)) {
+		return false;
+	}
+
+	const vec3 to_light = sample_pos - P;
+	const float dist2 = dot(to_light, to_light);
+	if (dist2 <= 1e-6) {
+		return false;
+	}
+	const float dist = sqrt(dist2);
+	const vec3 L = to_light / dist;
+	const vec3 light_N = normalizedPolygonPlane(light_sample.light).xyz;
+	if (dot(N, L) <= 1e-5 || dot(-L, light_N) <= 1e-5) {
+		return false;
+	}
+	return !shadowed(P, L, dist);
+}
+
 bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
 {
 	const PolygonLight poly = light_sample.light;
@@ -1036,6 +1063,44 @@ bool risEvaluateConcreteSample(
 		visibility_test, diffuse, specular);
 }
 
+bool risConcreteSampleVisible(
+	RisLightSample light_sample,
+	vec3 sample_random,
+	vec3 P,
+	vec3 N)
+{
+	const PointLight point_light = light_sample.light;
+	const vec2 rnd = clamp(sample_random.yz, vec2(0.0), vec2(1.0));
+	const vec3 axis = point_light.dir_stopdot2.xyz;
+	vec3 light_dir;
+	float light_dist = 0.0;
+
+	if (point_light.environment != 0u) {
+		light_dir = normalize(orthonormalBasisZ(axis) *
+			sampleConeZ(rnd, point_light.dir_stopdot2.a));
+		if (dot(N, light_dir) <= 1e-5) {
+			return false;
+		}
+		return !shadowedSky(P, light_dir);
+	}
+
+	const vec3 to_light = point_light.origin_r2.xyz - P;
+	const float light_dist2 = dot(to_light, to_light);
+	const float d2_minus_r2 = light_dist2 - point_light.origin_r2.w;
+	if (d2_minus_r2 <= 0.0) {
+		return false;
+	}
+	light_dist = sqrt(light_dist2);
+	const float cos_theta_max = min(1.0, sqrt(d2_minus_r2 / light_dist2));
+	light_dir = normalize(orthonormalBasisZ(to_light / light_dist) *
+		sampleConeZ(rnd, cos_theta_max));
+	if (dot(N, light_dir) <= 1e-5 ||
+		dot(light_dir, axis) < point_light.dir_stopdot2.a) {
+		return false;
+	}
+	return !shadowed(P, light_dir, light_dist + shadow_offset_fudge);
+}
+
 void computePointAlwaysSampledLights(
 	vec3 P,
 	vec3 N,
@@ -1106,6 +1171,7 @@ void computePointAlwaysSampledLights(
 #define RIS_LIGHT_HASH risLightHash
 #define RIS_LIGHT_VISIBLE risLightVisible
 #define RIS_EVALUATE_LIGHT risEvaluateLight
+#define RIS_CONCRETE_SAMPLE_VISIBLE risConcreteSampleVisible
 #define RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR risLoadPreviousTemporalReservoir
 #define RIS_LOAD_DIRECT_TEMPORAL_RESERVOIR risLoadDirectTemporalReservoir
 #define RIS_STORE_TEMPORAL_RESERVOIR risStoreTemporalReservoir
@@ -1129,6 +1195,7 @@ void computePointAlwaysSampledLights(
 #undef RIS_LIGHT_HASH
 #undef RIS_LIGHT_VISIBLE
 #undef RIS_EVALUATE_LIGHT
+#undef RIS_CONCRETE_SAMPLE_VISIBLE
 #undef RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR
 #undef RIS_LOAD_DIRECT_TEMPORAL_RESERVOIR
 #undef RIS_STORE_TEMPORAL_RESERVOIR

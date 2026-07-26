@@ -1,6 +1,10 @@
 #ifndef BOUNCE_RIS_COMMON_GLSL_INCLUDED
 #define BOUNCE_RIS_COMMON_GLSL_INCLUDED
 
+#ifndef RIS_SIMPLIFIED_RESAMPLING
+#define RIS_SIMPLIFIED_RESAMPLING 1
+#endif
+
 #include "light_ris_experimental.glsl"
 #include "utils.glsl"
 #include "color_spaces.glsl"

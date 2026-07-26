@@ -121,11 +121,19 @@ const float shadow_offset_fudge = .1;
 #ifndef RIS_TEMPORAL_RANDOM_RESET_PROBABILITY
 // Independent Bernoulli lifetime reset; this is random rather than a periodic
 // reset tied to reservoir age.
-#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 50.0)
+#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 20.0)
 #endif
 
 #ifndef RIS_TEMPORAL_SHADING_CONFIDENCE_DELTA
 #define RIS_TEMPORAL_SHADING_CONFIDENCE_DELTA 0.3
+#endif
+
+// Optional heuristic for attenuating temporal history when reevaluated shading
+// differs from the value stored by the previous frame. Disabled by default:
+// visibility and surface reprojection already reject invalid history, while
+// this heuristic can turn normal/BRDF variation into persistent dark holes.
+#ifndef RIS_TEMPORAL_SHADING_CONFIDENCE
+#define RIS_TEMPORAL_SHADING_CONFIDENCE 0
 #endif
 
 #ifndef RIS_TEMPORAL_LIGHT_ID_SEARCH_RADIUS
@@ -579,12 +587,16 @@ RisTemporalReservoir risReweightTemporalReservoir(
 		return risInvalidTemporalReservoir();
 	}
 
+#if RIS_TEMPORAL_SHADING_CONFIDENCE
 	const float confidence = risTemporalShadingConfidence(
 		old_reservoir.mixed_weight,
 		old_confidence_mixed_weight);
 	if (confidence <= RIS_WEIGHT_EPSILON) {
 		return risInvalidTemporalReservoir();
 	}
+#else
+	const float confidence = 1.0;
+#endif
 
 	const float reweight = old_current_mixed_weight / max(old_reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
 	RisTemporalReservoir reservoir = old_reservoir;
