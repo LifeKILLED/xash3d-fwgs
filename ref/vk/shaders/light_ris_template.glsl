@@ -64,10 +64,12 @@ bool RIS_LOAD_PREVIOUS_RESERVOIR(
 	ivec2 pix,
 	ivec2 surface_pix,
 	out RisTemporalReservoir reservoir,
-	out float current_mixed_weight)
+	out float current_mixed_weight,
+	out float confidence_mixed_weight)
 {
 	reservoir = risInvalidTemporalReservoir();
 	current_mixed_weight = 0.0;
+	confidence_mixed_weight = 0.0;
 
 	const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(surface_pix);
 	ivec2 history_pix;
@@ -94,6 +96,19 @@ bool RIS_LOAD_PREVIOUS_RESERVOIR(
 	if (current_mixed_weight <= RIS_WEIGHT_EPSILON) {
 		return false;
 	}
+
+#if defined(RIS_CUSTOM_TEMPORAL_HISTORY)
+	// Secondary hit normals do not currently have a temporal image. Do not use
+	// the primary ASVGF normal for a different surface.
+	const vec3 confidence_N = N;
+#else
+	// The ASVGF reprojection metadata stores the exact shading normal belonging
+	// to this history texel. Keep current P for area/solid-angle evaluation and
+	// replace only the BRDF normal for the confidence check.
+	const vec3 confidence_N = normalDecode(imageLoad(prev_temporal_asvgf_reproj_depth, history_pix).ba);
+#endif
+	const vec2 confidence_weights = RIS_LIGHT_WEIGHTS(history_light, P, confidence_N, V, material);
+	confidence_mixed_weight = risPrimaryMixedWeight(confidence_weights, material.metalness);
 
 	if (!RIS_LIGHT_VISIBLE(history_light, P, N)) {
 		return false;
@@ -150,9 +165,28 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 						const vec2 history_lobes = risContributionLobeWeights(history_diffuse, history_specular);
 						const float current_weight = risPrimaryMixedWeight(history_lobes, material.metalness);
 						if (current_weight > RIS_WEIGHT_EPSILON) {
+						#if defined(RIS_CUSTOM_TEMPORAL_HISTORY)
+							const vec3 confidence_N = N;
+						#else
+							const vec3 confidence_N = normalDecode(
+								imageLoad(prev_temporal_asvgf_reproj_depth, history_pix).ba);
+						#endif
+							vec3 confidence_diffuse;
+							vec3 confidence_specular;
+							float confidence_weight = 0.0;
+							if (risEvaluateConcreteSample(
+								history_light, history.sample_random, P, confidence_N, V, material, false,
+								confidence_diffuse, confidence_specular)) {
+								confidence_diffuse *= inv_discrete_light_pdf;
+								confidence_specular *= inv_discrete_light_pdf;
+								confidence_weight = risPrimaryMixedWeight(
+									risContributionLobeWeights(confidence_diffuse, confidence_specular),
+									material.metalness);
+							}
 							reservoir = risReweightTemporalReservoir(
 								history,
 								current_weight,
+								confidence_weight,
 								risTemporalRandom01(pix, RIS_TEMPORAL_LIFETIME_RANDOM_SALT));
 					}
 				}
@@ -576,6 +610,7 @@ void RIS_COMPUTE_LIGHTING_INIT(
 
 	RisTemporalReservoir old_reservoir = risInvalidTemporalReservoir();
 	float old_current_mixed_weight = 0.0;
+	float old_confidence_mixed_weight = 0.0;
 	if (own_ris_active) {
 		RIS_LOAD_PREVIOUS_RESERVOIR(
 			P,
@@ -586,13 +621,15 @@ void RIS_COMPUTE_LIGHTING_INIT(
 			pix,
 			surface_pix,
 			old_reservoir,
-			old_current_mixed_weight);
+			old_current_mixed_weight,
+			old_confidence_mixed_weight);
 	}
 
 	const float temporal_rand_lifetime = risTemporalRandom01(pix, RIS_TEMPORAL_LIFETIME_RANDOM_SALT);
 	RisTemporalReservoir merged_reservoir = risReweightTemporalReservoir(
 		old_reservoir,
 		old_current_mixed_weight,
+		old_confidence_mixed_weight,
 		temporal_rand_lifetime);
 
 #if defined(RIS_REUSE_DIRECT_RESERVOIR)

@@ -572,6 +572,7 @@ float risTemporalShadingConfidence(float previous_weight, float current_weight)
 RisTemporalReservoir risReweightTemporalReservoir(
 	RisTemporalReservoir old_reservoir,
 	float old_current_mixed_weight,
+	float old_confidence_mixed_weight,
 	float rand_lifetime)
 {
 	if (!risTemporalOldReservoirSurvives(old_reservoir, old_current_mixed_weight, rand_lifetime)) {
@@ -580,7 +581,7 @@ RisTemporalReservoir risReweightTemporalReservoir(
 
 	const float confidence = risTemporalShadingConfidence(
 		old_reservoir.mixed_weight,
-		old_current_mixed_weight);
+		old_confidence_mixed_weight);
 	if (confidence <= RIS_WEIGHT_EPSILON) {
 		return risInvalidTemporalReservoir();
 	}
