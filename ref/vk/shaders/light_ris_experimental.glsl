@@ -5,7 +5,7 @@
 // workgroup shared memory. Disabling this keeps the per-texel Bayer segment,
 // but removes shared memory, workgroup barriers, and neighbor gathering.
 #ifndef RIS_INIT_SHARED_NEIGHBOR_VISIBILITY_REUSE
-#define RIS_INIT_SHARED_NEIGHBOR_VISIBILITY_REUSE 1
+#define RIS_INIT_SHARED_NEIGHBOR_VISIBILITY_REUSE 0
 #endif
 
 // Gather candidates from neighboring reservoirs during apply. Disable this to

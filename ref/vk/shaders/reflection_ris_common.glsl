@@ -213,10 +213,6 @@ bool risFindTemporalHistoryPixel(ivec2 pix, ivec2 surface_pix, vec3 prev_positio
 {
 	history_pix = ivec2(-1);
 
-	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0) {
-		return false;
-	}
-
 	ivec2 history_center_pix;
 	if (!reflectionRisFindPrimaryHistoryPixel(surface_pix, history_center_pix)) {
 		return false;

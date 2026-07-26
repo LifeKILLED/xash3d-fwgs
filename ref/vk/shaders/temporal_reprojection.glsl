@@ -85,6 +85,18 @@ bool isValidReprojectionDepth(float depth) {
 // only with decoded metric depth.
 const float ASVGF_REPROJECTION_DEPTH_STORAGE_SCALE = 1.0 / 64.0;
 
+#ifndef REPROJECTION_RELATIVE_THRESHOLD_SCALE_MAX
+#define REPROJECTION_RELATIVE_THRESHOLD_SCALE_MAX 1e30
+#endif
+
+#ifndef REPROJECTION_STORAGE_PRECISION_SCALE
+#define REPROJECTION_STORAGE_PRECISION_SCALE 0.003
+#endif
+
+#ifndef REPROJECTION_PIXEL_FOOTPRINT_SCALE
+#define REPROJECTION_PIXEL_FOOTPRINT_SCALE 2.0
+#endif
+
 float encodeReprojectionDepth(float metric_depth) {
 	return max(metric_depth, 0.0) * ASVGF_REPROJECTION_DEPTH_STORAGE_SCALE;
 }
@@ -98,16 +110,18 @@ float decodeReprojectionDepth(float stored_depth) {
 
 float makeReprojectionDepthThresholdForParams(AsvgfReprojectionParams params, float expected_depth, float stored_depth, float base_threshold) {
 	float reference_depth = max(max(abs(expected_depth), abs(stored_depth)), 1.0);
-	float relative_threshold = max(base_threshold, params.reprojection_depth_threshold_scale * reference_depth);
+	float relative_scale = min(params.reprojection_depth_threshold_scale, REPROJECTION_RELATIVE_THRESHOLD_SCALE_MAX);
+	float relative_threshold = relative_scale * reference_depth;
 
 	// The encoded history depth is kept in an rgba16f target. A small relative
 	// floor covers fp16 quantization after depth/64 encoding and fp32
 	// world-position cancellation on large coordinates.
-	float storage_precision_floor = max(0.05, reference_depth * 0.003);
+	float storage_precision_floor = max(0.05, reference_depth * REPROJECTION_STORAGE_PRECISION_SCALE);
 
 	// At distance, a one-pixel reprojection roundoff covers a larger world-space
 	// footprint. This mostly affects slanted planes and parallax validation.
-	float pixel_footprint_floor = reference_depth * max(ubo.ubo.ray_cone_width * 2.0, 0.0);
+	float pixel_footprint_floor = reference_depth *
+		max(ubo.ubo.ray_cone_width * REPROJECTION_PIXEL_FOOTPRINT_SCALE, 0.0);
 
 	return max(relative_threshold, max(storage_precision_floor, pixel_footprint_floor));
 }
@@ -640,43 +654,26 @@ bool findBestReprojectedHistoryTexelForParams(
 		return false;
 	}
 
-	ivec2 candidate_taps[4];
-	float candidate_weights[4];
-	int candidate_count = 1;
-	const float motion = length(reproj_uv_center - vec2(current_pix));
-	if (motion > REPROJECTION_TEXEL_SEARCH_MOTION_THRESHOLD) {
-		buildReprojectionFootprint2x2(reproj_uv_center, candidate_taps, candidate_weights);
-		candidate_count = 4;
-	} else {
-		candidate_taps[0] = reprojectionUvCenterToNearestTexel(reproj_uv_center);
-		candidate_weights[0] = 1.0;
-		for (int i = 1; i < 4; ++i) {
-			candidate_taps[i] = ivec2(-1);
-			candidate_weights[i] = 0.0;
-		}
+	// Reservoirs are discrete state and must never be bilinearly combined or
+	// selected from a bilinear footprint. Quantize the projected texel center
+	// exactly once, then use the same plane-depth validation as ASVGF. That
+	// validation intersects the current surface plane with the ray through this
+	// quantized history texel, so the expected depth includes texel quantization.
+	history_pix = reprojectionUvCenterToNearestTexel(reproj_uv_center);
+	if (!isReprojectionTexelInside(history_pix, res)) {
+		history_pix = ivec2(-1);
+		return false;
 	}
 
-	float best_weight = -1.0;
-	for (int i = 0; i < 4; ++i) {
-		if (i >= candidate_count) {
-			break;
-		}
-
-		const ivec2 candidate_pix = candidate_taps[i];
-		const float candidate_weight = candidate_weights[i];
-		float candidate_depth_threshold = 0.0;
-		if (!validateReprojectedHistoryTexelForParams(params, candidate_pix, res, prev_position, geometry_normal, depth_necessary, depth_threshold, candidate_depth_threshold)) {
-			continue;
-		}
-
-		if (candidate_weight > best_weight) {
-			best_weight = candidate_weight;
-			history_pix = candidate_pix;
-			selected_depth_threshold = candidate_depth_threshold;
-		}
-	}
-
-	return best_weight >= 0.0 && isReprojectionTexelInside(history_pix, res);
+	return validateReprojectedHistoryTexelForParams(
+		params,
+		history_pix,
+		res,
+		prev_position,
+		geometry_normal,
+		depth_necessary,
+		depth_threshold,
+		selected_depth_threshold);
 }
 
 bool findBestReprojectedHistoryTexel(

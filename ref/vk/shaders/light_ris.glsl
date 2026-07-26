@@ -17,6 +17,48 @@ bool computeLightingRISState(
 	return cluster_valid;
 }
 
+#if RIS_UNIFIED_PASS
+void computeLightingRISUnified(
+	vec3 P,
+	vec3 geometry_N,
+	vec3 shading_N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	bool surface_active,
+	out vec3 diffuse,
+	out vec3 specular,
+	out vec3 flashlight_diffuse,
+	out vec3 flashlight_specular)
+{
+	diffuse = vec3(0.0);
+	specular = vec3(0.0);
+	flashlight_diffuse = vec3(0.0);
+	flashlight_specular = vec3(0.0);
+	uint cluster_index;
+	bool ris_active;
+	computeLightingRISState(P, surface_active, cluster_index, ris_active);
+
+#if LIGHT_POLYGON
+	computePolygonLightingRISUnified(
+		cluster_index, P, geometry_N, shading_N, V, material, pix, pix,
+		ris_active, diffuse, specular);
+#endif
+	#if LIGHT_POINT
+		computePointLightingRISUnified(
+			cluster_index, P, geometry_N, shading_N, V, material, pix, pix,
+			ris_active, diffuse, specular);
+		vec3 always_diffuse;
+		vec3 always_specular;
+	computePointAlwaysSampledLights(
+		P, shading_N, V, material, cluster_index, ris_active,
+		always_diffuse, always_specular, flashlight_diffuse, flashlight_specular);
+		diffuse += always_diffuse;
+		specular += always_specular;
+	#endif
+}
+#endif
+
 #if RIS_INIT_PASS
 void computeLightingRISInit(
 	vec3 P,

@@ -46,17 +46,11 @@
 //	"bounce": {
 //		"comp": "bounce"
 //	},
-	"light_direct_poly_ris_init": {
-		"comp": "ray_light_direct_poly_ris_init"
-	},
 	"light_direct_poly": {
-		"comp": "ray_light_direct_poly_ris_apply"
-	},
-	"light_direct_point_ris_init": {
-		"comp": "ray_light_direct_point_ris_init"
+		"comp": "ray_light_direct_poly_ris"
 	},
 	"light_direct_point": {
-		"comp": "ray_light_direct_point_ris_apply"
+		"comp": "ray_light_direct_point_ris"
 	},
 	"bounce_primary_rays": {
 		"comp": "bounce_primary_rays"
@@ -69,17 +63,11 @@
 	"bounce_legacy_blending": {
 		"comp": "bounce_legacy_blending_query"
 	},
-	"bounce_light_poly_ris_init": {
-		"comp": "bounce_light_poly_ris_init"
+	"bounce_light_poly_ris": {
+		"comp": "bounce_light_poly_ris"
 	},
-	"bounce_light_poly_ris_apply": {
-		"comp": "bounce_light_poly_ris_apply"
-	},
-	"bounce_light_point_ris_init": {
-		"comp": "bounce_light_point_ris_init"
-	},
-	"bounce_light_point_ris_apply": {
-		"comp": "bounce_light_point_ris_apply"
+	"bounce_light_point_ris": {
+		"comp": "bounce_light_point_ris"
 	},
 	"bounce_light_ris_resolve": {
 		"comp": "bounce_light_ris_resolve"
@@ -95,17 +83,11 @@
 	"reflection_legacy_blending": {
 		"comp": "reflection_legacy_blending_query"
 	},
-	"reflection_light_poly_ris_init": {
-		"comp": "reflection_light_poly_ris_init"
+	"reflection_light_poly_ris": {
+		"comp": "reflection_light_poly_ris"
 	},
-	"reflection_light_poly_ris_apply": {
-		"comp": "reflection_light_poly_ris_apply"
-	},
-	"reflection_light_point_ris_init": {
-		"comp": "reflection_light_point_ris_init"
-	},
-	"reflection_light_point_ris_apply": {
-		"comp": "reflection_light_point_ris_apply"
+	"reflection_light_point_ris": {
+		"comp": "reflection_light_point_ris"
 	},
 	"reflection_light_ris_resolve": {
 		"comp": "reflection_light_ris_resolve"
@@ -121,17 +103,11 @@
 	"refraction_legacy_blending": {
 		"comp": "refraction_legacy_blending_query"
 	},
-	"refraction_light_poly_ris_init": {
-		"comp": "refraction_light_poly_ris_init"
+	"refraction_light_poly_ris": {
+		"comp": "refraction_light_poly_ris"
 	},
-	"refraction_light_poly_ris_apply": {
-		"comp": "refraction_light_poly_ris_apply"
-	},
-	"refraction_light_point_ris_init": {
-		"comp": "refraction_light_point_ris_init"
-	},
-	"refraction_light_point_ris_apply": {
-		"comp": "refraction_light_point_ris_apply"
+	"refraction_light_point_ris": {
+		"comp": "refraction_light_point_ris"
 	},
 	"refraction_light_ris_resolve": {
 		"comp": "refraction_light_ris_resolve"

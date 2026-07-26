@@ -31,21 +31,28 @@ bool RIS_RESOLVE_RESERVOIR_LIGHT_ID(inout RisTemporalReservoir reservoir)
 		return true;
 	}
 
-	if (reservoir.light_id > 0u) {
-		const uint prev_light_id = reservoir.light_id - 1u;
-		if (RIS_LIGHT_HASH_MATCHES(prev_light_id, reservoir.light_hash)) {
-			reservoir.light_id = prev_light_id;
+	const uint original_light_id = reservoir.light_id;
+	for (uint distance = 1u; distance <= uint(RIS_TEMPORAL_LIGHT_ID_SEARCH_RADIUS); ++distance) {
+		if (original_light_id >= distance) {
+			const uint previous_light_id = original_light_id - distance;
+			if (RIS_LIGHT_HASH_MATCHES(previous_light_id, reservoir.light_hash)) {
+				reservoir.light_id = previous_light_id;
+				return true;
+			}
+		}
+
+		const uint next_light_id = original_light_id + distance;
+		if (next_light_id > original_light_id && RIS_LIGHT_HASH_MATCHES(next_light_id, reservoir.light_hash)) {
+			reservoir.light_id = next_light_id;
 			return true;
 		}
 	}
 
-	const uint next_light_id = reservoir.light_id + 1u;
-	if (next_light_id > reservoir.light_id && RIS_LIGHT_HASH_MATCHES(next_light_id, reservoir.light_hash)) {
-		reservoir.light_id = next_light_id;
-		return true;
-	}
-
-	return false;
+	// Hash is only an ID-shift recovery hint. If no neighbor matches, retain the
+	// original slot and treat the mismatch as a dynamically changed light rather
+	// than invalidating otherwise valid temporal history.
+	RIS_LIGHT_SAMPLE current_slot_light;
+	return RIS_LOAD_LIGHT(original_light_id, current_slot_light);
 }
 
 bool RIS_LOAD_PREVIOUS_RESERVOIR(
@@ -66,9 +73,6 @@ bool RIS_LOAD_PREVIOUS_RESERVOIR(
 	ivec2 history_pix;
 	if (!risFindTemporalHistoryPixel(pix, surface_pix, prev_position, geometry_N, history_pix)) {
 	#if RIS_SAME_PIXEL_HISTORY_FALLBACK
-		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0) {
-			return false;
-		}
 		history_pix = pix;
 	#else
 		return false;
@@ -98,6 +102,154 @@ bool RIS_LOAD_PREVIOUS_RESERVOIR(
 	reservoir = history_reservoir;
 	return true;
 }
+
+#if RIS_UNIFIED_PASS
+void RIS_COMPUTE_LIGHTING_UNIFIED(
+	uint cluster_index,
+	vec3 P,
+	vec3 geometry_N,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	ivec2 pix,
+	ivec2 surface_pix,
+	bool ris_active,
+	out vec3 diffuse,
+	out vec3 specular)
+{
+	diffuse = vec3(0.0);
+	specular = vec3(0.0);
+	RisTemporalReservoir reservoir = risInvalidTemporalReservoir();
+	const uint cluster_light_count = RIS_CLUSTER_LIGHT_COUNT(cluster_index);
+	uint eligible_light_count = 0u;
+	for (uint i = 0u; i < cluster_light_count; ++i) {
+		RIS_LIGHT_SAMPLE unused_light;
+		if (RIS_LOAD_LIGHT(RIS_CLUSTER_LIGHT_ID(cluster_index, i), unused_light)) {
+			eligible_light_count += 1u;
+		}
+	}
+	const float inv_discrete_light_pdf = float(eligible_light_count);
+
+	// Reprojection supplies one concrete light sample. Its previous reservoir
+	// mass is combined using the standard ReSTIR temporal-resampling weight;
+	// BRDF and visibility are always reevaluated at the current surface.
+	if (ris_active) {
+		const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(surface_pix);
+		ivec2 history_pix;
+		if (risFindTemporalHistoryPixel(pix, surface_pix, prev_position, geometry_N, history_pix)) {
+				RisTemporalReservoir history = RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR(history_pix);
+				if (RIS_RESOLVE_RESERVOIR_LIGHT_ID(history)) {
+				RIS_LIGHT_SAMPLE history_light;
+				vec3 history_diffuse;
+				vec3 history_specular;
+				if (RIS_LOAD_LIGHT(history.light_id, history_light) &&
+					risEvaluateConcreteSample(history_light, history.sample_random, P, N, V, material, true,
+						history_diffuse, history_specular)) {
+					history_diffuse *= inv_discrete_light_pdf;
+					history_specular *= inv_discrete_light_pdf;
+						const vec2 history_lobes = risContributionLobeWeights(history_diffuse, history_specular);
+						const float current_weight = risPrimaryMixedWeight(history_lobes, material.metalness);
+						if (current_weight > RIS_WEIGHT_EPSILON) {
+							reservoir = risReweightTemporalReservoir(
+								history,
+								current_weight,
+								risTemporalRandom01(pix, RIS_TEMPORAL_LIFETIME_RANDOM_SALT));
+					}
+				}
+			}
+		}
+	}
+
+	if (ris_active) {
+		for (uint j = 0u; j < uint(RIS_PRIMARY_CANDIDATES); ++j) {
+			if (eligible_light_count == 0u) {
+				break;
+			}
+
+			const uint selected_eligible_index = min(
+				uint(risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT + 0x200u + j) * float(eligible_light_count)),
+				eligible_light_count - 1u);
+			uint eligible_index = 0u;
+			uint candidate_id = RIS_INVALID_LIGHT_ID;
+			RIS_LIGHT_SAMPLE candidate_light;
+			for (uint i = 0u; i < cluster_light_count; ++i) {
+				const uint light_id = RIS_CLUSTER_LIGHT_ID(cluster_index, i);
+				RIS_LIGHT_SAMPLE light;
+				if (!RIS_LOAD_LIGHT(light_id, light)) {
+					continue;
+				}
+				if (eligible_index++ == selected_eligible_index) {
+					candidate_id = light_id;
+					candidate_light = light;
+					break;
+				}
+			}
+			if (candidate_id == RIS_INVALID_LIGHT_ID) {
+				continue;
+			}
+
+			const vec3 sample_random = vec3(
+				risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT + j * 3u + 0u),
+				risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT + j * 3u + 1u),
+				risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT + j * 3u + 2u));
+			vec3 candidate_diffuse;
+			vec3 candidate_specular;
+			if (!risEvaluateConcreteSample(candidate_light, sample_random, P, N, V, material, true,
+				candidate_diffuse, candidate_specular)) {
+				// Zero-target proposals still count towards M.
+				reservoir.sample_count += 1.0;
+				continue;
+			}
+			candidate_diffuse *= inv_discrete_light_pdf;
+			candidate_specular *= inv_discrete_light_pdf;
+			const vec2 candidate_lobes = risContributionLobeWeights(candidate_diffuse, candidate_specular);
+			const float mixed_weight = risPrimaryMixedWeight(candidate_lobes, material.metalness);
+			if (mixed_weight <= RIS_WEIGHT_EPSILON) {
+				reservoir.sample_count += 1.0;
+				continue;
+			}
+
+			RisTemporalCandidate candidate;
+			candidate.light_id = candidate_id;
+			candidate.light_hash = RIS_LIGHT_HASH(candidate_light);
+			candidate.mixed_weight = mixed_weight;
+			candidate.sample_random = sample_random;
+			candidate.sample_count = 1.0;
+			reservoir = risMergeTemporalCandidate(
+				reservoir, candidate,
+				risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT + 0x100u + j));
+		}
+	}
+
+	reservoir = risFinalizeTemporalReservoir(reservoir);
+	if (risTemporalReservoirValid(reservoir)) {
+		RIS_LIGHT_SAMPLE selected_light;
+		if (RIS_LOAD_LIGHT(reservoir.light_id, selected_light)) {
+			// Keep the persisted identity pair canonical: the stored hash always
+			// comes directly from the light addressed by the final stored ID.
+			reservoir.light_hash = RIS_LIGHT_HASH(selected_light);
+			vec3 selected_diffuse;
+			vec3 selected_specular;
+			if (
+			// Every selectable candidate already passed visibility in this invocation.
+			risEvaluateConcreteSample(selected_light, reservoir.sample_random, P, N, V, material, false,
+				selected_diffuse, selected_specular)) {
+			selected_diffuse *= inv_discrete_light_pdf;
+			selected_specular *= inv_discrete_light_pdf;
+			const float reservoir_weight = reservoir.weight_sum /
+				max(reservoir.sample_count * reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
+			diffuse = selected_diffuse * reservoir_weight;
+			specular = selected_specular * reservoir_weight;
+			}
+		} else {
+			reservoir = risInvalidTemporalReservoir();
+		}
+	}
+	if (risReservoirPixelInBounds(pix)) {
+		RIS_STORE_TEMPORAL_RESERVOIR(pix, reservoir);
+	}
+}
+#endif
 
 RisTemporalReservoir RIS_MERGE_VISIBLE_CANDIDATES(
 	uint cluster_index,
@@ -162,6 +314,8 @@ RisTemporalReservoir RIS_MERGE_VISIBLE_CANDIDATES(
 		visible_candidate.light_id = selected_id;
 		visible_candidate.light_hash = RIS_LIGHT_HASH(selected_light);
 		visible_candidate.mixed_weight = selected_mixed_weight;
+		visible_candidate.sample_random = vec3(0.0);
+		visible_candidate.sample_count = 1.0;
 		reservoir = risMergeTemporalCandidate(
 			reservoir,
 			visible_candidate,
@@ -214,6 +368,8 @@ RisTemporalReservoir RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
 		candidate.light_id = onion_candidate.light_id;
 		candidate.light_hash = RIS_LIGHT_HASH(light);
 		candidate.mixed_weight = mixed_weight;
+		candidate.sample_random = vec3(0.0);
+		candidate.sample_count = 1.0;
 
 		reservoir = risMergeTemporalCandidateWeighted(
 			reservoir,
@@ -275,6 +431,8 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 			visible_candidate.light_id = candidate_id;
 			visible_candidate.light_hash = RIS_LIGHT_HASH(candidate_light);
 			visible_candidate.mixed_weight = mixed_weight;
+			visible_candidate.sample_random = vec3(0.0);
+			visible_candidate.sample_count = 1.0;
 			reservoir = risMergeTemporalCandidate(
 				reservoir,
 				visible_candidate,
@@ -364,6 +522,8 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 			visible_candidate.light_id = candidate_id;
 			visible_candidate.light_hash = RIS_LIGHT_HASH(candidate_light);
 			visible_candidate.mixed_weight = mixed_weight;
+			visible_candidate.sample_random = vec3(0.0);
+			visible_candidate.sample_count = 1.0;
 			reservoir = risMergeTemporalCandidate(
 				reservoir,
 				visible_candidate,
@@ -429,12 +589,10 @@ void RIS_COMPUTE_LIGHTING_INIT(
 			old_current_mixed_weight);
 	}
 
-	const float temporal_rand_reset = risTemporalRandom01(pix, RIS_TEMPORAL_RESET_RANDOM_SALT);
 	const float temporal_rand_lifetime = risTemporalRandom01(pix, RIS_TEMPORAL_LIFETIME_RANDOM_SALT);
 	RisTemporalReservoir merged_reservoir = risReweightTemporalReservoir(
 		old_reservoir,
 		old_current_mixed_weight,
-		temporal_rand_reset,
 		temporal_rand_lifetime);
 
 #if defined(RIS_REUSE_DIRECT_RESERVOIR)

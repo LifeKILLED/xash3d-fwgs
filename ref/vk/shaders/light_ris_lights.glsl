@@ -66,6 +66,14 @@ void risSetDirectSpecularMisRay(ivec2 pix) {}
 #define RIS_POLY_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_ris_poly_reservoir
 #endif
 
+#ifndef RIS_POLY_OUT_TEMPORAL_RANDOM_IMAGE
+#define RIS_POLY_OUT_TEMPORAL_RANDOM_IMAGE out_temporal_ris_poly_random
+#endif
+
+#ifndef RIS_POLY_PREV_TEMPORAL_RANDOM_IMAGE
+#define RIS_POLY_PREV_TEMPORAL_RANDOM_IMAGE prev_temporal_ris_poly_random
+#endif
+
 struct RisLightSample {
 	uint light_id;
 	PolygonLight light;
@@ -101,19 +109,19 @@ uint risLightHash(RisLightSample light_sample)
 {
 	const PolygonLight poly = light_sample.light;
 	uint hash_value = xxhash32(uvec4(
-		floatBitsToUint(poly.plane.x),
-		floatBitsToUint(poly.plane.y),
-		floatBitsToUint(poly.plane.z),
-		floatBitsToUint(poly.plane.w)));
+		risQuantizeLightValueForHash(poly.plane.x),
+		risQuantizeLightValueForHash(poly.plane.y),
+		risQuantizeLightValueForHash(poly.plane.z),
+		risQuantizeLightValueForHash(poly.plane.w)));
 	hash_value ^= xxhash32(uvec4(
-		floatBitsToUint(poly.center.x),
-		floatBitsToUint(poly.center.y),
-		floatBitsToUint(poly.center.z),
-		floatBitsToUint(poly.area)));
+		risQuantizeLightValueForHash(poly.center.x),
+		risQuantizeLightValueForHash(poly.center.y),
+		risQuantizeLightValueForHash(poly.center.z),
+		risQuantizeLightValueForHash(poly.area)));
 	hash_value ^= xxhash32(uvec4(
-		floatBitsToUint(poly.emissive.x),
-		floatBitsToUint(poly.emissive.y),
-		floatBitsToUint(poly.emissive.z),
+		risQuantizeLightValueForHash(poly.emissive.x),
+		risQuantizeLightValueForHash(poly.emissive.y),
+		risQuantizeLightValueForHash(poly.emissive.z),
 		poly.vertices_count_offset >> 16));
 
 	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
@@ -123,12 +131,12 @@ uint risLightHash(RisLightSample light_sample)
 			break;
 		}
 
-		const vec3 vertex = lights.m.polygon_vertices[vertices_offset + i].xyz;
-		hash_value ^= xxhash32(uvec4(
-			floatBitsToUint(vertex.x),
-			floatBitsToUint(vertex.y),
-			floatBitsToUint(vertex.z),
-			i));
+			const vec3 vertex = lights.m.polygon_vertices[vertices_offset + i].xyz;
+			hash_value ^= xxhash32(uvec4(
+				risQuantizeLightValueForHash(vertex.x),
+				risQuantizeLightValueForHash(vertex.y),
+				risQuantizeLightValueForHash(vertex.z),
+				i));
 	}
 	return risFoldTemporalHash(hash_value);
 }
@@ -136,7 +144,13 @@ uint risLightHash(RisLightSample light_sample)
 #if RIS_INIT_PASS
 RisTemporalReservoir risLoadPreviousTemporalReservoir(ivec2 pix)
 {
-	return risDecodeTemporalReservoir(imageLoad(RIS_POLY_PREV_TEMPORAL_RESERVOIR_IMAGE, pix));
+	RisTemporalReservoir reservoir = risDecodeTemporalReservoir(imageLoad(RIS_POLY_PREV_TEMPORAL_RESERVOIR_IMAGE, pix));
+#if RIS_UNIFIED_PASS
+	const vec4 random_count = imageLoad(RIS_POLY_PREV_TEMPORAL_RANDOM_IMAGE, pix);
+	reservoir.sample_random = clamp(random_count.xyz, vec3(0.0), vec3(1.0));
+	reservoir.sample_count = max(random_count.w, 0.0);
+#endif
+	return risTemporalReservoirValid(reservoir) ? reservoir : risInvalidTemporalReservoir();
 }
 
 #ifdef RIS_REUSE_DIRECT_RESERVOIR
@@ -150,6 +164,10 @@ void risStoreTemporalReservoir(ivec2 pix, RisTemporalReservoir reservoir)
 {
 	const vec4 encoded = risEncodeTemporalReservoir(reservoir);
 	imageStore(RIS_POLY_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, encoded);
+#if RIS_UNIFIED_PASS
+	imageStore(RIS_POLY_OUT_TEMPORAL_RANDOM_IMAGE, pix,
+		risTemporalReservoirValid(reservoir) ? vec4(clamp(reservoir.sample_random, vec3(0.0), vec3(1.0)), reservoir.sample_count) : vec4(0.0));
+#endif
 #ifdef RIS_OUT_REUSE_IMAGE
 	imageStore(RIS_OUT_REUSE_IMAGE, pix, encoded);
 #endif
@@ -157,7 +175,9 @@ void risStoreTemporalReservoir(ivec2 pix, RisTemporalReservoir reservoir)
 
 void risStoreCandidateImageSample(ivec2 pix, RisCandidateImageSample candidate)
 {
+#if !RIS_UNIFIED_PASS
 	imageStore(RIS_POLY_OUT_CANDIDATE_IMAGE, pix, risEncodeCandidateImageSample(candidate));
+#endif
 }
 
 #if RIS_BAYER_SHARED_VISIBILITY
@@ -237,6 +257,61 @@ bool risSampleSolidPolygon(
 
 	sample_pos = P + L * dist;
 	inv_area_pdf = sap.solid_angle * dist * dist / light_facing;
+	return true;
+}
+
+// Reconstruct a surface-area sample independently of the shaded point.  The
+// first component selects a triangle in the polygon fan proportionally to its
+// area; the other two generate uniform barycentric coordinates.
+bool risSampleAreaPolygon(
+	PolygonLight poly,
+	vec3 sample_random,
+	out vec3 sample_pos,
+	out float inv_area_pdf)
+{
+	const uint vertices_offset = poly.vertices_count_offset & 0xffffu;
+	const uint vertices_count = poly.vertices_count_offset >> 16;
+	if (vertices_count < 3u) {
+		sample_pos = vec3(0.0);
+		inv_area_pdf = 0.0;
+		return false;
+	}
+
+	const vec3 v0 = lights.m.polygon_vertices[vertices_offset].xyz;
+	float total_area = 0.0;
+	for (uint i = 1u; i + 1u < vertices_count; ++i) {
+		const vec3 v1 = lights.m.polygon_vertices[vertices_offset + i].xyz;
+		const vec3 v2 = lights.m.polygon_vertices[vertices_offset + i + 1u].xyz;
+		total_area += 0.5 * length(cross(v1 - v0, v2 - v0));
+	}
+	if (total_area <= 1e-8) {
+		sample_pos = vec3(0.0);
+		inv_area_pdf = 0.0;
+		return false;
+	}
+
+	const float target_area = clamp(sample_random.x, 0.0, 0.99999994) * total_area;
+	float area_prefix = 0.0;
+	vec3 selected_v1 = lights.m.polygon_vertices[vertices_offset + 1u].xyz;
+	vec3 selected_v2 = lights.m.polygon_vertices[vertices_offset + 2u].xyz;
+	for (uint i = 1u; i + 1u < vertices_count; ++i) {
+		const vec3 v1 = lights.m.polygon_vertices[vertices_offset + i].xyz;
+		const vec3 v2 = lights.m.polygon_vertices[vertices_offset + i + 1u].xyz;
+		const float triangle_area = 0.5 * length(cross(v1 - v0, v2 - v0));
+		selected_v1 = v1;
+		selected_v2 = v2;
+		area_prefix += triangle_area;
+		if (target_area <= area_prefix || i + 2u == vertices_count) {
+			break;
+		}
+	}
+
+	const float sqrt_u = sqrt(clamp(sample_random.y, 0.0, 1.0));
+	const float b0 = 1.0 - sqrt_u;
+	const float b1 = sqrt_u * (1.0 - clamp(sample_random.z, 0.0, 1.0));
+	const float b2 = sqrt_u * clamp(sample_random.z, 0.0, 1.0);
+	sample_pos = v0 * b0 + selected_v1 * b1 + selected_v2 * b2;
+	inv_area_pdf = total_area;
 	return true;
 }
 
@@ -443,6 +518,29 @@ bool risEvaluateLight(
 	return evaluated;
 }
 
+bool risEvaluateConcreteSample(
+	RisLightSample light_sample,
+	vec3 sample_random,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	bool visibility_test,
+	out vec3 diffuse,
+	out vec3 specular)
+{
+	vec3 sample_pos;
+	float inv_area_pdf;
+	if (!risSampleAreaPolygon(light_sample.light, sample_random, sample_pos, inv_area_pdf)) {
+		diffuse = vec3(0.0);
+		specular = vec3(0.0);
+		return false;
+	}
+	return risEvaluatePolygonSamplePositionWithInvPdf(
+		light_sample.light, sample_pos, inv_area_pdf, P, N, V, material,
+		visibility_test, diffuse, specular);
+}
+
 bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
 {
 	const PolygonLight poly = light_sample.light;
@@ -485,6 +583,7 @@ bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
 
 #define RIS_COMPUTE_LIGHTING_INIT computePolygonLightingRISInit
 #define RIS_COMPUTE_LIGHTING_APPLY computePolygonLightingRISApply
+#define RIS_COMPUTE_LIGHTING_UNIFIED computePolygonLightingRISUnified
 #define RIS_TEMPORAL_RESET_RANDOM_SALT 0x72737430u
 #define RIS_TEMPORAL_LIFETIME_RANDOM_SALT 0x72737431u
 #define RIS_PRIMARY_MERGE_RANDOM_SALT 0x72737460u
@@ -509,6 +608,14 @@ bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
 
 #ifndef RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE
 #define RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_ris_point_reservoir
+#endif
+
+#ifndef RIS_POINT_OUT_TEMPORAL_RANDOM_IMAGE
+#define RIS_POINT_OUT_TEMPORAL_RANDOM_IMAGE out_temporal_ris_point_random
+#endif
+
+#ifndef RIS_POINT_PREV_TEMPORAL_RANDOM_IMAGE
+#define RIS_POINT_PREV_TEMPORAL_RANDOM_IMAGE prev_temporal_ris_point_random
 #endif
 
 bool risIsPointLightCandidate(uint light_id)
@@ -556,20 +663,20 @@ uint risLightHash(RisLightSample light_sample)
 {
 	const PointLight point_light = light_sample.light;
 	uint hash_value = xxhash32(uvec4(
-		floatBitsToUint(point_light.origin_r2.x),
-		floatBitsToUint(point_light.origin_r2.y),
-		floatBitsToUint(point_light.origin_r2.z),
-		floatBitsToUint(point_light.origin_r2.w)));
+		risQuantizeLightValueForHash(point_light.origin_r2.x),
+		risQuantizeLightValueForHash(point_light.origin_r2.y),
+		risQuantizeLightValueForHash(point_light.origin_r2.z),
+		risQuantizeLightValueForHash(point_light.origin_r2.w)));
 	hash_value ^= xxhash32(uvec4(
-		floatBitsToUint(point_light.color_stopdot.x),
-		floatBitsToUint(point_light.color_stopdot.y),
-		floatBitsToUint(point_light.color_stopdot.z),
-		floatBitsToUint(point_light.color_stopdot.w)));
+		risQuantizeLightValueForHash(point_light.color_stopdot.x),
+		risQuantizeLightValueForHash(point_light.color_stopdot.y),
+		risQuantizeLightValueForHash(point_light.color_stopdot.z),
+		risQuantizeLightValueForHash(point_light.color_stopdot.w)));
 	hash_value ^= xxhash32(uvec4(
-		floatBitsToUint(point_light.dir_stopdot2.x),
-		floatBitsToUint(point_light.dir_stopdot2.y),
-		floatBitsToUint(point_light.dir_stopdot2.z),
-		floatBitsToUint(point_light.dir_stopdot2.w)));
+		risQuantizeLightValueForHash(point_light.dir_stopdot2.x),
+		risQuantizeLightValueForHash(point_light.dir_stopdot2.y),
+		risQuantizeLightValueForHash(point_light.dir_stopdot2.z),
+		risQuantizeLightValueForHash(point_light.dir_stopdot2.w)));
 	hash_value ^= xxhash32(uvec4(
 		point_light.environment,
 		point_light.flashlight,
@@ -581,7 +688,13 @@ uint risLightHash(RisLightSample light_sample)
 #if RIS_INIT_PASS
 RisTemporalReservoir risLoadPreviousTemporalReservoir(ivec2 pix)
 {
-	return risDecodeTemporalReservoir(imageLoad(RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE, pix));
+	RisTemporalReservoir reservoir = risDecodeTemporalReservoir(imageLoad(RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE, pix));
+#if RIS_UNIFIED_PASS
+	const vec4 random_count = imageLoad(RIS_POINT_PREV_TEMPORAL_RANDOM_IMAGE, pix);
+	reservoir.sample_random = clamp(random_count.xyz, vec3(0.0), vec3(1.0));
+	reservoir.sample_count = max(random_count.w, 0.0);
+#endif
+	return risTemporalReservoirValid(reservoir) ? reservoir : risInvalidTemporalReservoir();
 }
 
 #ifdef RIS_REUSE_DIRECT_RESERVOIR
@@ -595,6 +708,10 @@ void risStoreTemporalReservoir(ivec2 pix, RisTemporalReservoir reservoir)
 {
 	const vec4 encoded = risEncodeTemporalReservoir(reservoir);
 	imageStore(RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE, pix, encoded);
+#if RIS_UNIFIED_PASS
+	imageStore(RIS_POINT_OUT_TEMPORAL_RANDOM_IMAGE, pix,
+		risTemporalReservoirValid(reservoir) ? vec4(clamp(reservoir.sample_random, vec3(0.0), vec3(1.0)), reservoir.sample_count) : vec4(0.0));
+#endif
 #ifdef RIS_OUT_REUSE_IMAGE
 	imageStore(RIS_OUT_REUSE_IMAGE, pix, encoded);
 #endif
@@ -602,7 +719,9 @@ void risStoreTemporalReservoir(ivec2 pix, RisTemporalReservoir reservoir)
 
 void risStoreCandidateImageSample(ivec2 pix, RisCandidateImageSample candidate)
 {
+#if !RIS_UNIFIED_PASS
 	imageStore(RIS_POINT_OUT_CANDIDATE_IMAGE, pix, risEncodeCandidateImageSample(candidate));
+#endif
 }
 
 #if RIS_BAYER_SHARED_VISIBILITY
@@ -711,6 +830,7 @@ bool risEvaluatePointReflectionMis(
 
 bool risEvaluatePointLightContribution(
 	PointLight point_light,
+	vec2 sample_random,
 	vec3 P,
 	vec3 N,
 	vec3 V,
@@ -723,7 +843,7 @@ bool risEvaluatePointLightContribution(
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
 
-	const vec2 rnd = vec2(rand01(), rand01());
+	const vec2 rnd = clamp(sample_random, vec2(0.0), vec2(1.0));
 	const vec3 spotlight_dir = point_light.dir_stopdot2.xyz;
 	const bool is_environment = point_light.environment != 0u;
 
@@ -866,7 +986,7 @@ bool risEvaluateLight(
 #if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
 	risSetDirectSpecularMisSelectedLight(true);
 #endif
-	const bool evaluated = risEvaluatePointLightContribution(light_sample.light, P, N, V, material, inv_light_pdf, visibility_test, diffuse, specular);
+	const bool evaluated = risEvaluatePointLightContribution(light_sample.light, vec2(rand01(), rand01()), P, N, V, material, inv_light_pdf, visibility_test, diffuse, specular);
 #if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
 	vec3 reflection_specular;
 	if (risEvaluatePointReflectionMis(light_sample.light, P, N, V, material, inv_light_pdf, reflection_specular)) {
@@ -877,6 +997,22 @@ bool risEvaluateLight(
 	risSetDirectSpecularMisSelectedLight(false);
 #endif
 	return evaluated;
+}
+
+bool risEvaluateConcreteSample(
+	RisLightSample light_sample,
+	vec3 sample_random,
+	vec3 P,
+	vec3 N,
+	vec3 V,
+	MaterialProperties material,
+	bool visibility_test,
+	out vec3 diffuse,
+	out vec3 specular)
+{
+	return risEvaluatePointLightContribution(
+		light_sample.light, sample_random.yz, P, N, V, material, 1.0,
+		visibility_test, diffuse, specular);
 }
 
 void computePointAlwaysSampledLights(
@@ -916,7 +1052,7 @@ void computePointAlwaysSampledLights(
 
 		vec3 candidate_diffuse;
 		vec3 candidate_specular;
-		if (!risEvaluatePointLightContribution(point_light, P, N, V, material, 1.0, true, candidate_diffuse, candidate_specular)) {
+		if (!risEvaluatePointLightContribution(point_light, vec2(rand01(), rand01()), P, N, V, material, 1.0, true, candidate_diffuse, candidate_specular)) {
 			continue;
 		}
 
@@ -932,6 +1068,7 @@ void computePointAlwaysSampledLights(
 
 #define RIS_COMPUTE_LIGHTING_INIT computePointLightingRISInit
 #define RIS_COMPUTE_LIGHTING_APPLY computePointLightingRISApplySamples
+#define RIS_COMPUTE_LIGHTING_UNIFIED computePointLightingRISUnified
 #define RIS_TEMPORAL_RESET_RANDOM_SALT 0x72737440u
 #define RIS_TEMPORAL_LIFETIME_RANDOM_SALT 0x72737441u
 #define RIS_PRIMARY_MERGE_RANDOM_SALT 0x72737450u
@@ -985,6 +1122,7 @@ void computePointAlwaysSampledLights(
 #undef RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES
 #undef RIS_COMPUTE_LIGHTING_INIT
 #undef RIS_COMPUTE_LIGHTING_APPLY
+#undef RIS_COMPUTE_LIGHTING_UNIFIED
 #undef RIS_TEMPORAL_RESET_RANDOM_SALT
 #undef RIS_TEMPORAL_LIFETIME_RANDOM_SALT
 #undef RIS_PRIMARY_MERGE_RANDOM_SALT

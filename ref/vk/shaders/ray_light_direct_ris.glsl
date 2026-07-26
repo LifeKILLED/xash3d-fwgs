@@ -62,7 +62,8 @@ void main() {
 	vec3 flashlight_specular = vec3(0.0);
 
 	const vec3 P = surface_active ? pos_t.xyz + geometry_normal * 0.001 : vec3(0.0);
-	computeLightingRISApply(P, shading_normal, -direction, material, pix, surface_active, diffuse, specular, flashlight_diffuse, flashlight_specular);
+	computeLightingRISUnified(P, geometry_normal, shading_normal, -direction, material, pix, surface_active,
+		diffuse, specular, flashlight_diffuse, flashlight_specular);
 
 	DEBUG_VALIDATE_RANGE_VEC3("direct_ris.diffuse", diffuse, 0.0, 1e6);
 	DEBUG_VALIDATE_RANGE_VEC3("direct_ris.specular", specular, 0.0, 1e6);

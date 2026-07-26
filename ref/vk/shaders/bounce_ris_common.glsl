@@ -206,10 +206,6 @@ bool risFindTemporalHistoryPixel(ivec2 pix, ivec2 surface_pix, vec3 prev_positio
 {
 	history_pix = ivec2(-1);
 
-	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REPROJECTION) != 0) {
-		return false;
-	}
-
 	const uint lane = bounceRisLaneFromPixel(surface_pix);
 	const ivec2 lane_size = bounceRisLaneSize();
 	ivec2 history_center_local_pix;
