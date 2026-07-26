@@ -47,8 +47,13 @@ void risSetDirectSpecularMisRay(ivec2 pix) {}
 
 #define MAX_POLYGON_VERTEX_COUNT 8
 
+#ifndef RIS_POLYGON_LTC_SPECULAR
+#define RIS_POLYGON_LTC_SPECULAR 1
+#endif
+
 #include "utils.glsl"
 #include "peters2021-sampling/polygon_sampling.glsl"
+#include "ltc_polygon.glsl"
 
 #ifndef RIS_POLY_OUT_CANDIDATE_IMAGE
 #define RIS_POLY_OUT_CANDIDATE_IMAGE out_ris_poly_candidate
@@ -504,14 +509,24 @@ bool risEvaluateLight(
 	float inv_area_pdf;
 	if (risSampleSolidPolygon(light_sample.light, P, sample_pos, inv_area_pdf)) {
 		evaluated = risEvaluatePolygonSamplePositionWithInvPdf(light_sample.light, sample_pos, inv_light_pdf * inv_area_pdf, P, N, V, material, visibility_test, diffuse, specular);
+	#if RIS_POLYGON_LTC_SPECULAR
+		if (evaluated) {
+			// Integrate the complete GGX lobe over the polygon. The random area
+			// sample remains responsible for diffuse and the visibility decision;
+			// only the discrete-light PDF applies to the analytic LTC result.
+			specular = ltcPolygonSpecular(light_sample.light, P, N, V, material) * inv_light_pdf;
+		}
+	#endif
 	}
 
-#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
+#if RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS && !RIS_POLYGON_LTC_SPECULAR
 	vec3 reflection_specular;
 	if (risEvaluatePolygonReflectionMis(light_sample.light, inv_light_pdf, P, N, V, material, reflection_specular)) {
 		specular += reflection_specular;
 		evaluated = true;
 	}
+	risSetDirectSpecularMisSelectedLight(false);
+#elif RIS_APPLY_PASS && RIS_DIRECT_SPECULAR_MIS
 	risSetDirectSpecularMisSelectedLight(false);
 #endif
 
@@ -536,9 +551,15 @@ bool risEvaluateConcreteSample(
 		specular = vec3(0.0);
 		return false;
 	}
-	return risEvaluatePolygonSamplePositionWithInvPdf(
+	const bool evaluated = risEvaluatePolygonSamplePositionWithInvPdf(
 		light_sample.light, sample_pos, inv_area_pdf, P, N, V, material,
 		visibility_test, diffuse, specular);
+	#if RIS_POLYGON_LTC_SPECULAR
+	if (evaluated) {
+		specular = ltcPolygonSpecular(light_sample.light, P, N, V, material);
+	}
+	#endif
+	return evaluated;
 }
 
 bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)

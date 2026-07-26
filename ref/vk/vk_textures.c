@@ -51,10 +51,28 @@ static struct {
 	// TODO is this used as vk_texture_t object anywhere after loading?
 	vk_texture_t blue_noise;
 	sampled_image_resource_t blue_noise_resource;
+
+	vk_texture_t ltc_lut[2];
+	sampled_image_resource_t ltc_lut_resource[2];
+	Producer immutable_texture_producer;
 } g_vktextures;
 
 static VkSampler pickSamplerForFlags( texFlags_t flags );
 static qboolean uploadTexture(int index, vk_texture_t *tex, const rgbdata_t *layers, colorspace_hint_e colorspace_hint);
+
+static void produceImmutableTextures(struct Producer* producer, struct vk_combuf_s *combuf, const FrameContext *ctx) {
+	(void)producer;
+	(void)combuf;
+	(void)ctx;
+}
+
+static const unsigned char g_ltc_lut_matrix_data[] = {
+#include "ltc_lut_1.inc"
+};
+
+static const unsigned char g_ltc_lut_amplitude_data[] = {
+#include "ltc_lut_2.inc"
+};
 
 static vk_descriptor_value_t acquireSampledImageDescriptor(struct rt_resource_s* r, vk_resource_acquire_descriptor_args_t args) {
 	sampled_image_resource_t *const res = (void*)r;
@@ -171,6 +189,68 @@ static void loadBlueNoiseTextures(void) {
 	}
 }
 
+static void loadLtcLookupTextures(void) {
+	static const char *const texture_names[2] = {
+		"*ltc_lut_matrix",
+		"*ltc_lut_amplitude",
+	};
+	static const char *const resource_names[2] = {
+		"ltc_lut_matrix",
+		"ltc_lut_amplitude",
+	};
+	static const struct {
+		const unsigned char *data;
+		size_t size;
+	} tables[2] = {
+		{ g_ltc_lut_matrix_data, sizeof(g_ltc_lut_matrix_data) },
+		{ g_ltc_lut_amplitude_data, sizeof(g_ltc_lut_amplitude_data) },
+	};
+
+	for (int i = 0; i < 2; ++i) {
+		ASSERT(tables[i].size == 64u * 64u * 4u * sizeof(uint16_t));
+
+		vk_texture_t *const texture = &g_vktextures.ltc_lut[i];
+		Q_strncpy(texture->hdr_.key, texture_names[i], sizeof(texture->hdr_.key));
+		texture->flags = TF_NOMIPMAP | TF_CLAMP;
+		texture->width = 64;
+		texture->height = 64;
+		texture->depth = 1;
+		texture->total_size = (int)tables[i].size;
+
+		const r_vk_image_create_t create = {
+			.debug_name = texture_names[i],
+			.width = 64,
+			.height = 64,
+			.depth = 1,
+			.mips = 1,
+			.layers = 1,
+			.format = VK_FORMAT_R16G16B16A16_SFLOAT,
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		};
+		texture->vk.image = R_VkImageCreate(&create);
+		R_VkImageUploadBegin(&texture->vk.image);
+		R_VkImageUploadSlice(&texture->vk.image, 0, 0, (int)tables[i].size, tables[i].data);
+		R_VkImageUploadEnd(&texture->vk.image);
+
+		g_vktextures.ltc_lut_resource[i] = (sampled_image_resource_t) {
+			.header = {
+				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.acquire_descriptor = acquireSampledImageDescriptor,
+				.producer = &g_vktextures.immutable_texture_producer,
+				.refcount = 1,
+			},
+			.image = &texture->vk.image,
+		};
+		Q_strncpy(g_vktextures.ltc_lut_resource[i].header.name, resource_names[i],
+			sizeof(g_vktextures.ltc_lut_resource[i].header.name));
+		ASSERT(R_VkResourceRegister(&g_vktextures.ltc_lut_resource[i].header));
+
+		g_vktextures.stats.size_total += texture->total_size;
+		g_vktextures.stats.count++;
+	}
+}
+
 static void produceSkybox(struct Producer* p, struct vk_combuf_s *combuf, const FrameContext *ctx) {
 	ASSERT(p == &g_vktextures.skybox_producer);
 
@@ -191,6 +271,10 @@ qboolean R_VkTexturesInit( void ) {
 
 	g_vktextures.default_sampler = pickSamplerForFlags(0);
 	ASSERT(g_vktextures.default_sampler != VK_NULL_HANDLE);
+	g_vktextures.immutable_texture_producer = (Producer) {
+		.name = "immutable textures",
+		.produce = produceImmutableTextures,
+	};
 
 	/* FIXME
 	// validate cvars
@@ -247,8 +331,10 @@ qboolean R_VkTexturesInit( void ) {
 		ASSERT(R_VkResourceRegister(&g_vktextures.skybox_resource.header));
 	}
 
-	if (vk_core.rtx)
+	if (vk_core.rtx) {
 		loadBlueNoiseTextures();
+		loadLtcLookupTextures();
+	}
 
 	return true;
 }
@@ -260,8 +346,11 @@ void R_VkTexturesShutdown( void ) {
 		R_VkTextureDestroy(-1, g_vktextures.skybox + i);
 	}
 
-	if (vk_core.rtx)
+	if (vk_core.rtx) {
 		R_VkTextureDestroy(-1, &g_vktextures.blue_noise);
+		for (int i = 0; i < COUNTOF(g_vktextures.ltc_lut); ++i)
+			R_VkTextureDestroy(-1, &g_vktextures.ltc_lut[i]);
+	}
 
 	for (int i = 0; i < COUNTOF(g_vktextures.samplers); ++i) {
 		if (g_vktextures.samplers[i].sampler != VK_NULL_HANDLE)
