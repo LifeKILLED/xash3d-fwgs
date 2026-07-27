@@ -14,12 +14,11 @@
 #define RIS_APPLY_SPATIAL_REUSE 0
 #endif
 
-// Store RIS init reservoirs/candidates in the upper-left half-resolution
-// region of the existing full-size images. Apply remains full resolution.
-// Direct-light reservoirs are consumed by secondary RIS init passes. Keep
-// their addressing independent from the consumer's own init resolution.
+// Direct-light reservoirs are consumed by secondary RIS passes. Keep their
+// addressing independent from the consumer's own resolution and default the
+// producer/consumer contract to one reservoir per full-resolution texel.
 #ifndef RIS_DIRECT_INIT_HALF_RES
-#define RIS_DIRECT_INIT_HALF_RES 1
+#define RIS_DIRECT_INIT_HALF_RES 0
 #endif
 
 #ifndef RIS_INIT_HALF_RES
