@@ -10,6 +10,10 @@
 #define RIS_SIMPLIFIED_RESAMPLING 0
 #endif
 
+#ifndef REJECT_MAG_REPROJECTION
+#define REJECT_MAG_REPROJECTION 0
+#endif
+
 #if !defined(RIS_LOAD_LIGHT)
 #error RIS_LOAD_LIGHT must be defined before including light_ris_template.glsl
 #endif
@@ -127,6 +131,47 @@ bool RIS_LOAD_PREVIOUS_RESERVOIR(
 }
 
 #if RIS_UNIFIED_PASS
+#if REJECT_MAG_REPROJECTION
+#if defined(RIS_CUSTOM_TEMPORAL_HISTORY)
+#error REJECT_MAG_REPROJECTION is only supported by direct lighting
+#endif
+
+bool risAcceptMagnificationReprojection(ivec2 pix, ivec2 history_pix)
+{
+	const ivec2 neighbor_offsets[4] = ivec2[](
+		ivec2(-1, 0),
+		ivec2( 1, 0),
+		ivec2( 0,-1),
+		ivec2( 0, 1));
+	uint collision_count = 0u;
+
+	for (int tap = 0; tap < 4; ++tap) {
+		const ivec2 neighbor_pix = pix + neighbor_offsets[tap];
+		if (!risPixelInBounds(neighbor_pix) || imageLoad(position_t, neighbor_pix).w <= 0.0) {
+			continue;
+		}
+
+		const vec3 neighbor_prev_position =
+			RIS_LOAD_TEMPORAL_REFERENCE_POSITION(neighbor_pix);
+		const vec3 neighbor_geometry_N =
+			normalDecode(imageLoad(normals_gs, neighbor_pix).xy);
+		ivec2 neighbor_history_pix;
+		if (risFindTemporalHistoryPixel(
+			neighbor_pix,
+			neighbor_pix,
+			neighbor_prev_position,
+			neighbor_geometry_N,
+			neighbor_history_pix) &&
+			all(equal(neighbor_history_pix, history_pix))) {
+			collision_count += 1u;
+		}
+	}
+
+	const float acceptance_probability = 1.0 / float(collision_count + 1u);
+	return risTemporalRandom01(pix, 0x6d616700u) < acceptance_probability;
+}
+#endif
+
 #if RIS_SPLIT_LOBE_RESERVOIRS
 #if !defined(RIS_SPLIT_OUT_SPECULAR_RESERVOIR_IMAGE) || !defined(RIS_SPLIT_PREV_SPECULAR_RESERVOIR_IMAGE) || !defined(RIS_SPLIT_OUT_SPECULAR_RANDOM_IMAGE) || !defined(RIS_SPLIT_PREV_SPECULAR_RANDOM_IMAGE)
 #error Split lobe reservoirs require specular reservoir and random images
@@ -361,7 +406,11 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 	if (ris_active) {
 		const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(surface_pix);
 		ivec2 history_pix;
-		if (risFindTemporalHistoryPixel(pix, surface_pix, prev_position, geometry_N, history_pix)) {
+		if (risFindTemporalHistoryPixel(pix, surface_pix, prev_position, geometry_N, history_pix)
+		#if REJECT_MAG_REPROJECTION
+			&& risAcceptMagnificationReprojection(pix, history_pix)
+		#endif
+		) {
 		#if defined(RIS_CUSTOM_TEMPORAL_HISTORY)
 			const vec3 confidence_N = N;
 		#else
