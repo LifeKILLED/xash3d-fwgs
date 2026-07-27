@@ -118,6 +118,13 @@ const float shadow_offset_fudge = .1;
 #define RIS_APPLY_VISIBILITY_TEST 1
 #endif
 
+// Clamp only the final normalized reservoir multiplier applied to shaded
+// radiance. This never changes reservoir selection, accumulated mass, M,
+// temporal reweighting, or the data persisted for the next frame.
+#ifndef RIS_SHADE_RESERVOIR_WEIGHT_MAX
+#define RIS_SHADE_RESERVOIR_WEIGHT_MAX 3.0
+#endif
+
 #ifndef RIS_TEMPORAL_RANDOM_RESET_PROBABILITY
 // Independent Bernoulli lifetime reset; this is random rather than a periodic
 // reset tied to reservoir age.

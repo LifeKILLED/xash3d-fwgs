@@ -367,8 +367,14 @@ bool risShadeUnifiedReservoir(
 
 	selected_diffuse *= inv_discrete_light_pdf;
 	selected_specular *= inv_discrete_light_pdf;
-	const float reservoir_weight = reservoir.weight_sum /
+
+	const float normalized_reservoir_weight = reservoir.weight_sum /
 		max(reservoir.sample_count * reservoir.mixed_weight, RIS_WEIGHT_EPSILON);
+
+	const float reservoir_weight = min(
+		normalized_reservoir_weight,
+		float(RIS_SHADE_RESERVOIR_WEIGHT_MAX));
+
 	selected_diffuse *= reservoir_weight;
 	selected_specular *= reservoir_weight;
 	return true;
