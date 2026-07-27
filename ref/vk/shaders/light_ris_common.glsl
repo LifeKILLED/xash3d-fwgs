@@ -122,13 +122,13 @@ const float shadow_offset_fudge = .1;
 // radiance. This never changes reservoir selection, accumulated mass, M,
 // temporal reweighting, or the data persisted for the next frame.
 #ifndef RIS_SHADE_RESERVOIR_WEIGHT_MAX
-#define RIS_SHADE_RESERVOIR_WEIGHT_MAX 3.0
+#define RIS_SHADE_RESERVOIR_WEIGHT_MAX 5.0
 #endif
 
 #ifndef RIS_TEMPORAL_RANDOM_RESET_PROBABILITY
 // Independent Bernoulli lifetime reset; this is random rather than a periodic
 // reset tied to reservoir age.
-#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 20.0)
+#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 100.0)
 #endif
 
 #ifndef RIS_TEMPORAL_SHADING_CONFIDENCE_DELTA
