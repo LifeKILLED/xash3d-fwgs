@@ -4,7 +4,7 @@
 #include "std/arrays.h"
 
 #define MAX_BUFFER_BARRIERS 16
-#define MAX_IMAGE_BARRIERS 32
+#define MAX_IMAGE_BARRIERS 64
 
 struct vk_combuf_s;
 
