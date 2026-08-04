@@ -400,7 +400,15 @@ void main()
 		// bounce_path_legacy_blending pass. Keep path generation independent
 		// from those additional rays.
 		const vec3 stage_throughput = vec3(1.0);
-		const vec3 emissive = max(payload.emissive.rgb, vec3(0.0));
+		vec3 emissive = max(payload.emissive.rgb, vec3(0.0));
+#if BOUNCE_PATH_EXCLUDE_EMISSIVE_SURFACE_HITS
+		// Keep environment radiance for misses, but suppress direct BSDF hits
+		// on emissive geometry. The following legacy-blending pass runs after
+		// this pass and can still add its own emission to this lane.
+		if (did_hit) {
+			emissive = vec3(0.0);
+		}
+#endif
 
 		storeFreshLane(
 			bouncePathAtlasPixel(local_pix, bounce),

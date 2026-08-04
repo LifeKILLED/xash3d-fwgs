@@ -52,4 +52,16 @@
 #define BOUNCE_PATH_MAX_OUTPUT_WEIGHT 32.0
 #endif
 
+// Ignore direct intersections with emissive opaque/alpha-tested surfaces when
+// constructing the compound bounce contribution. Those surfaces are already
+// represented by point/polygon light sampling, so accepting a rare BSDF hit
+// can create bright, long-lived fireflies in the temporal path reservoir.
+//
+// This affects only emissive radiance returned by a committed geometry hit.
+// Sky radiance on a miss is preserved, and the later legacy-blending pass may
+// still add translucent/legacy emission into the same path lane.
+#ifndef BOUNCE_PATH_EXCLUDE_EMISSIVE_SURFACE_HITS
+#define BOUNCE_PATH_EXCLUDE_EMISSIVE_SURFACE_HITS 1
+#endif
+
 #endif // BOUNCE_PATH_CONFIG_GLSL_INCLUDED
