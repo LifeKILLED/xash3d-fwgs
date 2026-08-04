@@ -1,0 +1,429 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query : require
+
+// Builds one fresh four-segment diffuse path and reprojects one historical compound path.
+// History maintenance validates one transport segment per frame.
+#include "debug.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define RAY_BOUNCE
+#define RAY_QUERY
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+layout(set = 0, binding = 7) uniform samplerCube skybox;
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
+
+layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_bounce_path_fresh_throughput;
+layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_bounce_path_fresh_hit_pos;
+layout(set = 0, binding = 22, rgba16f) uniform writeonly image2D out_bounce_path_fresh_normals_gs;
+layout(set = 0, binding = 23, rgba8) uniform writeonly image2D out_bounce_path_fresh_material_rmxx;
+layout(set = 0, binding = 24, rgba8) uniform writeonly image2D out_bounce_path_fresh_base_color_a;
+layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_bounce_path_fresh_view_dir;
+layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_bounce_path_fresh_emissive;
+layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_bounce_path_fresh_ray_origin_length;
+layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_bounce_path_fresh_meta;
+layout(set = 0, binding = 29, rgba32f) uniform writeonly image2D out_bounce_path_history_ref;
+
+layout(set = 0, binding = 40, rgba16f) uniform readonly image2D prev_temporal_bounce_path_throughput;
+layout(set = 0, binding = 41, rgba32f) uniform readonly image2D prev_temporal_bounce_path_hit_pos;
+layout(set = 0, binding = 42, rgba16f) uniform readonly image2D prev_temporal_bounce_path_normals_gs;
+layout(set = 0, binding = 43, rgba16f) uniform readonly image2D prev_temporal_bounce_path_view_dir;
+layout(set = 0, binding = 44, rgba32f) uniform readonly image2D prev_temporal_bounce_path_ray_origin_length;
+layout(set = 0, binding = 45, rgba32f) uniform readonly image2D prev_temporal_bounce_path_meta;
+
+layout(set = 0, binding = 50, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 51, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 52, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 53, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+
+#include "ray_primary_common.glsl"
+#include "ray_primary_hit.glsl"
+#include "noise.glsl"
+#include "brdf.glsl"
+#define BOUNCE_PATH_COORDS_ONLY 1
+#include "bounce_path_common.glsl"
+#undef BOUNCE_PATH_COORDS_ONLY
+#include "skybox.glsl"
+
+const float shadow_offset_fudge = 0.1;
+#include "light_common.glsl"
+
+#define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
+#define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+#include "temporal_reprojection.glsl"
+#undef TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE
+#undef LOAD_REFLECTION_RAY_LENGTH
+
+const float BOUNCE_PATH_RAY_NORMAL_OFFSET = 0.01;
+
+vec3 offsetBouncePathRayOrigin(vec3 hit_pos, vec3 geometry_normal, vec3 direction, float eps)
+{
+	const float normal_sign = dot(geometry_normal, direction) >= 0.0 ? 1.0 : -1.0;
+	return hit_pos + geometry_normal * (eps * normal_sign);
+}
+
+bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload)
+{
+	rayQueryEXT rq;
+	const uint flags = gl_RayFlagsCullFrontFacingTrianglesEXT;
+	const float ray_length = 10000.0;
+	rayQueryInitializeEXT(rq, tlas, flags, GEOMETRY_BIT_OPAQUE | GEOMETRY_BIT_ALPHA_TEST, origin, 0.0, direction, ray_length);
+	while (rayQueryProceedEXT(rq)) {
+		if (0u != (rayQueryGetRayFlagsEXT(rq) & gl_RayFlagsOpaqueEXT)) {
+			continue;
+		}
+
+		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
+		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
+		if (texture_color.a >= 0.1) {
+			rayQueryConfirmIntersectionEXT(rq);
+		}
+	}
+
+	if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+		payload.hit_t = vec4(vec3(0.0), ray_length);
+		payload.emissive.rgb = sampleSkybox(direction);
+		return false;
+	}
+
+	payload.emissive.rgb = vec3(0.0);
+	primaryRayHit(rq, payload);
+	if (payload.hit_t.w < 0.0) {
+		payload.hit_t.w = -payload.hit_t.w;
+		return false;
+	}
+	return true;
+}
+
+void clearFreshLane(ivec2 pix)
+{
+	imageStore(out_bounce_path_fresh_throughput, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_hit_pos, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_normals_gs, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_material_rmxx, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_base_color_a, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_view_dir, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_emissive, pix, vec4(0.0));
+	imageStore(out_bounce_path_fresh_ray_origin_length, pix, vec4(0.0));
+}
+
+void storeFreshLane(
+	ivec2 pix,
+	RayPayloadPrimary payload,
+	bool did_hit,
+	vec3 stage_throughput,
+	vec3 emissive,
+	vec3 view_dir,
+	vec3 ray_origin,
+	float ray_length)
+{
+	imageStore(out_bounce_path_fresh_throughput, pix, vec4(stage_throughput, float(BRDF_TYPE_DIFFUSE)));
+	imageStore(out_bounce_path_fresh_hit_pos, pix, did_hit ? payload.hit_t : vec4(0.0));
+	imageStore(out_bounce_path_fresh_normals_gs, pix, did_hit ? payload.normals_gs : vec4(0.0));
+	imageStore(out_bounce_path_fresh_material_rmxx, pix, did_hit ? payload.material_rmxx : vec4(0.0));
+	imageStore(out_bounce_path_fresh_base_color_a, pix, did_hit ? LINEARtoSRGB(payload.base_color_a) : vec4(0.0));
+	imageStore(out_bounce_path_fresh_view_dir, pix, vec4(view_dir, 0.0));
+	imageStore(out_bounce_path_fresh_emissive, pix, vec4(emissive, 0.0));
+	imageStore(out_bounce_path_fresh_ray_origin_length, pix, vec4(ray_origin, ray_length));
+}
+
+bool validateHistoryTransportSegment(
+	ivec2 history_local_pix,
+	uint segment_index,
+	uint path_length,
+	vec3 current_primary_pos,
+	vec3 current_primary_geometry_N,
+	vec3 current_primary_transport_N)
+{
+	if (segment_index >= path_length) {
+		return false;
+	}
+
+	const ivec2 segment_pix = bouncePathAtlasPixel(history_local_pix, segment_index);
+	vec3 origin;
+	vec3 direction;
+	float distance_to_end;
+
+	const vec4 end_pos_t = imageLoad(prev_temporal_bounce_path_hit_pos, segment_pix);
+	if (segment_index == 0u) {
+		if (end_pos_t.w > 0.0) {
+			const vec3 delta = end_pos_t.xyz - current_primary_pos;
+			distance_to_end = length(delta);
+			if (distance_to_end <= 1e-4) {
+				return false;
+			}
+			direction = delta / distance_to_end;
+			if (dot(current_primary_transport_N, direction) <= 1e-5 ||
+				dot(current_primary_geometry_N, direction) <= 1e-5) {
+				return false;
+			}
+			origin = offsetBouncePathRayOrigin(current_primary_pos, current_primary_geometry_N, direction, BOUNCE_PATH_RAY_NORMAL_OFFSET);
+		} else {
+			const vec3 stored_view = imageLoad(prev_temporal_bounce_path_view_dir, segment_pix).xyz;
+			const vec4 old_origin_length = imageLoad(prev_temporal_bounce_path_ray_origin_length, segment_pix);
+			if (dot(stored_view, stored_view) <= 1e-6 || old_origin_length.w <= 0.0) {
+				return false;
+			}
+			direction = -normalize(stored_view);
+			distance_to_end = old_origin_length.w;
+			if (dot(current_primary_transport_N, direction) <= 1e-5 ||
+				dot(current_primary_geometry_N, direction) <= 1e-5) {
+				return false;
+			}
+			origin = offsetBouncePathRayOrigin(current_primary_pos, current_primary_geometry_N, direction, BOUNCE_PATH_RAY_NORMAL_OFFSET);
+		}
+	} else {
+		const vec4 old_origin_length = imageLoad(prev_temporal_bounce_path_ray_origin_length, segment_pix);
+		const vec3 stored_view = imageLoad(prev_temporal_bounce_path_view_dir, segment_pix).xyz;
+		if (old_origin_length.w <= 0.0 || dot(stored_view, stored_view) <= 1e-6) {
+			return false;
+		}
+		origin = old_origin_length.xyz;
+		direction = -normalize(stored_view);
+		distance_to_end = old_origin_length.w;
+	}
+
+	if (end_pos_t.w > 0.0) {
+		const vec4 end_packed_normals = imageLoad(prev_temporal_bounce_path_normals_gs, segment_pix);
+		const vec3 end_geometry_N = normalDecode(end_packed_normals.xy);
+		const vec3 end_shading_N = normalDecode(end_packed_normals.zw);
+		const vec3 end_transport_N = bouncePathTransportNormal(end_geometry_N, end_shading_N);
+		if (dot(end_geometry_N, -direction) <= 1e-5 ||
+			dot(end_transport_N, -direction) <= 1e-5) {
+			return false;
+		}
+	}
+
+	return !shadowed(origin, direction, distance_to_end);
+}
+
+bool bouncePathAcceptMagnificationReprojection(ivec2 local_pix, ivec2 history_local_pix)
+{
+#if BOUNCE_PATH_REJECT_MAG_REPROJECTION
+	const ivec2 neighbor_offsets[4] = ivec2[](
+		ivec2(-1, 0),
+		ivec2( 1, 0),
+		ivec2( 0,-1),
+		ivec2( 0, 1));
+	uint collision_count = 0u;
+
+	for (int tap = 0; tap < 4; ++tap) {
+		const ivec2 neighbor_local_pix = local_pix + neighbor_offsets[tap];
+		if (!bouncePathLocalPixelInBounds(neighbor_local_pix)) {
+			continue;
+		}
+
+		ivec2 neighbor_history_local_pix;
+		if (reprojectHalfResAtlasPrimaryPlanePixelLegacy(
+			neighbor_local_pix,
+			bouncePathLaneSize(),
+			ubo.ubo.asvgf.indirect_diffuse,
+			neighbor_history_local_pix) &&
+			all(equal(neighbor_history_local_pix, history_local_pix))) {
+			collision_count += 1u;
+		}
+	}
+
+	const float acceptance_probability = 1.0 / float(collision_count + 1u);
+	const float random_value = uintToFloat01(xxhash32(uvec4(
+		uint(local_pix.x),
+		uint(local_pix.y),
+		ubo.ubo.random_seed,
+		0x626d6167u)));
+	return random_value < acceptance_probability;
+#else
+	return true;
+#endif
+}
+
+vec4 findAndValidateHistory(
+	ivec2 local_pix,
+	vec3 current_primary_pos,
+	vec3 current_primary_geometry_N,
+	vec3 current_primary_transport_N)
+{
+	ivec2 history_local_pix;
+	if (!reprojectHalfResAtlasPrimaryPlanePixelLegacy(
+		local_pix,
+		bouncePathLaneSize(),
+		ubo.ubo.asvgf.indirect_diffuse,
+		history_local_pix)) {
+		return vec4(0.0);
+	}
+
+	if (!bouncePathAcceptMagnificationReprojection(local_pix, history_local_pix)) {
+		return vec4(0.0);
+	}
+
+	const vec4 history_meta = imageLoad(prev_temporal_bounce_path_meta, history_local_pix);
+	const uint path_length = bouncePathLengthFromMeta(history_meta);
+	const uint age = bouncePathAgeFromMeta(history_meta);
+	if (path_length == 0u ||
+		(BOUNCE_PATH_MAX_HISTORY_AGE > 0u && age >= BOUNCE_PATH_MAX_HISTORY_AGE)) {
+		return vec4(0.0);
+	}
+
+	const uint path_seed = bouncePathUnpackSeed(history_meta.xy);
+	const uint segment = bouncePathScheduledSegment(path_seed, local_pix, age, path_length);
+	if (!validateHistoryTransportSegment(
+		history_local_pix,
+		segment,
+		path_length,
+		current_primary_pos,
+		current_primary_geometry_N,
+		current_primary_transport_N)) {
+		return vec4(0.0);
+	}
+
+	uint light_vertex_count = 0u;
+	for (uint lane = 0u; lane < path_length; ++lane) {
+		const ivec2 lane_pix = bouncePathAtlasPixel(history_local_pix, lane);
+		if (imageLoad(prev_temporal_bounce_path_hit_pos, lane_pix).w <= 0.0) {
+			break;
+		}
+		light_vertex_count += 1u;
+	}
+	const uint refresh_slot = bouncePathScheduledLightSlot(
+		path_seed, local_pix, age, light_vertex_count);
+	return vec4(vec2(history_local_pix), 1.0, float(refresh_slot));
+}
+
+void main()
+{
+	const ivec2 local_pix = ivec2(gl_GlobalInvocationID.xy);
+	if (!bouncePathLocalPixelInBounds(local_pix)) {
+		return;
+	}
+
+	for (uint lane = 0u; lane < BOUNCE_PATH_MAX_VERTICES; ++lane) {
+		clearFreshLane(bouncePathAtlasPixel(local_pix, lane));
+	}
+	imageStore(out_bounce_path_fresh_meta, local_pix, vec4(0.0));
+	imageStore(out_bounce_path_history_ref, local_pix, vec4(0.0));
+
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) != 0u) {
+		return;
+	}
+
+	const ivec2 primary_pix = local_pix * 2;
+	if (any(greaterThanEqual(primary_pix, ubo.ubo.res))) {
+		return;
+	}
+
+	const vec4 primary_pos_t = imageLoad(position_t, primary_pix);
+	if (primary_pos_t.w <= 0.0) {
+		return;
+	}
+
+	const vec4 primary_packed_normals = imageLoad(normals_gs, primary_pix);
+	const vec3 primary_geometry_N = normalDecode(primary_packed_normals.xy);
+	const vec3 primary_shading_N = normalDecode(primary_packed_normals.zw);
+	const vec3 primary_transport_N = bouncePathTransportNormal(primary_geometry_N, primary_shading_N);
+	imageStore(out_bounce_path_history_ref, local_pix,
+		findAndValidateHistory(
+			local_pix,
+			primary_pos_t.xyz,
+			primary_geometry_N,
+			primary_transport_N));
+
+	const uint path_seed = xxhash32(uvec4(
+		ubo.ubo.random_seed,
+		uint(local_pix.x),
+		uint(local_pix.y),
+		0x66726573u));
+	rand01_state = path_seed;
+
+	vec3 current_pos = primary_pos_t.xyz;
+	vec3 current_geometry_N = primary_geometry_N;
+	vec3 current_shading_N = primary_shading_N;
+	vec3 current_transport_N = primary_transport_N;
+	uint path_length = 0u;
+
+	for (uint bounce = 0u; bounce < BOUNCE_PATH_MAX_VERTICES; ++bounce) {
+		vec3 direction = vec3(0.0);
+		bool direction_valid = false;
+		// A normal map can tilt its hemisphere partly below the real polygon.
+		// Retry a few dimensions, then fall back to geometry-normal sampling.
+		for (uint attempt = 0u; attempt < 4u; ++attempt) {
+			direction = sampleCosineHemisphereAroundVectorUnnormalized(
+				vec2(rand01(), rand01()), current_transport_N);
+			if (dot(direction, direction) <= 1e-6 || any(isnan(direction))) {
+				continue;
+			}
+			direction = normalize(direction);
+			if (dot(direction, current_transport_N) > 1e-5 &&
+				dot(direction, current_geometry_N) > 1e-5) {
+				direction_valid = true;
+				break;
+			}
+		}
+		if (!direction_valid) {
+			direction = sampleCosineHemisphereAroundVectorUnnormalized(
+				vec2(rand01(), rand01()), current_geometry_N);
+			direction_valid = dot(direction, direction) > 1e-6 && !any(isnan(direction));
+			if (direction_valid) {
+				direction = normalize(direction);
+				direction_valid = dot(direction, current_geometry_N) > 1e-5;
+			}
+		}
+		if (!direction_valid) {
+			break;
+		}
+
+		RayPayloadPrimary payload;
+		payload.base_color_a = vec4(0.0);
+		payload.emissive = vec4(0.0);
+		payload.material_rmxx = vec4(0.0);
+		payload.normals_gs = vec4(0.0);
+		payload.hit_t = vec4(0.0);
+		payload.prev_pos_t = vec4(0.0);
+
+		const vec3 ray_origin = offsetBouncePathRayOrigin(
+			current_pos, current_geometry_N, direction, BOUNCE_PATH_RAY_NORMAL_OFFSET);
+		const bool did_hit = traceBouncePathHit(ray_origin, direction, payload);
+
+		// Legacy translucent/blended geometry is composited by the dedicated
+		// bounce_path_legacy_blending pass. Keep path generation independent
+		// from those additional rays.
+		const vec3 stage_throughput = vec3(1.0);
+		const vec3 emissive = max(payload.emissive.rgb, vec3(0.0));
+
+		storeFreshLane(
+			bouncePathAtlasPixel(local_pix, bounce),
+			payload,
+			did_hit,
+			stage_throughput,
+			emissive,
+			-direction,
+			ray_origin,
+			payload.hit_t.w);
+		path_length = bounce + 1u;
+
+		if (!did_hit) {
+			break;
+		}
+
+		current_pos = payload.hit_t.xyz;
+		current_geometry_N = normalDecode(payload.normals_gs.xy);
+		current_shading_N = normalDecode(payload.normals_gs.zw);
+		current_transport_N = bouncePathTransportNormal(current_geometry_N, current_shading_N);
+	}
+
+	const vec2 packed_seed = bouncePathPackSeed(path_seed);
+	imageStore(out_bounce_path_fresh_meta, local_pix,
+		vec4(packed_seed, float(path_length), path_length > 0u ? 1.0 : 0.0));
+}

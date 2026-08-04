@@ -1,0 +1,71 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_control_flow_attributes : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+layout(set = 0, binding = 7) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout(set = 0, binding = 8, align = 1) readonly buffer UBOLightClusters { LightCluster clusters_[MAX_LIGHT_CLUSTERS]; } light_grid;
+
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D bounce_path_fresh_throughput;
+layout(set = 0, binding = 11, rgba32f) uniform readonly image2D bounce_path_fresh_hit_pos;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D bounce_path_fresh_normals_gs;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D bounce_path_fresh_base_color_a;
+layout(set = 0, binding = 14, rgba16f) uniform readonly image2D bounce_path_fresh_view_dir;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D bounce_path_fresh_emissive;
+layout(set = 0, binding = 16, rgba32f) uniform readonly image2D bounce_path_fresh_meta;
+layout(set = 0, binding = 17, rgba32f) uniform readonly image2D bounce_path_history_ref;
+
+layout(set = 0, binding = 20, rgba16f) uniform readonly image2D prev_temporal_bounce_path_throughput;
+layout(set = 0, binding = 21, rgba32f) uniform readonly image2D prev_temporal_bounce_path_hit_pos;
+layout(set = 0, binding = 22, rgba16f) uniform readonly image2D prev_temporal_bounce_path_normals_gs;
+layout(set = 0, binding = 23, rgba8) uniform readonly image2D prev_temporal_bounce_path_base_color_a;
+layout(set = 0, binding = 24, rgba16f) uniform readonly image2D prev_temporal_bounce_path_view_dir;
+layout(set = 0, binding = 25, rgba16f) uniform readonly image2D prev_temporal_bounce_path_emissive;
+layout(set = 0, binding = 26, rgba32f) uniform readonly image2D prev_temporal_bounce_path_meta;
+layout(set = 0, binding = 27, rgba32f) uniform readonly image2D prev_temporal_bounce_path_point_reservoir;
+layout(set = 0, binding = 28, rgba32f) uniform readonly image2D prev_temporal_bounce_path_point_random;
+layout(set = 0, binding = 29, rgba32f) uniform readonly image2D regir_onion_point;
+
+layout(set = 0, binding = 30, rgba32f) uniform writeonly image2D out_bounce_path_point_fresh_reservoir;
+layout(set = 0, binding = 31, rgba32f) uniform writeonly image2D out_bounce_path_point_fresh_random;
+layout(set = 0, binding = 32, rgba16f) uniform writeonly image2D out_bounce_path_point_fresh_light;
+layout(set = 0, binding = 33, rgba32f) uniform writeonly image2D out_bounce_path_point_history_reservoir;
+layout(set = 0, binding = 34, rgba32f) uniform writeonly image2D out_bounce_path_point_history_random;
+layout(set = 0, binding = 35, rgba16f) uniform writeonly image2D out_bounce_path_point_history_light;
+
+layout(set = 0, binding = 40, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 41, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 42, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 43, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
+layout(set = 0, binding = 50, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 51, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 52, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 53, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+
+#define RAY_QUERY
+#define LIGHT_POINT 1
+#define REGIR_ONION_IMAGE regir_onion_point
+#define RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE out_bounce_path_point_fresh_reservoir
+#define RIS_POINT_PREV_TEMPORAL_RESERVOIR_IMAGE prev_temporal_bounce_path_point_reservoir
+#define RIS_POINT_OUT_TEMPORAL_RANDOM_IMAGE out_bounce_path_point_fresh_random
+#define RIS_POINT_PREV_TEMPORAL_RANDOM_IMAGE prev_temporal_bounce_path_point_random
+#define BOUNCE_PATH_LIGHT_SLOT_BASE BOUNCE_PATH_POINT_SLOT_BASE
+#define BOUNCE_PATH_OUT_FRESH_RESERVOIR out_bounce_path_point_fresh_reservoir
+#define BOUNCE_PATH_OUT_FRESH_RANDOM out_bounce_path_point_fresh_random
+#define BOUNCE_PATH_OUT_FRESH_LIGHT out_bounce_path_point_fresh_light
+#define BOUNCE_PATH_OUT_HISTORY_RESERVOIR out_bounce_path_point_history_reservoir
+#define BOUNCE_PATH_OUT_HISTORY_RANDOM out_bounce_path_point_history_random
+#define BOUNCE_PATH_OUT_HISTORY_LIGHT out_bounce_path_point_history_light
+#define BOUNCE_PATH_PREV_TEMPORAL_RESERVOIR prev_temporal_bounce_path_point_reservoir
+#define BOUNCE_PATH_PREV_TEMPORAL_RANDOM prev_temporal_bounce_path_point_random
+#include "bounce_path_light_ris_common.glsl"

@@ -1,0 +1,340 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_16bit_storage : require
+
+// Resolves point/poly/emissive/sky contributions, then merges fresh and historical
+// complete paths as a single temporal reservoir sample.
+#include "debug.glsl"
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+
+layout(set = 0, binding = 20, rgba16f) uniform readonly image2D bounce_path_fresh_throughput;
+layout(set = 0, binding = 21, rgba32f) uniform readonly image2D bounce_path_fresh_hit_pos;
+layout(set = 0, binding = 22, rgba16f) uniform readonly image2D bounce_path_fresh_normals_gs;
+layout(set = 0, binding = 23, rgba8) uniform readonly image2D bounce_path_fresh_material_rmxx;
+layout(set = 0, binding = 24, rgba8) uniform readonly image2D bounce_path_fresh_base_color_a;
+layout(set = 0, binding = 25, rgba16f) uniform readonly image2D bounce_path_fresh_view_dir;
+layout(set = 0, binding = 26, rgba16f) uniform readonly image2D bounce_path_fresh_emissive;
+layout(set = 0, binding = 27, rgba32f) uniform readonly image2D bounce_path_fresh_ray_origin_length;
+layout(set = 0, binding = 28, rgba32f) uniform readonly image2D bounce_path_fresh_meta;
+layout(set = 0, binding = 29, rgba32f) uniform readonly image2D bounce_path_history_ref;
+
+layout(set = 0, binding = 30, rgba32f) uniform readonly image2D bounce_path_point_fresh_reservoir;
+layout(set = 0, binding = 31, rgba32f) uniform readonly image2D bounce_path_point_fresh_random;
+layout(set = 0, binding = 32, rgba16f) uniform readonly image2D bounce_path_point_fresh_light;
+layout(set = 0, binding = 33, rgba32f) uniform readonly image2D bounce_path_point_history_reservoir;
+layout(set = 0, binding = 34, rgba32f) uniform readonly image2D bounce_path_point_history_random;
+layout(set = 0, binding = 35, rgba16f) uniform readonly image2D bounce_path_point_history_light;
+layout(set = 0, binding = 36, rgba32f) uniform readonly image2D bounce_path_poly_fresh_reservoir;
+layout(set = 0, binding = 37, rgba32f) uniform readonly image2D bounce_path_poly_fresh_random;
+layout(set = 0, binding = 38, rgba16f) uniform readonly image2D bounce_path_poly_fresh_light;
+layout(set = 0, binding = 39, rgba32f) uniform readonly image2D bounce_path_poly_history_reservoir;
+layout(set = 0, binding = 40, rgba32f) uniform readonly image2D bounce_path_poly_history_random;
+layout(set = 0, binding = 41, rgba16f) uniform readonly image2D bounce_path_poly_history_light;
+
+layout(set = 0, binding = 50, rgba16f) uniform readonly image2D prev_temporal_bounce_path_throughput;
+layout(set = 0, binding = 51, rgba32f) uniform readonly image2D prev_temporal_bounce_path_hit_pos;
+layout(set = 0, binding = 52, rgba16f) uniform readonly image2D prev_temporal_bounce_path_normals_gs;
+layout(set = 0, binding = 53, rgba8) uniform readonly image2D prev_temporal_bounce_path_material_rmxx;
+layout(set = 0, binding = 54, rgba8) uniform readonly image2D prev_temporal_bounce_path_base_color_a;
+layout(set = 0, binding = 55, rgba16f) uniform readonly image2D prev_temporal_bounce_path_view_dir;
+layout(set = 0, binding = 56, rgba16f) uniform readonly image2D prev_temporal_bounce_path_emissive;
+layout(set = 0, binding = 57, rgba32f) uniform readonly image2D prev_temporal_bounce_path_ray_origin_length;
+layout(set = 0, binding = 58, rgba32f) uniform readonly image2D prev_temporal_bounce_path_meta;
+layout(set = 0, binding = 59, rgba32f) uniform readonly image2D prev_temporal_bounce_path_reservoir;
+
+layout(set = 0, binding = 60, rgba16f) uniform writeonly image2D out_temporal_bounce_path_throughput;
+layout(set = 0, binding = 61, rgba32f) uniform writeonly image2D out_temporal_bounce_path_hit_pos;
+layout(set = 0, binding = 62, rgba16f) uniform writeonly image2D out_temporal_bounce_path_normals_gs;
+layout(set = 0, binding = 63, rgba8) uniform writeonly image2D out_temporal_bounce_path_material_rmxx;
+layout(set = 0, binding = 64, rgba8) uniform writeonly image2D out_temporal_bounce_path_base_color_a;
+layout(set = 0, binding = 65, rgba16f) uniform writeonly image2D out_temporal_bounce_path_view_dir;
+layout(set = 0, binding = 66, rgba16f) uniform writeonly image2D out_temporal_bounce_path_emissive;
+layout(set = 0, binding = 67, rgba32f) uniform writeonly image2D out_temporal_bounce_path_ray_origin_length;
+layout(set = 0, binding = 68, rgba32f) uniform writeonly image2D out_temporal_bounce_path_meta;
+layout(set = 0, binding = 69, rgba32f) uniform writeonly image2D out_temporal_bounce_path_reservoir;
+
+layout(set = 0, binding = 70, rgba32f) uniform writeonly image2D out_temporal_bounce_path_point_reservoir;
+layout(set = 0, binding = 71, rgba32f) uniform writeonly image2D out_temporal_bounce_path_point_random;
+layout(set = 0, binding = 72, rgba32f) uniform writeonly image2D out_temporal_bounce_path_poly_reservoir;
+layout(set = 0, binding = 73, rgba32f) uniform writeonly image2D out_temporal_bounce_path_poly_random;
+layout(set = 0, binding = 74, rgba16f) uniform writeonly image2D out_indirect_diffuse;
+layout(set = 0, binding = 75, rgba32f) uniform writeonly image2D out_first_bounce_direction;
+
+#include "bounce_path_common.glsl"
+
+const float BOUNCE_PATH_TARGET_EPSILON = 1e-8;
+
+vec3 evaluateFreshPath(ivec2 local_pix, uint path_length)
+{
+	vec3 result = vec3(0.0);
+	vec3 path_throughput = vec3(1.0);
+	for (uint lane = 0u; lane < BOUNCE_PATH_MAX_VERTICES; ++lane) {
+		if (lane >= path_length) {
+			break;
+		}
+
+		const ivec2 pix = bouncePathAtlasPixel(local_pix, lane);
+		const BouncePathSurface surface = bouncePathLoadFreshSurface(local_pix, lane);
+		path_throughput *= surface.stage_throughput;
+		result += path_throughput * surface.emissive;
+		if (!surface.hit) {
+			break;
+		}
+
+		const vec3 incident_diffuse =
+			imageLoad(bounce_path_point_fresh_light, pix).rgb +
+			imageLoad(bounce_path_poly_fresh_light, pix).rgb;
+		result += path_throughput * surface.material.base_color * incident_diffuse;
+		path_throughput *= surface.material.base_color;
+	}
+	return max(result, vec3(0.0));
+}
+
+vec3 evaluateHistoryPath(ivec2 local_pix, ivec2 history_local_pix, uint path_length)
+{
+	vec3 result = vec3(0.0);
+	vec3 path_throughput = vec3(1.0);
+	for (uint lane = 0u; lane < BOUNCE_PATH_MAX_VERTICES; ++lane) {
+		if (lane >= path_length) {
+			break;
+		}
+
+		const ivec2 current_output_pix = bouncePathAtlasPixel(local_pix, lane);
+		const BouncePathSurface surface = bouncePathLoadHistorySurface(history_local_pix, lane);
+		path_throughput *= surface.stage_throughput;
+		result += path_throughput * surface.emissive;
+		if (!surface.hit) {
+			break;
+		}
+
+		const vec3 incident_diffuse =
+			imageLoad(bounce_path_point_history_light, current_output_pix).rgb +
+			imageLoad(bounce_path_poly_history_light, current_output_pix).rgb;
+		result += path_throughput * surface.material.base_color * incident_diffuse;
+		path_throughput *= surface.material.base_color;
+	}
+	return max(result, vec3(0.0));
+}
+
+void clearSelectedLane(ivec2 output_pix)
+{
+	imageStore(out_temporal_bounce_path_throughput, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_hit_pos, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_normals_gs, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_material_rmxx, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_base_color_a, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_view_dir, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_emissive, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_ray_origin_length, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_point_reservoir, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_point_random, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_poly_reservoir, output_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_poly_random, output_pix, vec4(0.0));
+}
+
+void copyFreshLane(ivec2 local_pix, uint lane)
+{
+	const ivec2 pix = bouncePathAtlasPixel(local_pix, lane);
+	imageStore(out_temporal_bounce_path_throughput, pix, imageLoad(bounce_path_fresh_throughput, pix));
+	imageStore(out_temporal_bounce_path_hit_pos, pix, imageLoad(bounce_path_fresh_hit_pos, pix));
+	imageStore(out_temporal_bounce_path_normals_gs, pix, imageLoad(bounce_path_fresh_normals_gs, pix));
+	imageStore(out_temporal_bounce_path_material_rmxx, pix, imageLoad(bounce_path_fresh_material_rmxx, pix));
+	imageStore(out_temporal_bounce_path_base_color_a, pix, imageLoad(bounce_path_fresh_base_color_a, pix));
+	imageStore(out_temporal_bounce_path_view_dir, pix, imageLoad(bounce_path_fresh_view_dir, pix));
+	imageStore(out_temporal_bounce_path_emissive, pix, imageLoad(bounce_path_fresh_emissive, pix));
+	imageStore(out_temporal_bounce_path_ray_origin_length, pix, imageLoad(bounce_path_fresh_ray_origin_length, pix));
+	imageStore(out_temporal_bounce_path_point_reservoir, pix, imageLoad(bounce_path_point_fresh_reservoir, pix));
+	imageStore(out_temporal_bounce_path_point_random, pix, imageLoad(bounce_path_point_fresh_random, pix));
+	imageStore(out_temporal_bounce_path_poly_reservoir, pix, imageLoad(bounce_path_poly_fresh_reservoir, pix));
+	imageStore(out_temporal_bounce_path_poly_random, pix, imageLoad(bounce_path_poly_fresh_random, pix));
+}
+
+void copyHistoryLane(ivec2 local_pix, ivec2 history_local_pix, uint lane)
+{
+	const ivec2 output_pix = bouncePathAtlasPixel(local_pix, lane);
+	const ivec2 history_pix = bouncePathAtlasPixel(history_local_pix, lane);
+	imageStore(out_temporal_bounce_path_throughput, output_pix, imageLoad(prev_temporal_bounce_path_throughput, history_pix));
+	imageStore(out_temporal_bounce_path_hit_pos, output_pix, imageLoad(prev_temporal_bounce_path_hit_pos, history_pix));
+	imageStore(out_temporal_bounce_path_normals_gs, output_pix, imageLoad(prev_temporal_bounce_path_normals_gs, history_pix));
+	imageStore(out_temporal_bounce_path_material_rmxx, output_pix, imageLoad(prev_temporal_bounce_path_material_rmxx, history_pix));
+	imageStore(out_temporal_bounce_path_base_color_a, output_pix, imageLoad(prev_temporal_bounce_path_base_color_a, history_pix));
+	imageStore(out_temporal_bounce_path_view_dir, output_pix, imageLoad(prev_temporal_bounce_path_view_dir, history_pix));
+	imageStore(out_temporal_bounce_path_emissive, output_pix, imageLoad(prev_temporal_bounce_path_emissive, history_pix));
+	imageStore(out_temporal_bounce_path_ray_origin_length, output_pix, imageLoad(prev_temporal_bounce_path_ray_origin_length, history_pix));
+	imageStore(out_temporal_bounce_path_point_reservoir, output_pix, imageLoad(bounce_path_point_history_reservoir, output_pix));
+	imageStore(out_temporal_bounce_path_point_random, output_pix, imageLoad(bounce_path_point_history_random, output_pix));
+	imageStore(out_temporal_bounce_path_poly_reservoir, output_pix, imageLoad(bounce_path_poly_history_reservoir, output_pix));
+	imageStore(out_temporal_bounce_path_poly_random, output_pix, imageLoad(bounce_path_poly_history_random, output_pix));
+}
+
+vec3 selectedFirstDirection(
+	ivec2 local_pix,
+	ivec2 history_local_pix,
+	bool selected_history,
+	vec3 primary_position)
+{
+	const ivec2 source_pix = bouncePathAtlasPixel(
+		selected_history ? history_local_pix : local_pix,
+		0u);
+	const vec4 hit_pos = selected_history
+		? imageLoad(prev_temporal_bounce_path_hit_pos, source_pix)
+		: imageLoad(bounce_path_fresh_hit_pos, source_pix);
+	if (hit_pos.w > 0.0) {
+		return hit_pos.xyz - primary_position;
+	}
+
+	const vec3 view_dir = selected_history
+		? imageLoad(prev_temporal_bounce_path_view_dir, source_pix).xyz
+		: imageLoad(bounce_path_fresh_view_dir, source_pix).xyz;
+	return dot(view_dir, view_dir) > 1e-6 ? -normalize(view_dir) : vec3(0.0);
+}
+
+void main()
+{
+	const ivec2 local_pix = ivec2(gl_GlobalInvocationID.xy);
+	if (!bouncePathLocalPixelInBounds(local_pix)) {
+		return;
+	}
+
+	for (uint lane = 0u; lane < BOUNCE_PATH_MAX_VERTICES; ++lane) {
+		clearSelectedLane(bouncePathAtlasPixel(local_pix, lane));
+	}
+	imageStore(out_temporal_bounce_path_meta, local_pix, vec4(0.0));
+	imageStore(out_temporal_bounce_path_reservoir, local_pix, vec4(0.0));
+	imageStore(out_indirect_diffuse, local_pix, vec4(0.0));
+	imageStore(out_first_bounce_direction, local_pix, vec4(0.0));
+
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI) != 0u) {
+		return;
+	}
+
+	const ivec2 primary_pix = local_pix * 2;
+	if (any(greaterThanEqual(primary_pix, ubo.ubo.res))) {
+		return;
+	}
+	const vec4 primary_pos_t = imageLoad(position_t, primary_pix);
+	if (primary_pos_t.w <= 0.0) {
+		return;
+	}
+
+	const vec4 fresh_meta = imageLoad(bounce_path_fresh_meta, local_pix);
+	const uint fresh_length = bouncePathLengthFromMeta(fresh_meta);
+	const bool fresh_valid = fresh_length > 0u;
+	const vec3 fresh_contribution = fresh_valid
+		? evaluateFreshPath(local_pix, fresh_length)
+		: vec3(0.0);
+	const float fresh_target = fresh_valid ? max(luminance(fresh_contribution), 0.0) : 0.0;
+
+	const vec4 history_ref = imageLoad(bounce_path_history_ref, local_pix);
+	const bool history_ref_valid = bouncePathHistoryRefValid(history_ref);
+	const ivec2 history_local_pix = bouncePathHistoryLocalPixel(history_ref);
+	vec4 history_meta = vec4(0.0);
+	uint history_length = 0u;
+	vec3 history_contribution = vec3(0.0);
+	float history_target = 0.0;
+	vec4 previous_path_reservoir = vec4(0.0);
+	bool previous_reservoir_valid = false;
+
+	if (history_ref_valid) {
+		history_meta = imageLoad(prev_temporal_bounce_path_meta, history_local_pix);
+		history_length = bouncePathLengthFromMeta(history_meta);
+		if (history_length > 0u) {
+			history_contribution = evaluateHistoryPath(local_pix, history_local_pix, history_length);
+			history_target = max(luminance(history_contribution), 0.0);
+			previous_path_reservoir = imageLoad(prev_temporal_bounce_path_reservoir, history_local_pix);
+			previous_reservoir_valid =
+				previous_path_reservoir.x > BOUNCE_PATH_TARGET_EPSILON &&
+				previous_path_reservoir.y > BOUNCE_PATH_TARGET_EPSILON &&
+				previous_path_reservoir.z > 0.0;
+		}
+	}
+
+	float history_M = 0.0;
+	float history_mass = 0.0;
+	if (previous_reservoir_valid) {
+		const float previous_M = max(previous_path_reservoir.z, 1.0);
+		history_M = min(previous_M, BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES);
+		const float capped_weight_sum = previous_path_reservoir.y * (history_M / previous_M);
+		history_mass = capped_weight_sum * history_target /
+			max(previous_path_reservoir.x, BOUNCE_PATH_TARGET_EPSILON);
+	}
+
+	const float fresh_M = fresh_valid ? 1.0 : 0.0;
+	const float fresh_mass = fresh_target;
+	const float total_M = history_M + fresh_M;
+	const float total_mass = max(history_mass + fresh_mass, 0.0);
+	if (total_M <= 0.0) {
+		return;
+	}
+
+	bool selected_history = false;
+	if (history_mass > 0.0 && total_mass > BOUNCE_PATH_TARGET_EPSILON) {
+		const float select_random = uintToFloat01(xxhash32(uvec4(
+			uint(local_pix.x),
+			uint(local_pix.y),
+			ubo.ubo.random_seed,
+			0x7073656cu)));
+		selected_history = select_random < history_mass / total_mass;
+	}
+	if (!fresh_valid && previous_reservoir_valid) {
+		selected_history = true;
+	}
+
+	const vec3 selected_contribution = selected_history ? history_contribution : fresh_contribution;
+	const float selected_target = selected_history ? history_target : fresh_target;
+	const uint selected_length = selected_history ? history_length : fresh_length;
+	if (selected_length == 0u) {
+		return;
+	}
+
+	float output_weight = 0.0;
+	if (selected_target > BOUNCE_PATH_TARGET_EPSILON && total_mass > 0.0) {
+		output_weight = min(
+			total_mass / max(total_M * selected_target, BOUNCE_PATH_TARGET_EPSILON),
+			BOUNCE_PATH_MAX_OUTPUT_WEIGHT);
+	}
+	vec3 indirect_diffuse = max(selected_contribution * output_weight, vec3(0.0));
+
+	const vec4 selected_source_meta = selected_history ? history_meta : fresh_meta;
+	const uint selected_age = selected_history ? bouncePathAgeFromMeta(history_meta) + 1u : 0u;
+	imageStore(out_temporal_bounce_path_meta, local_pix,
+		vec4(selected_source_meta.xy, float(selected_length), float(selected_age)));
+	// Keep the stored weight sum consistent with the capped effective sample
+	// count. Previously M was clamped while total_mass kept growing, which made
+	// the historical reservoir increasingly overconfident and prevented a
+	// stable, correctly normalized long accumulation.
+	const float stored_M = min(total_M, BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES);
+	const float stored_mass = total_M > 0.0
+		? total_mass * (stored_M / total_M)
+		: 0.0;
+	imageStore(out_temporal_bounce_path_reservoir, local_pix,
+		vec4(selected_target, stored_mass, stored_M, 0.0));
+
+	for (uint lane = 0u; lane < selected_length; ++lane) {
+		if (selected_history) {
+			copyHistoryLane(local_pix, history_local_pix, lane);
+		} else {
+			copyFreshLane(local_pix, lane);
+		}
+	}
+
+	const vec3 first_direction = selectedFirstDirection(
+		local_pix,
+		history_local_pix,
+		selected_history,
+		primary_pos_t.xyz);
+
+	DEBUG_VALIDATE_RANGE_VEC3("bounce_path_resolve.diffuse", indirect_diffuse, 0.0, 1e6);
+	imageStore(out_indirect_diffuse, local_pix, vec4(indirect_diffuse, 0.0));
+	imageStore(out_first_bounce_direction, local_pix, vec4(first_direction, 0.0));
+}

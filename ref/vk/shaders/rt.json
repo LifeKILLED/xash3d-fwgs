@@ -52,25 +52,43 @@
 	"light_direct_point": {
 		"comp": "ray_light_direct_point_ris"
 	},
-	"bounce_primary_rays": {
-		"comp": "bounce_primary_rays"
-	},
+	// Previous bounce GI / per-bounce temporal RIS pipeline. Kept for reference.
+	// "bounce_primary_rays": {
+	// 	"comp": "bounce_primary_rays"
+	// },
 	// "bounce_legacy_blending": {
 	// 	"rgen": "bounce_legacy_blending_pipeline",
 	// 	"miss": ["empty"],
 	// 	"hit": [{}, {}, {"any": "trace_post_legacy"}]
 	// },
-	"bounce_legacy_blending": {
-		"comp": "bounce_legacy_blending_query"
+	// "bounce_legacy_blending": {
+	// 	"comp": "bounce_legacy_blending_query"
+	// },
+	// "bounce_light_poly_ris": {
+	// 	"comp": "bounce_light_poly_ris"
+	// },
+	// "bounce_light_point_ris": {
+	// 	"comp": "bounce_light_point_ris"
+	// },
+	// "bounce_light_ris_resolve": {
+	// 	"comp": "bounce_light_ris_resolve"
+	// },
+
+	// Compound-path bounce GI: one temporal reservoir owns the complete path.
+	"bounce_path_init": {
+		"comp": "bounce_path_init"
 	},
-	"bounce_light_poly_ris": {
-		"comp": "bounce_light_poly_ris"
+	"bounce_path_legacy_blending": {
+		"comp": "bounce_path_legacy_blending_query"
 	},
-	"bounce_light_point_ris": {
-		"comp": "bounce_light_point_ris"
+	"bounce_path_light_point_ris": {
+		"comp": "bounce_path_light_point_ris"
 	},
-	"bounce_light_ris_resolve": {
-		"comp": "bounce_light_ris_resolve"
+	"bounce_path_light_poly_ris": {
+		"comp": "bounce_path_light_poly_ris"
+	},
+	"bounce_path_resolve": {
+		"comp": "bounce_path_resolve"
 	},
 	"reflection_primary_rays": {
 		"comp": "reflection_primary_rays"

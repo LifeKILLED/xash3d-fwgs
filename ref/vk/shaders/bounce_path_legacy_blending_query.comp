@@ -1,0 +1,21 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_ray_query : require
+
+// Applies legacy translucent/blended surfaces to the freshly traced compound path.
+// This is intentionally separate from bounce_path_init: every valid atlas lane
+// issues its own additional legacy-compositing ray.
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#define TRACE_POST_USE_RAY_QUERY 1
+#define TRACE_POST_REFLECTION 0
+#define TRACE_POST_LAUNCH_ID gl_GlobalInvocationID.xy
+#define TRACE_POST_RAY_ORIGIN_LENGTH bounce_path_fresh_ray_origin_length
+#define TRACE_POST_VIEW_DIR bounce_path_fresh_view_dir
+#define TRACE_POST_OUT_THROUGHPUT out_bounce_path_fresh_throughput
+#define TRACE_POST_OUT_EMISSIVE out_bounce_path_fresh_emissive
+#include "trace_post_legacy_surface.glsl"
