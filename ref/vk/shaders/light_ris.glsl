@@ -12,9 +12,15 @@ bool computeLightingRISState(
 	out bool ris_active)
 {
 	cluster_index = 0u;
+#if RIS_REGIR_ONLY
+	const bool surface_valid = surface_active;
+	ris_active = surface_valid && ((ubo.ubo.debug_flags & DEBUG_FLAG_WHITE_FURNACE) == 0);
+	return surface_valid;
+#else
 	const bool cluster_valid = surface_active && risComputeClusterIndex(P, cluster_index);
 	ris_active = cluster_valid && ((ubo.ubo.debug_flags & DEBUG_FLAG_WHITE_FURNACE) == 0);
 	return cluster_valid;
+#endif
 }
 
 #if RIS_UNIFIED_PASS

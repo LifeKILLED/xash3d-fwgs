@@ -1,0 +1,286 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#include "utils.glsl"
+#include "noise.glsl"
+#include "temporal_reservoir_rotation.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
+layout(set = 0, binding = 14, rgba32f) uniform readonly image2D temporal_reprojection_map;
+layout(set = 0, binding = 15, rgba16f) uniform readonly image2D temporal_reprojection_ready;
+
+// .rg = diffuse source, .ba = specular source.
+layout(set = 0, binding = 20, rgba32f) uniform writeonly image2D out_temporal_reprojection_direct_source;
+// .rg = bounce source. .ba are unused.
+layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_temporal_reprojection_bounce_source;
+
+#define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
+#define REPROJECTION_LOAD_PREV_DEPTH_META(pix_) imageLoad(prev_temporal_asvgf_reproj_depth, (pix_))
+#define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+#include "temporal_reprojection.glsl"
+#undef TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE
+#undef REPROJECTION_LOAD_PREV_DEPTH_META
+#undef LOAD_REFLECTION_RAY_LENGTH
+
+#ifndef TEMPORAL_DIRECT_ROTATION_MASK_BITS
+#define TEMPORAL_DIRECT_ROTATION_MASK_BITS 4u
+#endif
+
+#ifndef TEMPORAL_BOUNCE_ROTATION_MASK_BITS
+#define TEMPORAL_BOUNCE_ROTATION_MASK_BITS 3u
+#endif
+
+#ifndef TEMPORAL_SPECULAR_SHADING_NORMAL_MIN
+#define TEMPORAL_SPECULAR_SHADING_NORMAL_MIN 0.95
+#endif
+
+const uint TEMPORAL_DIRECT_ROTATION_SALT = 0x64726f74u;
+const uint TEMPORAL_BOUNCE_ROTATION_SALT = 0x62726f74u;
+
+bool temporalDirectSourceReady(
+	ivec2 donor_pix,
+	out ivec2 history_pix)
+{
+	history_pix = ivec2(-1);
+	if (imageLoad(temporal_reprojection_ready, donor_pix).r <= 0.5) {
+		return false;
+	}
+	return temporalReprojectionDecodePixel(
+		imageLoad(temporal_reprojection_map, donor_pix).rg,
+		ubo.ubo.res,
+		history_pix);
+}
+
+bool temporalBounceSourceReady(
+	ivec2 donor_local_pix,
+	ivec2 half_res,
+	out ivec2 history_local_pix,
+	out ivec2 history_screen_pix)
+{
+	history_local_pix = ivec2(-1);
+	history_screen_pix = ivec2(-1);
+	if (imageLoad(temporal_reprojection_ready, donor_local_pix).g <= 0.5 ||
+		!temporalReprojectionDecodePixel(
+			imageLoad(temporal_reprojection_map, donor_local_pix).ba,
+			ubo.ubo.res,
+			history_screen_pix)) {
+		return false;
+	}
+
+	history_local_pix = history_screen_pix / 2;
+	return all(greaterThanEqual(history_local_pix, ivec2(0))) &&
+		all(lessThan(history_local_pix, half_res));
+}
+
+bool temporalHistoryCompatibleWithPlane(
+	AsvgfReprojectionParams params,
+	vec3 prev_position,
+	vec3 geometry_normal,
+	ivec2 history_screen_pix)
+{
+	vec2 reproj_uv_center = vec2(-1.0);
+	float depth_necessary = 0.0;
+	float depth_threshold = 0.0;
+	if (!reprojectToPrevFrameUvCenterForParams(
+		params,
+		prev_position,
+		ubo.ubo.res,
+		reproj_uv_center,
+		depth_necessary,
+		depth_threshold)) {
+		return false;
+	}
+
+	float selected_depth_threshold = 0.0;
+	return validateReprojectedHistoryTexelForParams(
+		params,
+		history_screen_pix,
+		ubo.ubo.res,
+		prev_position,
+		geometry_normal,
+		depth_necessary,
+		depth_threshold,
+		selected_depth_threshold);
+}
+
+bool temporalLoadDirectPrimarySurface(
+	ivec2 pix,
+	out vec3 prev_position,
+	out vec3 geometry_normal,
+	out vec3 shading_normal)
+{
+	const vec4 pos_t = imageLoad(position_t, pix);
+	if (pos_t.w <= 0.0) {
+		prev_position = vec3(0.0);
+		geometry_normal = vec3(0.0, 0.0, 1.0);
+		shading_normal = geometry_normal;
+		return false;
+	}
+	prev_position = imageLoad(geometry_prev_position, pix).rgb;
+	const vec4 packed_normals = imageLoad(normals_gs, pix);
+	geometry_normal = normalDecode(packed_normals.xy);
+	shading_normal = normalDecode(packed_normals.zw);
+	return true;
+}
+
+void resolveDirectSource(ivec2 pix, ivec2 res)
+{
+	const ivec2 partner = temporalReservoirRotationPixel(
+		pix,
+		res,
+		ubo.ubo.random_seed,
+		TEMPORAL_DIRECT_ROTATION_SALT,
+		uint(TEMPORAL_DIRECT_ROTATION_MASK_BITS));
+
+	ivec2 self_history_pix;
+	ivec2 partner_history_pix;
+	const bool self_ready = temporalDirectSourceReady(pix, self_history_pix);
+	const bool partner_ready = temporalDirectSourceReady(partner, partner_history_pix);
+
+	bool diffuse_swap_pair = false;
+	bool specular_swap_pair = false;
+	if (any(notEqual(partner, pix)) && self_ready && partner_ready) {
+		vec3 self_prev_position;
+		vec3 self_geometry_normal;
+		vec3 self_shading_normal;
+		vec3 partner_prev_position;
+		vec3 partner_geometry_normal;
+		vec3 partner_shading_normal;
+		if (temporalLoadDirectPrimarySurface(
+				pix,
+				self_prev_position,
+				self_geometry_normal,
+				self_shading_normal) &&
+			temporalLoadDirectPrimarySurface(
+				partner,
+				partner_prev_position,
+				partner_geometry_normal,
+				partner_shading_normal)) {
+			diffuse_swap_pair = temporalHistoryCompatibleWithPlane(
+				ubo.ubo.asvgf.direct_diffuse,
+				self_prev_position,
+				self_geometry_normal,
+				partner_history_pix) &&
+				temporalHistoryCompatibleWithPlane(
+					ubo.ubo.asvgf.direct_diffuse,
+					partner_prev_position,
+					partner_geometry_normal,
+					self_history_pix);
+
+			const vec3 self_history_shading_normal = normalDecode(
+				imageLoad(prev_temporal_asvgf_reproj_depth, self_history_pix).ba);
+			const vec3 partner_history_shading_normal = normalDecode(
+				imageLoad(prev_temporal_asvgf_reproj_depth, partner_history_pix).ba);
+			specular_swap_pair = diffuse_swap_pair &&
+				dot(self_shading_normal, partner_history_shading_normal) >=
+					TEMPORAL_SPECULAR_SHADING_NORMAL_MIN &&
+				dot(partner_shading_normal, self_history_shading_normal) >=
+					TEMPORAL_SPECULAR_SHADING_NORMAL_MIN;
+		}
+	}
+
+	const vec2 diffuse_source = diffuse_swap_pair
+		? temporalReprojectionEncodeSource(partner_history_pix, true)
+		: (self_ready
+			? temporalReprojectionEncodeSource(self_history_pix, false)
+			: vec2(0.0));
+	const vec2 specular_source = specular_swap_pair
+		? temporalReprojectionEncodeSource(partner_history_pix, true)
+		: (self_ready
+			? temporalReprojectionEncodeSource(self_history_pix, false)
+			: vec2(0.0));
+	imageStore(out_temporal_reprojection_direct_source, pix,
+		vec4(diffuse_source, specular_source));
+}
+
+void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
+{
+	const ivec2 partner = temporalReservoirRotationPixel(
+		local_pix,
+		half_res,
+		ubo.ubo.random_seed,
+		TEMPORAL_BOUNCE_ROTATION_SALT,
+		uint(TEMPORAL_BOUNCE_ROTATION_MASK_BITS));
+
+	ivec2 self_history_local_pix;
+	ivec2 self_history_screen_pix;
+	ivec2 partner_history_local_pix;
+	ivec2 partner_history_screen_pix;
+	const bool self_ready = temporalBounceSourceReady(
+		local_pix,
+		half_res,
+		self_history_local_pix,
+		self_history_screen_pix);
+	const bool partner_ready = temporalBounceSourceReady(
+		partner,
+		half_res,
+		partner_history_local_pix,
+		partner_history_screen_pix);
+
+	bool swap_pair = false;
+	if (any(notEqual(partner, local_pix)) && self_ready && partner_ready) {
+		vec3 self_prev_position;
+		vec3 self_geometry_normal;
+		vec3 partner_prev_position;
+		vec3 partner_geometry_normal;
+		if (loadHalfResAtlasPrimaryPlane(
+				local_pix,
+				half_res,
+				ubo.ubo.res,
+				self_prev_position,
+				self_geometry_normal) &&
+			loadHalfResAtlasPrimaryPlane(
+				partner,
+				half_res,
+				ubo.ubo.res,
+				partner_prev_position,
+				partner_geometry_normal)) {
+			swap_pair = temporalHistoryCompatibleWithPlane(
+				ubo.ubo.asvgf.indirect_diffuse,
+				self_prev_position,
+				self_geometry_normal,
+				partner_history_screen_pix) &&
+				temporalHistoryCompatibleWithPlane(
+					ubo.ubo.asvgf.indirect_diffuse,
+					partner_prev_position,
+					partner_geometry_normal,
+					self_history_screen_pix);
+		}
+	}
+
+	const vec2 source = swap_pair
+		? temporalReprojectionEncodeSource(partner_history_local_pix, true)
+		: (self_ready
+			? temporalReprojectionEncodeSource(self_history_local_pix, false)
+			: vec2(0.0));
+	imageStore(out_temporal_reprojection_bounce_source, local_pix,
+		vec4(source, 0.0, 0.0));
+}
+
+void main()
+{
+	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 res = ubo.ubo.res;
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	resolveDirectSource(pix, res);
+
+	const ivec2 half_res = (res + ivec2(1)) / 2;
+	if (all(lessThan(pix, half_res))) {
+		resolveBounceSource(pix, half_res);
+	} else {
+		imageStore(out_temporal_reprojection_bounce_source, pix, vec4(0.0));
+	}
+}

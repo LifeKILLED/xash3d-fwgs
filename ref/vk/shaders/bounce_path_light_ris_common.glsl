@@ -112,6 +112,7 @@ void bouncePathStoreHistoryLocalReservoir(
 	imageStore(BOUNCE_PATH_OUT_HISTORY_LIGHT, pix, vec4(max(diffuse, vec3(0.0)), 0.0));
 }
 
+#if !RIS_REGIR_ONLY
 float bouncePathInvDiscreteLightPdf(uint cluster_index)
 {
 	const uint cluster_light_count = risLightCount(cluster_index);
@@ -124,6 +125,7 @@ float bouncePathInvDiscreteLightPdf(uint cluster_index)
 	}
 	return float(eligible_light_count);
 }
+#endif
 
 void bouncePathAddAlwaysSampledLights(
 	BouncePathSurface surface,
@@ -167,12 +169,14 @@ bool bouncePathBuildVisibleLocalReservoir(
 		return false;
 	}
 
-	uint cluster_index;
-	bool ris_active;
+	uint cluster_index = 0u;
+	bool ris_active = (ubo.ubo.debug_flags & DEBUG_FLAG_WHITE_FURNACE) == 0;
+#if !RIS_REGIR_ONLY
 	const bool cluster_valid = computeLightingRISState(surface.P, true, cluster_index, ris_active);
 	if (!cluster_valid) {
 		return false;
 	}
+#endif
 
 	rand01_state = xxhash32(uvec4(
 		path_seed,
@@ -180,19 +184,18 @@ bool bouncePathBuildVisibleLocalReservoir(
 		uint(random_pix.x),
 		uint(random_pix.y) ^ uint(BOUNCE_PATH_LIGHT_SLOT_BASE)));
 
-	if (ris_active) {
+	if (ris_active && (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u) {
 		bool regir_accepted = false;
-		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u) {
-			reservoir = RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
-				surface.P,
-				surface.transport_N,
-				surface.V,
-				surface.material,
-				random_pix,
-				reservoir,
-				regir_accepted);
-		}
+		reservoir = RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
+			surface.P,
+			surface.transport_N,
+			surface.V,
+			surface.material,
+			random_pix,
+			reservoir,
+			regir_accepted);
 		regir_source = regir_accepted;
+#if !RIS_REGIR_ONLY
 		if (!regir_accepted) {
 			reservoir = risMergeVisibleCandidates(
 				cluster_index,
@@ -203,14 +206,18 @@ bool bouncePathBuildVisibleLocalReservoir(
 				random_pix,
 				reservoir);
 		}
+#endif
 	}
 
 	// ReGIR's onion_candidate.inv_source_pdf is already folded into weight_sum.
-	// Applying the uniform cluster inverse PDF as well would count the discrete
-	// light-selection correction twice and systematically over-brighten GI.
+	// No cluster-dependent PDF is applied when evaluating or rotating the cache.
+#if RIS_REGIR_ONLY
+	const float source_inv_pdf = 1.0;
+#else
 	const float source_inv_pdf = regir_source
 		? 1.0
 		: bouncePathInvDiscreteLightPdf(cluster_index);
+#endif
 	vec3 selected_specular;
 	const bool shaded = risShadeUnifiedReservoir(
 		reservoir,
@@ -238,18 +245,24 @@ bool bouncePathShadeCachedLocalReservoir(
 		return false;
 	}
 
-	uint cluster_index;
-	bool ris_active;
+	uint cluster_index = 0u;
+	bool ris_active = (ubo.ubo.debug_flags & DEBUG_FLAG_WHITE_FURNACE) == 0;
+#if !RIS_REGIR_ONLY
 	if (!computeLightingRISState(surface.P, true, cluster_index, ris_active)) {
 		return false;
 	}
+#endif
 
 	bool shaded = false;
 	if (risTemporalReservoirValid(updated_reservoir)) {
 		vec3 selected_specular;
 		shaded = risShadeUnifiedReservoir(
 			updated_reservoir,
+#if RIS_REGIR_ONLY
+			1.0,
+#else
 			regir_source ? 1.0 : bouncePathInvDiscreteLightPdf(cluster_index),
+#endif
 			surface.P,
 			surface.transport_N,
 			surface.V,

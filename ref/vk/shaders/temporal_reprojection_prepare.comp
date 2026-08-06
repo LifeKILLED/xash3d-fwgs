@@ -1,0 +1,75 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#include "utils.glsl"
+#include "noise.glsl"
+#include "temporal_reservoir_rotation.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
+
+// .rg = direct history pixel, .ba = bounce history full-resolution pixel.
+// A zero pair is invalid; valid coordinates are stored as pixel + 1.
+layout(set = 0, binding = 20, rgba32f) uniform writeonly image2D out_temporal_reprojection_map;
+
+#define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
+#define REPROJECTION_LOAD_PREV_DEPTH_META(pix_) imageLoad(prev_temporal_asvgf_reproj_depth, (pix_))
+#define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+#include "temporal_reprojection.glsl"
+#undef TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE
+#undef REPROJECTION_LOAD_PREV_DEPTH_META
+#undef LOAD_REFLECTION_RAY_LENGTH
+
+void main()
+{
+	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 res = ubo.ubo.res;
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	vec4 reprojection_map = vec4(0.0);
+
+	const vec4 pos_t = imageLoad(position_t, pix);
+	if (pos_t.w > 0.0) {
+		const vec3 prev_position = imageLoad(geometry_prev_position, pix).rgb;
+		const vec3 geometry_N = normalDecode(imageLoad(normals_gs, pix).xy);
+		ivec2 history_pix;
+		float selected_depth_threshold = 0.0;
+		if (findBestReprojectedHistoryTexelForParams(
+			ubo.ubo.asvgf.direct_diffuse,
+			prev_position,
+			geometry_N,
+			pix,
+			res,
+			history_pix,
+			selected_depth_threshold)) {
+			reprojection_map.rg = temporalReprojectionEncodePixel(history_pix);
+		}
+	}
+
+	const ivec2 half_res = (res + ivec2(1)) / 2;
+	if (all(lessThan(pix, half_res))) {
+		ivec2 history_local_pix;
+		ivec2 history_screen_pix;
+		if (reprojectHalfResAtlasPrimaryPlanePixelDetailed(
+			pix,
+			half_res,
+			ubo.ubo.asvgf.indirect_diffuse,
+			history_local_pix,
+			history_screen_pix)) {
+			reprojection_map.ba = temporalReprojectionEncodePixel(history_screen_pix);
+		}
+	}
+
+	imageStore(out_temporal_reprojection_map, pix, reprojection_map);
+}

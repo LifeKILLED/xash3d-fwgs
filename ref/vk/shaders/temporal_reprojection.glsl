@@ -748,13 +748,15 @@ bool loadHalfResAtlasPrimaryPlane(
 	return true;
 }
 
-bool reprojectHalfResAtlasPrimaryPlanePixel(
+bool reprojectHalfResAtlasPrimaryPlanePixelDetailed(
 	ivec2 local_pix,
 	ivec2 half_res,
 	AsvgfReprojectionParams params,
-	out ivec2 history_local_pix)
+	out ivec2 history_local_pix,
+	out ivec2 history_screen_pix)
 {
 	history_local_pix = ivec2(-1);
+	history_screen_pix = ivec2(-1);
 
 	vec3 prev_position;
 	vec3 geometry_normal;
@@ -762,7 +764,6 @@ bool reprojectHalfResAtlasPrimaryPlanePixel(
 		return false;
 	}
 
-	ivec2 history_screen_pix;
 	float depth_necessary = 0.0;
 	float depth_threshold = 0.0;
 	if (!reprojectToPrevFramePixelForParams(params, prev_position, ubo.ubo.res, history_screen_pix, depth_necessary, depth_threshold)) {
@@ -789,6 +790,21 @@ bool reprojectHalfResAtlasPrimaryPlanePixel(
 	history_local_pix = history_screen_pix / 2;
 	return all(greaterThanEqual(history_local_pix, ivec2(0))) &&
 		all(lessThan(history_local_pix, half_res));
+}
+
+bool reprojectHalfResAtlasPrimaryPlanePixel(
+	ivec2 local_pix,
+	ivec2 half_res,
+	AsvgfReprojectionParams params,
+	out ivec2 history_local_pix)
+{
+	ivec2 history_screen_pix;
+	return reprojectHalfResAtlasPrimaryPlanePixelDetailed(
+		local_pix,
+		half_res,
+		params,
+		history_local_pix,
+		history_screen_pix);
 }
 
 bool reprojectHalfResAtlasPrimaryPlanePixelLegacy(

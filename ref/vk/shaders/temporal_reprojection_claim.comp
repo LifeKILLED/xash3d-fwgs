@@ -1,0 +1,142 @@
+#version 460 core
+#extension GL_GOOGLE_include_directive : require
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#include "noise.glsl"
+#include "temporal_reservoir_rotation.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D temporal_reprojection_map;
+
+// .r = direct source ready, .g = bounce source ready.
+layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_temporal_reprojection_ready;
+
+#ifndef TEMPORAL_MANY_TO_ONE_OWNER_RADIUS
+#define TEMPORAL_MANY_TO_ONE_OWNER_RADIUS 2
+#endif
+
+#ifndef TEMPORAL_MANY_TO_ONE_NON_OWNER_REJECT_PROBABILITY
+// A deterministic local owner always survives. Other current pixels that map
+// to the same history pixel are rejected only half of the time.
+#define TEMPORAL_MANY_TO_ONE_NON_OWNER_REJECT_PROBABILITY 0.5
+#endif
+
+const uint TEMPORAL_DIRECT_OWNER_SALT = 0x646f776eu;
+const uint TEMPORAL_BOUNCE_OWNER_SALT = 0x626f776eu;
+const uint TEMPORAL_DIRECT_RELAX_SALT = 0x646d3278u;
+const uint TEMPORAL_BOUNCE_RELAX_SALT = 0x626d3278u;
+
+bool temporalMapTarget(
+	ivec2 pix,
+	ivec2 domain_res,
+	bool bounce,
+	out ivec2 history_pix)
+{
+	history_pix = ivec2(-1);
+	if (any(lessThan(pix, ivec2(0))) || any(greaterThanEqual(pix, domain_res))) {
+		return false;
+	}
+	const vec4 encoded = imageLoad(temporal_reprojection_map, pix);
+	ivec2 decoded_history_pix;
+	if (!temporalReprojectionDecodePixel(
+		bounce ? encoded.ba : encoded.rg,
+		ubo.ubo.res,
+		decoded_history_pix)) {
+		return false;
+	}
+	history_pix = bounce ? decoded_history_pix / 2 : decoded_history_pix;
+	return true;
+}
+
+bool temporalIsDeterministicOwner(
+	ivec2 pix,
+	ivec2 domain_res,
+	ivec2 history_pix,
+	bool bounce,
+	uint salt)
+{
+	const uint self_key = temporalReprojectionOwnerKey(
+		pix, ubo.ubo.random_seed, salt);
+	for (int y = -TEMPORAL_MANY_TO_ONE_OWNER_RADIUS;
+		y <= TEMPORAL_MANY_TO_ONE_OWNER_RADIUS; ++y) {
+		for (int x = -TEMPORAL_MANY_TO_ONE_OWNER_RADIUS;
+			x <= TEMPORAL_MANY_TO_ONE_OWNER_RADIUS; ++x) {
+			const ivec2 candidate_pix = pix + ivec2(x, y);
+			if (all(equal(candidate_pix, pix))) {
+				continue;
+			}
+
+			ivec2 candidate_history_pix;
+			if (!temporalMapTarget(
+				candidate_pix,
+				domain_res,
+				bounce,
+				candidate_history_pix) ||
+				any(notEqual(candidate_history_pix, history_pix))) {
+				continue;
+			}
+
+			const uint candidate_key = temporalReprojectionOwnerKey(
+				candidate_pix, ubo.ubo.random_seed, salt);
+			if (temporalReprojectionOwnerKeyLess(
+				candidate_key, candidate_pix, self_key, pix)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+bool temporalSourceReady(
+	ivec2 pix,
+	ivec2 domain_res,
+	bool bounce,
+	uint owner_salt,
+	uint relax_salt)
+{
+	ivec2 history_pix;
+	if (!temporalMapTarget(pix, domain_res, bounce, history_pix)) {
+		return false;
+	}
+
+	if (temporalIsDeterministicOwner(
+		pix, domain_res, history_pix, bounce, owner_salt)) {
+		return true;
+	}
+
+	return temporalReprojectionRandom01(
+		pix, ubo.ubo.random_seed, relax_salt) >=
+		TEMPORAL_MANY_TO_ONE_NON_OWNER_REJECT_PROBABILITY;
+}
+
+void main()
+{
+	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 res = ubo.ubo.res;
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
+
+	const bool direct_ready = temporalSourceReady(
+		pix,
+		res,
+		false,
+		TEMPORAL_DIRECT_OWNER_SALT,
+		TEMPORAL_DIRECT_RELAX_SALT);
+
+	const ivec2 half_res = (res + ivec2(1)) / 2;
+	const bool bounce_ready = all(lessThan(pix, half_res)) && temporalSourceReady(
+		pix,
+		half_res,
+		true,
+		TEMPORAL_BOUNCE_OWNER_SALT,
+		TEMPORAL_BOUNCE_RELAX_SALT);
+
+	imageStore(out_temporal_reprojection_ready, pix,
+		vec4(direct_ready ? 1.0 : 0.0, bounce_ready ? 1.0 : 0.0, 0.0, 0.0));
+}

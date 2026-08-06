@@ -23,9 +23,6 @@ layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
 
 layout (set = 0, binding = 7) readonly buffer SBOLights { LightsMetadata m; } lights;
-layout (set = 0, binding = 8, align = 1) readonly buffer UBOLightClusters {
-	LightCluster clusters_[MAX_LIGHT_CLUSTERS];
-} light_grid;
 
 layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
@@ -40,6 +37,8 @@ layout(set = 0, binding = 23, rgba32f) uniform readonly image2D prev_temporal_ri
 layout(set = 0, binding = 24, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
 layout(set = 0, binding = 25, rgba32f) uniform writeonly image2D out_temporal_ris_point_random;
 layout(set = 0, binding = 26, rgba32f) uniform readonly image2D prev_temporal_ris_point_random;
+layout(set = 0, binding = 27, rgba32f) uniform readonly image2D temporal_reprojection_direct_source;
+layout(set = 0, binding = 29, rgba32f) uniform readonly image2D regir_onion_point;
 layout(set = 0, binding = 34, rgba16f) uniform writeonly image2D out_light_point_flashlight_diffuse;
 layout(set = 0, binding = 35, rgba16f) uniform writeonly image2D out_light_point_flashlight_specular;
 #if RIS_SPLIT_LOBE_RESERVOIRS
@@ -57,6 +56,10 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RAY_QUERY
 #define RIS_INIT_PASS 1
 #define RIS_UNIFIED_PASS 1
+#define RIS_USE_SHARED_TEMPORAL_ROTATION 1
+#define RIS_SEPARATE_DIFFUSE_TARGET_NORMAL 1
+#define RIS_REGIR_ONLY 1
+#define REGIR_ONION_IMAGE regir_onion_point
 #if RIS_SPLIT_LOBE_RESERVOIRS
 #define RIS_SPLIT_OUT_SPECULAR_RESERVOIR_IMAGE out_temporal_ris_point_specular_reservoir
 #define RIS_SPLIT_PREV_SPECULAR_RESERVOIR_IMAGE prev_temporal_ris_point_specular_reservoir

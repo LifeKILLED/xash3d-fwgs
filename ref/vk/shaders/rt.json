@@ -46,6 +46,15 @@
 //	"bounce": {
 //		"comp": "bounce"
 //	},
+	"temporal_reprojection_prepare": {
+		"comp": "temporal_reprojection_prepare"
+	},
+	"temporal_reprojection_claim": {
+		"comp": "temporal_reprojection_claim"
+	},
+	"temporal_reprojection_resolve": {
+		"comp": "temporal_reprojection_resolve"
+	},
 	"light_direct_poly": {
 		"comp": "ray_light_direct_poly_ris"
 	},

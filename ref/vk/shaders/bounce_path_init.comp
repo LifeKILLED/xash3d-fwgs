@@ -43,6 +43,7 @@ layout(set = 0, binding = 42, rgba16f) uniform readonly image2D prev_temporal_bo
 layout(set = 0, binding = 43, rgba16f) uniform readonly image2D prev_temporal_bounce_path_view_dir;
 layout(set = 0, binding = 44, rgba32f) uniform readonly image2D prev_temporal_bounce_path_ray_origin_length;
 layout(set = 0, binding = 45, rgba32f) uniform readonly image2D prev_temporal_bounce_path_meta;
+layout(set = 0, binding = 46, rgba32f) uniform readonly image2D temporal_reprojection_bounce_source;
 
 layout(set = 0, binding = 50, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 51, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
@@ -52,6 +53,7 @@ layout(set = 0, binding = 53, std430) readonly buffer Vertices { Vertex a[]; } v
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
 #include "noise.glsl"
+#include "temporal_reservoir_rotation.glsl"
 #include "brdf.glsl"
 #define BOUNCE_PATH_COORDS_ONLY 1
 #include "bounce_path_common.glsl"
@@ -211,64 +213,14 @@ bool validateHistoryTransportSegment(
 	return !shadowed(origin, direction, distance_to_end);
 }
 
-bool bouncePathAcceptMagnificationReprojection(ivec2 local_pix, ivec2 history_local_pix)
-{
-#if BOUNCE_PATH_REJECT_MAG_REPROJECTION
-	const ivec2 neighbor_offsets[4] = ivec2[](
-		ivec2(-1, 0),
-		ivec2( 1, 0),
-		ivec2( 0,-1),
-		ivec2( 0, 1));
-	uint collision_count = 0u;
-
-	for (int tap = 0; tap < 4; ++tap) {
-		const ivec2 neighbor_local_pix = local_pix + neighbor_offsets[tap];
-		if (!bouncePathLocalPixelInBounds(neighbor_local_pix)) {
-			continue;
-		}
-
-		ivec2 neighbor_history_local_pix;
-		if (reprojectHalfResAtlasPrimaryPlanePixelLegacy(
-			neighbor_local_pix,
-			bouncePathLaneSize(),
-			ubo.ubo.asvgf.indirect_diffuse,
-			neighbor_history_local_pix) &&
-			all(equal(neighbor_history_local_pix, history_local_pix))) {
-			collision_count += 1u;
-		}
-	}
-
-	const float acceptance_probability = 1.0 / float(collision_count + 1u);
-	const float random_value = uintToFloat01(xxhash32(uvec4(
-		uint(local_pix.x),
-		uint(local_pix.y),
-		ubo.ubo.random_seed,
-		0x626d6167u)));
-	return random_value < acceptance_probability;
-#else
-	return true;
-#endif
-}
-
-vec4 findAndValidateHistory(
+vec4 validateResolvedHistory(
 	ivec2 local_pix,
+	ivec2 history_local_pix,
+	bool rotated,
 	vec3 current_primary_pos,
 	vec3 current_primary_geometry_N,
 	vec3 current_primary_transport_N)
 {
-	ivec2 history_local_pix;
-	if (!reprojectHalfResAtlasPrimaryPlanePixelLegacy(
-		local_pix,
-		bouncePathLaneSize(),
-		ubo.ubo.asvgf.indirect_diffuse,
-		history_local_pix)) {
-		return vec4(0.0);
-	}
-
-	if (!bouncePathAcceptMagnificationReprojection(local_pix, history_local_pix)) {
-		return vec4(0.0);
-	}
-
 	const vec4 history_meta = imageLoad(prev_temporal_bounce_path_meta, history_local_pix);
 	const uint path_length = bouncePathLengthFromMeta(history_meta);
 	const uint age = bouncePathAgeFromMeta(history_meta);
@@ -279,7 +231,21 @@ vec4 findAndValidateHistory(
 
 	const uint path_seed = bouncePathUnpackSeed(history_meta.xy);
 	const uint segment = bouncePathScheduledSegment(path_seed, local_pix, age, path_length);
-	if (!validateHistoryTransportSegment(
+
+	// The resolve pass swaps a pair only when both primary planes accept the
+	// opposite history. A rotated compound path still has a new primary endpoint,
+	// so its reconnection segment must be tested before accepting the reservoir.
+	if (rotated && !validateHistoryTransportSegment(
+		history_local_pix,
+		0u,
+		path_length,
+		current_primary_pos,
+		current_primary_geometry_N,
+		current_primary_transport_N)) {
+		return vec4(0.0);
+	}
+
+	if ((!rotated || segment != 0u) && !validateHistoryTransportSegment(
 		history_local_pix,
 		segment,
 		path_length,
@@ -300,6 +266,33 @@ vec4 findAndValidateHistory(
 	const uint refresh_slot = bouncePathScheduledLightSlot(
 		path_seed, local_pix, age, light_vertex_count);
 	return vec4(vec2(history_local_pix), 1.0, float(refresh_slot));
+}
+
+vec4 findAndValidateHistory(
+	ivec2 local_pix,
+	vec3 current_primary_pos,
+	vec3 current_primary_geometry_N,
+	vec3 current_primary_transport_N)
+{
+	const vec2 resolved_source = imageLoad(
+		temporal_reprojection_bounce_source, local_pix).rg;
+	ivec2 history_local_pix;
+	bool rotated;
+	if (!temporalReprojectionDecodeSource(
+		resolved_source,
+		bouncePathLaneSize(),
+		history_local_pix,
+		rotated)) {
+		return vec4(0.0);
+	}
+
+	return validateResolvedHistory(
+		local_pix,
+		history_local_pix,
+		rotated,
+		current_primary_pos,
+		current_primary_geometry_N,
+		current_primary_transport_N);
 }
 
 void main()

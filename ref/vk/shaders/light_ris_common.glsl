@@ -3,6 +3,7 @@
 
 #include "debug.glsl"
 #include "noise.glsl"
+#include "temporal_reservoir_rotation.glsl"
 #include "brdf.glsl"
 #include "light_ris_experimental.glsl"
 
@@ -670,25 +671,78 @@ RisTemporalReservoir risFinalizeTemporalReservoir(RisTemporalReservoir reservoir
 
 #if RIS_INIT_PASS
 #ifndef RIS_CUSTOM_TEMPORAL_HISTORY
-bool risFindTemporalHistoryPixel(ivec2 pix, ivec2 surface_pix, vec3 prev_position, vec3 geometry_normal, out ivec2 history_pix)
+bool risFindTemporalHistoryPixel(
+	ivec2 pix,
+	ivec2 surface_pix,
+	vec3 prev_position,
+	vec3 geometry_normal,
+	out ivec2 history_pix)
 {
 	history_pix = ivec2(-1);
 
+#if RIS_USE_SHARED_TEMPORAL_ROTATION
 	ivec2 history_surface_pix;
+	bool rotated;
+	if (!temporalReprojectionDecodeSource(
+		imageLoad(temporal_reprojection_direct_source, surface_pix).rg,
+		ubo.ubo.res,
+		history_surface_pix,
+		rotated)) {
+		return false;
+	}
+	history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_surface_pix);
+	return true;
+#else
 	float selected_depth_threshold = 0.0;
 	const bool found = findBestReprojectedHistoryTexel(
 		prev_position,
 		geometry_normal,
 		surface_pix,
 		ubo.ubo.res,
-		history_surface_pix,
+		history_pix,
 		selected_depth_threshold);
 	if (found) {
-		history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_surface_pix);
+		history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_pix);
 	}
 	return found;
+#endif
 }
 #endif
+
+// Direct lighting stores independent resolved temporal sources for diffuse and
+// specular reservoirs.  Custom bounce/reflection/refraction histories keep
+// their existing reprojection implementation and ignore the lobe selector.
+bool risFindTemporalHistoryPixelForLobe(
+	ivec2 pix,
+	ivec2 surface_pix,
+	vec3 prev_position,
+	vec3 geometry_normal,
+	int lobe,
+	out ivec2 history_pix)
+{
+#if RIS_USE_SHARED_TEMPORAL_ROTATION
+	const vec4 encoded_sources = imageLoad(
+		temporal_reprojection_direct_source, surface_pix);
+	vec2 encoded_source = encoded_sources.rg;
+#if RIS_SPLIT_LOBE_RESERVOIRS
+	if (lobe != 0) {
+		encoded_source = encoded_sources.ba;
+	}
+#endif
+	ivec2 history_surface_pix;
+	bool rotated;
+	if (!temporalReprojectionDecodeSource(
+		encoded_source, ubo.ubo.res, history_surface_pix, rotated)) {
+		history_pix = ivec2(-1);
+		return false;
+	}
+	history_pix = RIS_RESERVOIR_PIXEL_FROM_SURFACE(history_surface_pix);
+	return true;
+#else
+	return risFindTemporalHistoryPixel(
+		pix, surface_pix, prev_position, geometry_normal, history_pix);
+#endif
+}
 #endif
 
 uint risRoundSampleCount(float value)

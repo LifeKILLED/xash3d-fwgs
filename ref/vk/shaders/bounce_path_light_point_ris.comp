@@ -14,7 +14,6 @@ layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
 layout(set = 0, binding = 7) readonly buffer SBOLights { LightsMetadata m; } lights;
-layout(set = 0, binding = 8, align = 1) readonly buffer UBOLightClusters { LightCluster clusters_[MAX_LIGHT_CLUSTERS]; } light_grid;
 
 layout(set = 0, binding = 10, rgba16f) uniform readonly image2D bounce_path_fresh_throughput;
 layout(set = 0, binding = 11, rgba32f) uniform readonly image2D bounce_path_fresh_hit_pos;
@@ -53,6 +52,7 @@ layout(set = 0, binding = 52, std430) readonly buffer Indices { uint16_t a[]; } 
 layout(set = 0, binding = 53, std430) readonly buffer Vertices { Vertex a[]; } vertices;
 
 #define RAY_QUERY
+#define RIS_REGIR_ONLY 1
 #define LIGHT_POINT 1
 #define REGIR_ONION_IMAGE regir_onion_point
 #define RIS_POINT_OUT_TEMPORAL_RESERVOIR_IMAGE out_bounce_path_point_fresh_reservoir

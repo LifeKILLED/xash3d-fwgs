@@ -90,12 +90,20 @@ struct RisLightSample {
 
 uint risLightCount(uint cluster_index)
 {
+#if RIS_REGIR_ONLY
+	return 0u;
+#else
 	return uint(light_grid.clusters_[cluster_index].num_polygons);
+#endif
 }
 
 uint risLightId(uint cluster_index, uint light_index)
 {
+#if RIS_REGIR_ONLY
+	return RIS_INVALID_LIGHT_ID;
+#else
 	return uint(light_grid.clusters_[cluster_index].polygons[light_index]);
+#endif
 }
 
 bool risLoadLightSample(uint light_id, out RisLightSample light_sample)
@@ -750,12 +758,20 @@ struct RisLightSample {
 
 uint risLightCount(uint cluster_index)
 {
+#if RIS_REGIR_ONLY
+	return 0u;
+#else
 	return uint(light_grid.clusters_[cluster_index].num_point_lights);
+#endif
 }
 
 uint risLightId(uint cluster_index, uint light_index)
 {
+#if RIS_REGIR_ONLY
+	return RIS_INVALID_LIGHT_ID;
+#else
 	return uint(light_grid.clusters_[cluster_index].point_lights[light_index]);
+#endif
 }
 
 bool risLoadLightSample(uint light_id, out RisLightSample light_sample)
@@ -1189,9 +1205,17 @@ void computePointAlwaysSampledLights(
 		return;
 	}
 
+#if RIS_REGIR_ONLY
+	const uint num_point_lights = lights.m.num_point_lights;
+#else
 	const uint num_point_lights = uint(light_grid.clusters_[cluster_index].num_point_lights);
+#endif
 	for (uint j = 0u; j < num_point_lights; ++j) {
+#if RIS_REGIR_ONLY
+		const uint light_id = j;
+#else
 		const uint light_id = uint(light_grid.clusters_[cluster_index].point_lights[j]);
+#endif
 		if (light_id >= lights.m.num_point_lights) {
 			continue;
 		}
