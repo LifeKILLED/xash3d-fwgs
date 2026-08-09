@@ -129,7 +129,7 @@ const float shadow_offset_fudge = .1;
 #ifndef RIS_TEMPORAL_RANDOM_RESET_PROBABILITY
 // Independent Bernoulli lifetime reset; this is random rather than a periodic
 // reset tied to reservoir age.
-#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 100.0)
+#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 1000.0)
 #endif
 
 #ifndef RIS_TEMPORAL_SHADING_CONFIDENCE_DELTA
@@ -168,6 +168,10 @@ const uint RIS_INVALID_LIGHT_ID = 0xffffffffu;
 // Stored numerically in an RGBA32F channel. A 16-bit integer is represented by
 // FP32 exactly, so temporal image round-trips cannot alter any hash bit.
 const uint RIS_TEMPORAL_HASH_MASK = 0x0000ffffu;
+
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT 0
+#endif
 
 uint risQuantizeLightValueForHash(float value)
 {
@@ -323,6 +327,9 @@ struct RisTemporalReservoir {
 	float weight_sum;
 	vec3 sample_random;
 	float sample_count;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	float regir_inv_source_pdf;
+#endif
 };
 
 struct RisTemporalCandidate {
@@ -331,6 +338,9 @@ struct RisTemporalCandidate {
 	float mixed_weight;
 	vec3 sample_random;
 	float sample_count;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	float regir_inv_source_pdf;
+#endif
 };
 
 struct RisCandidateImageSample {
@@ -348,6 +358,9 @@ RisTemporalReservoir risInvalidTemporalReservoir()
 	reservoir.weight_sum = 0.0;
 	reservoir.sample_random = vec3(0.0);
 	reservoir.sample_count = 0.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	reservoir.regir_inv_source_pdf = 0.0;
+#endif
 	return reservoir;
 }
 
@@ -503,6 +516,9 @@ RisTemporalReservoir risDecodeTemporalReservoir(vec4 encoded)
 	reservoir.weight_sum = max(encoded.w, 0.0);
 	reservoir.sample_random = vec3(0.0);
 	reservoir.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	reservoir.regir_inv_source_pdf = 0.0;
+#endif
 
 	if (!risTemporalReservoirValid(reservoir)) {
 		return risInvalidTemporalReservoir();
@@ -629,6 +645,9 @@ RisTemporalReservoir risMergeTemporalCandidate(
 			reservoir.light_hash = new_candidate.light_hash;
 			reservoir.mixed_weight = new_candidate.mixed_weight;
 			reservoir.sample_random = new_candidate.sample_random;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+			reservoir.regir_inv_source_pdf = new_candidate.regir_inv_source_pdf;
+#endif
 		}
 
 		reservoir.weight_sum = total_mass;
@@ -654,6 +673,9 @@ RisTemporalReservoir risMergeTemporalCandidateWeighted(
 			reservoir.light_hash = new_candidate.light_hash;
 			reservoir.mixed_weight = new_candidate.mixed_weight;
 			reservoir.sample_random = new_candidate.sample_random;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+			reservoir.regir_inv_source_pdf = new_candidate.regir_inv_source_pdf;
+#endif
 		}
 		reservoir.weight_sum = total_mass;
 		reservoir.sample_count += max(new_candidate.sample_count, 1.0);

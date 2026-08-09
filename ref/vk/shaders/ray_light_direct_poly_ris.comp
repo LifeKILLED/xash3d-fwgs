@@ -53,6 +53,19 @@ layout(set = 0, binding = 40, rgba32f) uniform writeonly image2D out_temporal_ri
 layout(set = 0, binding = 41, rgba32f) uniform readonly image2D prev_temporal_ris_poly_specular_random;
 #endif
 
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT 1
+#endif
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY 0.1
+#endif
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+layout(set = 0, binding = 42, rgba16f) uniform writeonly image2D out_temporal_ris_poly_diffuse_regir_inv_pdf;
+layout(set = 0, binding = 43, rgba16f) uniform readonly image2D prev_temporal_ris_poly_diffuse_regir_inv_pdf;
+#define RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE out_temporal_ris_poly_diffuse_regir_inv_pdf
+#define RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE prev_temporal_ris_poly_diffuse_regir_inv_pdf
+#endif
+
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;

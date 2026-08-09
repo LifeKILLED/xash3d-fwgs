@@ -26,6 +26,14 @@
 #define RIS_REGIR_ONLY 0
 #endif
 
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT 0
+#endif
+
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY 0.1
+#endif
+
 #if !defined(RIS_LOAD_LIGHT)
 #error RIS_LOAD_LIGHT must be defined before including light_ris_template.glsl
 #endif
@@ -220,12 +228,18 @@ const int RIS_UNIFIED_RESERVOIR_COUNT = 1;
 RisTemporalReservoir risLoadUnifiedReservoir(ivec2 pix, int lobe)
 {
 #if RIS_SPLIT_LOBE_RESERVOIRS
-	return lobe == 0
+	RisTemporalReservoir reservoir = lobe == 0
 		? RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR(pix)
 		: risLoadPreviousSplitSpecularReservoir(pix);
 #else
-	return RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR(pix);
+	RisTemporalReservoir reservoir = RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR(pix);
 #endif
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	if (lobe == 0 && risTemporalReservoirValid(reservoir)) {
+		reservoir.regir_inv_source_pdf = max(imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, pix).x, 0.0);
+	}
+#endif
+	return reservoir;
 }
 
 void risStoreUnifiedReservoir(ivec2 pix, int lobe, RisTemporalReservoir reservoir)
@@ -233,11 +247,21 @@ void risStoreUnifiedReservoir(ivec2 pix, int lobe, RisTemporalReservoir reservoi
 #if RIS_SPLIT_LOBE_RESERVOIRS
 	if (lobe == 0) {
 		RIS_STORE_TEMPORAL_RESERVOIR(pix, reservoir);
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+		imageStore(RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE, pix, vec4(
+			risTemporalReservoirValid(reservoir) ? max(reservoir.regir_inv_source_pdf, 0.0) : 0.0));
+#endif
 	} else {
 		risStoreSplitSpecularReservoir(pix, reservoir);
 	}
 #else
 	RIS_STORE_TEMPORAL_RESERVOIR(pix, reservoir);
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	if (lobe == 0) {
+		imageStore(RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE, pix, vec4(
+			risTemporalReservoirValid(reservoir) ? max(reservoir.regir_inv_source_pdf, 0.0) : 0.0));
+	}
+#endif
 #endif
 }
 
@@ -372,10 +396,27 @@ RisTemporalReservoir risReprojectUnifiedReservoir(
 	const float lifetime_random = risTemporalRandom01(
 		pix, RIS_TEMPORAL_LIFETIME_RANDOM_SALT + uint(lobe) * 0x400u);
 #if RIS_REGIR_ONLY
-	// Rotation moves the same ReGIR reservoir sample. Its sample count and
-	// accumulated selection mass do not change, so preserve the reservoir
-	// statistics exactly. The current target is evaluated only to validate the
-	// shifted sample and to replay visibility to the stored light point.
+	// Normally preserve the ReGIR reservoir statistics exactly. Direct diffuse
+	// may additionally revert the selected sample to one fresh ReGIR proposal,
+	// discarding only accumulated mass and M. Keep the much rarer hard lifetime
+	// reset as an independent escape path for stale samples.
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	if (lobe == 0) {
+		if (!risTemporalOldReservoirSurvives(history, current_weight, lifetime_random)) {
+			return risInvalidTemporalReservoir();
+		}
+
+		if (history.regir_inv_source_pdf > 0.0 &&
+			risTemporalRandom01(pix, 0x72657674u) < float(RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY)) {
+			RisTemporalReservoir reverted = history;
+			reverted.mixed_weight = current_weight;
+			reverted.weight_sum = current_weight * history.regir_inv_source_pdf;
+			reverted.sample_count = 1.0;
+			return reverted;
+		}
+		return history;
+	}
+#endif
 	if (!risTemporalOldReservoirSurvives(history, current_weight, lifetime_random)) {
 		return risInvalidTemporalReservoir();
 	}
@@ -415,6 +456,9 @@ void risMergeConcreteCandidate(
 	candidate.mixed_weight = target_weight;
 	candidate.sample_random = sample_random;
 	candidate.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	candidate.regir_inv_source_pdf = 0.0;
+#endif
 	reservoir = risMergeTemporalCandidate(
 		reservoir, candidate,
 		risTemporalRandom01(pix, random_salt));
@@ -566,6 +610,9 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 					candidate.mixed_weight = target_weight;
 					candidate.sample_random = sample_random;
 					candidate.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+					candidate.regir_inv_source_pdf = onion_candidate.inv_source_pdf;
+#endif
 					reservoirs[lobe] = risMergeTemporalCandidateWeighted(
 						reservoirs[lobe],
 						candidate,
@@ -722,6 +769,9 @@ RisTemporalReservoir RIS_MERGE_VISIBLE_CANDIDATES(
 		visible_candidate.mixed_weight = selected_mixed_weight;
 		visible_candidate.sample_random = vec3(0.0);
 		visible_candidate.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+		visible_candidate.regir_inv_source_pdf = 0.0;
+#endif
 		reservoir = risMergeTemporalCandidate(
 			reservoir,
 			visible_candidate,
@@ -776,6 +826,9 @@ RisTemporalReservoir RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
 		candidate.mixed_weight = mixed_weight;
 		candidate.sample_random = vec3(0.0);
 		candidate.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+		candidate.regir_inv_source_pdf = onion_candidate.inv_source_pdf;
+#endif
 
 		reservoir = risMergeTemporalCandidateWeighted(
 			reservoir,
@@ -839,6 +892,9 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 			visible_candidate.mixed_weight = mixed_weight;
 			visible_candidate.sample_random = vec3(0.0);
 			visible_candidate.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+			visible_candidate.regir_inv_source_pdf = 0.0;
+#endif
 			reservoir = risMergeTemporalCandidate(
 				reservoir,
 				visible_candidate,
@@ -930,6 +986,9 @@ RisTemporalReservoir RIS_MERGE_BAYER_SHARED_VISIBLE_CANDIDATES(
 			visible_candidate.mixed_weight = mixed_weight;
 			visible_candidate.sample_random = vec3(0.0);
 			visible_candidate.sample_count = 1.0;
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+			visible_candidate.regir_inv_source_pdf = 0.0;
+#endif
 			reservoir = risMergeTemporalCandidate(
 				reservoir,
 				visible_candidate,
