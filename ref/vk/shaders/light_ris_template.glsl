@@ -30,6 +30,10 @@
 #define RIS_DIRECT_DIFFUSE_REGIR_REVERT 0
 #endif
 
+#ifndef RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION
+#define RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION 0
+#endif
+
 #ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY
 #define RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY 0.1
 #endif
@@ -679,6 +683,38 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 	for (int lobe = 0; lobe < RIS_UNIFIED_RESERVOIR_COUNT; ++lobe) {
 		vec3 selected_diffuse;
 		vec3 selected_specular;
+
+#if RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION
+		// Direct diffuse permutation is deliberately presentation-only. Shade a
+		// COPY of the canonical diffuse reservoir against the current-frame
+		// destination G-buffer. Never let destination shading mutate the reservoir
+		// that is stored back to temporal history.
+		if (lobe == 0) {
+			if (!risTemporalReservoirValid(reservoirs[lobe])) {
+				continue;
+			}
+			ivec2 shading_pix;
+			vec3 shading_P;
+			vec3 shading_N;
+			vec3 shading_V;
+			MaterialProperties shading_material;
+			bool shading_surface_active;
+			RIS_DIRECT_DIFFUSE_LOAD_SHADING_SURFACE(
+				pix, shading_pix, shading_P, shading_N, shading_V,
+				shading_material, shading_surface_active);
+
+			RisTemporalReservoir shading_reservoir = reservoirs[lobe];
+			if (!shading_surface_active || !risShadeUnifiedReservoir(
+				shading_reservoir, inv_discrete_light_pdf,
+				shading_P, shading_N, shading_V, shading_material,
+				selected_diffuse, selected_specular)) {
+				continue;
+			}
+			diffuse = selected_diffuse;
+			continue;
+		}
+#endif
+
 		if (!risShadeUnifiedReservoir(
 			reservoirs[lobe], inv_discrete_light_pdf, P, N, V, material,
 			selected_diffuse, selected_specular)) {

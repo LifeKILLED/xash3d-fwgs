@@ -129,7 +129,7 @@ const float shadow_offset_fudge = .1;
 #ifndef RIS_TEMPORAL_RANDOM_RESET_PROBABILITY
 // Independent Bernoulli lifetime reset; this is random rather than a periodic
 // reset tied to reservoir age.
-#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 1000.0)
+#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 100.0)
 #endif
 
 #ifndef RIS_TEMPORAL_SHADING_CONFIDENCE_DELTA

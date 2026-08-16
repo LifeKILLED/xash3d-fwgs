@@ -32,12 +32,24 @@ layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_temporal_re
 #undef REPROJECTION_LOAD_PREV_DEPTH_META
 #undef LOAD_REFLECTION_RAY_LENGTH
 
-#ifndef TEMPORAL_DIRECT_ROTATION_MASK_BITS
-#define TEMPORAL_DIRECT_ROTATION_MASK_BITS 4u
+// Direct lighting experiment: actual temporal reservoir rotation uses only
+// the shared 2x2 pair permutation. The presentation-only direct diffuse
+// shading permutation is disabled in the direct RIS entry points.
+#ifndef TEMPORAL_DIRECT_PAIR_RANDOM_STAY
+#define TEMPORAL_DIRECT_PAIR_RANDOM_STAY 0
+#endif
+#ifndef TEMPORAL_DIRECT_PAIR_SWAP_PROBABILITY
+#define TEMPORAL_DIRECT_PAIR_SWAP_PROBABILITY 0.75
 #endif
 
 #ifndef TEMPORAL_BOUNCE_ROTATION_MASK_BITS
 #define TEMPORAL_BOUNCE_ROTATION_MASK_BITS 3u
+#endif
+#ifndef TEMPORAL_BOUNCE_ROTATION_MODE
+#define TEMPORAL_BOUNCE_ROTATION_MODE TEMPORAL_RESERVOIR_PERMUTATION_MODE_PAIR_2X2
+#endif
+#ifndef TEMPORAL_BOUNCE_PAIR_SWAP_PROBABILITY
+#define TEMPORAL_BOUNCE_PAIR_SWAP_PROBABILITY 0.75
 #endif
 
 #ifndef TEMPORAL_SPECULAR_SHADING_NORMAL_MIN
@@ -135,12 +147,25 @@ bool temporalLoadDirectPrimarySurface(
 
 void resolveDirectSource(ivec2 pix, ivec2 res)
 {
-	const ivec2 partner = temporalReservoirRotationPixel(
+	const uint permutation_frame_seed = xxhash32(uvec4(
+		ubo.ubo.frame_counter, ubo.ubo.random_seed,
+		TEMPORAL_DIRECT_ROTATION_SALT, 0x6672616du));
+#if TEMPORAL_DIRECT_PAIR_RANDOM_STAY
+	const float direct_pair_swap_probability =
+		float(TEMPORAL_DIRECT_PAIR_SWAP_PROBABILITY);
+#else
+	// Rotation mode: once a complete 2x2 pair is selected, do not randomly
+	// leave it in place. Only the symmetric reprojection/geometry validation
+	// below may reject the swap. Incomplete edge pairs retain their dedicated
+	// 50/50 rule inside temporalReservoirPairPermutationPixel().
+	const float direct_pair_swap_probability = 1.0;
+#endif
+	const ivec2 partner = temporalReservoirPairPermutationPixel(
 		pix,
 		res,
-		ubo.ubo.random_seed,
+		permutation_frame_seed,
 		TEMPORAL_DIRECT_ROTATION_SALT,
-		uint(TEMPORAL_DIRECT_ROTATION_MASK_BITS));
+		direct_pair_swap_probability);
 
 	ivec2 self_history_pix;
 	ivec2 partner_history_pix;
@@ -205,12 +230,17 @@ void resolveDirectSource(ivec2 pix, ivec2 res)
 
 void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 {
-	const ivec2 partner = temporalReservoirRotationPixel(
+	const uint permutation_frame_seed = xxhash32(uvec4(
+		ubo.ubo.frame_counter, ubo.ubo.random_seed,
+		TEMPORAL_BOUNCE_ROTATION_SALT, 0x6672616du));
+	const ivec2 partner = temporalReservoirPermutationPixel(
 		local_pix,
 		half_res,
-		ubo.ubo.random_seed,
+		permutation_frame_seed,
 		TEMPORAL_BOUNCE_ROTATION_SALT,
-		uint(TEMPORAL_BOUNCE_ROTATION_MASK_BITS));
+		uint(TEMPORAL_BOUNCE_ROTATION_MODE),
+		uint(TEMPORAL_BOUNCE_ROTATION_MASK_BITS),
+		float(TEMPORAL_BOUNCE_PAIR_SWAP_PROBABILITY));
 
 	ivec2 self_history_local_pix;
 	ivec2 self_history_screen_pix;
