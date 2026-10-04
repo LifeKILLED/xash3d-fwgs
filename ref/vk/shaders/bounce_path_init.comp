@@ -77,7 +77,7 @@ vec3 offsetBouncePathRayOrigin(vec3 hit_pos, vec3 geometry_normal, vec3 directio
 	return hit_pos + geometry_normal * (eps * normal_sign);
 }
 
-bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload)
+bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload, inout RayPrimarySurface surface)
 {
 	rayQueryEXT rq;
 	const uint flags = gl_RayFlagsCullFrontFacingTrianglesEXT;
@@ -88,7 +88,7 @@ bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary pay
 			continue;
 		}
 
-		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const AlphaCandidateGeometry geom = readCandidateAlphaGeometry(rq);
 		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
 		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
 		if (texture_color.a >= 0.1) {
@@ -98,12 +98,12 @@ bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary pay
 
 	if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
 		payload.hit_t = vec4(vec3(0.0), ray_length);
-		payload.emissive.rgb = sampleSkybox(direction);
+		surface.emissive.rgb = sampleSkybox(direction);
 		return false;
 	}
 
-	payload.emissive.rgb = vec3(0.0);
-	primaryRayHit(rq, payload);
+	surface.emissive.rgb = vec3(0.0);
+	primaryRayHit(rq, payload, surface);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;
@@ -126,6 +126,7 @@ void clearFreshLane(ivec2 pix)
 void storeFreshLane(
 	ivec2 pix,
 	RayPayloadPrimary payload,
+	RayPrimarySurface surface,
 	bool did_hit,
 	vec3 stage_throughput,
 	vec3 emissive,
@@ -135,9 +136,9 @@ void storeFreshLane(
 {
 	imageStore(out_bounce_path_fresh_throughput, pix, vec4(stage_throughput, float(BRDF_TYPE_DIFFUSE)));
 	imageStore(out_bounce_path_fresh_hit_pos, pix, did_hit ? payload.hit_t : vec4(0.0));
-	imageStore(out_bounce_path_fresh_normals_gs, pix, did_hit ? payload.normals_gs : vec4(0.0));
-	imageStore(out_bounce_path_fresh_material_rmxx, pix, did_hit ? payload.material_rmxx : vec4(0.0));
-	imageStore(out_bounce_path_fresh_base_color_a, pix, did_hit ? LINEARtoSRGB(payload.base_color_a) : vec4(0.0));
+	imageStore(out_bounce_path_fresh_normals_gs, pix, did_hit ? surface.normals_gs : vec4(0.0));
+	imageStore(out_bounce_path_fresh_material_rmxx, pix, did_hit ? surface.material_rmxx : vec4(0.0));
+	imageStore(out_bounce_path_fresh_base_color_a, pix, did_hit ? LINEARtoSRGB(surface.base_color_a) : vec4(0.0));
 	imageStore(out_bounce_path_fresh_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_bounce_path_fresh_emissive, pix, vec4(emissive, 0.0));
 	imageStore(out_bounce_path_fresh_ray_origin_length, pix, vec4(ray_origin, ray_length));
@@ -378,22 +379,22 @@ void main()
 		}
 
 		RayPayloadPrimary payload;
-		payload.base_color_a = vec4(0.0);
-		payload.emissive = vec4(0.0);
-		payload.material_rmxx = vec4(0.0);
-		payload.normals_gs = vec4(0.0);
 		payload.hit_t = vec4(0.0);
-		payload.prev_pos_t = vec4(0.0);
+		RayPrimarySurface surface;
+		surface.base_color_a = vec4(0.0);
+		surface.emissive = vec4(0.0);
+		surface.material_rmxx = vec4(0.0);
+		surface.normals_gs = vec4(0.0);
 
 		const vec3 ray_origin = offsetBouncePathRayOrigin(
 			current_pos, current_geometry_N, direction, BOUNCE_PATH_RAY_NORMAL_OFFSET);
-		const bool did_hit = traceBouncePathHit(ray_origin, direction, payload);
+		const bool did_hit = traceBouncePathHit(ray_origin, direction, payload, surface);
 
 		// Legacy translucent/blended geometry is composited by the dedicated
 		// bounce_path_legacy_blending pass. Keep path generation independent
 		// from those additional rays.
 		const vec3 stage_throughput = vec3(1.0);
-		vec3 emissive = max(payload.emissive.rgb, vec3(0.0));
+		vec3 emissive = max(surface.emissive.rgb, vec3(0.0));
 #if BOUNCE_PATH_EXCLUDE_EMISSIVE_SURFACE_HITS
 		// Keep environment radiance for misses, but suppress direct BSDF hits
 		// on emissive geometry. The following legacy-blending pass runs after
@@ -406,6 +407,7 @@ void main()
 		storeFreshLane(
 			bouncePathAtlasPixel(local_pix, bounce),
 			payload,
+			surface,
 			did_hit,
 			stage_throughput,
 			emissive,
@@ -419,8 +421,8 @@ void main()
 		}
 
 		current_pos = payload.hit_t.xyz;
-		current_geometry_N = normalDecode(payload.normals_gs.xy);
-		current_shading_N = normalDecode(payload.normals_gs.zw);
+		current_geometry_N = normalDecode(surface.normals_gs.xy);
+		current_shading_N = normalDecode(surface.normals_gs.zw);
 		current_transport_N = bouncePathTransportNormal(current_geometry_N, current_shading_N);
 	}
 

@@ -59,7 +59,7 @@ vec3 offsetBounceRayOrigin(vec3 hit_pos, vec3 geometry_normal, vec3 bounce_dir, 
 	return hit_pos + geometry_normal * (eps * normal_sign);
 }
 
-bool getBounceHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload)
+bool getBounceHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload, inout RayPrimarySurface surface)
 {
 	rayQueryEXT rq;
 	const uint flags = 0
@@ -73,7 +73,7 @@ bool getBounceHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload)
 			continue;
 		}
 
-		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const AlphaCandidateGeometry geom = readCandidateAlphaGeometry(rq);
 		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
 		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
 
@@ -85,12 +85,12 @@ bool getBounceHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload)
 
 	if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
 		payload.hit_t = vec4(vec3(0.0), L);
-		payload.emissive.rgb = sampleSkybox(direction);
+		surface.emissive.rgb = sampleSkybox(direction);
 		return false;
 	}
 
-	payload.emissive.rgb = vec3(0.0);
-	primaryRayHit(rq, payload);
+	surface.emissive.rgb = vec3(0.0);
+	primaryRayHit(rq, payload, surface);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;
@@ -114,6 +114,7 @@ void clearBounceSample(ivec2 pix)
 void storeBounceHit(
 	ivec2 pix,
 	RayPayloadPrimary payload,
+	RayPrimarySurface surface,
 	vec3 throughput,
 	int brdf_type,
 	vec3 emissive_radiance,
@@ -123,9 +124,9 @@ void storeBounceHit(
 {
 	imageStore(out_bounce_throughput, pix, vec4(throughput, float(brdf_type)));
 	imageStore(out_bounce_hit_pos, pix, payload.hit_t);
-	imageStore(out_bounce_normals_gs, pix, payload.normals_gs);
-	imageStore(out_bounce_material_rmxx, pix, payload.material_rmxx);
-	imageStore(out_bounce_base_color_a, pix, LINEARtoSRGB(payload.base_color_a));
+	imageStore(out_bounce_normals_gs, pix, surface.normals_gs);
+	imageStore(out_bounce_material_rmxx, pix, surface.material_rmxx);
+	imageStore(out_bounce_base_color_a, pix, LINEARtoSRGB(surface.base_color_a));
 	imageStore(out_bounce_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_bounce_emissive, pix, vec4(emissive_radiance, 0.0));
 	imageStore(out_bounce_ray_origin_length, pix, vec4(ray_origin, ray_length));
@@ -202,22 +203,22 @@ void main()
 		const int brdf_type = BRDF_TYPE_DIFFUSE;
 
 		RayPayloadPrimary payload;
-		payload.base_color_a = vec4(0.0);
-		payload.emissive = vec4(0.0);
-		payload.material_rmxx = vec4(0.0);
-		payload.normals_gs = vec4(0.0);
 		payload.hit_t = vec4(0.0);
-		payload.prev_pos_t = vec4(0.0);
+		RayPrimarySurface surface;
+		surface.base_color_a = vec4(0.0);
+		surface.emissive = vec4(0.0);
+		surface.material_rmxx = vec4(0.0);
+		surface.normals_gs = vec4(0.0);
 
 		const vec3 bounce_ray_origin = offsetBounceRayOrigin(pos, mat.geometry_normal, bounce_direction, kRayNormalOffsetFudge);
-		const bool did_hit = getBounceHit(bounce_ray_origin, bounce_direction, payload);
+		const bool did_hit = getBounceHit(bounce_ray_origin, bounce_direction, payload, surface);
 
 		if (!did_hit) {
 			storeBounceMiss(
 				pix,
 				throughput,
 				brdf_type,
-				payload.emissive.rgb,
+				surface.emissive.rgb,
 				-bounce_direction,
 				bounce_ray_origin,
 				payload.hit_t.w);
@@ -227,6 +228,7 @@ void main()
 		storeBounceHit(
 			pix,
 			payload,
+			surface,
 			throughput,
 			brdf_type,
 			vec3(0.0),
@@ -240,7 +242,7 @@ void main()
 		}
 
 		pos = payload.hit_t.xyz;
-		mat.geometry_normal = normalDecode(payload.normals_gs.xy);
-		mat.shading_normal = normalDecode(payload.normals_gs.zw);
+		mat.geometry_normal = normalDecode(surface.normals_gs.xy);
+		mat.shading_normal = normalDecode(surface.normals_gs.zw);
 	}
 }

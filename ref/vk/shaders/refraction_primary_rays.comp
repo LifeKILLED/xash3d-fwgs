@@ -103,12 +103,18 @@ RayPayloadPrimary makeEmptyPrimaryPayload()
 {
 	RayPayloadPrimary payload;
 	payload.hit_t = vec4(0.0);
-	payload.prev_pos_t = vec4(0.0);
-	payload.base_color_a = vec4(0.0);
-	payload.normals_gs = vec4(0.0);
-	payload.material_rmxx = vec4(0.0);
-	payload.emissive = vec4(0.0);
 	return payload;
+}
+
+RayPrimarySurface makeEmptyPrimarySurface()
+{
+	RayPrimarySurface surface;
+	surface.prev_pos_t = vec4(0.0);
+	surface.base_color_a = vec4(0.0);
+	surface.normals_gs = vec4(0.0);
+	surface.material_rmxx = vec4(0.0);
+	surface.emissive = vec4(0.0);
+	return surface;
 }
 
 void clearRefractionLayer(ivec2 pix)
@@ -127,6 +133,7 @@ void clearRefractionLayer(ivec2 pix)
 void storeRefractionHit(
 	ivec2 pix,
 	RayPayloadPrimary payload,
+	RayPrimarySurface surface,
 	vec3 throughput,
 	vec3 emissive,
 	vec3 view_dir,
@@ -135,12 +142,12 @@ void storeRefractionHit(
 {
 	imageStore(out_refraction_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_refraction_hit_pos, pix, payload.hit_t);
-	imageStore(out_refraction_normals_gs, pix, payload.normals_gs);
-	imageStore(out_refraction_material_rmxx, pix, payload.material_rmxx);
-	imageStore(out_refraction_base_color_a, pix, LINEARtoSRGB(payload.base_color_a));
+	imageStore(out_refraction_normals_gs, pix, surface.normals_gs);
+	imageStore(out_refraction_material_rmxx, pix, surface.material_rmxx);
+	imageStore(out_refraction_base_color_a, pix, LINEARtoSRGB(surface.base_color_a));
 	imageStore(out_refraction_view_dir, pix, vec4(view_dir, 0.0));
 	imageStore(out_refraction_emissive, pix, vec4(emissive, 0.0));
-	imageStore(out_refraction_prev_hit_pos, pix, vec4(payload.prev_pos_t.xyz, payload.hit_t.w));
+	imageStore(out_refraction_prev_hit_pos, pix, vec4(surface.prev_pos_t.xyz, payload.hit_t.w));
 	imageStore(out_refraction_ray_origin_length, pix, vec4(ray_origin, ray_length));
 }
 
@@ -194,11 +201,11 @@ bool selectPrimaryRefractionPixel(ivec2 local_pix, out ivec2 primary_pix)
 	return primary_pix.x >= 0;
 }
 
-bool getRefractionHit(vec3 origin, vec3 direction, float max_dist, inout RayPayloadPrimary payload)
+bool getRefractionHit(vec3 origin, vec3 direction, float max_dist, inout RayPayloadPrimary payload, inout RayPrimarySurface surface)
 {
 	if (max_dist <= kRefractionRayOffset) {
 		payload.hit_t = vec4(vec3(0.0), max_dist);
-		payload.emissive.rgb = sampleSkybox(direction);
+		surface.emissive.rgb = sampleSkybox(direction);
 		return false;
 	}
 
@@ -222,7 +229,7 @@ bool getRefractionHit(vec3 origin, vec3 direction, float max_dist, inout RayPayl
 			continue;
 		}
 
-		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const AlphaCandidateGeometry geom = readCandidateAlphaGeometry(rq);
 		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
 		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
 
@@ -234,12 +241,12 @@ bool getRefractionHit(vec3 origin, vec3 direction, float max_dist, inout RayPayl
 
 	if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
 		payload.hit_t = vec4(vec3(0.0), max_dist);
-		payload.emissive.rgb = sampleSkybox(direction);
+		surface.emissive.rgb = sampleSkybox(direction);
 		return false;
 	}
 
-	payload.emissive.rgb = vec3(0.0);
-	primaryRayHit(rq, payload);
+	surface.emissive.rgb = vec3(0.0);
+	primaryRayHit(rq, payload, surface);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;
@@ -284,19 +291,20 @@ void main()
 	uint layer = 0u;
 	for (int step = 0; step < kRefractionMaxTraceSteps && layer < REFRACTION_RIS_LAYER_COUNT; ++step) {
 		RayPayloadPrimary payload = makeEmptyPrimaryPayload();
+		RayPrimarySurface surface = makeEmptyPrimarySurface();
 
-		const bool did_hit = getRefractionHit(ray_origin, ray_dir, remaining_dist, payload);
+		const bool did_hit = getRefractionHit(ray_origin, ray_dir, remaining_dist, payload, surface);
 		const float blend_dist = did_hit ? payload.hit_t.w : remaining_dist;
 
 		if (!did_hit) {
 			const ivec2 layer_pix = refractionRisAtlasPixel(local_pix, layer);
-			storeRefractionMiss(layer_pix, payload.emissive.rgb, -ray_dir, ray_origin, blend_dist);
+			storeRefractionMiss(layer_pix, surface.emissive.rgb, -ray_dir, ray_origin, blend_dist);
 			return;
 		}
 
-		const float alpha = clamp(payload.base_color_a.a, 0.0, 1.0);
-		const float roughness = clamp(payload.material_rmxx.r, 0.0, 1.0);
-		const vec3 geometry_N = normalDecode(payload.normals_gs.xy);
+		const float alpha = clamp(surface.base_color_a.a, 0.0, 1.0);
+		const float roughness = clamp(surface.material_rmxx.r, 0.0, 1.0);
+		const vec3 geometry_N = normalDecode(surface.normals_gs.xy);
 		const bool translucent_hit = alpha < 1.0 - kRefractionPrimaryAlphaEpsilon;
 		const bool front_facing = dot(geometry_N, ray_dir) < 0.0;
 		const float step_dist = payload.hit_t.w + kRefractionRayOffset;
@@ -309,11 +317,12 @@ void main()
 		}
 
 		const ivec2 layer_pix = refractionRisAtlasPixel(local_pix, layer);
-		const vec3 layer_emissive = payload.emissive.rgb;
+		const vec3 layer_emissive = surface.emissive.rgb;
 		const vec3 layer_throughput = vec3(1.0);
 		storeRefractionHit(
 			layer_pix,
 			payload,
+			surface,
 			layer_throughput,
 			layer_emissive,
 			-ray_dir,

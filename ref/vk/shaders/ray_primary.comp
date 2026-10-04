@@ -69,11 +69,12 @@ void main() {
 
 	RayPayloadPrimary payload;
 	payload.hit_t = vec4(0.);
-	payload.prev_pos_t = vec4(0.);
-	payload.base_color_a = vec4(0.);
-	payload.normals_gs = vec4(0.);
-	payload.material_rmxx = vec4(0.);
-	payload.emissive = vec4(0.);
+	RayPrimarySurface surface;
+	surface.prev_pos_t = vec4(0.);
+	surface.base_color_a = vec4(0.);
+	surface.normals_gs = vec4(0.);
+	surface.material_rmxx = vec4(0.);
+	surface.emissive = vec4(0.);
 
 	rayQueryEXT rq;
 	const uint flags = 0
@@ -95,7 +96,7 @@ void main() {
 		//    texture sampling for geometry that's ultimately invisible (i.e. behind walls). Also, shader threads congruence.
 		//    Separate pass could be more efficient as it'd be doing the same thing for every invocation.
 		// 2. Same as the above, but also with a completely independent TLAS. Why: no need to mask-check geometry for opaque-vs-alpha
-		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const AlphaCandidateGeometry geom = readCandidateAlphaGeometry(rq);
 		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
 		// Should never happen: skybox is opaque if (tex_base_color == TEX_BASE_SKYBOX)
 		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
@@ -111,18 +112,18 @@ void main() {
 	if (rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
 		//debug_geometry_index = rayQueryGetIntersectionGeometryIndexEXT(rq, true);
 		//debug_geometry_index = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
-		primaryRayHit(rq, payload);
+		primaryRayHit(rq, payload, surface);
 		L = rayQueryGetIntersectionTEXT(rq, true);
 
 	} else {
 		// Draw skybox when nothing is hit
-		payload.emissive.rgb = sampleSkybox(ray.direction);
+		surface.emissive.rgb = sampleSkybox(ray.direction);
 	}
 
 	imageStore(out_position_t, pix, payload.hit_t);
-	imageStore(out_base_color_a, pix, LINEARtoSRGB(payload.base_color_a));
-	imageStore(out_normals_gs, pix, payload.normals_gs);
-	imageStore(out_material_rmxx, pix, payload.material_rmxx);
-	imageStore(out_emissive, pix, payload.emissive);
-	imageStore(out_geometry_prev_position, pix, payload.prev_pos_t);
+	imageStore(out_base_color_a, pix, LINEARtoSRGB(surface.base_color_a));
+	imageStore(out_normals_gs, pix, surface.normals_gs);
+	imageStore(out_material_rmxx, pix, surface.material_rmxx);
+	imageStore(out_emissive, pix, surface.emissive);
+	imageStore(out_geometry_prev_position, pix, surface.prev_pos_t);
 }

@@ -64,7 +64,7 @@ vec3 offsetBounceRayOrigin(vec3 hit_pos, vec3 geometry_normal, vec3 bounce_dir, 
 	return hit_pos + geometry_normal * (eps * normal_sign);
 }
 
-bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload) {
+bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload, inout RayPrimarySurface surface) {
 	rayQueryEXT rq;
 	const uint flags = 0
 		| gl_RayFlagsCullFrontFacingTrianglesEXT
@@ -86,7 +86,7 @@ bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload) {
 		//    texture sampling for geometry that's ultimately invisible (i.e. behind walls). Also, shader threads congruence.
 		//    Separate pass could be more efficient as it'd be doing the same thing for every invocation.
 		// 2. Same as the above, but also with a completely independent TLAS. Why: no need to mask-check geometry for opaque-vs-alpha
-		const MiniGeometry geom = readCandidateMiniGeometry(rq);
+		const AlphaCandidateGeometry geom = readCandidateAlphaGeometry(rq);
 		const uint tex_base_color = getKusok(geom.kusok_index).material.tex_base_color;
 		// tex_base_color cannot be TEX_BASE_SKYBOX, as skybox is opaque
 		const vec4 texture_color = texture(textures[nonuniformEXT(tex_base_color)], geom.uv);
@@ -99,13 +99,13 @@ bool getHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload) {
 
 	if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
 		payload.hit_t.w = L;
-		payload.emissive.rgb = sampleSkybox(direction);
+		surface.emissive.rgb = sampleSkybox(direction);
 		return false;
 	} else {
-		payload.emissive.rgb = vec3(0.); // emissive polygons already calculated in directional polygon lighting pass (remove fireflyes here)
+		surface.emissive.rgb = vec3(0.); // emissive polygons already calculated in directional polygon lighting pass (remove fireflyes here)
 	}
 
-	primaryRayHit(rq, payload);
+	primaryRayHit(rq, payload, surface);
 	const bool hit_skybox = payload.hit_t.w < 0.;
 	if (hit_skybox) {
 		payload.hit_t.w *= -1;
@@ -171,10 +171,12 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 			first_brdf_type = brdf_type;
 
 		RayPayloadPrimary payload;
-		payload.base_color_a = vec4(0.);
-		payload.emissive = vec4(0.);
-		payload.material_rmxx = vec4(0.);
-		payload.normals_gs = vec4(0.);
+		payload.hit_t = vec4(0.);
+		RayPrimarySurface surface;
+		surface.base_color_a = vec4(0.);
+		surface.emissive = vec4(0.);
+		surface.material_rmxx = vec4(0.);
+		surface.normals_gs = vec4(0.);
 
 		vec3 contribution = vec3(0.);
 		const vec3 bounce_ray_origin = offsetBounceRayOrigin(pos, mat.geometry_normal, bounce_direction, kRayNormalOffsetFudge);
@@ -183,20 +185,20 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 		// FIXME figure out how could this happen, see https://github.com/w23/xash3d-fwgs/issues/771
 		if (any(isnan(bounce_direction)))
 			break;
-		const bool did_hit = getHit(bounce_ray_origin, bounce_direction, payload);
+		const bool did_hit = getHit(bounce_ray_origin, bounce_direction, payload, surface);
 		MaterialProperties hit_material;
 		const vec3 hit_pos = payload.hit_t.xyz;
-		const vec3 hit_geometry_normal = normalDecode(payload.normals_gs.xy);
-		const vec3 hit_shading_normal = normalDecode(payload.normals_gs.zw);
+		const vec3 hit_geometry_normal = normalDecode(surface.normals_gs.xy);
+		const vec3 hit_shading_normal = normalDecode(surface.normals_gs.zw);
 		if (did_hit) {
 
 			vec3 ldiffuse = vec3(0.);
 			vec3 lspecular = vec3(0.);
 			vec3 lflashlight_diffuse = vec3(0.);
 			vec3 lflashlight_specular = vec3(0.);
-			hit_material.base_color = payload.base_color_a.rgb;
-			hit_material.metalness = payload.material_rmxx.g;
-			hit_material.roughness = payload.material_rmxx.r;
+			hit_material.base_color = surface.base_color_a.rgb;
+			hit_material.metalness = surface.material_rmxx.g;
+			hit_material.roughness = surface.material_rmxx.r;
 
 #ifdef DEBUG_VALIDATE_EXTRA
 		if (IS_INVALIDV(hit_pos)) {
@@ -244,10 +246,10 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 			ldiffuse += lflashlight_diffuse;
 			lspecular += lflashlight_specular;
 
-			hit_color = mixFinalColor(payload.base_color_a.rgb, ldiffuse, lspecular, hit_material.metalness);
+			hit_color = mixFinalColor(surface.base_color_a.rgb, ldiffuse, lspecular, hit_material.metalness);
 		} /* if (did_hit) */ else {
 			// not hit -- hit sky
-			hit_color = payload.emissive.rgb;
+			hit_color = surface.emissive.rgb;
 		}
 
 		const vec4 blend = traceLegacyBlending(bounce_ray_origin, bounce_direction, payload.hit_t.w);
@@ -272,7 +274,7 @@ void computeBounces(MaterialEx mat, vec3 pos, vec3 direction, int bouncesCount, 
 		mat.shading_normal = hit_shading_normal;
 
 		if (brdf_type == BRDF_TYPE_DIFFUSE) {
-			const vec3 diffuse_color = mix(payload.base_color_a.rgb, vec3(0.), payload.material_rmxx.g);
+			const vec3 diffuse_color = mix(surface.base_color_a.rgb, vec3(0.), surface.material_rmxx.g);
 			throughput *= diffuse_color;
 		}
 	} // for bounces

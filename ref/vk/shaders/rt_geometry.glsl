@@ -171,6 +171,48 @@ Geometry readHitGeometry(vec2 bary, float ray_cone_width) {
 }
 
 #ifdef RAY_QUERY
+Geometry readSecondaryHitGeometry(rayQueryEXT rq, vec2 bary) {
+	const int instance_kusochki_offset = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true);
+	const int geometry_index = rayQueryGetIntersectionGeometryIndexEXT(rq, true);
+	const int primitive_index = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
+	const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rq, true);
+
+	Geometry geom;
+	geom.kusok_index = instance_kusochki_offset + geometry_index;
+	const Kusok kusok = getKusok(geom.kusok_index);
+
+	const uint first_index_offset = kusok.index_offset + primitive_index * 3;
+	const uint vi1 = uint(getIndex(first_index_offset+0)) + kusok.vertex_offset;
+	const uint vi2 = uint(getIndex(first_index_offset+1)) + kusok.vertex_offset;
+	const uint vi3 = uint(getIndex(first_index_offset+2)) + kusok.vertex_offset;
+
+	const Vertex v1 = GET_VERTEX(vi1);
+	const Vertex v2 = GET_VERTEX(vi2);
+	const Vertex v3 = GET_VERTEX(vi3);
+	const vec3 pos_object[3] = { v1.pos, v2.pos, v3.pos };
+	const vec3 pos[3] = {
+		objectToWorld * vec4(pos_object[0], 1.0),
+		objectToWorld * vec4(pos_object[1], 1.0),
+		objectToWorld * vec4(pos_object[2], 1.0),
+	};
+
+	geom.pos = baryMix(pos[0], pos[1], pos[2], bary);
+	geom.pos_object = baryMix(pos_object[0], pos_object[1], pos_object[2], bary);
+	geom.uv = baryMix(v1.gl_tc, v2.gl_tc, v3.gl_tc, bary);
+
+	geom.normal_geometry = normalize(cross(pos[2]-pos[0], pos[1]-pos[0]));
+	const mat3 normalTransform = mat3(objectToWorld);
+	geom.normal_shading = normalize(normalTransform * baryMix(v1.normal, v2.normal, v3.normal, bary));
+
+	// Secondary hits use a fixed texture LOD and don't sample normal maps.
+	// Leave primary-only attributes in a defined state without loading or
+	// transforming previous positions and tangents, or computing ray cones.
+	geom.prev_pos = vec3(0.0);
+	geom.uv_lods = vec4(0.0);
+	geom.tangent = vec3(0.0);
+	return geom;
+}
+
 struct MiniGeometry {
 	vec2 uv;
 	vec3 pos_object;
@@ -220,6 +262,34 @@ MiniGeometry readCandidateMiniGeometry(rayQueryEXT rq) {
 		ret.kusok_index = kusok_index;
 		ret.vertex_color_srgb = baryMix(colors_srgb[0], colors_srgb[1], colors_srgb[2], bary);
 		return ret;
+}
+
+struct AlphaCandidateGeometry {
+	vec2 uv;
+	uint kusok_index;
+};
+
+AlphaCandidateGeometry readCandidateAlphaGeometry(rayQueryEXT rq) {
+	const uint instance_kusochki_offset = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false);
+	const uint geometry_index = rayQueryGetIntersectionGeometryIndexEXT(rq, false);
+	const uint kusok_index = instance_kusochki_offset + geometry_index;
+	const Kusok kusok = getKusok(kusok_index);
+
+	const uint primitive_index = rayQueryGetIntersectionPrimitiveIndexEXT(rq, false);
+	const uint first_index_offset = kusok.index_offset + primitive_index * 3;
+	const uint vi1 = uint(getIndex(first_index_offset+0)) + kusok.vertex_offset;
+	const uint vi2 = uint(getIndex(first_index_offset+1)) + kusok.vertex_offset;
+	const uint vi3 = uint(getIndex(first_index_offset+2)) + kusok.vertex_offset;
+	const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rq, false);
+
+	AlphaCandidateGeometry ret;
+	ret.uv = baryMix(
+		GET_VERTEX(vi1).gl_tc,
+		GET_VERTEX(vi2).gl_tc,
+		GET_VERTEX(vi3).gl_tc,
+		bary);
+	ret.kusok_index = kusok_index;
+	return ret;
 }
 #endif // #ifdef RAY_QUERY
 
