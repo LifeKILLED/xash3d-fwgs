@@ -376,7 +376,9 @@ float regirPackCandidate(uint light_id, float inv_pdf)
 
 RegirOnionCandidate regirUnpackCandidate(float stored)
 {
-	const uint packed = uint(stored + 0.5);
+	// The packed 24-bit integer is exactly representable in float32.
+	// Adding 0.5 above 2^23 rounds odd integers up, corrupting the light ID.
+	const uint packed = uint(stored);
 
 	RegirOnionCandidate result;
 	result.light_id = packed & 1023u;

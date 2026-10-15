@@ -55,6 +55,12 @@
 	"temporal_reprojection_resolve": {
 		"comp": "temporal_reprojection_resolve"
 	},
+	"di_visibility_initial_point": {
+		"comp": "direct_visibility_initial_point"
+	},
+	"di_visibility_initial_poly": {
+		"comp": "direct_visibility_initial_poly"
+	},
 	"light_direct_poly": {
 		"comp": "ray_light_direct_poly_ris"
 	},

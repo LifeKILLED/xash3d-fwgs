@@ -145,6 +145,13 @@ ivec2 temporalReservoirPairPermutationPixel(
 #define TEMPORAL_RESERVOIR_PERMUTATION_MODE_XOR 0u
 #define TEMPORAL_RESERVOIR_PERMUTATION_MODE_PAIR_2X2 1u
 
+ivec2 temporalReservoirNvidiaPermutationPixel(ivec2 pix, ivec2 res, uint frame_seed)
+{
+	const ivec2 offset = ivec2(int(frame_seed & 3u), int((frame_seed >> 2u) & 3u));
+	const ivec2 permuted = ((pix + offset) ^ ivec2(3)) - offset;
+	return all(greaterThanEqual(permuted, ivec2(0))) && all(lessThan(permuted, res)) ? permuted : pix;
+}
+
 ivec2 temporalReservoirRotationPixel(
 	ivec2 pix,
 	ivec2 res,

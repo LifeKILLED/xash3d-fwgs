@@ -1,0 +1,125 @@
+#define RIS_VISIBILITY_REUSE_SUPPORTED 1
+
+#if RIS_VISIBILITY_INITIAL_PASS
+#define out_temporal_ris_poly_reservoir out_ris_visibility_poly_reservoir
+#define out_temporal_ris_poly_random out_ris_visibility_poly_random
+#define out_temporal_ris_poly_specular_reservoir out_ris_visibility_poly_specular_reservoir
+#define out_temporal_ris_poly_specular_random out_ris_visibility_poly_specular_random
+#define out_temporal_ris_poly_diffuse_regir_inv_pdf out_ris_visibility_poly_diffuse_regir_inv_pdf
+#endif
+
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+
+#ifndef RIS_SPLIT_LOBE_RESERVOIRS
+#define RIS_SPLIT_LOBE_RESERVOIRS 1
+#endif
+
+#ifndef REJECT_MAG_REPROJECTION
+#define REJECT_MAG_REPROJECTION 1
+#endif
+
+#ifndef RIS_POLYGON_ANALYTIC_DIFFUSE
+#define RIS_POLYGON_ANALYTIC_DIFFUSE 1
+#endif
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+
+layout (set = 0, binding = 7) readonly buffer SBOLights { LightsMetadata m; } lights;
+
+layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
+layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
+layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D geometry_prev_position;
+
+layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_light_poly_diffuse;
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_light_poly_specular;
+layout(set = 0, binding = 22, rgba32f) uniform writeonly image2D out_temporal_ris_poly_reservoir;
+layout(set = 0, binding = 23, rgba32f) uniform readonly image2D prev_temporal_ris_poly_reservoir;
+layout(set = 0, binding = 24, rgba16f) uniform readonly image2D prev_temporal_asvgf_reproj_depth;
+layout(set = 0, binding = 25, rgba32f) uniform writeonly image2D out_temporal_ris_poly_random;
+layout(set = 0, binding = 26, rgba32f) uniform readonly image2D prev_temporal_ris_poly_random;
+layout(set = 0, binding = 27, rgba32f) uniform readonly image2D temporal_reprojection_direct_source;
+layout(set = 0, binding = 29, rgba32f) uniform readonly image2D regir_onion_poly;
+layout(set = 0, binding = 36) uniform sampler2D ltc_lut_matrix;
+layout(set = 0, binding = 37) uniform sampler2D ltc_lut_amplitude;
+#if RIS_SPLIT_LOBE_RESERVOIRS
+layout(set = 0, binding = 38, rgba32f) uniform writeonly image2D out_temporal_ris_poly_specular_reservoir;
+layout(set = 0, binding = 39, rgba32f) uniform readonly image2D prev_temporal_ris_poly_specular_reservoir;
+layout(set = 0, binding = 40, rgba32f) uniform writeonly image2D out_temporal_ris_poly_specular_random;
+layout(set = 0, binding = 41, rgba32f) uniform readonly image2D prev_temporal_ris_poly_specular_random;
+#endif
+
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT 1
+#endif
+#ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY
+#define RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY 0.1
+#endif
+#if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+layout(set = 0, binding = 42, rgba16f) uniform writeonly image2D out_temporal_ris_poly_diffuse_regir_inv_pdf;
+layout(set = 0, binding = 43, rgba16f) uniform readonly image2D prev_temporal_ris_poly_diffuse_regir_inv_pdf;
+#define RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE out_temporal_ris_poly_diffuse_regir_inv_pdf
+#define RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE prev_temporal_ris_poly_diffuse_regir_inv_pdf
+#endif
+
+// Canonical temporal lookup; visibility mode performs spatial reuse separately.
+layout(set = 0, binding = 44, rgba32f) uniform readonly image2D temporal_reprojection_map;
+layout(set = 0, binding = 45, rgba16f) uniform readonly image2D temporal_reprojection_ready;
+#if RIS_VISIBILITY_INITIAL_PASS
+layout(set = 0, binding = 46, rgba32f) uniform readonly image2D prev_temporal_ris_visibility_position;
+layout(set = 0, binding = 47, rgba16f) uniform readonly image2D prev_temporal_ris_visibility_normals;
+layout(set = 0, binding = 48, rgba8) uniform readonly image2D prev_temporal_ris_visibility_material;
+#else
+layout(set = 0, binding = 46, rgba32f) uniform readonly image2D ris_visibility_poly_reservoir;
+layout(set = 0, binding = 47, rgba32f) uniform readonly image2D ris_visibility_poly_random;
+layout(set = 0, binding = 48, rgba32f) uniform readonly image2D ris_visibility_poly_specular_reservoir;
+layout(set = 0, binding = 49, rgba32f) uniform readonly image2D ris_visibility_poly_specular_random;
+layout(set = 0, binding = 50, rgba16f) uniform readonly image2D ris_visibility_poly_diffuse_regir_inv_pdf;
+#define RIS_VISIBILITY_STAGE_RESERVOIR ris_visibility_poly_reservoir
+#define RIS_VISIBILITY_STAGE_RANDOM ris_visibility_poly_random
+#define RIS_VISIBILITY_STAGE_SPECULAR_RESERVOIR ris_visibility_poly_specular_reservoir
+#define RIS_VISIBILITY_STAGE_SPECULAR_RANDOM ris_visibility_poly_specular_random
+#define RIS_VISIBILITY_STAGE_META ris_visibility_poly_diffuse_regir_inv_pdf
+#endif
+
+layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+
+#define RAY_QUERY
+#define RIS_INIT_PASS 1
+#define RIS_UNIFIED_PASS 1
+#define RIS_USE_SHARED_TEMPORAL_ROTATION 1
+#define RIS_SEPARATE_DIFFUSE_TARGET_NORMAL 1
+#define RIS_REGIR_ONLY 1
+#ifndef RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION
+#define RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION 0
+#endif
+#ifndef RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION_SWAP_PROBABILITY
+#define RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION_SWAP_PROBABILITY 0.75
+#endif
+#ifndef RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION_NORMAL_MIN
+#define RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION_NORMAL_MIN 0.90
+#endif
+#ifndef RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION_RELATIVE_DEPTH_MAX
+#define RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION_RELATIVE_DEPTH_MAX 0.10
+#endif
+#define REGIR_ONION_IMAGE regir_onion_poly
+#if RIS_SPLIT_LOBE_RESERVOIRS
+#define RIS_SPLIT_OUT_SPECULAR_RESERVOIR_IMAGE out_temporal_ris_poly_specular_reservoir
+#define RIS_SPLIT_PREV_SPECULAR_RESERVOIR_IMAGE prev_temporal_ris_poly_specular_reservoir
+#define RIS_SPLIT_OUT_SPECULAR_RANDOM_IMAGE out_temporal_ris_poly_specular_random
+#define RIS_SPLIT_PREV_SPECULAR_RANDOM_IMAGE prev_temporal_ris_poly_specular_random
+#endif
+#define RIS_DIRECT_INIT_HALF_RES 0
+#define LIGHT_POLYGON 1
+#include "ray_light_direct_ris.glsl"

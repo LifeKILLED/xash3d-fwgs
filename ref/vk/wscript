@@ -181,6 +181,7 @@ def build(bld):
 
 		tests = {
 			'unordered_roadmap': 'tests/unordered_roadmap.c',
+			'direct_visibility_weights': 'tests/direct_visibility_weights.c',
 		}
 
 		for i in tests:

@@ -51,6 +51,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable temporal reprojection in denoiser");
 		rt_disable_regir = gEngine.Cvar_Get("rt_disable_regir", "0", FCVAR_GLCONFIG, "Disable ReGIR Onion candidates and use random RIS candidates");
 		rt_regir_onion_radius = gEngine.Cvar_Get("rt_regir_onion_radius", "8192", FCVAR_GLCONFIG, "Maximum camera-centered ReGIR Onion radius");
+		rt_di_visibility_reuse = gEngine.Cvar_Get("rt_di_visibility_reuse", "0", FCVAR_GLCONFIG, "Direct visibility reuse: 0 legacy, 1 initial RIS, 2 temporal, 3 temporal + spatial WIS (Tokuyoshi 2024)");
+		rt_di_visibility_history = gEngine.Cvar_Get("rt_di_visibility_history", "20", FCVAR_GLCONFIG, "Visibility reuse temporal confidence limit, in initial RIS candidate counts");
 		rt_denoiser_console_setup_enable = gEngine.Cvar_Get("rt_denoiser_console_setup_enable", "0", FCVAR_GLCONFIG, "Allow to setup denoiser in console. ALERT: if enabled, settings from new versions of application will not be applied without a manual reset!");
 	} else {
 		rt_enable = gEngine.Cvar_Get( "rt_enable", "0", FCVAR_READ_ONLY, "DISABLED: Ray tracing is not supported by your hardware/drivers" );

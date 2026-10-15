@@ -181,6 +181,19 @@ void main() {
 	computeLightingRISUnified(P, geometry_normal, shading_normal, -direction, material, pix, surface_active,
 		diffuse, specular, flashlight_diffuse, flashlight_specular);
 
+#if RIS_VISIBILITY_INITIAL_PASS
+	// Only intermediate reservoirs are produced here. The normal direct pass
+	// remains the sole producer of final lighting and temporal reservoirs.
+#if LIGHT_POINT
+	if (in_bounds) {
+		imageStore(out_temporal_ris_visibility_position, pix, vec4(pos_t.xyz, material.roughness));
+		imageStore(out_temporal_ris_visibility_normals, pix, imageLoad(normals_gs, pix));
+		imageStore(out_temporal_ris_visibility_material, pix, vec4(imageLoad(base_color_a, pix).rgb, material.metalness));
+	}
+#endif
+	return;
+#endif
+
 	DEBUG_VALIDATE_RANGE_VEC3("direct_ris.diffuse", diffuse, 0.0, 1e6);
 	DEBUG_VALIDATE_RANGE_VEC3("direct_ris.specular", specular, 0.0, 1e6);
 

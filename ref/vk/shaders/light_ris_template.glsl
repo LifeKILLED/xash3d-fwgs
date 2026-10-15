@@ -34,6 +34,10 @@
 #define RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION 0
 #endif
 
+#ifndef RIS_VISIBILITY_REUSE_SUPPORTED
+#define RIS_VISIBILITY_REUSE_SUPPORTED 0
+#endif
+
 #ifndef RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY
 #define RIS_DIRECT_DIFFUSE_REGIR_REVERT_PROBABILITY 0.1
 #endif
@@ -239,6 +243,12 @@ RisTemporalReservoir risLoadUnifiedReservoir(ivec2 pix, int lobe)
 	RisTemporalReservoir reservoir = RIS_LOAD_PREVIOUS_TEMPORAL_RESERVOIR(pix);
 #endif
 #if RIS_DIRECT_DIFFUSE_REGIR_REVERT
+	#if RIS_VISIBILITY_REUSE_SUPPORTED
+	// Never import the paper path's statistics into the legacy mode.
+	if (imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, pix).w != 0.0) {
+		return risInvalidTemporalReservoir();
+	}
+	#endif
 	if (lobe == 0 && risTemporalReservoirValid(reservoir)) {
 		reservoir.regir_inv_source_pdf = max(imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, pix).x, 0.0);
 	}
@@ -253,7 +263,8 @@ void risStoreUnifiedReservoir(ivec2 pix, int lobe, RisTemporalReservoir reservoi
 		RIS_STORE_TEMPORAL_RESERVOIR(pix, reservoir);
 #if RIS_DIRECT_DIFFUSE_REGIR_REVERT
 		imageStore(RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE, pix, vec4(
-			risTemporalReservoirValid(reservoir) ? max(reservoir.regir_inv_source_pdf, 0.0) : 0.0));
+			risTemporalReservoirValid(reservoir) ? max(reservoir.regir_inv_source_pdf, 0.0) : 0.0,
+			0.0, 0.0, 0.0));
 #endif
 	} else {
 		risStoreSplitSpecularReservoir(pix, reservoir);
@@ -512,6 +523,10 @@ bool risShadeUnifiedReservoir(
 	return true;
 }
 
+#if RIS_VISIBILITY_REUSE_SUPPORTED
+#include "direct_visibility_reuse.glsl"
+#endif
+
 void RIS_COMPUTE_LIGHTING_UNIFIED(
 	uint cluster_index,
 	vec3 P,
@@ -527,6 +542,17 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 {
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
+	#if RIS_VISIBILITY_REUSE_SUPPORTED
+	#if RIS_VISIBILITY_INITIAL_PASS
+	risVisibilityInitial(P, geometry_N, N, V, material, pix, ris_active);
+	return;
+	#else
+	if (ubo.ubo.di_visibility_reuse != 0u) {
+		risVisibilitySpatial(P, geometry_N, N, V, material, pix, ris_active, diffuse, specular);
+		return;
+	}
+	#endif
+	#endif
 	RisTemporalReservoir reservoirs[2];
 	reservoirs[0] = risInvalidTemporalReservoir();
 	reservoirs[1] = risInvalidTemporalReservoir();

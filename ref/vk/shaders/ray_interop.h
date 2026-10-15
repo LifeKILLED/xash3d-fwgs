@@ -363,7 +363,8 @@ struct UniformBuffer {
 
 	uint renderer_flags;
 	float regir_onion_radius;
-	PAD(2)
+	uint di_visibility_reuse;
+	float di_visibility_history;
 
 	STRUCT AsvgfParams asvgf;
 };

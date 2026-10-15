@@ -56,6 +56,9 @@ void computeLightingRISUnified(
 			ris_active, diffuse, specular);
 		vec3 always_diffuse;
 		vec3 always_specular;
+#if RIS_VISIBILITY_INITIAL_PASS
+	return;
+#endif
 	computePointAlwaysSampledLights(
 		P, shading_N, V, material, cluster_index, ris_active,
 		always_diffuse, always_specular, flashlight_diffuse, flashlight_specular);

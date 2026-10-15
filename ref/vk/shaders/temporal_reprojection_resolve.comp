@@ -142,13 +142,7 @@ void resolveDirectSource(ivec2 pix, ivec2 res)
 		TEMPORAL_DIRECT_ROTATION_SALT, 0x6672616du));
 	// Match RTXDI_ApplyPermutationSampling in NVIDIA RTXDI's
 	// Include/Rtxdi/Utils/ReservoirAddressing.hlsli: random offset, fixed XOR 3.
-	const ivec2 offset = ivec2(
-		int(permutation_frame_seed & 3u),
-		int((permutation_frame_seed >> 2u) & 3u));
-	const ivec2 permuted = ((pix + offset) ^ ivec2(3)) - offset;
-	// Keep out-of-viewport partners at self before accessing any images.
-	const ivec2 partner = all(greaterThanEqual(permuted, ivec2(0))) &&
-		all(lessThan(permuted, res)) ? permuted : pix;
+	const ivec2 partner = temporalReservoirNvidiaPermutationPixel(pix, res, permutation_frame_seed);
 
 	ivec2 self_history_pix;
 	ivec2 partner_history_pix;

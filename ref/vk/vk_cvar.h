@@ -37,6 +37,8 @@ void VK_LoadCvarsAfterInit( void );
 	X(rt_denoiser_console_setup_enable) \
 	X(rt_disable_regir) \
 	X(rt_regir_onion_radius) \
+	X(rt_di_visibility_reuse) \
+	X(rt_di_visibility_history) \
 
 #define EXTERN_CVAR(cvar) extern cvar_t *cvar;
 DECLARE_CVAR(EXTERN_CVAR)
