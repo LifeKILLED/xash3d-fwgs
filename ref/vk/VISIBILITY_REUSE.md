@@ -6,27 +6,31 @@ https://doi.org/10.1145/3641233.3664320, especially supplementary Algorithm 1
 and equations (1)-(4):
 https://yusuketokuyoshi.com/papers/2024/Efficient_Visibility_Reuse_for_Real-time_ReSTIR_%28Supplementary_Document%29.pdf
 
-## Console modes
+## Console switch
 
-`rt_di_visibility_reuse` defaults to `0`:
+`rt_direct_visibility_reuse` defaults to `1`:
 
 | Value | Behavior |
 | --- | --- |
 | 0 | Existing direct-light RIS, with existing temporal permutations |
-| 1 | Unshadowed initial RIS, shadow ray for each lobe's winner, no history |
-| 2 | Mode 1 plus temporal resampling and weighted visibility |
-| 3 | Mode 2 plus spatial resampling and a fresh spatial shadow ray |
+| 1 | Initial RIS plus temporal resampling and weighted visibility (formerly mode 2) |
 
 `rt_di_visibility_history` defaults to `20`: the usual ReSTIR temporal
 confidence cap, expressed as a multiple of the current initial candidate count.
 The factor 20 comes from Bitterli et al. (2020), section 5:
 https://research.nvidia.com/sites/default/files/pubs/2020-07_Spatiotemporal-reservoir-resampling/ReSTIR.pdf
-Changing modes invalidates direct-light reservoir history through a mode tag.
+Changing the switch invalidates direct-light reservoir history through a format tag.
 The aSVGF history is controlled separately, as before.
 
-For the first visual check, use mode 1, then 2, then 3, with the existing
-commands to disable temporal denoising and `rt_disable_atrous 1`.
-Mode 0 is the comparison/fallback. Reload both the rebuilt DLL and `rt.meat`.
+For a raw-lighting visual check, enable `rt_direct_visibility_reuse 1` with the
+existing commands to disable temporal denoising and `rt_disable_atrous 1`.
+Value 0 selects the legacy direct RIS path. Other lighting passes keep their
+existing RIS implementation regardless of this switch. Update the rebuilt DLL
+and `rt.meat`. The old `rt_di_visibility_reuse` name is no longer registered.
+The initial-only mode and spatial visibility-reuse path have been removed. The standard
+pipeline compiler and build scripts are unchanged; there is only one graph,
+`rt.json`, producing the usual `rt.meat`. The UBO field keeps its existing
+name and layout; it now carries a boolean value.
 
 ## Correspondence with the publication
 
@@ -37,14 +41,9 @@ Mode 0 is the comparison/fallback. Reload both the rebuilt DLL and `rt.meat`.
   Previous surface position, normals and material are stored to evaluate the
   donor target at the fresh sample. The previous camera matrices reconstruct
   the donor's view direction.
-- Read completed temporal reservoirs in a second GPU dispatch. Choose one
-  spatial neighbor with the existing shifted XOR-3 permutation. Reuse the
-  existing geometry compatibility check. This is candidate resampling, not an
-  image-space blur or the old apply-pass neighbor gather.
-- Always refresh the spatial candidate's visibility at the receiver, including
-  blocked candidates. Do not zero its contribution weight at this point.
-  Supplementary section C states that `Distant(c,i)` is always true in the
-  author's experiments; this implementation follows that choice.
+- Keep the completed temporal reservoir local and shade that pixel directly.
+  This implements the temporal-only subset of the supplementary algorithm;
+  its spatial resampling step is omitted.
 - Update visibility using the exact same resampling weights, independently of
   which candidate wins. Shade with `f(X) * visibility * W` without a second
   binary gate or the legacy shading-weight clamp.
@@ -52,11 +51,11 @@ Mode 0 is the comparison/fallback. Reload both the rebuilt DLL and `rt.meat`.
 The replay domain is light ID plus three primary random numbers. Contributions
 include the internal area/direction proposal correction, so the replay shift
 is identity with unit Jacobian. ReGIR provides the discrete proposal correction.
-When ReGIR is explicitly disabled, mode 1-3 uses uniform global light proposals.
+When ReGIR is explicitly disabled, visibility reuse uses uniform global light proposals.
 Always-sampled environment lights and flashlights keep their existing path.
 
-Modes 1-3 use the luminance of the exact unshadowed shaded contribution as the
-target for each lobe, including its shading normal. Mode 0 keeps its previous
+Visibility reuse uses the luminance of the exact unshadowed shaded contribution as the
+target for each lobe, including its shading normal. The legacy path keeps its previous
 geometry/shading-normal split. A geometry-normal target can approach zero while
 the normal-mapped shading contribution stays large, amplifying rare selections;
 using the same contribution in the target follows section 3 of the paper.
@@ -81,22 +80,33 @@ the older geometry-target histories are not imported after a shader update.
 
 ## Resources and checks
 
-Two new initial/temporal passes precede both direct-light final passes in
-`rt.json`. Intermediate and final reservoirs are distinct images, so spatial
-reads never race neighboring writes. The metadata image's y/z channels hold
+With visibility reuse enabled, initial RIS, temporal resampling and final shading run in one
+dispatch per light type. The reservoir stays local until its final history
+write; there are no intermediate reservoir images or neighbor reads.
+With it disabled, the legacy algorithm runs in these same two dispatches.
+
+The metadata image's y/z channels hold
 diffuse/specular visibility; w holds the mode tag. Its legacy inverse PDF stays
 in x in mode 0. Current/previous metadata travel with their reservoir.
 
-New images cost about 200 bytes per full-resolution pixel, including both
-light types' intermediate reservoirs and double-buffered surface metadata
-(roughly 396 MiB at 1920x1080, excluding driver alignment). They are allocated
-even in mode 0 by the current static pipeline resource allocator.
+The fused graph retains only the added double-buffered surface metadata:
+56 bytes per full-resolution pixel (about 111 MiB at 1920x1080, excluding driver
+alignment). Compared with the removed spatial graph's 200 bytes/pixel (about 396 MiB),
+this removes ten intermediate images, saving 144 bytes/pixel (about 285 MiB),
+two dispatches and the corresponding reservoir writes/reads. Actual allocation
+uses the renderer's maximum framebuffer extent, which can exceed the viewport.
+Surface history remains allocated when reuse is disabled because both paths share one graph.
 
 `tests/direct_visibility_weights.c` compiles the actual scalar GLSL arithmetic
 as C. It checks empty inputs, MIS partition of unity, exact enumeration of a
 two-light integral, variance reduction, chained visibility mass, small-target
 overflow and the final f/target cancellation. Shader
-compilation and SPIR-V validation additionally check all four direct passes.
+compilation and SPIR-V validation additionally check both direct-light passes.
+`python ref/vk/tests/direct_visibility_graph.py`, after building shaders,
+checks their actual reflected bindings: no intermediate images or initial
+dispatches, single writers for final reservoirs and surface history, and
+56 bytes/pixel of added surface history. Memory savings follow from these
+reflected image formats; GPU timing still requires in-game measurement.
 GPU scene behavior still needs in-game testing: hard/contact shadows, penumbrae,
 camera motion, moving occluders and differently colored lights with unequal
 visibility. No scene-level correctness is inferred from compilation alone.

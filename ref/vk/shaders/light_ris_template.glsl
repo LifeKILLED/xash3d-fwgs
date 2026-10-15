@@ -543,15 +543,12 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
 	#if RIS_VISIBILITY_REUSE_SUPPORTED
-	#if RIS_VISIBILITY_INITIAL_PASS
-	risVisibilityInitial(P, geometry_N, N, V, material, pix, ris_active);
-	return;
-	#else
 	if (ubo.ubo.di_visibility_reuse != 0u) {
-		risVisibilitySpatial(P, geometry_N, N, V, material, pix, ris_active, diffuse, specular);
+		RisVisibilityReservoir initial[2];
+		risVisibilityInitial(P, geometry_N, N, V, material, pix, ris_active, initial);
+		risVisibilityShadeReservoirs(initial, P, N, V, material, diffuse, specular);
 		return;
 	}
-	#endif
 	#endif
 	RisTemporalReservoir reservoirs[2];
 	reservoirs[0] = risInvalidTemporalReservoir();

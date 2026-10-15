@@ -1,13 +1,5 @@
 #define RIS_VISIBILITY_REUSE_SUPPORTED 1
 
-#if RIS_VISIBILITY_INITIAL_PASS
-#define out_temporal_ris_poly_reservoir out_ris_visibility_poly_reservoir
-#define out_temporal_ris_poly_random out_ris_visibility_poly_random
-#define out_temporal_ris_poly_specular_reservoir out_ris_visibility_poly_specular_reservoir
-#define out_temporal_ris_poly_specular_random out_ris_visibility_poly_specular_random
-#define out_temporal_ris_poly_diffuse_regir_inv_pdf out_ris_visibility_poly_diffuse_regir_inv_pdf
-#endif
-
 #define GLSL
 #include "ray_interop.h"
 #undef GLSL
@@ -70,25 +62,13 @@ layout(set = 0, binding = 43, rgba16f) uniform readonly image2D prev_temporal_ri
 #define RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE prev_temporal_ris_poly_diffuse_regir_inv_pdf
 #endif
 
-// Canonical temporal lookup; visibility mode performs spatial reuse separately.
+// Canonical temporal lookup for the visibility-reuse path.
 layout(set = 0, binding = 44, rgba32f) uniform readonly image2D temporal_reprojection_map;
 layout(set = 0, binding = 45, rgba16f) uniform readonly image2D temporal_reprojection_ready;
-#if RIS_VISIBILITY_INITIAL_PASS
 layout(set = 0, binding = 46, rgba32f) uniform readonly image2D prev_temporal_ris_visibility_position;
 layout(set = 0, binding = 47, rgba16f) uniform readonly image2D prev_temporal_ris_visibility_normals;
 layout(set = 0, binding = 48, rgba8) uniform readonly image2D prev_temporal_ris_visibility_material;
-#else
-layout(set = 0, binding = 46, rgba32f) uniform readonly image2D ris_visibility_poly_reservoir;
-layout(set = 0, binding = 47, rgba32f) uniform readonly image2D ris_visibility_poly_random;
-layout(set = 0, binding = 48, rgba32f) uniform readonly image2D ris_visibility_poly_specular_reservoir;
-layout(set = 0, binding = 49, rgba32f) uniform readonly image2D ris_visibility_poly_specular_random;
-layout(set = 0, binding = 50, rgba16f) uniform readonly image2D ris_visibility_poly_diffuse_regir_inv_pdf;
-#define RIS_VISIBILITY_STAGE_RESERVOIR ris_visibility_poly_reservoir
-#define RIS_VISIBILITY_STAGE_RANDOM ris_visibility_poly_random
-#define RIS_VISIBILITY_STAGE_SPECULAR_RESERVOIR ris_visibility_poly_specular_reservoir
-#define RIS_VISIBILITY_STAGE_SPECULAR_RANDOM ris_visibility_poly_specular_random
-#define RIS_VISIBILITY_STAGE_META ris_visibility_poly_diffuse_regir_inv_pdf
-#endif
+
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;

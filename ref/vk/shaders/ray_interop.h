@@ -363,7 +363,7 @@ struct UniformBuffer {
 
 	uint renderer_flags;
 	float regir_onion_radius;
-	uint di_visibility_reuse;
+	uint di_visibility_reuse; // Boolean rt_direct_visibility_reuse; keep the UBO layout unchanged.
 	float di_visibility_history;
 
 	STRUCT AsvgfParams asvgf;

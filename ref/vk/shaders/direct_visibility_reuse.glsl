@@ -142,32 +142,22 @@ void risVisibilityStore(ivec2 pix, RisVisibilityReservoir r[2])
 	// Existing RGBA16F auxiliary image: x is reserved for legacy ReGIR PDF,
 	// y/z are diffuse/specular visibility, w tags incompatible history modes.
 	imageStore(RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE, pix,
-		vec4(0.0, r[0].visibility, r[1].visibility, 16.0 + float(ubo.ubo.di_visibility_reuse)));
+		vec4(0.0, r[0].visibility, r[1].visibility, 32.0));
 }
 
 void risVisibilityLoad(ivec2 pix, out RisVisibilityReservoir r[2])
 {
 	r[0] = risVisibilityEmpty();
 	r[1] = risVisibilityEmpty();
-#if RIS_VISIBILITY_INITIAL_PASS
 	const vec4 meta = imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, pix);
-#else
-	const vec4 meta = imageLoad(RIS_VISIBILITY_STAGE_META, pix);
-#endif
-	// Version the history: previous builds used a different diffuse target.
-	if (meta.w != 16.0 + float(ubo.ubo.di_visibility_reuse)) {
+	// Temporal-only format: do not import the former initial-only mode's history.
+	if (meta.w != 32.0) {
 		return;
 	}
-#if RIS_VISIBILITY_INITIAL_PASS
 	r[0] = risVisibilityDecode(imageLoad(VIS_PREV_RESERVOIR, pix), imageLoad(VIS_PREV_RANDOM, pix), meta.y);
 	r[1] = risVisibilityDecode(imageLoad(RIS_SPLIT_PREV_SPECULAR_RESERVOIR_IMAGE, pix),
 		imageLoad(RIS_SPLIT_PREV_SPECULAR_RANDOM_IMAGE, pix), meta.z);
-#else
-	r[0] = risVisibilityDecode(imageLoad(RIS_VISIBILITY_STAGE_RESERVOIR, pix),
-		imageLoad(RIS_VISIBILITY_STAGE_RANDOM, pix), meta.y);
-	r[1] = risVisibilityDecode(imageLoad(RIS_VISIBILITY_STAGE_SPECULAR_RESERVOIR, pix),
-		imageLoad(RIS_VISIBILITY_STAGE_SPECULAR_RANDOM, pix), meta.z);
-#endif
+
 }
 
 RisVisibilityReservoir risVisibilityResample(
@@ -207,22 +197,6 @@ vec3 risVisibilityView(ivec2 pix, mat4 inv_proj, mat4 inv_view)
 	return -normalize((inv_view * vec4(target.xyz, 0.0)).xyz);
 }
 
-RisVisibilitySurface risVisibilityCurrentSurface(ivec2 pix)
-{
-	RisVisibilitySurface s;
-	const vec4 packed = imageLoad(normals_gs, pix);
-	s.geometry_N = normalDecode(packed.xy);
-	s.shading_N = normalDecode(packed.zw);
-	s.P = imageLoad(position_t, pix).xyz + s.geometry_N * 0.001;
-	s.V = risVisibilityView(pix, ubo.ubo.inv_proj, ubo.ubo.inv_view);
-	const vec4 material = imageLoad(material_rmxx, pix);
-	s.material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
-	s.material.roughness = material.r;
-	s.material.metalness = material.g;
-	return s;
-}
-
-#if RIS_VISIBILITY_INITIAL_PASS
 RisVisibilitySurface risVisibilityPreviousSurface(ivec2 pix)
 {
 	RisVisibilitySurface s;
@@ -240,15 +214,14 @@ RisVisibilitySurface risVisibilityPreviousSurface(ivec2 pix)
 }
 
 void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
-	MaterialProperties material, ivec2 pix, bool ris_active)
+	MaterialProperties material, ivec2 pix, bool ris_active, out RisVisibilityReservoir r[2])
 {
+	r[0] = risVisibilityEmpty();
+	r[1] = risVisibilityEmpty();
 	if (ubo.ubo.di_visibility_reuse == 0u || !risReservoirPixelInBounds(pix)) {
 		return;
 	}
 	RisVisibilitySurface s = RisVisibilitySurface(P, geometry_N, N, V, material);
-	RisVisibilityReservoir r[2];
-	r[0] = risVisibilityEmpty();
-	r[1] = risVisibilityEmpty();
 	if (ris_active) {
 		uint rng = regirHash(ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^
 			uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
@@ -301,8 +274,7 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			}
 		}
 		ivec2 history_pix;
-		if (ubo.ubo.di_visibility_reuse >= 2u &&
-			imageLoad(temporal_reprojection_ready, pix).r > 0.5 &&
+		if (imageLoad(temporal_reprojection_ready, pix).r > 0.5 &&
 			temporalReprojectionDecodePixel(imageLoad(temporal_reprojection_map, pix).rg, ubo.ubo.res, history_pix)) {
 			RisVisibilityReservoir history[2];
 			risVisibilityLoad(history_pix, history);
@@ -328,66 +300,37 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 	}
 	risVisibilityStore(pix, r);
 }
-#else
-void risVisibilitySpatial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
-	MaterialProperties material, ivec2 pix, bool ris_active, out vec3 diffuse, out vec3 specular)
+
+void risVisibilityShadeReservoirs(RisVisibilityReservoir r[2], vec3 P, vec3 N, vec3 V,
+	MaterialProperties material, out vec3 diffuse, out vec3 specular)
 {
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
-	if (!risReservoirPixelInBounds(pix)) {
-		return;
-	}
-	RisVisibilityReservoir r[2];
-	r[0] = risVisibilityEmpty();
-	r[1] = risVisibilityEmpty();
-	if (ris_active) {
-		risVisibilityLoad(pix, r);
-		const RisVisibilitySurface s = RisVisibilitySurface(P, geometry_N, N, V, material);
-		const uint frame_seed = xxhash32(uvec4(ubo.ubo.frame_counter, ubo.ubo.random_seed, 0x64726f74u, 0x6672616du));
-		const ivec2 partner = temporalReservoirNvidiaPermutationPixel(pix, ubo.ubo.res, frame_seed);
-		if (ubo.ubo.di_visibility_reuse >= 3u && any(notEqual(partner, pix)) &&
-			imageLoad(position_t, partner).w > 0.0) {
-			const RisVisibilitySurface ns = risVisibilityCurrentSurface(partner);
-			if (risSpatialCompatibilityWeight(pix, partner, P, geometry_N, ns.P, ns.geometry_N) > RIS_WEIGHT_EPSILON) {
-				RisVisibilityReservoir neighbor[2];
-				risVisibilityLoad(partner, neighbor);
-				for (int lobe = 0; lobe < 2; ++lobe) {
-					// Supplementary Sec. C: Distant(c,i) is always true in the
-					// author's experiments. Refresh V, but DO NOT zero W here.
-					neighbor[lobe].visibility = risVisibilityTrace(neighbor[lobe], s);
-					r[lobe] = risVisibilityResample(r[lobe], s, neighbor[lobe], ns, lobe,
-						risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT + 0x750u + uint(lobe)));
-				}
-			}
+	for (int lobe = 0; lobe < 2; ++lobe) {
+		RIS_LIGHT_SAMPLE light;
+		vec3 d;
+		vec3 sp;
+		if (!risVisibilityHasSample(r[lobe]) || !RIS_LOAD_LIGHT(r[lobe].reservoir.light_id, light) ||
+			!risEvaluateConcreteSample(light, r[lobe].reservoir.sample_random, P, N, V, material, false, d, sp)) {
+			continue;
 		}
-		for (int lobe = 0; lobe < 2; ++lobe) {
-			RIS_LIGHT_SAMPLE light;
-			vec3 d;
-			vec3 sp;
-			if (!risVisibilityHasSample(r[lobe]) || !RIS_LOAD_LIGHT(r[lobe].reservoir.light_id, light) ||
-				!risEvaluateConcreteSample(light, r[lobe].reservoir.sample_random, P, N, V, material, false, d, sp)) {
-				continue;
-			}
-			// Eq. (5): no additional binary visibility gate and no legacy W clamp.
-			const float target = r[lobe].reservoir.mixed_weight;
-			const float mass = r[lobe].reservoir.weight_sum;
-			const float count = r[lobe].reservoir.sample_count;
-			const float visibility = r[lobe].visibility;
-			const vec3 contribution = lobe == 0 ? d : sp;
-			const vec3 shaded = vec3(
-				risVisibilityShade(contribution.r, target, mass, count, visibility),
-				risVisibilityShade(contribution.g, target, mass, count, visibility),
-				risVisibilityShade(contribution.b, target, mass, count, visibility));
-			if (lobe == 0) {
-				diffuse = shaded;
-			} else {
-				specular = shaded;
-			}
+		// Eq. (5): no additional binary visibility gate and no legacy W clamp.
+		const float target = r[lobe].reservoir.mixed_weight;
+		const float mass = r[lobe].reservoir.weight_sum;
+		const float count = r[lobe].reservoir.sample_count;
+		const float visibility = r[lobe].visibility;
+		const vec3 contribution = lobe == 0 ? d : sp;
+		const vec3 shaded = vec3(
+			risVisibilityShade(contribution.r, target, mass, count, visibility),
+			risVisibilityShade(contribution.g, target, mass, count, visibility),
+			risVisibilityShade(contribution.b, target, mass, count, visibility));
+		if (lobe == 0) {
+			diffuse = shaded;
+		} else {
+			specular = shaded;
 		}
 	}
-	risVisibilityStore(pix, r);
 }
-#endif
 
 #undef VIS_OUT_RESERVOIR
 #undef VIS_OUT_RANDOM
