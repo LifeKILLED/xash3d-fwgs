@@ -105,8 +105,13 @@ void main() {
 	float refraction_mean_accum = 0.0;
 	float refraction_mean_sq_accum = 0.0;
 
-	for (int x = 0; x < ATROUS_KERNEL_WIDTH; ++x) {
-		for (int y = 0; y < ATROUS_KERNEL_WIDTH; ++y) {
+	// Center-only mode preserves the output/statistics contract without mixing
+	// lighting from neighboring texels. A single sample has zero spatial variance.
+	const bool disable_atrous = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_ATROUS) != 0;
+	const int kernel_begin = disable_atrous ? ATROUS_KERNEL_HALF : 0;
+	const int kernel_end = disable_atrous ? ATROUS_KERNEL_HALF + 1 : ATROUS_KERNEL_WIDTH;
+	for (int x = kernel_begin; x < kernel_end; ++x) {
+		for (int y = kernel_begin; y < kernel_end; ++y) {
 			const ivec2 offset = ivec2(x, y);
 			const ivec2 p = pix + (offset - ivec2(ATROUS_KERNEL_HALF));
 			if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, res))) {
@@ -118,7 +123,7 @@ void main() {
 				continue;
 			}
 
-			const float edge_weight = computeLinearEdgeWeight(p, center_pos, center_shading_normal);
+			const float edge_weight = disable_atrous ? 1.0 : computeLinearEdgeWeight(p, center_pos, center_shading_normal);
 			const float sample_weight = kernel_weight * edge_weight;
 			if (sample_weight <= 0.0) {
 				continue;

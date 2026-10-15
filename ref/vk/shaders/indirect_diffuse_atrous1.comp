@@ -54,7 +54,8 @@ void main() {
 
 	// Debug display must expose the actual half-resolution irradiance produced by
 	// bounce GI, without SH projection/reconstruction and without this a-trous blur.
-	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_INDIRECT_DIFF) {
+	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_INDIRECT_DIFF ||
+		(ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_ATROUS) != 0) {
 		const vec3 raw_indirect_diffuse = imageLoad(indirect_diffuse, pix).rgb;
 		storeIndirectDiffuseUpscaled2x2(pix, res, raw_indirect_diffuse);
 		return;

@@ -45,8 +45,16 @@ layout(set = 0, binding = 7) uniform UBO { UniformBuffer ubo; } ubo;
 void main() {
 	ivec2 res = ivec2(imageSize(INPUT_GI_1));
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
+	if (any(greaterThanEqual(pix, res))) {
+		return;
+	}
 
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DENOISE_GI_BY_SH) == 0) {
+		return;
+	}
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_ATROUS) != 0) {
+		imageStore(OUTPUT_GI_1, pix, imageLoad(INPUT_GI_1, pix));
+		imageStore(OUTPUT_GI_2, pix, imageLoad(INPUT_GI_2, pix));
 		return;
 	}
 

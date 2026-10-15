@@ -32,16 +32,6 @@ layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_temporal_re
 #undef REPROJECTION_LOAD_PREV_DEPTH_META
 #undef LOAD_REFLECTION_RAY_LENGTH
 
-// Direct lighting experiment: actual temporal reservoir rotation uses only
-// the shared 2x2 pair permutation. The presentation-only direct diffuse
-// shading permutation is disabled in the direct RIS entry points.
-#ifndef TEMPORAL_DIRECT_PAIR_RANDOM_STAY
-#define TEMPORAL_DIRECT_PAIR_RANDOM_STAY 0
-#endif
-#ifndef TEMPORAL_DIRECT_PAIR_SWAP_PROBABILITY
-#define TEMPORAL_DIRECT_PAIR_SWAP_PROBABILITY 0.75
-#endif
-
 #ifndef TEMPORAL_BOUNCE_ROTATION_MASK_BITS
 #define TEMPORAL_BOUNCE_ROTATION_MASK_BITS 3u
 #endif
@@ -150,22 +140,15 @@ void resolveDirectSource(ivec2 pix, ivec2 res)
 	const uint permutation_frame_seed = xxhash32(uvec4(
 		ubo.ubo.frame_counter, ubo.ubo.random_seed,
 		TEMPORAL_DIRECT_ROTATION_SALT, 0x6672616du));
-#if TEMPORAL_DIRECT_PAIR_RANDOM_STAY
-	const float direct_pair_swap_probability =
-		float(TEMPORAL_DIRECT_PAIR_SWAP_PROBABILITY);
-#else
-	// Rotation mode: once a complete 2x2 pair is selected, do not randomly
-	// leave it in place. Only the symmetric reprojection/geometry validation
-	// below may reject the swap. Incomplete edge pairs retain their dedicated
-	// 50/50 rule inside temporalReservoirPairPermutationPixel().
-	const float direct_pair_swap_probability = 1.0;
-#endif
-	const ivec2 partner = temporalReservoirPairPermutationPixel(
-		pix,
-		res,
-		permutation_frame_seed,
-		TEMPORAL_DIRECT_ROTATION_SALT,
-		direct_pair_swap_probability);
+	// Match RTXDI_ApplyPermutationSampling in NVIDIA RTXDI's
+	// Include/Rtxdi/Utils/ReservoirAddressing.hlsli: random offset, fixed XOR 3.
+	const ivec2 offset = ivec2(
+		int(permutation_frame_seed & 3u),
+		int((permutation_frame_seed >> 2u) & 3u));
+	const ivec2 permuted = ((pix + offset) ^ ivec2(3)) - offset;
+	// Keep out-of-viewport partners at self before accessing any images.
+	const ivec2 partner = all(greaterThanEqual(permuted, ivec2(0))) &&
+		all(lessThan(permuted, res)) ? permuted : pix;
 
 	ivec2 self_history_pix;
 	ivec2 partner_history_pix;
