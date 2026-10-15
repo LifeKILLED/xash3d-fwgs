@@ -12,6 +12,26 @@ static int near(double a, double b)
 
 int main(void)
 {
+	// Regression: an always-occluded million-times-brighter light must not
+	// inflate a visible winner's mass in full-visibility initial RIS.
+	const float targets[] = {1, 1000000};
+	const float visibilities[] = {1, 0};
+	double initial_expectation = 0;
+	for (int a = 0; a < 2; ++a) {
+		for (int b = 0; b < 2; ++b) {
+			const float mass = risVisibilityInitialCandidateMass(targets[a], 2, visibilities[a]) +
+				risVisibilityInitialCandidateMass(targets[b], 2, visibilities[b]);
+			const float estimate = risVisibilityShade(1, 1, mass, 2, 1);
+			assert(estimate >= 0 && estimate <= 2);
+			initial_expectation += 0.25 * estimate;
+		}
+	}
+	assert(near(initial_expectation, 1));
+	const float unchecked_mass = risVisibilityInitialCandidateMass(1, 2, 1) +
+		risVisibilityInitialCandidateMass(1000000, 2, 1);
+	assert(risVisibilityShade(1, 1, unchecked_mass, 2, 1) == 1000001);
+	assert(risVisibilityInitialCandidateMass(1000000, 2, 0) == 0);
+
 	// Empty inputs must remain black and finite, with no 0/0.
 	assert(risVisibilityAverage(0, 0, 0, 0) == 0);
 	assert(risVisibilityMisWeight(0, 0, 0, 0) == 0);
@@ -79,6 +99,20 @@ int main(void)
 		const float target = powf(10.0f, (float)exponent);
 		assert(near(risVisibilityShade(target, target, 3, 2, 1), 1.5));
 	}
-	puts("PASS: MIS/integral/variance, chained visibility, small-target overflow, f/target cancellation");
+	// The optional diagnostic uses the old shading formula, including its
+	// denominator floor; it must not clamp radiance or accumulated mass instead.
+	assert(near(risVisibilityShadeLegacyClamp(2, 1, 6, 2, 1, 1e-6f, 5), 6));
+	assert(near(risVisibilityShadeLegacyClamp(2, 1, 40, 2, 1, 1e-6f, 5), 10));
+	assert(near(risVisibilityShadeLegacyClamp(2, 1, 40, 2, 0.25f, 1e-6f, 5), 2.5));
+	assert(risVisibilityShadeLegacyClamp(0, 0, 0, 0, 0, 1e-6f, 5) == 0);
+	for (int exponent = -12; exponent <= 12; ++exponent) {
+		const float target = powf(10.0f, (float)exponent);
+		const float contribution = target * 2;
+		const float mass = 7;
+		const float expected = contribution * fminf(mass / fmaxf(3 * target, 1e-6f), 5) * 0.75f;
+		const float actual = risVisibilityShadeLegacyClamp(contribution, target, mass, 3, 0.75f, 1e-6f, 5);
+		assert(near(actual, expected));
+	}
+	puts("PASS: initial visibility, MIS/integral/variance, stable shading and legacy W clamp");
 	return 0;
 }

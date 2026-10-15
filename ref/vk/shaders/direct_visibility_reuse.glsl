@@ -53,6 +53,20 @@ bool risVisibilityHasSample(RisVisibilityReservoir r)
 		r.reservoir.weight_sum > 0.0;
 }
 
+bool risVisibilityTestInitialCandidates()
+{
+	return (ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_CANDIDATES) != 0u;
+}
+
+float risVisibilityHistoryTag()
+{
+	// Isolate both diagnostic switches: neither candidate visibility nor the
+	// ReGIR/uniform proposal comparison should inherit the other path's mass.
+	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
+	return 32.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
+		(uniform_proposals ? 2.0 : 0.0);
+}
+
 bool risVisibilityUnshadowedWeights(RIS_LIGHT_SAMPLE light, vec3 sample_random,
 	RisVisibilitySurface s, out vec2 weights)
 {
@@ -142,7 +156,7 @@ void risVisibilityStore(ivec2 pix, RisVisibilityReservoir r[2])
 	// Existing RGBA16F auxiliary image: x is reserved for legacy ReGIR PDF,
 	// y/z are diffuse/specular visibility, w tags incompatible history modes.
 	imageStore(RIS_OUT_DIFFUSE_REGIR_INV_PDF_IMAGE, pix,
-		vec4(0.0, r[0].visibility, r[1].visibility, 32.0));
+		vec4(0.0, r[0].visibility, r[1].visibility, risVisibilityHistoryTag()));
 }
 
 void risVisibilityLoad(ivec2 pix, out RisVisibilityReservoir r[2])
@@ -151,7 +165,7 @@ void risVisibilityLoad(ivec2 pix, out RisVisibilityReservoir r[2])
 	r[1] = risVisibilityEmpty();
 	const vec4 meta = imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, pix);
 	// Temporal-only format: do not import the former initial-only mode's history.
-	if (meta.w != 32.0) {
+	if (meta.w != risVisibilityHistoryTag()) {
 		return;
 	}
 	r[0] = risVisibilityDecode(imageLoad(VIS_PREV_RESERVOIR, pix), imageLoad(VIS_PREV_RANDOM, pix), meta.y);
@@ -229,6 +243,7 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		const bool use_regir = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u;
 		const bool have_cell = use_regir && regirSelectOnionCell(P, rng, cell);
 		const uint candidate_count = use_regir ? uint(REGIR_ONION_LOOKUP_CANDIDATES) : uint(RIS_PRIMARY_CANDIDATES);
+		const bool test_candidate_visibility = risVisibilityTestInitialCandidates();
 		for (uint j = 0u; j < candidate_count; ++j) {
 			RegirOnionCandidate proposal;
 			if (use_regir) {
@@ -249,10 +264,16 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			if (loaded) {
 				risVisibilityUnshadowedWeights(light, sample_random, s, candidate_weights);
 			}
+			// Full-visibility initial RIS: trace once per candidate, shared by both
+			// lobes, before its mass can enter either reservoir's weight sum.
+			const bool candidate_visible = !test_candidate_visibility ||
+				(loaded && any(greaterThan(candidate_weights, vec2(0.0))) &&
+				 RIS_CONCRETE_SAMPLE_VISIBLE(light, sample_random, s.P, s.geometry_N));
 			for (int lobe = 0; lobe < 2; ++lobe) {
 				r[lobe].reservoir.sample_count += 1.0;
 				const float target = risUnifiedTargetWeight(candidate_weights, material, lobe);
-				const float mass = target * proposal.inv_source_pdf;
+				const float mass = risVisibilityInitialCandidateMass(target, proposal.inv_source_pdf,
+					candidate_visible ? 1.0 : 0.0);
 				if (!(mass > 0.0) || isnan(mass) || isinf(mass)) {
 					continue;
 				}
@@ -266,9 +287,12 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				r[lobe].reservoir.weight_sum = total;
 			}
 		}
-		// Algorithm 1: trace only the initial RIS winner and zero W if occluded.
+		// Algorithm 1 uses winner-only visibility. With full candidate visibility,
+		// every selectable winner has already passed the same shadow test.
 		for (int lobe = 0; lobe < 2; ++lobe) {
-			r[lobe].visibility = risVisibilityTrace(r[lobe], s);
+			r[lobe].visibility = test_candidate_visibility
+				? (risVisibilityHasSample(r[lobe]) ? 1.0 : 0.0)
+				: risVisibilityTrace(r[lobe], s);
 			if (r[lobe].visibility == 0.0) {
 				r[lobe].reservoir.weight_sum = 0.0;
 			}
@@ -314,16 +338,25 @@ void risVisibilityShadeReservoirs(RisVisibilityReservoir r[2], vec3 P, vec3 N, v
 			!risEvaluateConcreteSample(light, r[lobe].reservoir.sample_random, P, N, V, material, false, d, sp)) {
 			continue;
 		}
-		// Eq. (5): no additional binary visibility gate and no legacy W clamp.
+		// Eq. (5), with an optional legacy W clamp for the diagnostic comparison.
 		const float target = r[lobe].reservoir.mixed_weight;
 		const float mass = r[lobe].reservoir.weight_sum;
 		const float count = r[lobe].reservoir.sample_count;
 		const float visibility = r[lobe].visibility;
 		const vec3 contribution = lobe == 0 ? d : sp;
-		const vec3 shaded = vec3(
+		vec3 shaded = vec3(
 			risVisibilityShade(contribution.r, target, mass, count, visibility),
 			risVisibilityShade(contribution.g, target, mass, count, visibility),
 			risVisibilityShade(contribution.b, target, mass, count, visibility));
+		if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_WEIGHT_CLAMP) != 0u) {
+			shaded = vec3(
+				risVisibilityShadeLegacyClamp(contribution.r, target, mass, count, visibility,
+					RIS_WEIGHT_EPSILON, float(RIS_SHADE_RESERVOIR_WEIGHT_MAX)),
+				risVisibilityShadeLegacyClamp(contribution.g, target, mass, count, visibility,
+					RIS_WEIGHT_EPSILON, float(RIS_SHADE_RESERVOIR_WEIGHT_MAX)),
+				risVisibilityShadeLegacyClamp(contribution.b, target, mass, count, visibility,
+					RIS_WEIGHT_EPSILON, float(RIS_SHADE_RESERVOIR_WEIGHT_MAX)));
+		}
 		if (lobe == 0) {
 			diffuse = shaded;
 		} else {

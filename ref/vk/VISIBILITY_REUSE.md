@@ -22,6 +22,46 @@ https://research.nvidia.com/sites/default/files/pubs/2020-07_Spatiotemporal-rese
 Changing the switch invalidates direct-light reservoir history through a format tag.
 The aSVGF history is controlled separately, as before.
 
+`rt_direct_visibility_weight_clamp` defaults to `0`. When enabled, the reuse
+path applies the existing legacy shading formula
+`min(mass / max(M * target, RIS_WEIGHT_EPSILON), RIS_SHADE_RESERVOIR_WEIGHT_MAX)`
+to the final contribution, also multiplied by reused visibility. The current
+legacy limit is W=5. This is a diagnostic biased clamp, not a radiance cap.
+Selection, targets, temporal MIS, visibility and stored reservoirs are unchanged,
+and toggling this switch does not invalidate reservoir history. It applies only
+to visibility reuse; the legacy path already uses its own clamp. Keep other
+switches unchanged when comparing it, to isolate the effect of the clamp.
+
+`rt_direct_visibility_candidates` defaults to `0` for a controlled comparison:
+
+- `0`: the publication's initial RIS variant, with visibility tested only for
+  each lobe's winner. An occluded candidate can still increase the initial
+  weight sum when a different, visible candidate wins.
+- `1`: test each fresh candidate's concrete visibility before accumulating its
+  weight. One shadow test is shared by both lobes. Occluded candidates contribute
+  zero mass but still count toward M; visible winners keep their unshadowed
+  target, which equals the visibility-inclusive target at those samples.
+  Winner shadow tests are then redundant and omitted.
+
+This switch applies only when `rt_direct_visibility_reuse 1` is enabled. It
+changes initial RIS, not the temporal MIS or the normal used by its targets.
+Both variants use separate history tags, so changing the switch discards old
+reservoir statistics. In ReGIR mode, this costs up to four candidate shadow
+tests per light type instead of up to two winner tests. It does not change
+ReGIR's candidate distribution, refresh temporal visibility, or add a clamp.
+The full-candidate variant is a diagnostic alternative to the paper's initial
+visibility shortcut, not an exact reproduction of that shortcut.
+
+To isolate large contribution weights originating in ReGIR's own reservoirs,
+compare `rt_disable_regir 0` with `rt_disable_regir 1` while keeping visibility
+reuse and full candidate visibility enabled. Uniform proposals bypass ReGIR
+and use a constant inverse source probability equal to the light count.
+Switching ReGIR also invalidates direct visibility-reuse reservoir history;
+this prevents weights from the previous proposal path from contaminating the
+comparison. ReGIR output weights can already reflect high unshadowed energy
+from lights not selected into its reservoir; a later visibility test cannot
+remove that energy if ReGIR's selected light itself is visible.
+
 For a raw-lighting visual check, enable `rt_direct_visibility_reuse 1` with the
 existing commands to disable temporal denoising and `rt_disable_atrous 1`.
 Value 0 selects the legacy direct RIS path. Other lighting passes keep their
@@ -46,7 +86,8 @@ name and layout; it now carries a boolean value.
   its spatial resampling step is omitted.
 - Update visibility using the exact same resampling weights, independently of
   which candidate wins. Shade with `f(X) * visibility * W` without a second
-  binary gate or the legacy shading-weight clamp.
+  binary gate. The legacy shading-weight clamp is an optional diagnostic,
+  disabled by default.
 
 The replay domain is light ID plus three primary random numbers. Contributions
 include the internal area/direction proposal correction, so the replay shift
@@ -75,7 +116,8 @@ lights whose hashes change can therefore lose temporal history.
 
 Both resampling and shading algebraically cancel the explicit inverse target
 before evaluating it. This avoids intermediate overflow for very small targets
-without clamping weights or radiance. History tags include a format version, so
+without clamping weights or radiance when the diagnostic clamp is disabled.
+History tags include a format version, so
 the older geometry-target histories are not imported after a shader update.
 
 ## Resources and checks

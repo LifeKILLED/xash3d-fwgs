@@ -649,7 +649,9 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 					  (CVAR_TO_BOOL(rt_disable_reflection) ? RENDERER_FLAG_DISABLE_REFLECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_refraction) ? RENDERER_FLAG_DISABLE_REFRACTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_regir) ? RENDERER_FLAG_DISABLE_REGIR : 0) |
-					  (CVAR_TO_BOOL(rt_disable_atrous) ? RENDERER_FLAG_DISABLE_ATROUS : 0);
+					  (CVAR_TO_BOOL(rt_disable_atrous) ? RENDERER_FLAG_DISABLE_ATROUS : 0) |
+					  (CVAR_TO_BOOL(rt_direct_visibility_candidates) ? RENDERER_FLAG_DIRECT_VISIBILITY_CANDIDATES : 0) |
+					  (CVAR_TO_BOOL(rt_direct_visibility_weight_clamp) ? RENDERER_FLAG_DIRECT_VISIBILITY_WEIGHT_CLAMP : 0);
 	ret.regir_onion_radius = Q_max(rt_regir_onion_radius->value, 1.0f);
 	ret.di_visibility_reuse = CVAR_TO_BOOL(rt_direct_visibility_reuse) ? 1u : 0u;
 	ret.di_visibility_history = Q_max(rt_di_visibility_history->value, 1.0f);
