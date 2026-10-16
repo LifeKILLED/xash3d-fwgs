@@ -78,6 +78,40 @@ is an explicitly requested experiment for stale shadow weights, not part of
 Tokuyoshi's algorithm, and may briefly increase noise when it discards history.
 It adds no probe rays, image memory or console switches. The W clamp is unchanged.
 
+With either detector active, full-light history pairs can now exchange their
+temporal donors. Eligibility is the exact bit/count test `count == 7 && bits == 127`
+at BOTH endpoints, independently of whether median or gradient is selected.
+After each fresh probe, a full-light window also bypasses median popcount and
+gradient sums entirely and sets visibility to one. Probes still run so a new
+occlusion can leave the full-light state.
+
+Median population count and the weighted visibility sums extract seven bits
+into two vec4 values (with the eighth lane zero) and use dot products, without
+shader loops. The gradient directly reduces the difference weights
+`6,4,2,0,-2,-4,-6`, avoiding a repeated recent-mean calculation. Exhaustive CPU
+checks compare these reductions against scalar reference sums. This arithmetic
+change leaves visibility sampling unchanged.
+
+The exchange uses the existing NVIDIA offset / XOR-3 / subtract-offset pairing
+in the current pixel domain and the existing reciprocal plane validation
+(plus the existing shading-normal check for specular). Both resolved sources
+must reciprocally match the canonical histories. Read only previous-frame
+reservoirs, never neighbors' in-progress writes. Require valid matching lights,
+positive incoming targets. At the user's request, there are no additional
+cross-visibility rays for the exchange; the existing per-frame detector probe
+continues observing visibility after selection. The donor's
+previous surface accompanies its reservoir into the existing temporal MIS;
+target normals and final shading follow the normal split described below.
+The receiving texel retains its own per-source bit window if the incoming light
+is the same; a different source starts a new window. The two lobes and light
+types make these decisions independently. The neither-detector baseline keeps
+canonical reprojection without this exchange.
+
+This is the user's conditional permutation experiment, not the paper's spatial
+resampling pass. It adds no shadow rays, images, dispatches, build variants or
+console switches. Paired history/surface reads and target evaluations remain. GPU cost and
+scene behavior require in-game comparison.
+
 To compare methods while keeping reuse and the tested W clamp enabled:
 
 ```text
@@ -167,8 +201,8 @@ name and layout; it now carries a boolean value.
   donor target at the fresh sample. The previous camera matrices reconstruct
   the donor's view direction.
 - Keep the completed temporal reservoir local and shade that pixel directly.
-  This implements the temporal-only subset of the supplementary algorithm;
-  its spatial resampling step is omitted.
+  The supplementary algorithm's spatial resampling step is omitted; the
+  optional per-source detectors enable the full-light donor exchange above.
 - Update visibility using the exact same resampling weights, independently of
   which candidate wins. Shade with `f(X) * visibility * W` without a second
   binary gate. The legacy shading-weight clamp is an optional diagnostic,
@@ -212,7 +246,8 @@ the older geometry-target histories are not imported after a shader update.
 
 With visibility reuse enabled, initial RIS, temporal resampling and final shading run in one
 dispatch per light type. The reservoir stays local until its final history
-write; there are no intermediate reservoir images or neighbor reads.
+write; there are no intermediate reservoir images. Full-light exchange reads
+the paired previous reservoir and the partner's current surface.
 With it disabled, the legacy algorithm runs in these same two dispatches.
 
 The metadata image's y/z channels hold

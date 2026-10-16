@@ -77,7 +77,7 @@ float risVisibilityHistoryTag()
 	// ReGIR/uniform proposal comparison should inherit the other path's mass.
 	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
 	const float window_method = risVisibilityGradientEnabled() ? 2.0 : (risVisibilityMedianEnabled() ? 1.0 : 0.0);
-	return 96.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
+	return 112.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
 		(uniform_proposals ? 2.0 : 0.0) + 4.0 * window_method;
 }
 
@@ -258,6 +258,12 @@ bool risVisibilityMeasureWindow(inout RisVisibilityReservoir r,
 	const RisVisibilityWindow previous_window = r.window;
 	r.window = risVisibilityWindowPush(r.window, visible);
 	const bool entered_full_light = risVisibilityWindowEnteredFullLight(previous_window, r.window);
+	if (risVisibilityWindowFullLight(r.window)) {
+		// Exact bit/count check: no median popcount or gradient sums in full light.
+		r.visibility = 1.0;
+		r.window.median = 1u;
+		return entered_full_light;
+	}
 	if (risVisibilityGradientEnabled()) {
 		r.visibility = risVisibilityWindowGradientUpdate(r.window, r.visibility);
 	} else if (risVisibilityWindowShouldReset(r.window)) {
@@ -292,6 +298,86 @@ RisVisibilitySurface risVisibilityPreviousSurface(ivec2 pix)
 	s.material.base_color = SRGBtoLINEAR(material.rgb);
 	s.material.metalness = material.a;
 	return s;
+}
+
+RisVisibilitySurface risVisibilityCurrentSurface(ivec2 pix)
+{
+	RisVisibilitySurface s;
+	const vec4 packed = imageLoad(normals_gs, pix);
+	const vec4 material = imageLoad(material_rmxx, pix);
+	s.geometry_N = normalDecode(packed.xy);
+	s.shading_N = normalDecode(packed.zw);
+	s.P = imageLoad(position_t, pix).xyz + s.geometry_N * 0.001;
+	s.V = risVisibilityView(pix, ubo.ubo.inv_proj, ubo.ubo.inv_view);
+	s.material.roughness = material.r;
+	s.material.metalness = material.g;
+	s.material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
+	return s;
+}
+
+void risVisibilityPermuteFullLightHistory(ivec2 pix, ivec2 self_history_pix,
+	RisVisibilitySurface surface, int lobe, inout RisVisibilityReservoir history,
+	out ivec2 source_pix)
+{
+	source_pix = self_history_pix;
+	if (!risVisibilityHasSample(history) ||
+		!risVisibilityWindowFullLight(history.window)) {
+		return;
+	}
+	// Reuse the existing NVIDIA XOR-3 pairing and its two-way plane/normal
+	// validation. Both endpoints must name each other's canonical history;
+	// a unilateral rejection must leave both endpoints on their own history.
+	const uint seed = xxhash32(uvec4(ubo.ubo.frame_counter, ubo.ubo.random_seed,
+		0x64726f74u, 0x6672616du));
+	const ivec2 partner = temporalReservoirNvidiaPermutationPixel(pix, ubo.ubo.res, seed);
+	if (all(equal(partner, pix)) || imageLoad(position_t, partner).w <= 0.0) {
+		return;
+	}
+	const vec4 sources = imageLoad(temporal_reprojection_direct_source, pix);
+	const vec4 reverse_sources = imageLoad(temporal_reprojection_direct_source, partner);
+	ivec2 partner_history_pix;
+	ivec2 reverse_history_pix;
+	bool rotated;
+	bool reverse_rotated;
+	if (!temporalReprojectionDecodeSource(lobe == 0 ? sources.rg : sources.ba,
+		ubo.ubo.res, partner_history_pix, rotated) || !rotated ||
+		!temporalReprojectionDecodeSource(lobe == 0 ? reverse_sources.rg : reverse_sources.ba,
+		ubo.ubo.res, reverse_history_pix, reverse_rotated) || !reverse_rotated ||
+		any(notEqual(reverse_history_pix, self_history_pix)) ||
+		all(equal(partner_history_pix, self_history_pix))) {
+		return;
+	}
+	// Verify the other endpoint's canonical source too, rather than interpreting
+	// an arbitrary resolved neighbor as a reciprocal partner.
+	ivec2 partner_canonical;
+	if (imageLoad(temporal_reprojection_ready, partner).r <= 0.5 ||
+		!temporalReprojectionDecodePixel(imageLoad(temporal_reprojection_map, partner).rg,
+			ubo.ubo.res, partner_canonical) ||
+		any(notEqual(partner_canonical, partner_history_pix))) {
+		return;
+	}
+	RisVisibilityReservoir pair_history[2];
+	risVisibilityLoad(partner_history_pix, pair_history);
+	RisVisibilityReservoir incoming = pair_history[lobe];
+	if (!risVisibilityHasSample(incoming) ||
+		!risVisibilityWindowsPermitSwap(history.window, incoming.window) ||
+		!risVisibilityResolveLight(incoming.reservoir)) {
+		return;
+	}
+	const RisVisibilitySurface partner_surface = risVisibilityCurrentSurface(partner);
+	if (!(risVisibilityTarget(incoming, surface, lobe) > 0.0) ||
+		!(risVisibilityTarget(history, partner_surface, lobe) > 0.0)) {
+		return;
+	}
+	// No extra shadow rays for exchange: the existing visibility-window probe
+	// continues observing the selected source after temporal resampling.
+	// Measurements belong to a receiver AND a source. Keep this receiver's
+	// window for the same source; a different incoming source starts at zero.
+	incoming.window = risVisibilityWindowSelect(incoming.reservoir.light_id,
+		incoming.reservoir.light_hash, history.reservoir.light_id,
+		history.reservoir.light_hash, history.window, incoming.visibility >= 0.5 ? 1u : 0u);
+	history = incoming;
+	source_pix = partner_history_pix;
 }
 
 void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
@@ -374,7 +460,6 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			temporalReprojectionDecodePixel(imageLoad(temporal_reprojection_map, pix).rg, ubo.ubo.res, history_pix)) {
 			RisVisibilityReservoir history[2];
 			risVisibilityLoad(history_pix, history);
-			const RisVisibilitySurface hs = risVisibilityPreviousSurface(history_pix);
 			for (int lobe = 0; lobe < 2; ++lobe) {
 				if (history[lobe].reservoir.sample_count <= 0.0) {
 					continue;
@@ -383,6 +468,12 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 					!risVisibilityResolveLight(history[lobe].reservoir)) {
 					continue;
 				}
+				ivec2 source_pix = history_pix;
+				if (risVisibilityMedianEnabled() || risVisibilityGradientEnabled()) {
+					risVisibilityPermuteFullLightHistory(pix, history_pix, s, lobe,
+						history[lobe], source_pix);
+				}
+				const RisVisibilitySurface hs = risVisibilityPreviousSurface(source_pix);
 				// Standard ReSTIR temporal confidence cap; rescale stored mass so W
 				// stays unchanged. No random reset or ReGIR revert in the paper path.
 				const float old_count = history[lobe].reservoir.sample_count;

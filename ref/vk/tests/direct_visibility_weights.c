@@ -9,9 +9,28 @@
 
 typedef uint32_t uint;
 typedef struct RisVisibilityWindow RisVisibilityWindow;
+typedef struct { float x, y, z, w; } vec4;
+
+static vec4 visibilityTestVec4(float x, float y, float z, float w)
+{
+	const vec4 v = {x, y, z, w};
+	return v;
+}
+
+static float visibilityTestDot(vec4 a, vec4 b)
+{
+	return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+#define vec4(x, y, z, w) visibilityTestVec4(x, y, z, w)
+#define dot(a, b) visibilityTestDot(a, b)
+#define uint(value) ((uint)(value))
 #define float(value) ((float)(value))
 #include "../shaders/direct_visibility_window.glsl"
 #undef float
+#undef uint
+#undef dot
+#undef vec4
 
 static int near(double a, double b)
 {
@@ -20,6 +39,41 @@ static int near(double a, double b)
 
 int main(void)
 {
+	// Compare the loop-free vector reductions against a scalar reference for
+	// every seven-bit pattern. An unused eighth bit must not affect the result.
+	for (uint bits = 0; bits < 256; ++bits) {
+		uint ones = 0, recent = 0, older = 0;
+		for (uint bit = 0; bit < 7; ++bit) {
+			const uint value = (bits >> bit) & 1u;
+			ones += value;
+			recent += value * (7u - bit);
+			older += value * (bit + 1u);
+		}
+		RisVisibilityWindow measured = {bits, 7, 0};
+		assert(risVisibilityWindowOnes(bits) == ones);
+		assert(near(risVisibilityWindowRecentMean(bits), recent / 28.0));
+		assert(near(risVisibilityWindowOlderMean(bits), older / 28.0));
+		assert(near(risVisibilityWindowGradient(measured), ((int)recent - (int)older) / 28.0));
+	}
+
+	// Full-light exchange requires BOTH complete windows, without cross-rays.
+	// Exhaust all masks/counts, and check that either endpoint makes the same
+	// accept/reject decision. Seven stored ones with an incomplete count fail.
+	for (uint ac = 0; ac <= 7; ++ac) {
+		for (uint ab = 0; ab < 128; ++ab) {
+			RisVisibilityWindow a = {ab, ac, 0};
+			assert(risVisibilityWindowFullLight(a) == (ac == 7 && ab == 127));
+			for (uint bc = 0; bc <= 7; ++bc) {
+				for (uint bb = 0; bb < 128; ++bb) {
+					RisVisibilityWindow b = {bb, bc, 1};
+					const bool swap = risVisibilityWindowsPermitSwap(a, b);
+					assert(swap == (ac == 7 && ab == 127 && bc == 7 && bb == 127));
+					assert(swap == risVisibilityWindowsPermitSwap(b, a));
+				}
+			}
+		}
+	}
+
 	// One restart on shadow-to-full-light, none during all-lit warmup or
 	// continuing full light. The last occluded bit must leave the window.
 	RisVisibilityWindow lit_window = {0, 0, 1};

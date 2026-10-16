@@ -1,5 +1,5 @@
 // User-proposed per-light seven-frame visibility detector. This is separate
-// from Tokuyoshi's WIS estimator. Keep the integer logic C-compatible for tests.
+// from Tokuyoshi's WIS estimator. Tests provide C equivalents of vec4 and dot.
 struct RisVisibilityWindow {
 	uint bits;
 	uint count;
@@ -19,13 +19,20 @@ RisVisibilityWindow risVisibilityWindowSelect(uint selected_id, uint selected_ha
 	return window;
 }
 
+float risVisibilityWindowSum(uint bits, vec4 low_weights, vec4 high_weights)
+{
+	// Bit zero is newest. The last lane is padding, not an eighth sample.
+	const vec4 low = vec4(float(bits & 1u), float((bits >> 1u) & 1u),
+		float((bits >> 2u) & 1u), float((bits >> 3u) & 1u));
+	const vec4 high = vec4(float((bits >> 4u) & 1u),
+		float((bits >> 5u) & 1u), float((bits >> 6u) & 1u), 0.0f);
+	return dot(low, low_weights) + dot(high, high_weights);
+}
+
 uint risVisibilityWindowOnes(uint bits)
 {
-	uint ones = 0u;
-	for (uint bit = 0u; bit < 7u; ++bit) {
-		ones += (bits >> bit) & 1u;
-	}
-	return ones;
+	return uint(risVisibilityWindowSum(bits,
+		vec4(1.0f, 1.0f, 1.0f, 1.0f), vec4(1.0f, 1.0f, 1.0f, 0.0f)));
 }
 
 RisVisibilityWindow risVisibilityWindowPush(RisVisibilityWindow window, uint visible)
@@ -52,29 +59,33 @@ bool risVisibilityWindowEnteredFullLight(RisVisibilityWindow previous, RisVisibi
 		current.count == 7u && current.bits == 127u;
 }
 
+bool risVisibilityWindowFullLight(RisVisibilityWindow window)
+{
+	return window.count == 7u && window.bits == 127u;
+}
+
+bool risVisibilityWindowsPermitSwap(RisVisibilityWindow a, RisVisibilityWindow b)
+{
+	return risVisibilityWindowFullLight(a) && risVisibilityWindowFullLight(b);
+}
+
 float risVisibilityWindowRecentMean(uint bits)
 {
-	uint sum = 0u;
-	// Bit zero is newest: weights 7,6,...,1 sum to 28.
-	for (uint bit = 0u; bit < 7u; ++bit) {
-		sum += ((bits >> bit) & 1u) * (7u - bit);
-	}
-	return float(sum) / 28.0f;
+	return risVisibilityWindowSum(bits,
+		vec4(7.0f, 6.0f, 5.0f, 4.0f), vec4(3.0f, 2.0f, 1.0f, 0.0f)) / 28.0f;
 }
 
 float risVisibilityWindowOlderMean(uint bits)
 {
-	uint sum = 0u;
-	for (uint bit = 0u; bit < 7u; ++bit) {
-		sum += ((bits >> bit) & 1u) * (bit + 1u);
-	}
-	return float(sum) / 28.0f;
+	return risVisibilityWindowSum(bits,
+		vec4(1.0f, 2.0f, 3.0f, 4.0f), vec4(5.0f, 6.0f, 7.0f, 0.0f)) / 28.0f;
 }
 
 float risVisibilityWindowGradient(RisVisibilityWindow window)
 {
 	return window.count == 7u
-		? risVisibilityWindowRecentMean(window.bits) - risVisibilityWindowOlderMean(window.bits)
+		? risVisibilityWindowSum(window.bits,
+			vec4(6.0f, 4.0f, 2.0f, 0.0f), vec4(-2.0f, -4.0f, -6.0f, 0.0f)) / 28.0f
 		: 0.0f;
 }
 
