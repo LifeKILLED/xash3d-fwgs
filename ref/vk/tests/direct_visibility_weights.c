@@ -39,6 +39,16 @@ static int near(double a, double b)
 
 int main(void)
 {
+	// Full light bypasses the old visibility average only after seven valid
+	// observations. Penumbra and incomplete windows retain that same average.
+	RisVisibilityWindow full_light = {127, 7, 0};
+	assert(risVisibilityWindowSelectVisibility(full_light, 0.25f) == 1.0f);
+	full_light.count = 6;
+	assert(risVisibilityWindowSelectVisibility(full_light, 0.25f) == 0.25f);
+	full_light.count = 7;
+	full_light.bits = 126;
+	assert(risVisibilityWindowSelectVisibility(full_light, 0.25f) == 0.25f);
+
 	// Only an already-tested, occluded candidate from the same source clears
 	// zapas. A different replay point on that light is still an observation.
 	for (uint id = 10; id <= 12; ++id) {

@@ -61,7 +61,15 @@ bool risVisibilityWindowEnteredFullLight(RisVisibilityWindow previous, RisVisibi
 
 bool risVisibilityWindowFullLight(RisVisibilityWindow window)
 {
-	return window.count == 7u && window.bits == 127u;
+	// Seven valid observations AND seven visible bits, in one integer equality.
+	// Both fields are already decoded uints; no float-to-uint conversion here.
+	return ((window.count << 7u) | window.bits) == 1023u;
+}
+
+float risVisibilityWindowSelectVisibility(RisVisibilityWindow window, float average)
+{
+	// Only select a scalar; both paths share reservoir selection and weights.
+	return risVisibilityWindowFullLight(window) ? 1.0f : average;
 }
 
 bool risVisibilityWindowsPermitSwap(RisVisibilityWindow a, RisVisibilityWindow b)

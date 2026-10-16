@@ -85,9 +85,11 @@ storage layout and shadow-ray counts are unchanged. GPU speedup is unmeasured.
 
 The shadow-ray accounting for the current path is in [DIRECT_LIGHTING_RAYS.md](DIRECT_LIGHTING_RAYS.md).
 
-Update both `ref_vk.dll` and `rt.meat`. Primary and zapas age resets are active
-with reuse enabled; full-light transition detection still requires either
-median or gradient. Scene-level behavior and GPU cost need in-game testing.
+Update both `ref_vk.dll` and `rt.meat` for the initial zapas implementation.
+Primary/zapas age resets, seven-bit tracking and full-light transition detection
+are active with reuse enabled, even when both median and gradient are off.
+Those switches control only the mixed-window visibility correction. Scene-level
+behavior and GPU cost need in-game testing.
 
 `rt_direct_visibility_median` defaults to `0`. Setting it to `1` enables the
 user-proposed seven-frame, per-source visibility detector on top of reuse:
@@ -146,9 +148,15 @@ is an explicitly requested experiment for stale shadow weights, not part of
 Tokuyoshi's algorithm, and may briefly increase noise when it discards history.
 It adds no probe rays, image memory or console switches. The W clamp is unchanged.
 
-With either detector active, full-light history pairs can now exchange their
-temporal donors. Eligibility is the exact bit/count test `count == 7 && bits == 127`
-at BOTH endpoints, independently of whether median or gradient is selected.
+Full-light history pairs can exchange their temporal donors even with both
+median and gradient disabled. Eligibility is one integer equality,
+`((count << 7) | bits) == 1023`, encoding BOTH `count == 7` and `bits == 127`,
+at BOTH endpoints. The fields are already uints; no extra float-to-uint conversion
+is needed. A full-light donor's visibility average is overridden by one using
+scalar selection in the same RIS calculation, without routing to legacy RIS.
+The shader still computes the small shared averaging expression; its historical
+value is ignored in full light. No heavy full-light/penumbra shader variant is
+introduced. The generated SPIR-V uses `OpSelect` for the visibility selection.
 After each fresh probe, a full-light window also bypasses median popcount and
 gradient sums entirely and sets visibility to one. Probes still run so a new
 occlusion can leave the full-light state.
@@ -172,8 +180,9 @@ previous surface accompanies its reservoir into the existing temporal MIS;
 target normals and final shading follow the normal split described below.
 The receiving texel retains its own per-source bit window if the incoming light
 is the same; a different source starts a new window. The two lobes and light
-types make these decisions independently. The neither-detector baseline keeps
-canonical reprojection without this exchange.
+types make these decisions independently. With both corrections disabled, the
+bit-only mode still tracks visibility and permits this exchange. It skips all
+median/trend reductions and uses uniform correction-mode control flow.
 
 This is the user's conditional permutation experiment, not the paper's spatial
 resampling pass. It adds no shadow rays, images, dispatches, build variants or
@@ -194,7 +203,7 @@ rt_direct_visibility_median 1
 rt_direct_visibility_median 0
 rt_direct_visibility_gradient 1
 
-// Previous baseline (neither detector)
+// Bit-only tracking and full-light exchange; no median/trend correction
 rt_direct_visibility_gradient 0
 rt_direct_visibility_median 0
 ```

@@ -11,8 +11,7 @@ empty reservoirs, rejected light directions or backfaces can lower the count.
 | Fresh initial RIS winners | `rt_direct_visibility_candidates 0` | 4: two lobes per light type |
 | Fresh RIS candidates | `rt_direct_visibility_candidates 1` | 8: four candidates per type, shared by both lobes |
 | Initial winners with candidate checks enabled | Winners already checked | 0 additional |
-| Primary visibility-window probe | Median OR gradient enabled | 4: one new random point per valid lobe/type |
-| Primary visibility-window probe | Both detectors disabled | 0 |
+| Primary visibility-window probe | Always with reuse, including both corrections disabled | 4: one new random point per valid lobe/type |
 | NVIDIA XOR-3 exchange | Both windows full-light and pair accepted | 0 additional |
 | Temporal target evaluation / MIS / M cap | Either bank | 0 |
 | Zapas accumulation and visibility observation | Reuses matching candidate ID/hash results only | 0 additional |
@@ -24,21 +23,25 @@ The two fresh-RIS modes are alternatives. Thus reservoir DI totals are:
 
 | Candidate visibility | Median/gradient | Maximum logical shadow rays |
 | --- | --- | ---: |
-| 0 | Both off | 4 |
+| 0 | Both off (bit-only tracking) | 8 |
 | 0 | Either/both on | 8 |
-| 1 | Both off | 8 |
+| 1 | Both off (bit-only tracking) | 12 |
 | 1 | Either/both on | 12 |
 
 Four candidates are currently configured both for ReGIR lookup and the uniform
 proposal fallback (`REGIR_ONION_LOOKUP_CANDIDATES`, `RIS_PRIMARY_CANDIDATES`).
-Enabling both detectors does not double probes: gradient takes priority.
+Enabling or disabling corrections does not change probe count: the seven-bit
+window is always updated. Enabling both does not double probes: gradient takes priority.
 A `1111111` window skips median/gradient arithmetic but still takes its probe
 to detect new occlusion. After a promotion, that same existing primary probe
 can observe the promoted source on the NEXT frame; the promotion itself is
 after the current frame's probe and does not issue another one. The probe tests
 a fresh point on the source, not necessarily the reservoir's retained point.
-With both detectors disabled, temporal reprojection has no independent shadow
-test on the retained primary sample; only the fresh initial samples are tested.
+With both corrections disabled, the same primary probe updates the bits and
+full-light eligibility, without running median/trend sums. A full-light window
+uses visibility one in the shared RIS calculation; it does not route the texel
+through the legacy RIS algorithm. The small averaging expression remains
+shared, and scalar `OpSelect` overrides its result in full light.
 
 Zapas observations do not scan or trace all proposals in winner-only mode.
 Only candidates that actually received the already-existing visibility check
@@ -55,8 +58,9 @@ above. GI, reflection, refraction, the primary camera ray, and the legacy
 At the ray-query level a logical test can perform up to TWO TLAS queries:
 `shadowed` first checks opaque casters and, if unblocked, checks alpha-tested
 geometry separately. `shadowedSky` likewise performs a sky/opaque query and may
-continue to the alpha-mask query. Therefore the 4/8/12 logical-ray bounds can
-correspond to up to 8/16/24 TLAS queries before always-sampled lights. Internal
+continue to the alpha-mask query. The current reservoir bounds of 8 or 12
+logical rays can therefore correspond to up to 16 or 24 TLAS queries before
+always-sampled lights. Internal
 `rayQueryProceedEXT` iterations are traversal work within a query, not new rays.
 
 Relevant implementations: `shaders/direct_visibility_reuse.glsl`,

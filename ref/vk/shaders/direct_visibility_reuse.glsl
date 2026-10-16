@@ -120,7 +120,7 @@ float risVisibilityHistoryTag()
 	// ReGIR/uniform proposal comparison should inherit the other path's mass.
 	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
 	const float window_method = risVisibilityGradientEnabled() ? 2.0 : (risVisibilityMedianEnabled() ? 1.0 : 0.0);
-	return 1024.0 + 16.0 * float(ubo.ubo.di_visibility_reuse >> 1u) +
+	return 1536.0 + 16.0 * float(ubo.ubo.di_visibility_reuse >> 1u) +
 		(risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
 		(uniform_proposals ? 2.0 : 0.0) + 4.0 * window_method;
 }
@@ -281,7 +281,8 @@ RisVisibilityReservoir risVisibilityResample(
 	result.reservoir.mixed_weight = select_b ? pab : paa;
 	// Store M * p_hat(X) * W_X in the engine's existing reservoir layout.
 	result.reservoir.weight_sum = total * result.reservoir.sample_count;
-	result.visibility = risVisibilityAverage(a.visibility, wa, b.visibility, wb);
+	result.visibility = risVisibilityWindowSelectVisibility(b.window,
+		risVisibilityAverage(a.visibility, wa, b.visibility, wb));
 	result.age = b.age;
 	result.lifetime = b.lifetime;
 	// A new replay point on the same source must not erase its frame window.
@@ -437,6 +438,12 @@ bool risVisibilityMeasureWindow(inout RisVisibilityReservoir r,
 	const RisVisibilityWindow previous_window = r.window;
 	r.window = risVisibilityWindowPush(r.window, visible);
 	const bool entered_full_light = risVisibilityWindowEnteredFullLight(previous_window, r.window);
+	r.visibility = risVisibilityWindowSelectVisibility(r.window, r.visibility);
+	if (!risVisibilityMedianEnabled() && !risVisibilityGradientEnabled()) {
+		// Uniform mode switch: bit-only tracking uses scalar selection, without
+		// a per-pixel full-light/mixed-window control-flow split.
+		return entered_full_light;
+	}
 	if (risVisibilityWindowFullLight(r.window)) {
 		// Exact bit/count check: no median popcount or gradient sums in full light.
 		r.visibility = 1.0;
@@ -693,10 +700,8 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 					continue;
 				}
 				ivec2 source_pix = history_pix;
-				if (risVisibilityMedianEnabled() || risVisibilityGradientEnabled()) {
-					risVisibilityPermuteFullLightHistory(pix, history_pix, s, lobe,
-						history[lobe], source_pix);
-				}
+				risVisibilityPermuteFullLightHistory(pix, history_pix, s, lobe,
+					history[lobe], source_pix);
 				const RisVisibilitySurface hs = all(equal(source_pix, history_pix))
 					? canonical_previous : risVisibilityPreviousSurface(source_pix);
 				risVisibilityCapHistory(history[lobe], r[lobe].reservoir.sample_count);
@@ -706,11 +711,9 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				replace_main[lobe] = risVisibilityLifetimeExpired(history[lobe].age, history[lobe].lifetime);
 			}
 		}
-		if (risVisibilityMedianEnabled() || risVisibilityGradientEnabled()) {
-			for (int lobe = 0; lobe < 2; ++lobe) {
-				if (risVisibilityMeasureWindow(r[lobe], s, pix, lobe)) {
-					replace_main[lobe] = true;
-				}
+		for (int lobe = 0; lobe < 2; ++lobe) {
+			if (risVisibilityMeasureWindow(r[lobe], s, pix, lobe)) {
+				replace_main[lobe] = true;
 			}
 		}
 		for (int lobe = 0; lobe < 2; ++lobe) {
