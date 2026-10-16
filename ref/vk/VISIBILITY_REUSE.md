@@ -33,17 +33,24 @@ Temporal combination uses the existing MIS arithmetic and M cap. If its
 selected light ID/hash changes, discard the previous accumulation and start
 from the current fresh estimator instead of retaining mixed old-source mass.
 
-The selected zapas replay sample is checked for visibility every frame. Reuse
-the initial shadow result, or the other lobe's result, when source and replay
-point match exactly. Otherwise trace one additional ray per zapas reservoir
-(at most four per pixel across diffuse/specular and point/polygon). An occluded
-zapas is cleared, never stored with smoothed visibility. Its random lifetime
+Zapas is now a dedicated weight-only struct: source ID/hash, selected replay
+point, target, mass, M, age and lifetime. There is no visibility average,
+seven-bit window or median in it. Visibility is assumed to be one. It launches
+NO shadow rays, during accumulation or on promotion, for ANY reset reason.
+Instead, existing candidate visibility results observe a matching light ID/hash,
+even when the candidate replay point differs. A blocked matching observation
+clears old zapas accumulation before the temporal update; a fresh candidate may
+seed a new bank in that frame. If there was no matching tested candidate, retain
+the assumption without checking. With candidate visibility enabled, all tested
+candidates can observe zapas; otherwise only the two tested initial winners can.
+The primary reservoir's independent detector probe is not used as an extra
+zapas observation. Its random lifetime
 is 5-30 successful reprojections; primary lifetime is 1-200. Lifetimes are
 chosen once at initialization, include frame counter even with fixed debug
 RNG, and travel with the appropriate reservoir.
 
 On a primary age reset, full-light transition, or many-to-one ownership
-rejection, consume a currently visible zapas that has survived at least one
+rejection, consume an assumed-visible zapas that has survived at least one
 reprojection. If none is ready, use the fresh RIS result. Restart the consumed
 zapas from fresh candidates; a many-to-one rejected receiver also restarts its
 zapas after use to avoid keeping duplicate history as a growing pixel block.
@@ -64,6 +71,11 @@ uses spare bits in its packed light/count word; primary lifetime shares the
 zapas hash word. All integer words fit within 24 exact float32 bits, and no
 integer decode adds 0.5. Images remain allocated in the shared graph with reuse
 disabled, but incompatible legacy history cannot import their contents.
+Visibility/window data had already been absent from the packed GPU images, so
+removing it from the working struct does not reduce that allocation. The replay
+point and target remain necessary to reweight the reservoir at another surface.
+
+The shadow-ray accounting for the current path is in [DIRECT_LIGHTING_RAYS.md](DIRECT_LIGHTING_RAYS.md).
 
 Update both `ref_vk.dll` and `rt.meat`. Primary and zapas age resets are active
 with reuse enabled; full-light transition detection still requires either

@@ -58,6 +58,22 @@ struct RisVisibilityReservoir {
 	uint lifetime;
 };
 
+// Weight accumulation only: no visibility average, bit window or median.
+struct RisZapasReservoir {
+	RisTemporalReservoir reservoir;
+	uint age;
+	uint lifetime;
+};
+
+RisZapasReservoir risZapasEmpty()
+{
+	RisZapasReservoir z;
+	z.reservoir = risInvalidTemporalReservoir();
+	z.age = 0u;
+	z.lifetime = 0u;
+	return z;
+}
+
 RisVisibilityReservoir risVisibilityEmpty()
 {
 	RisVisibilityReservoir r;
@@ -74,6 +90,13 @@ bool risVisibilityHasSample(RisVisibilityReservoir r)
 	return r.reservoir.light_id != RIS_INVALID_LIGHT_ID &&
 		r.reservoir.mixed_weight > 0.0 && r.reservoir.sample_count > 0.0 &&
 		r.reservoir.weight_sum > 0.0;
+}
+
+bool risVisibilityHasSample(RisZapasReservoir z)
+{
+	return z.reservoir.light_id != RIS_INVALID_LIGHT_ID &&
+		z.reservoir.mixed_weight > 0.0 && z.reservoir.sample_count > 0.0 &&
+		z.reservoir.weight_sum > 0.0;
 }
 
 bool risVisibilityTestInitialCandidates()
@@ -97,7 +120,7 @@ float risVisibilityHistoryTag()
 	// ReGIR/uniform proposal comparison should inherit the other path's mass.
 	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
 	const float window_method = risVisibilityGradientEnabled() ? 2.0 : (risVisibilityMedianEnabled() ? 1.0 : 0.0);
-	return 256.0 + 16.0 * float(ubo.ubo.di_visibility_reuse >> 1u) +
+	return 1024.0 + 16.0 * float(ubo.ubo.di_visibility_reuse >> 1u) +
 		(risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
 		(uniform_proposals ? 2.0 : 0.0) + 4.0 * window_method;
 }
@@ -126,15 +149,20 @@ bool risVisibilityUnshadowedWeights(RIS_LIGHT_SAMPLE light, vec3 sample_random,
 	return any(greaterThan(weights, vec2(0.0)));
 }
 
-float risVisibilityTarget(RisVisibilityReservoir r, RisVisibilitySurface s, int lobe)
+float risVisibilityReservoirTarget(RisTemporalReservoir r, RisVisibilitySurface s, int lobe)
 {
 	RIS_LIGHT_SAMPLE light;
 	vec2 weights;
-	if (r.reservoir.light_id == RIS_INVALID_LIGHT_ID || !RIS_LOAD_LIGHT(r.reservoir.light_id, light) ||
-		!risVisibilityUnshadowedWeights(light, r.reservoir.sample_random, s, weights)) {
+	if (r.light_id == RIS_INVALID_LIGHT_ID || !RIS_LOAD_LIGHT(r.light_id, light) ||
+		!risVisibilityUnshadowedWeights(light, r.sample_random, s, weights)) {
 		return 0.0;
 	}
 	return risUnifiedTargetWeight(weights, s.material, lobe);
+}
+
+float risVisibilityTarget(RisVisibilityReservoir r, RisVisibilitySurface s, int lobe)
+{
+	return risVisibilityReservoirTarget(r.reservoir, s, lobe);
 }
 
 bool risVisibilityResolveLight(inout RisTemporalReservoir reservoir)
@@ -271,7 +299,17 @@ void risVisibilityStartLifetime(inout RisVisibilityReservoir r, ivec2 pix, int l
 	r.lifetime = zapas ? 5u + h % 26u : 1u + h % 200u;
 }
 
-vec4 risVisibilityEncodeZapas(RisVisibilityReservoir z, uint main_lifetime)
+RisZapasReservoir risZapasFresh(RisVisibilityReservoir initial, ivec2 pix, int lobe)
+{
+	risVisibilityStartLifetime(initial, pix, lobe, true);
+	RisZapasReservoir z;
+	z.reservoir = initial.reservoir;
+	z.age = 0u;
+	z.lifetime = initial.lifetime;
+	return z;
+}
+
+vec4 risVisibilityEncodeZapas(RisZapasReservoir z, uint main_lifetime)
 {
 	// Keep the primary lifetime even when zapas is empty. All words fit FP32's
 	// exact 24-bit integer range; no reduced precision for replay or weights.
@@ -284,9 +322,9 @@ vec4 risVisibilityEncodeZapas(RisVisibilityReservoir z, uint main_lifetime)
 	return packed;
 }
 
-RisVisibilityReservoir risVisibilityDecodeZapas(vec4 packed, vec4 random_count)
+RisZapasReservoir risVisibilityDecodeZapas(vec4 packed, vec4 random_count)
 {
-	RisVisibilityReservoir z = risVisibilityEmpty();
+	RisZapasReservoir z = risZapasEmpty();
 	const uint header = uint(max(packed.x, 0.0));
 	z.reservoir.light_id = risDecodeLightId(float(header & 2047u));
 	z.reservoir.light_hash = uint(max(packed.y, 0.0)) & 65535u;
@@ -296,11 +334,10 @@ RisVisibilityReservoir risVisibilityDecodeZapas(vec4 packed, vec4 random_count)
 	z.reservoir.sample_count = max(random_count.w, 0.0);
 	z.age = (header >> 11u) & 31u;
 	z.lifetime = (header >> 16u) & 31u;
-	z.visibility = risVisibilityHasSample(z) ? 1.0 : 0.0;
 	return z;
 }
 
-void risVisibilityStoreZapas(ivec2 pix, RisVisibilityReservoir z[2], RisVisibilityReservoir main[2])
+void risVisibilityStoreZapas(ivec2 pix, RisZapasReservoir z[2], RisVisibilityReservoir main[2])
 {
 	imageStore(out_temporal_ris_zapas, pix, risVisibilityEncodeZapas(z[0], main[0].lifetime));
 	imageStore(out_temporal_ris_zapas_random, pix, vec4(z[0].reservoir.sample_random, z[0].reservoir.sample_count));
@@ -308,15 +345,14 @@ void risVisibilityStoreZapas(ivec2 pix, RisVisibilityReservoir z[2], RisVisibili
 	imageStore(out_temporal_ris_zapas_specular_random, pix, vec4(z[1].reservoir.sample_random, z[1].reservoir.sample_count));
 }
 
-bool risVisibilitySameSample(RisVisibilityReservoir a, RisVisibilityReservoir b)
+void risZapasObserveCandidate(inout RisZapasReservoir z, uint light_id, uint light_hash, bool visible)
 {
-	// A blocked fresh winner still has a known (zero) shadow result even
-	// though its mass was cleared; allow that result to be shared as well.
-	return a.reservoir.light_id != RIS_INVALID_LIGHT_ID &&
-		b.reservoir.light_id != RIS_INVALID_LIGHT_ID &&
-		risVisibilitySameSource(a.reservoir.light_id, a.reservoir.light_hash,
-			b.reservoir.light_id, b.reservoir.light_hash) &&
-		all(equal(a.reservoir.sample_random, b.reservoir.sample_random));
+	// An existing candidate test observes the SOURCE, not necessarily the old
+	// replay point. A blocked observation discards its old accumulated weights.
+	if (risZapasCandidateRejects(z.reservoir.light_id, z.reservoir.light_hash,
+		light_id, light_hash, visible)) {
+		z = risZapasEmpty();
+	}
 }
 
 void risVisibilityCapHistory(inout RisVisibilityReservoir history, float initial_count)
@@ -329,21 +365,34 @@ void risVisibilityCapHistory(inout RisVisibilityReservoir history, float initial
 	}
 }
 
-RisVisibilityReservoir risVisibilityUpdateZapas(RisVisibilityReservoir initial,
-	RisVisibilitySurface surface, RisVisibilityReservoir history, RisVisibilitySurface previous,
+RisZapasReservoir risVisibilityUpdateZapas(RisVisibilityReservoir initial,
+	RisVisibilitySurface surface, RisZapasReservoir history, RisVisibilitySurface previous,
 	ivec2 pix, int lobe)
 {
-	RisVisibilityReservoir z = initial;
-	risVisibilityStartLifetime(z, pix, lobe, true);
-	if (risVisibilityHasSample(history) && !risVisibilityLifetimeExpired(history.age, history.lifetime) &&
-		risVisibilityResolveLight(history.reservoir)) {
-		risVisibilityCapHistory(history, initial.reservoir.sample_count);
+	RisZapasReservoir z = risZapasFresh(initial, pix, lobe);
+	if (risVisibilityHasSample(history) && !risVisibilityLifetimeExpired(history.age, history.lifetime)) {
+		const float ma = initial.reservoir.sample_count;
+		const float old_count = history.reservoir.sample_count;
+		const float mb = min(old_count, ubo.ubo.di_visibility_history * max(ma, 1.0));
+		history.reservoir.weight_sum *= mb / old_count;
+		history.reservoir.sample_count = mb;
+		const float paa = initial.reservoir.mixed_weight;
+		const float pba = risVisibilityReservoirTarget(initial.reservoir, previous, lobe);
+		const float pab = risVisibilityReservoirTarget(history.reservoir, surface, lobe);
+		const float pbb = history.reservoir.mixed_weight;
+		const float wa = risVisibilityResamplingWeight(ma, paa, mb, pba, initial.reservoir.weight_sum, paa);
+		const float wb = risVisibilityResamplingWeight(mb, pbb, ma, pab, history.reservoir.weight_sum, pab);
+		const float total = wa + wb;
 		const float random_select = risTemporalRandom01(pix, RIS_PRIMARY_MERGE_RANDOM_SALT ^ (0x7a617061u + uint(lobe)));
-		RisVisibilityReservoir merged = risVisibilityResample(initial, surface, history, previous, lobe, random_select);
-		if (risVisibilityHasSample(merged) && risVisibilitySameSource(
-			merged.reservoir.light_id, merged.reservoir.light_hash,
-			history.reservoir.light_id, history.reservoir.light_hash)) {
-			z = merged;
+		const bool select_history = wa == 0.0 || random_select * total < wb;
+		const RisTemporalReservoir selected = select_history ? history.reservoir : initial.reservoir;
+		if (total > 0.0 && !isnan(total) && !isinf(total) && risVisibilitySameSource(
+			selected.light_id, selected.light_hash, history.reservoir.light_id, history.reservoir.light_hash)) {
+			z = history;
+			z.reservoir = selected;
+			z.reservoir.sample_count = ma + mb;
+			z.reservoir.mixed_weight = select_history ? pab : paa;
+			z.reservoir.weight_sum = total * (ma + mb);
 			z.age = history.age + 1u;
 		}
 		// Another winning source starts from the fresh estimator, not from the
@@ -506,10 +555,35 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		return;
 	}
 	RisVisibilitySurface s = RisVisibilitySurface(P, geometry_N, N, V, material);
-	RisVisibilityReservoir zapas[2];
-	zapas[0] = risVisibilityEmpty();
-	zapas[1] = risVisibilityEmpty();
+	RisZapasReservoir zapas[2];
+	zapas[0] = risZapasEmpty();
+	zapas[1] = risZapasEmpty();
 	if (ris_active) {
+		ivec2 history_pix;
+		const bool reprojected = temporalReprojectionDecodePixel(
+			imageLoad(temporal_reprojection_map, pix).rg, ubo.ubo.res, history_pix);
+		bool compatible = false;
+		if (reprojected) {
+			compatible = imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, history_pix).w == risVisibilityHistoryTag();
+		}
+		const bool source_ready = compatible && imageLoad(temporal_reprojection_ready, pix).r > 0.5;
+		bool replace_main[2] = bool[2](compatible && !source_ready, compatible && !source_ready);
+		RisZapasReservoir old_zapas[2];
+		old_zapas[0] = risZapasEmpty();
+		old_zapas[1] = risZapasEmpty();
+		RisVisibilitySurface canonical_previous = s;
+		if (compatible) {
+			canonical_previous = risVisibilityPreviousSurface(history_pix);
+			old_zapas[0] = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas, history_pix),
+				imageLoad(prev_temporal_ris_zapas_random, history_pix));
+			old_zapas[1] = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas_specular, history_pix),
+				imageLoad(prev_temporal_ris_zapas_specular_random, history_pix));
+		}
+		for (int lobe = 0; lobe < 2; ++lobe) {
+			if (risVisibilityHasSample(old_zapas[lobe]) && !risVisibilityResolveLight(old_zapas[lobe].reservoir)) {
+				old_zapas[lobe] = risZapasEmpty();
+			}
+		}
 		uint rng = regirHash(ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^
 			uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
 		uint cell = 0u;
@@ -542,6 +616,10 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			const bool candidate_visible = !test_candidate_visibility ||
 				(loaded && any(greaterThan(candidate_weights, vec2(0.0))) &&
 				 RIS_CONCRETE_SAMPLE_VISIBLE(light, sample_random, s.P, s.geometry_N));
+			if (test_candidate_visibility && loaded && any(greaterThan(candidate_weights, vec2(0.0)))) {
+				risZapasObserveCandidate(old_zapas[0], proposal.light_id, RIS_LIGHT_HASH(light), candidate_visible);
+				risZapasObserveCandidate(old_zapas[1], proposal.light_id, RIS_LIGHT_HASH(light), candidate_visible);
+			}
 			for (int lobe = 0; lobe < 2; ++lobe) {
 				r[lobe].reservoir.sample_count += 1.0;
 				const float target = risUnifiedTargetWeight(candidate_weights, material, lobe);
@@ -566,6 +644,12 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			r[lobe].visibility = test_candidate_visibility
 				? (risVisibilityHasSample(r[lobe]) ? 1.0 : 0.0)
 				: risVisibilityTrace(r[lobe], s);
+			if (!test_candidate_visibility && r[lobe].reservoir.light_id != RIS_INVALID_LIGHT_ID) {
+				risZapasObserveCandidate(old_zapas[0], r[lobe].reservoir.light_id,
+					r[lobe].reservoir.light_hash, r[lobe].visibility > 0.0);
+				risZapasObserveCandidate(old_zapas[1], r[lobe].reservoir.light_id,
+					r[lobe].reservoir.light_hash, r[lobe].visibility > 0.0);
+			}
 			if (r[lobe].visibility == 0.0) {
 				r[lobe].reservoir.weight_sum = 0.0;
 			}
@@ -575,49 +659,8 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		RisVisibilityReservoir initial[2];
 		initial[0] = r[0];
 		initial[1] = r[1];
-		ivec2 history_pix;
-		const bool reprojected = temporalReprojectionDecodePixel(
-			imageLoad(temporal_reprojection_map, pix).rg, ubo.ubo.res, history_pix);
-		bool compatible = false;
-		if (reprojected) {
-			compatible = imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, history_pix).w == risVisibilityHistoryTag();
-		}
-		const bool source_ready = compatible && imageLoad(temporal_reprojection_ready, pix).r > 0.5;
-		bool replace_main[2] = bool[2](compatible && !source_ready, compatible && !source_ready);
-		RisVisibilityReservoir old_zapas[2];
-		old_zapas[0] = risVisibilityEmpty();
-		old_zapas[1] = risVisibilityEmpty();
-		RisVisibilitySurface canonical_previous = s;
-		if (compatible) {
-			canonical_previous = risVisibilityPreviousSurface(history_pix);
-			old_zapas[0] = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas, history_pix),
-				imageLoad(prev_temporal_ris_zapas_random, history_pix));
-			old_zapas[1] = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas_specular, history_pix),
-				imageLoad(prev_temporal_ris_zapas_specular_random, history_pix));
-		}
-		RisVisibilityReservoir checked_zapas = risVisibilityEmpty();
-		float checked_visibility = 0.0;
 		for (int lobe = 0; lobe < 2; ++lobe) {
 			zapas[lobe] = risVisibilityUpdateZapas(initial[lobe], s, old_zapas[lobe], canonical_previous, pix, lobe);
-			if (risVisibilityHasSample(zapas[lobe])) {
-				float visible;
-				if (risVisibilitySameSample(zapas[lobe], initial[0])) {
-					visible = initial[0].visibility;
-				} else if (risVisibilitySameSample(zapas[lobe], initial[1])) {
-					visible = initial[1].visibility;
-				} else if (risVisibilitySameSample(zapas[lobe], checked_zapas)) {
-					visible = checked_visibility;
-				} else {
-					visible = risVisibilityTrace(zapas[lobe], s);
-				}
-				checked_zapas = zapas[lobe];
-				checked_visibility = visible;
-				if (visible == 0.0) {
-					zapas[lobe] = risVisibilityEmpty();
-				} else {
-					zapas[lobe].visibility = 1.0;
-				}
-			}
 		}
 		if (source_ready) {
 			RisVisibilityReservoir history[2];
@@ -655,22 +698,25 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			if (replace_main[lobe]) {
 				const bool use_zapas = risVisibilityMayUseZapas(reprojected, compatible,
 					replace_main[lobe], risVisibilityHasSample(zapas[lobe]), zapas[lobe].age);
-				RisVisibilityReservoir replacement = use_zapas ? zapas[lobe] : initial[lobe];
+				RisVisibilityReservoir replacement = initial[lobe];
+				if (use_zapas) {
+					replacement = risVisibilityEmpty();
+					replacement.reservoir = zapas[lobe].reservoir;
+					replacement.visibility = 1.0;
+				}
 				replacement.window = risVisibilityWindowSelect(replacement.reservoir.light_id,
 					replacement.reservoir.light_hash, r[lobe].reservoir.light_id,
 					r[lobe].reservoir.light_hash, r[lobe].window, replacement.visibility >= 0.5 ? 1u : 0u);
 				r[lobe] = replacement;
 				risVisibilityStartLifetime(r[lobe], pix, lobe, false);
 				if (use_zapas) {
-					zapas[lobe] = initial[lobe];
-					risVisibilityStartLifetime(zapas[lobe], pix, lobe, true);
+					zapas[lobe] = risZapasFresh(initial[lobe], pix, lobe);
 				}
 			}
 			if (!source_ready) {
 				// A relaxed many-to-one loser may consume a valid zapas once, but
 				// cannot keep duplicating its history into a growing pixel block.
-				zapas[lobe] = initial[lobe];
-				risVisibilityStartLifetime(zapas[lobe], pix, lobe, true);
+				zapas[lobe] = risZapasFresh(initial[lobe], pix, lobe);
 			}
 			if (r[lobe].lifetime == 0u) {
 				risVisibilityStartLifetime(r[lobe], pix, lobe, false);

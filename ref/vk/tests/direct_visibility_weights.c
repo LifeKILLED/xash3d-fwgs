@@ -39,6 +39,17 @@ static int near(double a, double b)
 
 int main(void)
 {
+	// Only an already-tested, occluded candidate from the same source clears
+	// zapas. A different replay point on that light is still an observation.
+	for (uint id = 10; id <= 12; ++id) {
+		for (uint hash = 20; hash <= 22; ++hash) {
+			for (uint visible = 0; visible <= 1; ++visible) {
+				assert(risZapasCandidateRejects(11, 21, id, hash, visible != 0) ==
+					(id == 11 && hash == 21 && visible == 0));
+			}
+		}
+	}
+
 	// Only a soft reset with validated reprojection may consume a mature zapas.
 	for (uint flags = 0; flags < 16; ++flags) {
 		for (uint age = 0; age <= 30; ++age) {

@@ -131,6 +131,12 @@ bool risVisibilitySameSource(uint a_id, uint a_hash, uint b_id, uint b_hash)
 	return a_id == b_id && a_hash == b_hash;
 }
 
+bool risZapasCandidateRejects(uint zapas_id, uint zapas_hash,
+	uint candidate_id, uint candidate_hash, bool visible)
+{
+	return !visible && risVisibilitySameSource(zapas_id, zapas_hash, candidate_id, candidate_hash);
+}
+
 bool risVisibilityMayUseZapas(bool reprojected, bool compatible, bool soft_reset,
 	bool has_sample, uint age)
 {
