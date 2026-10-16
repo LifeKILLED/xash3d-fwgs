@@ -1,9 +1,17 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 // Test the same scalar functions that are compiled into the GLSL shaders.
 #include "../shaders/direct_visibility_weights.glsl"
+
+typedef uint32_t uint;
+typedef struct RisVisibilityWindow RisVisibilityWindow;
+#define float(value) ((float)(value))
+#include "../shaders/direct_visibility_window.glsl"
+#undef float
 
 static int near(double a, double b)
 {
@@ -12,6 +20,112 @@ static int near(double a, double b)
 
 int main(void)
 {
+	// One restart on shadow-to-full-light, none during all-lit warmup or
+	// continuing full light. The last occluded bit must leave the window.
+	RisVisibilityWindow lit_window = {0, 0, 1};
+	for (uint frame = 0; frame < 40; ++frame) {
+		RisVisibilityWindow next = risVisibilityWindowPush(lit_window, 1);
+		assert(!risVisibilityWindowEnteredFullLight(lit_window, next));
+		lit_window = next;
+	}
+	lit_window = risVisibilityWindowPush(lit_window, 0);
+	for (uint frame = 0; frame < 20; ++frame) {
+		RisVisibilityWindow next = risVisibilityWindowPush(lit_window, 1);
+		assert(risVisibilityWindowEnteredFullLight(lit_window, next) == (frame == 6));
+		lit_window = next;
+	}
+	for (uint bits = 0; bits < 128; ++bits) {
+		RisVisibilityWindow previous = {bits, 7, 0};
+		RisVisibilityWindow next = risVisibilityWindowPush(previous, 1);
+		assert(risVisibilityWindowEnteredFullLight(previous, next) == (bits == 63));
+	}
+
+	// No median-based reset before seven observations, even for six zero rays.
+	RisVisibilityWindow window = {0, 0, 1};
+	for (uint frame = 0; frame < 6; ++frame) {
+		window = risVisibilityWindowPush(window, 0);
+		assert(!risVisibilityWindowShouldReset(window));
+	}
+	window = risVisibilityWindowPush(window, 0);
+	assert(window.count == 7 && risVisibilityWindowShouldReset(window));
+	assert(risVisibilityWindowOnes(window.bits) == 0);
+
+	// In a full rolling window, a 4/7 majority switch is detected on the fourth
+	// occluded observation. One occluded ray must not discard a lit reservoir.
+	window = (RisVisibilityWindow){127, 7, 1};
+	for (uint frame = 0; frame < 3; ++frame) {
+		window = risVisibilityWindowPush(window, 0);
+		assert(!risVisibilityWindowShouldReset(window));
+	}
+	window = risVisibilityWindowPush(window, 0);
+	assert(risVisibilityWindowShouldReset(window));
+	assert(risVisibilityWindowOnes(window.bits) == 3);
+	for (uint bits = 0; bits < 128; ++bits) {
+		for (uint median = 0; median < 2; ++median) {
+			window = (RisVisibilityWindow){bits, 7, median};
+			uint ones = 0;
+			for (uint b = bits; b; b >>= 1) ones += b & 1u;
+			assert(risVisibilityWindowOnes(bits) == ones);
+			assert(risVisibilityWindowShouldReset(window) ==
+				((ones >= 4 ? 1u : 0u) != median || bits == 0 || bits == 127));
+		}
+	}
+
+	// Gradient alternative: both methods observe exactly the same seven bits.
+	window = (RisVisibilityWindow){15, 7, 0}; // oldest 000, newest 1111
+	assert(risVisibilityWindowGradient(window) > 0);
+	assert(near(risVisibilityWindowGradientUpdate(window, 0.2f), 22.0 / 28.0));
+	assert(near(risVisibilityWindowGradientUpdate(window, 0.9f), 0.9));
+	window.bits = 120; // oldest 1111, newest 000
+	assert(risVisibilityWindowGradient(window) < 0);
+	assert(near(risVisibilityWindowGradientUpdate(window, 0.9f), 10.0 / 28.0));
+	assert(near(risVisibilityWindowGradientUpdate(window, 0.2f), 0.2));
+	window.count = 6;
+	assert(risVisibilityWindowGradient(window) == 0);
+	assert(near(risVisibilityWindowGradientUpdate(window, 0.9f), 0.9));
+	window = (RisVisibilityWindow){0, 7, 1};
+	assert(risVisibilityWindowGradientUpdate(window, 1) == 0);
+	window.bits = 127;
+	assert(risVisibilityWindowGradientUpdate(window, 0) == 1);
+	for (uint bits = 0; bits < 128; ++bits) {
+		uint reversed = 0;
+		for (uint bit = 0; bit < 7; ++bit) reversed |= ((bits >> bit) & 1u) << (6u - bit);
+		window = (RisVisibilityWindow){bits, 7, 0};
+		RisVisibilityWindow reverse_window = {reversed, 7, 0};
+		assert(near(risVisibilityWindowGradient(window), -risVisibilityWindowGradient(reverse_window)));
+		assert(near(risVisibilityWindowRecentMean(bits), risVisibilityWindowOlderMean(reversed)));
+		const float result = risVisibilityWindowGradientUpdate(window, 0.5f);
+		assert(result >= 0 && result <= 1);
+		assert(near(result, 0.5) || risVisibilityWindowGradient(window) != 0 || bits == 0 || bits == 127);
+	}
+
+	// New replay points on one light keep the window; a different ID or hash
+	// starts a new one. A source cannot inherit another source's measurements.
+	window = (RisVisibilityWindow){85, 7, 1};
+	RisVisibilityWindow selected = risVisibilityWindowSelect(11, 23, 11, 23, window, 0);
+	assert(selected.bits == 85 && selected.count == 7 && selected.median == 1);
+	selected = risVisibilityWindowSelect(12, 23, 11, 23, window, 0);
+	assert(selected.bits == 0 && selected.count == 0 && selected.median == 0);
+	selected = risVisibilityWindowSelect(11, 24, 11, 23, window, 1);
+	assert(selected.bits == 0 && selected.count == 0 && selected.median == 1);
+
+	// Exhaustive FP32 round trip of all hash/window words, including odd values
+	// above 2^23 that the previous '+ 0.5' packing bug would corrupt.
+	for (uint packed = 0; packed < 16777216u; ++packed) {
+		volatile float stored = (float)packed;
+		const uint restored = (uint)stored;
+		window = risVisibilityUnpackWindow(7u << 11u, restored);
+		assert(risVisibilityPackHashWindow(restored & 65535u, window) == packed);
+	}
+	for (uint light = 0; light < 2048; ++light) {
+		for (uint count = 0; count < 8; ++count) {
+			volatile float stored = (float)risVisibilityPackLightCount(light, count);
+			const uint restored = (uint)stored;
+			assert((restored & 2047u) == light);
+			assert(risVisibilityUnpackWindow(restored, 0).count == count);
+		}
+	}
+
 	// Regression: an always-occluded million-times-brighter light must not
 	// inflate a visible winner's mass in full-visibility initial RIS.
 	const float targets[] = {1, 1000000};
@@ -113,6 +227,6 @@ int main(void)
 		const float actual = risVisibilityShadeLegacyClamp(contribution, target, mass, 3, 0.75f, 1e-6f, 5);
 		assert(near(actual, expected));
 	}
-	puts("PASS: initial visibility, MIS/integral/variance, stable shading and legacy W clamp");
+	puts("PASS: seven-frame visibility/source tracking and exhaustive packing; initial RIS, MIS, stable shading and W clamp");
 	return 0;
 }

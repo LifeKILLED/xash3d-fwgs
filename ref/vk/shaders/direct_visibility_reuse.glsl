@@ -6,6 +6,7 @@
 // area/direction proposal correction; ReGIR supplies the discrete proposal PDF.
 
 #include "direct_visibility_weights.glsl"
+#include "direct_visibility_window.glsl"
 
 #if !RIS_SPLIT_LOBE_RESERVOIRS || !RIS_DIRECT_DIFFUSE_REGIR_REVERT || !RIS_REGIR_ONLY
 #error Direct visibility reuse requires the current split direct ReGIR layout
@@ -36,6 +37,7 @@ struct RisVisibilitySurface {
 struct RisVisibilityReservoir {
 	RisTemporalReservoir reservoir;
 	float visibility;
+	RisVisibilityWindow window;
 };
 
 RisVisibilityReservoir risVisibilityEmpty()
@@ -43,6 +45,7 @@ RisVisibilityReservoir risVisibilityEmpty()
 	RisVisibilityReservoir r;
 	r.reservoir = risInvalidTemporalReservoir();
 	r.visibility = 0.0;
+	r.window = RisVisibilityWindow(0u, 0u, 0u);
 	return r;
 }
 
@@ -58,13 +61,24 @@ bool risVisibilityTestInitialCandidates()
 	return (ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_CANDIDATES) != 0u;
 }
 
+bool risVisibilityMedianEnabled()
+{
+	return (ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_MEDIAN) != 0u;
+}
+
+bool risVisibilityGradientEnabled()
+{
+	return (ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_GRADIENT) != 0u;
+}
+
 float risVisibilityHistoryTag()
 {
 	// Isolate both diagnostic switches: neither candidate visibility nor the
 	// ReGIR/uniform proposal comparison should inherit the other path's mass.
 	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
-	return 32.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
-		(uniform_proposals ? 2.0 : 0.0);
+	const float window_method = risVisibilityGradientEnabled() ? 2.0 : (risVisibilityMedianEnabled() ? 1.0 : 0.0);
+	return 80.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
+		(uniform_proposals ? 2.0 : 0.0) + 4.0 * window_method;
 }
 
 bool risVisibilityUnshadowedWeights(RIS_LIGHT_SAMPLE light, vec3 sample_random,
@@ -127,8 +141,13 @@ RisVisibilityReservoir risVisibilityDecode(vec4 encoded, vec4 random_count, floa
 {
 	RisVisibilityReservoir r;
 	r.reservoir = risInvalidTemporalReservoir();
-	r.reservoir.light_id = risDecodeLightId(encoded.x);
-	r.reservoir.light_hash = uint(clamp(floor(encoded.y + 0.5), 0.0, float(RIS_TEMPORAL_HASH_MASK)));
+	// Packed integers are exact in RGBA32F. Do not add 0.5: above 2^23
+	// that would round odd integers up and corrupt the light hash.
+	const uint light_count = uint(max(encoded.x, 0.0));
+	const uint hash_window = uint(max(encoded.y, 0.0));
+	r.reservoir.light_id = risDecodeLightId(float(light_count & 2047u));
+	r.reservoir.light_hash = hash_window & RIS_TEMPORAL_HASH_MASK;
+	r.window = risVisibilityUnpackWindow(light_count, hash_window);
 	r.reservoir.mixed_weight = max(encoded.z, 0.0);
 	r.reservoir.weight_sum = max(encoded.w, 0.0);
 	r.reservoir.sample_random = clamp(random_count.xyz, vec3(0.0), vec3(1.0));
@@ -143,8 +162,9 @@ vec4 risVisibilityEncode(RisVisibilityReservoir r)
 	if (!risVisibilityHasSample(r)) {
 		return vec4(0.0);
 	}
-	return vec4(risEncodeLightId(r.reservoir.light_id),
-		float(risFoldTemporalHash(r.reservoir.light_hash)), r.reservoir.mixed_weight, r.reservoir.weight_sum);
+	return vec4(float(risVisibilityPackLightCount(uint(risEncodeLightId(r.reservoir.light_id)), r.window.count)),
+		float(risVisibilityPackHashWindow(r.reservoir.light_hash, r.window)),
+		r.reservoir.mixed_weight, r.reservoir.weight_sum);
 }
 
 void risVisibilityStore(ivec2 pix, RisVisibilityReservoir r[2])
@@ -201,7 +221,47 @@ RisVisibilityReservoir risVisibilityResample(
 	// Store M * p_hat(X) * W_X in the engine's existing reservoir layout.
 	result.reservoir.weight_sum = total * result.reservoir.sample_count;
 	result.visibility = risVisibilityAverage(a.visibility, wa, b.visibility, wb);
+	// A new replay point on the same source must not erase its frame window.
+	// A different selected source starts its own detector, independently of WIS.
+	result.window = risVisibilityWindowSelect(result.reservoir.light_id, result.reservoir.light_hash,
+		b.reservoir.light_id, b.reservoir.light_hash, b.window, result.visibility >= 0.5 ? 1u : 0u);
 	return result;
+}
+
+bool risVisibilityMeasureWindow(inout RisVisibilityReservoir r,
+	RisVisibilitySurface surface, ivec2 pix, int lobe)
+{
+	if (!risVisibilityHasSample(r)) {
+		return false;
+	}
+	RIS_LIGHT_SAMPLE light;
+	if (!RIS_LOAD_LIGHT(r.reservoir.light_id, light)) {
+		r = risVisibilityEmpty();
+		return false;
+	}
+	// Track the source, not a frozen replay point. Each frame gets a fresh point
+	// even with rt_debug_fixed_random_seed, without modifying the lighting RNG.
+	uint probe_rng = xxhash32(uvec4(uint(pix.x), uint(pix.y), ubo.ubo.frame_counter,
+		r.reservoir.light_id ^ RIS_PRIMARY_MERGE_RANDOM_SALT ^ (uint(lobe) * 0x9e3779b9u)));
+	const vec3 probe_random = vec3(regirRandom(probe_rng), regirRandom(probe_rng), regirRandom(probe_rng));
+	const uint visible = RIS_CONCRETE_SAMPLE_VISIBLE(light, probe_random, surface.P, surface.geometry_N) ? 1u : 0u;
+	if (r.window.count == 0u) {
+		r.window.median = r.visibility >= 0.5 ? 1u : 0u;
+	}
+	const RisVisibilityWindow previous_window = r.window;
+	r.window = risVisibilityWindowPush(r.window, visible);
+	const bool entered_full_light = risVisibilityWindowEnteredFullLight(previous_window, r.window);
+	if (risVisibilityGradientEnabled()) {
+		r.visibility = risVisibilityWindowGradientUpdate(r.window, r.visibility);
+	} else if (risVisibilityWindowShouldReset(r.window)) {
+		r.window.median = risVisibilityWindowOnes(r.window.bits) >= 4u ? 1u : 0u;
+		r.visibility = float(r.window.median);
+	}
+	if (r.window.count == 7u && r.visibility == 0.0) {
+		// Explicitly permitted full reset after the seven-frame decision.
+		r = risVisibilityEmpty();
+	}
+	return entered_full_light;
 }
 
 vec3 risVisibilityView(ivec2 pix, mat4 inv_proj, mat4 inv_view)
@@ -297,6 +357,11 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				r[lobe].reservoir.weight_sum = 0.0;
 			}
 		}
+		// Keep the actual fresh estimator, including visibility rejection and M.
+		// A detector-triggered restart must not synthesize W from visibility.
+		RisVisibilityReservoir initial[2];
+		initial[0] = r[0];
+		initial[1] = r[1];
 		ivec2 history_pix;
 		if (imageLoad(temporal_reprojection_ready, pix).r > 0.5 &&
 			temporalReprojectionDecodePixel(imageLoad(temporal_reprojection_map, pix).rg, ubo.ubo.res, history_pix)) {
@@ -319,6 +384,20 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				history[lobe].reservoir.weight_sum *= capped / old_count;
 				history[lobe].reservoir.sample_count = capped;
 				r[lobe] = risVisibilityResample(r[lobe], s, history[lobe], hs, lobe, regirRandom(rng));
+			}
+		}
+		if (risVisibilityMedianEnabled() || risVisibilityGradientEnabled()) {
+			for (int lobe = 0; lobe < 2; ++lobe) {
+				if (risVisibilityMeasureWindow(r[lobe], s, pix, lobe)) {
+					// Confirmed shadow-to-light transition: discard old mass and M.
+					// Keep the full window only if the fresh winner is the same source;
+					// another source must not inherit these visibility measurements.
+					initial[lobe].window = risVisibilityWindowSelect(
+						initial[lobe].reservoir.light_id, initial[lobe].reservoir.light_hash,
+						r[lobe].reservoir.light_id, r[lobe].reservoir.light_hash,
+						r[lobe].window, initial[lobe].visibility >= 0.5 ? 1u : 0u);
+					r[lobe] = initial[lobe];
+				}
 			}
 		}
 	}

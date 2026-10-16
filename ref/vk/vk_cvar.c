@@ -54,6 +54,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_direct_visibility_reuse = gEngine.Cvar_Get("rt_direct_visibility_reuse", "1", FCVAR_GLCONFIG, "Direct visibility reuse: 0 legacy RIS, 1 temporal visibility reuse (Tokuyoshi 2024)");
 		rt_direct_visibility_candidates = gEngine.Cvar_Get("rt_direct_visibility_candidates", "0", FCVAR_GLCONFIG, "Test visibility of every fresh direct RIS candidate before accumulating weights; applies only to visibility reuse");
 		rt_direct_visibility_weight_clamp = gEngine.Cvar_Get("rt_direct_visibility_weight_clamp", "0", FCVAR_GLCONFIG, "Apply the legacy final reservoir W clamp to direct visibility reuse shading only");
+		rt_direct_visibility_median = gEngine.Cvar_Get("rt_direct_visibility_median", "0", FCVAR_GLCONFIG, "Track seven visibility observations per selected direct light; reset visibility on median changes and clear zero-visibility reservoirs");
+		rt_direct_visibility_gradient = gEngine.Cvar_Get("rt_direct_visibility_gradient", "0", FCVAR_GLCONFIG, "Seven-frame visibility trend from mirrored linear weights; takes priority over the median detector");
 		rt_di_visibility_history = gEngine.Cvar_Get("rt_di_visibility_history", "20", FCVAR_GLCONFIG, "Visibility reuse temporal confidence limit, in initial RIS candidate counts");
 		rt_denoiser_console_setup_enable = gEngine.Cvar_Get("rt_denoiser_console_setup_enable", "0", FCVAR_GLCONFIG, "Allow to setup denoiser in console. ALERT: if enabled, settings from new versions of application will not be applied without a manual reset!");
 	} else {

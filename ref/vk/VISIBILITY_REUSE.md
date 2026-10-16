@@ -22,6 +22,91 @@ https://research.nvidia.com/sites/default/files/pubs/2020-07_Spatiotemporal-rese
 Changing the switch invalidates direct-light reservoir history through a format tag.
 The aSVGF history is controlled separately, as before.
 
+`rt_direct_visibility_median` defaults to `0`. Setting it to `1` enables the
+user-proposed seven-frame, per-source visibility detector on top of reuse:
+
+- After temporal selection, trace one independent fresh point on the selected
+  light per frame and per lobe. The probe RNG does not change reservoir selection
+  or replay random numbers; it advances even with a fixed debug RNG seed.
+- Keep the last seven binary observations, a valid count (0-7), and the previous
+  median separately for diffuse/specular reservoirs and point/polygon lights.
+  Source identity is the resolved light ID plus the existing light hash.
+  Selecting another replay point on that same light preserves the window;
+  selecting another light or losing reprojection starts it again.
+- Before seven valid observations, the detector never resets visibility.
+  In a full rolling window, the median is 1 for at least four visible rays.
+  A median change resets accumulated visibility to that binary median.
+  All-zero or all-one windows also set visibility to their corresponding value.
+- Positive median changes retain the reservoir ID, replay point, mass
+  and M, except for the full-light transition described below. A zero visibility decision clears the whole reservoir, as explicitly
+  requested. A single zero shadow ray cannot cause a detector reset on its own.
+- This does not reset aSVGF, change
+  target normals, add permutations, or change the existing optional W clamp.
+
+Seven frames take about 117 ms at 60 FPS, but this is the measurement window,
+not a guaranteed bound on image lag. An already-full window can change majority
+after four contrary observations. A static penumbra can also change majority.
+This detector is the user's experiment, not an algorithm attributed to Tokuyoshi.
+The comparison mode remains available with `rt_direct_visibility_median 0`.
+Changing this switch invalidates reservoir history through its format tag.
+
+`rt_direct_visibility_gradient` defaults to `0` and selects a second experiment
+on the same per-source seven-frame window. It has priority if both gradient
+and median switches are enabled. No additional probe rays or storage are needed
+beyond the median detector's window. Both methods wait for seven valid frames.
+
+With bit 0 newest, the recent-weighted sum uses weights `7,6,5,4,3,2,1`, and
+the older-weighted sum uses `1,2,3,4,5,6,7`. Divide both by 28; their difference
+is the trend. For a positive trend, raise accumulated visibility to the recent
+estimate only if it is below that estimate. For a negative trend, lower it to
+the recent estimate only if it is above. Zero trend leaves mixed visibility
+unchanged. All-zero/all-one windows explicitly set visibility to 0/1; zero
+clears the reservoir as in the median experiment. The full-light transition
+below restarts reservoir weights; otherwise W, M and selection
+remain unchanged. This is the user's directional correction experiment, with
+no tuned gradient threshold; static penumbra noise can also trigger correction.
+
+Both detectors now restart the reservoir on a confirmed transition to full
+light: a full seven-bit window containing an occluded observation becomes
+`1111111`. Replace the temporally merged result with this frame's initial RIS
+reservoir, including its selected source, replay point, target, mass, M and
+tested visibility. Do not manufacture a weight from the detector's visibility.
+Preserve the full detector window only if that fresh winner is the same source;
+otherwise start its window anew. Empty or occluded fresh reservoirs remain so.
+Initial all-lit warmup and continuing `1111111` do not trigger restarts. This
+is an explicitly requested experiment for stale shadow weights, not part of
+Tokuyoshi's algorithm, and may briefly increase noise when it discards history.
+It adds no probe rays, image memory or console switches. The W clamp is unchanged.
+
+To compare methods while keeping reuse and the tested W clamp enabled:
+
+```text
+rt_direct_visibility_reuse 1
+rt_direct_visibility_weight_clamp 1
+
+// Median
+rt_direct_visibility_gradient 0
+rt_direct_visibility_median 1
+
+// Gradient
+rt_direct_visibility_median 0
+rt_direct_visibility_gradient 1
+
+// Previous baseline (neither detector)
+rt_direct_visibility_gradient 0
+rt_direct_visibility_median 0
+```
+
+Changing the active method invalidates reservoir history. Keep the other
+sampling and denoising settings unchanged for the comparison.
+
+No images or bindings are added. The existing RGBA32F reservoir's x channel
+packs an 11-bit encoded light ID and a 3-bit observation count. Its y channel
+packs the 16-bit light hash, 7 visibility bits and the previous median bit.
+Both are numerical integers exactly representable in float32, including the
+largest 24-bit y value. Decoding uses a direct uint cast, never `+ 0.5`.
+The format tag is versioned so the legacy RIS path rejects packed histories.
+
 `rt_direct_visibility_weight_clamp` defaults to `0`. When enabled, the reuse
 path applies the existing legacy shading formula
 `min(mass / max(M * target, RIS_WEIGHT_EPSILON), RIS_SHADE_RESERVOIR_WEIGHT_MAX)`
