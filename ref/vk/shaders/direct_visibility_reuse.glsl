@@ -77,25 +77,32 @@ float risVisibilityHistoryTag()
 	// ReGIR/uniform proposal comparison should inherit the other path's mass.
 	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
 	const float window_method = risVisibilityGradientEnabled() ? 2.0 : (risVisibilityMedianEnabled() ? 1.0 : 0.0);
-	return 80.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
+	return 96.0 + (risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
 		(uniform_proposals ? 2.0 : 0.0) + 4.0 * window_method;
 }
 
 bool risVisibilityUnshadowedWeights(RIS_LIGHT_SAMPLE light, vec3 sample_random,
 	RisVisibilitySurface s, out vec2 weights)
 {
-	vec3 diffuse;
-	vec3 specular;
-	// Paper Sec. 3: use luminance of the same f(X) that is shaded at the end.
-	// A geometry-normal proxy here can be arbitrarily smaller than shading-normal
-	// f(X), defeating the f/p_hat cancellation and amplifying rare selections.
-	if (!risEvaluateConcreteSample(light, sample_random, s.P, s.shading_N,
-		s.V, s.material, false, diffuse, specular)) {
-		weights = vec2(0.0);
-		return false;
-	}
-	weights = risContributionLobeWeights(diffuse, specular);
-	return true;
+	// User-requested direct diffuse proxy: geometry normal for selection and
+	// all temporal cross-targets; specular keeps its shading-normal target.
+	// Final shading still evaluates both lobes with the shading normal.
+	vec3 geometry_diffuse;
+	vec3 unused_geometry_specular;
+	const bool geometry_valid = risEvaluateConcreteSample(light, sample_random,
+		s.P, s.geometry_N, s.V, s.material, false,
+		geometry_diffuse, unused_geometry_specular);
+	vec3 unused_shading_diffuse;
+	vec3 shading_specular;
+	const bool shading_valid = risEvaluateConcreteSample(light, sample_random,
+		s.P, s.shading_N, s.V, s.material, false,
+		unused_shading_diffuse, shading_specular);
+	const vec2 geometry_weights = geometry_valid
+		? risContributionLobeWeights(geometry_diffuse, vec3(0.0)) : vec2(0.0);
+	const vec2 shading_weights = shading_valid
+		? risContributionLobeWeights(vec3(0.0), shading_specular) : vec2(0.0);
+	weights = vec2(geometry_weights.x, shading_weights.y);
+	return any(greaterThan(weights, vec2(0.0)));
 }
 
 float risVisibilityTarget(RisVisibilityReservoir r, RisVisibilitySurface s, int lobe)

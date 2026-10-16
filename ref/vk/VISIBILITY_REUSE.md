@@ -180,11 +180,14 @@ is identity with unit Jacobian. ReGIR provides the discrete proposal correction.
 When ReGIR is explicitly disabled, visibility reuse uses uniform global light proposals.
 Always-sampled environment lights and flashlights keep their existing path.
 
-Visibility reuse uses the luminance of the exact unshadowed shaded contribution as the
-target for each lobe, including its shading normal. The legacy path keeps its previous
-geometry/shading-normal split. A geometry-normal target can approach zero while
-the normal-mapped shading contribution stays large, amplifying rare selections;
-using the same contribution in the target follows section 3 of the paper.
+At the user's request, visibility reuse now uses a geometry-normal diffuse
+target for initial candidate weights and every temporal cross-target, including
+evaluation on the previous surface. Specular targets retain the shading normal.
+Final shading retains the shading normal for both lobes. This matches the
+legacy path's normal split and is an experiment departing from the paper's
+same-integrand target. A geometry-normal target can approach zero while the
+normal-mapped shaded contribution stays large; the existing optional W clamp
+is unchanged. The format tag rejects histories made with the previous target.
 This is not a claim of unbiased RGB lighting. The paper discusses color
 leak when the scalar target is not proportional to each color-channel integrand,
 as well as lag under changing visibility. Initial visibility rejection retains
