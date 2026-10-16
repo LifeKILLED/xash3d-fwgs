@@ -345,13 +345,26 @@ void risVisibilityStoreZapas(ivec2 pix, RisZapasReservoir z[2], RisVisibilityRes
 	imageStore(out_temporal_ris_zapas_specular_random, pix, vec4(z[1].reservoir.sample_random, z[1].reservoir.sample_count));
 }
 
-void risZapasObserveCandidate(inout RisZapasReservoir z, uint light_id, uint light_hash, bool visible)
+uvec2 risZapasLoadSource(vec2 packed)
+{
+	// Keep only the resolved identity across candidate ray queries. The replay
+	// point, mass, M and previous surface are loaded after those queries.
+	RisTemporalReservoir identity = risInvalidTemporalReservoir();
+	identity.light_id = risDecodeLightId(float(uint(max(packed.x, 0.0)) & 2047u));
+	identity.light_hash = uint(max(packed.y, 0.0)) & 65535u;
+	if (identity.light_id == RIS_INVALID_LIGHT_ID || !risVisibilityResolveLight(identity)) {
+		return uvec2(RIS_INVALID_LIGHT_ID, 0u);
+	}
+	return uvec2(identity.light_id, identity.light_hash);
+}
+
+void risZapasObserveCandidate(inout uvec2 source, uint light_id, uint light_hash, bool visible)
 {
 	// An existing candidate test observes the SOURCE, not necessarily the old
 	// replay point. A blocked observation discards its old accumulated weights.
-	if (risZapasCandidateRejects(z.reservoir.light_id, z.reservoir.light_hash,
+	if (risZapasCandidateRejects(source.x, source.y,
 		light_id, light_hash, visible)) {
-		z = risZapasEmpty();
+		source.x = RIS_INVALID_LIGHT_ID;
 	}
 }
 
@@ -566,23 +579,12 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		if (reprojected) {
 			compatible = imageLoad(RIS_PREV_DIFFUSE_REGIR_INV_PDF_IMAGE, history_pix).w == risVisibilityHistoryTag();
 		}
-		const bool source_ready = compatible && imageLoad(temporal_reprojection_ready, pix).r > 0.5;
-		bool replace_main[2] = bool[2](compatible && !source_ready, compatible && !source_ready);
-		RisZapasReservoir old_zapas[2];
-		old_zapas[0] = risZapasEmpty();
-		old_zapas[1] = risZapasEmpty();
-		RisVisibilitySurface canonical_previous = s;
+		uvec2 zapas_sources[2];
+		zapas_sources[0] = uvec2(RIS_INVALID_LIGHT_ID, 0u);
+		zapas_sources[1] = uvec2(RIS_INVALID_LIGHT_ID, 0u);
 		if (compatible) {
-			canonical_previous = risVisibilityPreviousSurface(history_pix);
-			old_zapas[0] = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas, history_pix),
-				imageLoad(prev_temporal_ris_zapas_random, history_pix));
-			old_zapas[1] = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas_specular, history_pix),
-				imageLoad(prev_temporal_ris_zapas_specular_random, history_pix));
-		}
-		for (int lobe = 0; lobe < 2; ++lobe) {
-			if (risVisibilityHasSample(old_zapas[lobe]) && !risVisibilityResolveLight(old_zapas[lobe].reservoir)) {
-				old_zapas[lobe] = risZapasEmpty();
-			}
+			zapas_sources[0] = risZapasLoadSource(imageLoad(prev_temporal_ris_zapas, history_pix).xy);
+			zapas_sources[1] = risZapasLoadSource(imageLoad(prev_temporal_ris_zapas_specular, history_pix).xy);
 		}
 		uint rng = regirHash(ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^
 			uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
@@ -617,8 +619,8 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				(loaded && any(greaterThan(candidate_weights, vec2(0.0))) &&
 				 RIS_CONCRETE_SAMPLE_VISIBLE(light, sample_random, s.P, s.geometry_N));
 			if (test_candidate_visibility && loaded && any(greaterThan(candidate_weights, vec2(0.0)))) {
-				risZapasObserveCandidate(old_zapas[0], proposal.light_id, RIS_LIGHT_HASH(light), candidate_visible);
-				risZapasObserveCandidate(old_zapas[1], proposal.light_id, RIS_LIGHT_HASH(light), candidate_visible);
+				risZapasObserveCandidate(zapas_sources[0], proposal.light_id, RIS_LIGHT_HASH(light), candidate_visible);
+				risZapasObserveCandidate(zapas_sources[1], proposal.light_id, RIS_LIGHT_HASH(light), candidate_visible);
 			}
 			for (int lobe = 0; lobe < 2; ++lobe) {
 				r[lobe].reservoir.sample_count += 1.0;
@@ -645,9 +647,9 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				? (risVisibilityHasSample(r[lobe]) ? 1.0 : 0.0)
 				: risVisibilityTrace(r[lobe], s);
 			if (!test_candidate_visibility && r[lobe].reservoir.light_id != RIS_INVALID_LIGHT_ID) {
-				risZapasObserveCandidate(old_zapas[0], r[lobe].reservoir.light_id,
+				risZapasObserveCandidate(zapas_sources[0], r[lobe].reservoir.light_id,
 					r[lobe].reservoir.light_hash, r[lobe].visibility > 0.0);
-				risZapasObserveCandidate(old_zapas[1], r[lobe].reservoir.light_id,
+				risZapasObserveCandidate(zapas_sources[1], r[lobe].reservoir.light_id,
 					r[lobe].reservoir.light_hash, r[lobe].visibility > 0.0);
 			}
 			if (r[lobe].visibility == 0.0) {
@@ -659,8 +661,25 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		RisVisibilityReservoir initial[2];
 		initial[0] = r[0];
 		initial[1] = r[1];
+		const bool source_ready = compatible && imageLoad(temporal_reprojection_ready, pix).r > 0.5;
+		bool replace_main[2] = bool[2](compatible && !source_ready, compatible && !source_ready);
+		RisVisibilitySurface canonical_previous = s;
+		if (compatible) {
+			canonical_previous = risVisibilityPreviousSurface(history_pix);
+		}
 		for (int lobe = 0; lobe < 2; ++lobe) {
-			zapas[lobe] = risVisibilityUpdateZapas(initial[lobe], s, old_zapas[lobe], canonical_previous, pix, lobe);
+			RisZapasReservoir old_zapas = risZapasEmpty();
+			if (zapas_sources[lobe].x != RIS_INVALID_LIGHT_ID) {
+				if (lobe == 0) {
+					old_zapas = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas, history_pix),
+						imageLoad(prev_temporal_ris_zapas_random, history_pix));
+				} else {
+					old_zapas = risVisibilityDecodeZapas(imageLoad(prev_temporal_ris_zapas_specular, history_pix),
+						imageLoad(prev_temporal_ris_zapas_specular_random, history_pix));
+				}
+				old_zapas.reservoir.light_id = zapas_sources[lobe].x;
+			}
+			zapas[lobe] = risVisibilityUpdateZapas(initial[lobe], s, old_zapas, canonical_previous, pix, lobe);
 		}
 		if (source_ready) {
 			RisVisibilityReservoir history[2];

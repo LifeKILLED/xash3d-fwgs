@@ -75,6 +75,14 @@ Visibility/window data had already been absent from the packed GPU images, so
 removing it from the working struct does not reduce that allocation. The replay
 point and target remain necessary to reweight the reservoir at another surface.
 
+Before candidate shadow tests, only the two resolved zapas ID/hash pairs are
+kept. Candidate observations invalidate those compact identities. Full weights,
+replay points, counts and the previous surface are loaded after the initial
+visibility tests, one zapas lobe at a time. Rejected banks skip the late reads.
+Surviving banks reread their packed header; this trades extra image-load work
+for less live state across ray queries. Selection, RNG order, reset decisions,
+storage layout and shadow-ray counts are unchanged. GPU speedup is unmeasured.
+
 The shadow-ray accounting for the current path is in [DIRECT_LIGHTING_RAYS.md](DIRECT_LIGHTING_RAYS.md).
 
 Update both `ref_vk.dll` and `rt.meat`. Primary and zapas age resets are active
