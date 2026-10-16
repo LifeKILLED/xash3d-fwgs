@@ -116,6 +116,32 @@ uint risVisibilityPackLightCount(uint encoded_light, uint count)
 	return (encoded_light & 2047u) | ((count & 7u) << 11u);
 }
 
+uint risVisibilityPackZapasLight(uint encoded_light, uint age, uint lifetime)
+{
+	return (encoded_light & 2047u) | ((age & 31u) << 11u) | ((lifetime & 31u) << 16u);
+}
+
+bool risVisibilityLifetimeExpired(uint age, uint lifetime)
+{
+	return lifetime > 0u && age + 1u >= lifetime;
+}
+
+bool risVisibilitySameSource(uint a_id, uint a_hash, uint b_id, uint b_hash)
+{
+	return a_id == b_id && a_hash == b_hash;
+}
+
+bool risVisibilityMayUseZapas(bool reprojected, bool compatible, bool soft_reset,
+	bool has_sample, uint age)
+{
+	return reprojected && compatible && soft_reset && has_sample && age > 0u;
+}
+
+uint risVisibilityPackZapasHash(uint light_hash, uint main_lifetime)
+{
+	return (light_hash & 65535u) | ((main_lifetime & 255u) << 16u);
+}
+
 uint risVisibilityPackHashWindow(uint light_hash, RisVisibilityWindow window)
 {
 	// 16 hash bits + 7 observations + 1 median bit = 24 exact float32 bits.

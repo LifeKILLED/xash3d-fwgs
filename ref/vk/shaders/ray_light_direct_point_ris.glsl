@@ -68,6 +68,15 @@ layout(set = 0, binding = 49, rgba32f) uniform writeonly image2D out_temporal_ri
 layout(set = 0, binding = 50, rgba16f) uniform writeonly image2D out_temporal_ris_visibility_normals;
 layout(set = 0, binding = 51, rgba8) uniform writeonly image2D out_temporal_ris_visibility_material;
 
+layout(set = 0, binding = 52, rgba32f) uniform writeonly image2D out_temporal_zapas_point;
+layout(set = 0, binding = 53, rgba32f) uniform readonly image2D prev_temporal_zapas_point;
+layout(set = 0, binding = 54, rgba32f) uniform writeonly image2D out_temporal_zapas_point_random;
+layout(set = 0, binding = 55, rgba32f) uniform readonly image2D prev_temporal_zapas_point_random;
+layout(set = 0, binding = 56, rgba32f) uniform writeonly image2D out_temporal_zapas_point_specular;
+layout(set = 0, binding = 57, rgba32f) uniform readonly image2D prev_temporal_zapas_point_specular;
+layout(set = 0, binding = 58, rgba32f) uniform writeonly image2D out_temporal_zapas_point_specular_random;
+layout(set = 0, binding = 59, rgba32f) uniform readonly image2D prev_temporal_zapas_point_specular_random;
+
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;

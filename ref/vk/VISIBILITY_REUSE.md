@@ -22,6 +22,53 @@ https://research.nvidia.com/sites/default/files/pubs/2020-07_Spatiotemporal-rese
 Changing the switch invalidates direct-light reservoir history through a format tag.
 The aSVGF history is controlled separately, as before.
 
+## Zapas reservoir
+
+Each direct-light lobe now has a second reservoir, `zapas`, built in the same
+dispatch from the same fresh RIS result. Candidate generation, targets,
+selection random numbers and initial shadow tests are shared; there is no
+second ReGIR lookup or candidate loop. Zapas has its own canonical temporal
+history and does not participate in the primary reservoir's XOR permutation.
+Temporal combination uses the existing MIS arithmetic and M cap. If its
+selected light ID/hash changes, discard the previous accumulation and start
+from the current fresh estimator instead of retaining mixed old-source mass.
+
+The selected zapas replay sample is checked for visibility every frame. Reuse
+the initial shadow result, or the other lobe's result, when source and replay
+point match exactly. Otherwise trace one additional ray per zapas reservoir
+(at most four per pixel across diffuse/specular and point/polygon). An occluded
+zapas is cleared, never stored with smoothed visibility. Its random lifetime
+is 5-30 successful reprojections; primary lifetime is 1-200. Lifetimes are
+chosen once at initialization, include frame counter even with fixed debug
+RNG, and travel with the appropriate reservoir.
+
+On a primary age reset, full-light transition, or many-to-one ownership
+rejection, consume a currently visible zapas that has survived at least one
+reprojection. If none is ready, use the fresh RIS result. Restart the consumed
+zapas from fresh candidates; a many-to-one rejected receiver also restarts its
+zapas after use to avoid keeping duplicate history as a growing pixel block.
+Preserve the primary's bit window only if the replacement light matches.
+
+A missing/invalid canonical reprojection or incompatible history tag is a
+hard reset: neither old bank is restored. Surface/depth validation remains
+the existing reprojection validation. No new shading-confidence heuristic is
+introduced: the separate legacy shading-confidence function is still disabled.
+Changing `rt_di_visibility_history` now advances a CPU history epoch and
+invalidates both banks. The existing UBO uint carries enable plus epoch bits;
+its size/layout and the standard build system remain unchanged.
+
+Zapas adds eight RGBA32F images, each with a previous-frame partner: 256 bytes
+per allocated framebuffer pixel, about 506 MiB at 1920x1080, before alignment.
+Replay points, targets, M and mass retain full float32 precision. Primary age
+uses spare bits in its packed light/count word; primary lifetime shares the
+zapas hash word. All integer words fit within 24 exact float32 bits, and no
+integer decode adds 0.5. Images remain allocated in the shared graph with reuse
+disabled, but incompatible legacy history cannot import their contents.
+
+Update both `ref_vk.dll` and `rt.meat`. Primary and zapas age resets are active
+with reuse enabled; full-light transition detection still requires either
+median or gradient. Scene-level behavior and GPU cost need in-game testing.
+
 `rt_direct_visibility_median` defaults to `0`. Setting it to `1` enables the
 user-proposed seven-frame, per-source visibility detector on top of reuse:
 
@@ -68,9 +115,10 @@ no tuned gradient threshold; static penumbra noise can also trigger correction.
 
 Both detectors now restart the reservoir on a confirmed transition to full
 light: a full seven-bit window containing an occluded observation becomes
-`1111111`. Replace the temporally merged result with this frame's initial RIS
-reservoir, including its selected source, replay point, target, mass, M and
-tested visibility. Do not manufacture a weight from the detector's visibility.
+`1111111`. Replace the temporally merged result with mature visible zapas,
+falling back to this frame's initial RIS reservoir. Copy its selected source,
+replay point, target, mass, M and tested visibility. Do not manufacture a weight
+from the detector's visibility.
 Preserve the full detector window only if that fresh winner is the same source;
 otherwise start its window anew. Empty or occluded fresh reservoirs remain so.
 Initial all-lit warmup and continuing `1111111` do not trigger restarts. This
@@ -134,8 +182,8 @@ rt_direct_visibility_median 0
 Changing the active method invalidates reservoir history. Keep the other
 sampling and denoising settings unchanged for the comparison.
 
-No images or bindings are added. The existing RGBA32F reservoir's x channel
-packs an 11-bit encoded light ID and a 3-bit observation count. Its y channel
+The visibility window adds no images. The existing RGBA32F reservoir's x channel
+packs an 11-bit encoded light ID, a 3-bit observation count and an 8-bit primary age. Its y channel
 packs the 16-bit light hash, 7 visibility bits and the previous median bit.
 Both are numerical integers exactly representable in float32, including the
 largest 24-bit y value. Decoding uses a direct uint cast, never `+ 0.5`.
@@ -189,7 +237,7 @@ and `rt.meat`. The old `rt_di_visibility_reuse` name is no longer registered.
 The initial-only mode and spatial visibility-reuse path have been removed. The standard
 pipeline compiler and build scripts are unchanged; there is only one graph,
 `rt.json`, producing the usual `rt.meat`. The UBO field keeps its existing
-name and layout; it now carries a boolean value.
+name and layout; it carries enable and history-epoch bits.
 
 ## Correspondence with the publication
 
@@ -227,8 +275,9 @@ leak when the scalar target is not proportional to each color-channel integrand,
 as well as lag under changing visibility. Initial visibility rejection retains
 the biased ReSTIR variant described in the supplement.
 
-The paper path does not apply the legacy random reset or ReGIR proposal revert.
-It does not introduce A/B reservoirs, texel-fixed visibility, color similarity
+The base paper path is extended by the user's zapas bank, explicit age lifetimes
+and full-light permutations. It does not apply the legacy random-reset
+probability or ReGIR proposal revert, texel-fixed visibility, color similarity
 rejection, or an independent visibility EMA.
 
 Temporal light-index recovery requires a matching light hash, using the existing

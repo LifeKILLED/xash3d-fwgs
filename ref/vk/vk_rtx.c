@@ -655,8 +655,17 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 					  (CVAR_TO_BOOL(rt_direct_visibility_median) ? RENDERER_FLAG_DIRECT_VISIBILITY_MEDIAN : 0) |
 					  (CVAR_TO_BOOL(rt_direct_visibility_gradient) ? RENDERER_FLAG_DIRECT_VISIBILITY_GRADIENT : 0);
 	ret.regir_onion_radius = Q_max(rt_regir_onion_radius->value, 1.0f);
-	ret.di_visibility_reuse = CVAR_TO_BOOL(rt_direct_visibility_reuse) ? 1u : 0u;
 	ret.di_visibility_history = Q_max(rt_di_visibility_history->value, 1.0f);
+	// Preserve the UBO layout. Upper bits invalidate both DI banks when the
+	// temporal confidence cap changes; zero still selects the legacy path.
+	static float previous_di_history = -1.0f;
+	static uint32_t di_history_epoch = 0;
+	if (ret.di_visibility_history != previous_di_history) {
+		di_history_epoch = (di_history_epoch + 1u) & 31u;
+		previous_di_history = ret.di_visibility_history;
+	}
+	ret.di_visibility_reuse = CVAR_TO_BOOL(rt_direct_visibility_reuse)
+		? (1u | (di_history_epoch << 1u)) : 0u;
 #undef SET_RENDERER_FLAG
 
 	if (CVAR_TO_BOOL(rt_denoiser_console_setup_enable)) {

@@ -39,6 +39,51 @@ static int near(double a, double b)
 
 int main(void)
 {
+	// Only a soft reset with validated reprojection may consume a mature zapas.
+	for (uint flags = 0; flags < 16; ++flags) {
+		for (uint age = 0; age <= 30; ++age) {
+			assert(risVisibilityMayUseZapas((flags & 1u) != 0, (flags & 2u) != 0,
+				(flags & 4u) != 0, (flags & 8u) != 0, age) == (flags == 15 && age > 0));
+		}
+	}
+	for (uint lifetime = 1; lifetime <= 200; ++lifetime) {
+		for (uint age = 0; age <= 200; ++age) {
+			assert(risVisibilityLifetimeExpired(age, lifetime) == (age + 1 >= lifetime));
+			assert(!risVisibilityLifetimeExpired(age, 0));
+		}
+	}
+	assert(risVisibilitySameSource(12, 34, 12, 34));
+	assert(!risVisibilitySameSource(12, 34, 13, 34));
+	assert(!risVisibilitySameSource(12, 34, 12, 35));
+	for (uint id = 0; id < 2048; ++id) {
+		for (uint age = 0; age < 30; ++age) {
+			for (uint lifetime = 5; lifetime <= 30; ++lifetime) {
+				volatile float stored = (float)risVisibilityPackZapasLight(id, age, lifetime);
+				const uint restored = (uint)stored;
+				assert((restored & 2047u) == id);
+				assert(((restored >> 11u) & 31u) == age);
+				assert(((restored >> 16u) & 31u) == lifetime);
+			}
+		}
+	}
+	for (uint lifetime = 1; lifetime <= 200; ++lifetime) {
+		for (uint hash = 0; hash < 65536; ++hash) {
+			volatile float stored = (float)risVisibilityPackZapasHash(hash, lifetime);
+			const uint restored = (uint)stored;
+			assert((restored & 65535u) == hash);
+			assert((restored >> 16u) == lifetime);
+		}
+	}
+	for (uint age = 0; age <= 200; ++age) {
+		for (uint count = 0; count <= 7; ++count) {
+			volatile float stored = (float)(risVisibilityPackLightCount(2047, count) | (age << 14u));
+			const uint restored = (uint)stored;
+			assert((restored & 2047u) == 2047);
+			assert(((restored >> 14u) & 255u) == age);
+			assert(risVisibilityUnpackWindow(restored, 0).count == count);
+		}
+	}
+
 	// Compare the loop-free vector reductions against a scalar reference for
 	// every seven-bit pattern. An unused eighth bit must not affect the result.
 	for (uint bits = 0; bits < 256; ++bits) {

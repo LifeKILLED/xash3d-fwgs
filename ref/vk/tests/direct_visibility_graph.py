@@ -43,6 +43,17 @@ for kind in ("point", "poly"):
                    if b.write and b.getResource().name == name]
         assert writers == [writer], (name, writers)
 
+    for suffix in ("", "_random", "_specular", "_specular_random"):
+        name = "temporal_zapas_" + kind + suffix
+        assert name in resources and "prev_" + name in resources
+        writers = [p.name for p in passes for b in p.bindings()
+                   if b.write and b.getResource().name == name]
+        assert writers == [writer], (name, writers)
+        for p in passes:
+            for b in p.bindings():
+                if b.getResource().name == "prev_" + name:
+                    assert p.name == writer and not b.write
+
 for name in ("position", "normals", "material"):
     resource_name = "temporal_ris_visibility_" + name
     writers = [p.name for p in passes for b in p.bindings()
@@ -56,6 +67,10 @@ format_bytes = {graph["spv"]["ImageFormat"]["Rgba32f"]: 16,
 surface_bytes = sum(format_bytes[r.type.image_format] for name, r in resources.items()
                     if "temporal_ris_visibility_" in name)
 assert surface_bytes == 56
+zapas_bytes = sum(format_bytes[r.type.image_format] for name, r in resources.items()
+                  if "_zapas" in name)
+assert zapas_bytes == 256
 
 print("PASS: standard graph has no initial dispatches or staging images; "
-      "reservoirs and surface history have single writers (56 surface bytes/pixel)")
+      "reservoirs and surface history have single writers "
+      "(56 surface + 256 zapas bytes/pixel, both temporal buffers included)")
