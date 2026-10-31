@@ -1,0 +1,40 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D lightcache_shy;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D lightcache_cocg;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D prev_temporal_lightcache_shy;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D prev_temporal_lightcache_cocg;
+layout(set = 0, binding = 14, rgba32f) uniform readonly image2D prev_temporal_lightcache_state;
+layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_temporal_lightcache_shy;
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_temporal_lightcache_cocg;
+#include "lightcache_geometry.glsl"
+#include "spherical_harmonics.glsl"
+
+void main() {
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy), res = ubo.ubo.res;
+    if (any(greaterThanEqual(pix, res)) || !lightcacheEnabled()) return;
+    SH current; current.shY = vec4(0); current.CoCg = vec2(0);
+    uint index = uint(pix.y * res.x + pix.x);
+    if (lightcacheInCapacity(index, res)) {
+        current.shY = imageLoad(lightcache_shy, pix);
+        current.CoCg = imageLoad(lightcache_cocg, pix).xy;
+        // Stable lightmap texels reproject to the same address, independently
+        // of camera/brush movement and RIS reservoir permutations.
+        vec4 state = imageLoad(prev_temporal_lightcache_state, pix);
+        bool valid = state.x == float(lightcache_geometry.info.y) &&
+            all(equal(state.yz, vec2(res))) && state.w + 1.0 == float(ubo.ubo.frame_counter);
+        if (valid) {
+            SH history;
+            history.shY = imageLoad(prev_temporal_lightcache_shy, pix);
+            history.CoCg = imageLoad(prev_temporal_lightcache_cocg, pix).xy;
+            current = mix_SH(history, current, 0.1);
+        }
+    }
+    imageStore(out_temporal_lightcache_shy, pix, current.shY);
+    imageStore(out_temporal_lightcache_cocg, pix, vec4(current.CoCg, 0, 0));
+}

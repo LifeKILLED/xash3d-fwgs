@@ -1,4 +1,5 @@
 #include "vk_rtx.h"
+#include "vk_lightcache.h"
 
 #include "shaders/ray_interop.h" // DEBUG_DISPLAY_...
 
@@ -507,6 +508,9 @@ static void parseDebugDisplayValue( void ) {
 		return;
 
 	g_rtx.debug.rt_debug_display_only->flags &= ~FCVAR_CHANGED;
+	// Screen DI histories are not written while displaying the lightmap cache.
+	// Discard them when changing views rather than reusing stale reservoirs.
+	g_rtx.discontinuity = true;
 
 	const char *cvalue = g_rtx.debug.rt_debug_display_only->string;
 #define LIST_DISPLAYS(X) \
@@ -522,6 +526,7 @@ static void parseDebugDisplayValue( void ) {
 	X(DIRECT_SPEC, "direct specular lighting only") \
 	X(INDIRECT, "indirect lighting only (bounced), diffuse and specular together") \
 	X(INDIRECT_DIFF, "indirect diffuse only") \
+	X(DIRECT_DIFFUSE_CACHE, "direct diffuse lightmap SH cache") \
 	X(INDIRECT_SPEC, "indirect specular only") \
 	X(TRIHASH, "each triangle is drawn with random color") \
 	X(MATERIAL, "red = roughness, green = metalness") \
@@ -640,11 +645,21 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	const qboolean legacy_bounce = CVAR_TO_BOOL(rt_legacy_bounce);
 	const qboolean disable_reconstruction = CVAR_TO_BOOL(rt_disable_reconstruction);
 	const qboolean disable_sh_gi_denoising = CVAR_TO_BOOL(rt_disable_sh_gi_denoising);
+	if (rt_disable_direct->flags & FCVAR_CHANGED) {
+		rt_disable_direct->flags &= ~FCVAR_CHANGED;
+		g_rtx.discontinuity = true;
+	}
+	if (rt_lightcache_gi->flags & FCVAR_CHANGED) {
+		rt_lightcache_gi->flags &= ~FCVAR_CHANGED;
+		g_rtx.discontinuity = true;
+	}
 	ret.renderer_flags = SET_RENDERER_FLAG(RENDERER_FLAG_ONLY_DIFFUSE_GI) |
 					  SET_RENDERER_FLAG(RENDERER_FLAG_SEPARATED_REFLECTION) |
 					  (disable_sh_gi_denoising ? 0 : RENDERER_FLAG_DENOISE_GI_BY_SH) |
 					  (disable_reconstruction ? 0 : RENDERER_FLAG_SPATIAL_RECONSTRUCTION) |
 					  (CVAR_TO_BOOL(rt_disable_gi) ? RENDERER_FLAG_DISABLE_GI : 0) |
+					  (CVAR_TO_BOOL(rt_disable_direct) ? RENDERER_FLAG_DISABLE_DIRECT : 0) |
+					  (CVAR_TO_BOOL(rt_lightcache_gi) ? RENDERER_FLAG_LIGHTCACHE_GI : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reprojection) ? RENDERER_FLAG_DISABLE_REPROJECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reflection) ? RENDERER_FLAG_DISABLE_REFLECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_refraction) ? RENDERER_FLAG_DISABLE_REFRACTION : 0) |
@@ -840,6 +855,9 @@ qboolean VK_RayInit( void )
 	g_rtx.max_frame_width = MIN_FRAME_WIDTH;
 	g_rtx.max_frame_height = MIN_FRAME_HEIGHT;
 
+	if (!RT_LightCacheInit())
+		return false;
+
 	if (!RT_VkAccelInit())
 		return false;
 
@@ -912,6 +930,7 @@ void VK_RayShutdown( void ) {
 
 	destroyMeatpipe();
 
+	RT_LightCacheShutdown();
 	RT_DecalsShutdown();
 	RT_KusochkiShutdown();
 	VK_BufferDestroy(&g_rtx.uniform.buffer);

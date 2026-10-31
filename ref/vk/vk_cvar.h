@@ -28,6 +28,8 @@ void VK_LoadCvarsAfterInit( void );
 	X(rt_bounces) \
 	X(rt_legacy_bounce) \
 	X(rt_disable_gi) \
+	X(rt_disable_direct) \
+	X(rt_lightcache_gi) \
 	X(rt_disable_reflection) \
 	X(rt_disable_refraction) \
 	X(rt_disable_reconstruction) \

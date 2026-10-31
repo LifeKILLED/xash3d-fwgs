@@ -1,4 +1,5 @@
 #include "vk_lightmap.h"
+#include "vk_lightcache.h"
 #include "vk_common.h"
 #include "r_textures.h"
 #include "vk_cvar.h"
@@ -213,6 +214,7 @@ void VK_CreateSurfaceLightmap( msurface_t *surf, const model_t *loadmodel )
 	}
 
 	surf->lightmaptexturenum = gl_lms.current_lightmap_texture;
+	RT_LightCacheAddSurface(loadmodel, surf);
 
 	base = gl_lms.lightmap_buffer;
 	base += ( surf->light_t * BLOCK_SIZE + surf->light_s ) * 4;
@@ -228,6 +230,7 @@ void VK_UploadLightmap( void )
 
 void VK_ClearLightmap( void )
 {
+	RT_LightCacheClear();
 	for (int i = 0; i < gl_lms.current_lightmap_texture; ++i)
 		R_TextureFree(tglob.lightmapTextures[i]);
 	gl_lms.current_lightmap_texture = 0;

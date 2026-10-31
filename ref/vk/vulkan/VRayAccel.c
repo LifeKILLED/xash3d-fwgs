@@ -22,6 +22,24 @@
 #define MODULE_NAME "accel"
 #define LOG_MODULE rt
 
+typedef char model_header_stride_must_stay_96[(sizeof(struct ModelHeader) == 96) ? 1 : -1];
+#define RT_ASSERT_OFFSET(type, tag, member, expected) \
+	typedef char rt_##tag##_##member##_offset[(offsetof(type, member) == (expected)) ? 1 : -1]
+RT_ASSERT_OFFSET(struct ModelHeader, model_header, prev_transform, 0);
+RT_ASSERT_OFFSET(struct ModelHeader, model_header, color, 64);
+RT_ASSERT_OFFSET(struct ModelHeader, model_header, mode, 80);
+RT_ASSERT_OFFSET(struct ModelHeader, model_header, lightmap_uv_valid, 84);
+RT_ASSERT_OFFSET(struct ModelHeader, model_header, lightmap_uv, 88);
+typedef char vertex_stride_must_match_std430[(sizeof(vk_vertex_t) == 96) ? 1 : -1];
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, pos, 0);
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, prev_pos, 16);
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, normal, 32);
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, tangent, 48);
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, gl_tc, 64);
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, lm_tc, 72);
+RT_ASSERT_OFFSET(vk_vertex_t, vertex, color, 80);
+#undef RT_ASSERT_OFFSET
+
 #define MAX_SCRATCH_BUFFER (128*1024*1024)
 // FIXME compute this by lazily allocating #define MAX_ACCELS_BUFFER (128*1024*1024)
 #define MAX_ACCELS_BUFFER (512*1024*1024)
@@ -397,6 +415,8 @@ static uint32_t processEnqueuedInstances(vk_combuf_t *combuf, VkDeviceAddress ge
 
 		struct ModelHeader *const header = ((struct ModelHeader*)headers_lock.ptr) + i;
 		header->mode = instance->material_mode;
+		header->lightmap_uv_valid = instance->lightmap_uv_valid;
+		Vector2Copy(instance->lightmap_uv, header->lightmap_uv);
 		Vector4Copy(instance->color, header->color);
 		Matrix4x4_ToArrayFloatGL(instance->prev_transform_row, (float*)header->prev_transform);
 	}

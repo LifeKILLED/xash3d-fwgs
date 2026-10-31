@@ -276,6 +276,8 @@ bool bouncePathShadeCachedLocalReservoir(
 
 void main()
 {
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_LIGHTCACHE_GI) != 0u)
+		return;
 	const ivec2 local_pix = ivec2(gl_GlobalInvocationID.xy);
 	if (!bouncePathLocalPixelInBounds(local_pix)) {
 		return;

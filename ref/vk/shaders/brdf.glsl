@@ -224,6 +224,12 @@ void brdfComputeGltfModel(vec3 N, vec3 L, vec3 V, MaterialProperties material, o
 }
 
 void evalSplitBRDF(vec3 N, vec3 L, vec3 V, MaterialProperties material, out vec3 out_diffuse, out vec3 out_specular) {
+#ifdef LIGHTCACHE_DIFFUSE_ONLY
+    out_diffuse = vec3(max(dot(N, L), 0.0) / kPi);
+    out_specular = vec3(0.0);
+    return;
+#endif
+
 	out_diffuse = vec3(0.);
 	out_specular = vec3(0.);
 

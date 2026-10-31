@@ -1,0 +1,107 @@
+# Direct diffuse lightmap cache
+
+Enable the experimental view with:
+
+```
+rt_debug_display_only DIRECT_DIFFUSE_CACHE
+```
+
+An empty `rt_debug_display_only` restores the usual rendering. Cache passes run
+when this view or `rt_lightcache_gi` is enabled; their images belong to the
+ordinary screen-sized meatpipe graph.
+In the cache view, the ordinary screen `light_direct_point` and
+`light_direct_poly` shaders return before lighting or shadow rays. Their dispatch
+labels remain in the graph. Changing debug views resets temporal history.
+
+`rt_disable_direct 1` disables ordinary screen direct diffuse/specular and
+flashlight lighting independently of the view. The existing RIS passes receive
+inactive surfaces, write zero lighting and empty histories, and trace no light
+or shadow rays. `rt_disable_direct 0` restores it. Toggling resets temporal
+history. Lightmap cache lighting and secondary GI/reflection lighting remain
+independent of this switch.
+
+`rt_lightcache_gi 1` replaces point/poly lighting at compound GI path vertices
+with the temporal SH lightmap cache. It also enables cache updates outside the
+debug view. `0` restores the existing GI lighting. Switching resets history.
+The existing path tracer, path reservoir, emissive/sky contributions and GI
+denoiser remain in use. The local GI point/poly lighting shaders return before
+sampling lights or tracing shadows while this option is enabled.
+
+The committed GI hit supplies LM UV without a second ray, using the same helper
+as primary hits (including studio's vanilla UV binding). UV is stored with each
+fresh and historical path vertex. Resolve samples the current temporal cache
+for both candidate paths, using the shared four-tap SH coefficient filter and
+island-edge extrapolation. Missing cache bindings contribute no direct light;
+they do not fall back to full point/poly lighting. All added path images use
+the ordinary screen extent and existing resource discovery.
+
+## Geometry and addressing
+
+`vk_lightcache.c` prepares material-independent local positions and geometric
+normals on the CPU while the existing brush lightmap is allocated. Each surface
+is an island. Its cache extent is `ceil(width/2) x ceil(height/2)`, so 1-texel-wide
+and 1x1 islands survive. Islands are packed consecutively without padding; a
+1024x1024 source-LM lookup table maps each original texel to its own island's
+probe. Freed atlas padding does not consume cache slots. Nine-tap neighbors and
+permutations use island coordinates, never neighboring packed pixels.
+
+Positions are clamped to their convex BSP face. The external
+`lightcache_geometry` SSBO holds the lookup, probe geometry, and current brush
+transforms. No geometry G-buffer images or geometry-update dispatch are needed.
+Transforms are refreshed each frame, including brushes outside the draw list.
+Only map/geometry changes upload the static table. Map reload increments a cache
+epoch. Physical cache images use the screen extent and linear probe addresses;
+resolution changes invalidate reservoir history. If the active viewport cannot
+hold a probe, its debug sample is magenta rather than aliasing another probe.
+
+## Studio binding
+
+The Vulkan renderer's vanilla search is in `rlight.c`. `R_LightVecSurface`
+returns the selected surface and its local hit point, using exactly the existing
+color search and fallback decisions. `R_LightmapCoord` converts that hit to atlas
+UV. UV and validity travel through the existing model draw/instance path and
+replace the padding in the 96-byte `ModelHeader`. No second trace is introduced.
+All rendered submodels of the entity use that same binding. Vanilla branches
+that return sky/fullbright without a lightmap hit have no cache binding.
+
+## Lighting
+
+Point and polygon passes use the existing concrete light samplers, reservoir
+encoding/merge/reweight helpers, paired permutations, visibility arithmetic, and
+seven-frame visibility source detector. The cache has one diffuse reservoir per
+light type, with independent random/count and visibility histories. It uses the existing ReGIR onion proposals, with uniform proposals when ReGIR
+is disabled or the probe is outside its camera-centered coverage. Environment
+and flashlight sources, excluded from ReGIR, enter as separate proposal strata
+in the same diffuse reservoir. Concrete sampling and weighting are independent
+of the receiving surface's material and view.
+
+Visibility is measured for the fresh RIS winner and a fresh point on the
+selected source. History reuses scalar visibility; the shared median/gradient
+controls update its seven-frame detector. Only paired full-light histories may
+exchange. Old samples are evaluated using current probe geometry; position and
+normal history are not stored. History count is capped using
+`di_visibility_history`. No geometry rejection/reprojection is performed.
+
+The SH pass accumulates nine same-island taps, keeping each light's concrete RIS
+sample direction. Outputs are two RGBA16F images (`shY` and `CoCg`); RIS data is
+never stored in SH. A separate temporal SH pass mixes 90% previous coefficients
+with 10% current coefficients at the same stable lightmap address. New/invalid
+history uses the current result directly; map changes, viewport changes and
+gaps in the debug view invalidate history through the existing cache state.
+
+Debug resolve reads the temporal result with a manual four-tap bilinear SH
+filter. Taps are selected in the source island, before linear address packing.
+Edge coefficients are linearly extrapolated from the last two probes rather
+than mixing with padding or other islands; singleton axes repeat their sole
+probe. The final, shortened probe interval of odd-sized islands is respected.
+Only after coefficient interpolation does debug resolve project on the shaded
+normal for diffuse and reflection direction for metal, without base color.
+
+## Checks
+
+- `python waf build`
+- Validate generated SPIR-V with Vulkan SDK `spirv-val`.
+
+Runtime visual checks still need to cover moving/rotating brushes, studio on a
+lit floor, one-texel islands, and switching the view/resolution. The two-image
+SH representation is the existing luminance SH plus CoCg approximation.

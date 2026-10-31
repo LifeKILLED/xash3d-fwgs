@@ -1,0 +1,48 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_shader_16bit_storage : require
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+#define RAY_QUERY
+#define LIGHTCACHE_DIFFUSE_ONLY
+#define RIS_INIT_PASS 0
+#define RIS_APPLY_PASS 0
+#define RIS_UNIFIED_PASS 0
+#define RIS_REGIR_ONLY 1
+#define RIS_CUSTOM_SPATIAL_SURFACE
+#define RIS_POLYGON_LTC_SPECULAR 0
+#define RIS_POLYGON_ANALYTIC_DIFFUSE 0
+#define LIGHT_POINT 1
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 6) uniform sampler2D textures[MAX_TEXTURES];
+layout(set = 0, binding = 7, std430) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } vertices;
+layout(set = 0, binding = 20, rgba32f) uniform writeonly image2D out_temporal_lightcache_point_reservoir;
+layout(set = 0, binding = 21, rgba32f) uniform readonly image2D prev_temporal_lightcache_point_reservoir;
+layout(set = 0, binding = 22, rgba32f) uniform writeonly image2D out_temporal_lightcache_point_random;
+layout(set = 0, binding = 23, rgba32f) uniform readonly image2D prev_temporal_lightcache_point_random;
+layout(set = 0, binding = 24, rgba16f) uniform writeonly image2D out_lightcache_point_radiance;
+layout(set = 0, binding = 25, rgba16f) uniform writeonly image2D out_lightcache_point_direction;
+layout(set = 0, binding = 26, rgba32f) uniform readonly image2D prev_temporal_lightcache_state;
+layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_temporal_lightcache_state;
+
+layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_temporal_lightcache_point_visibility;
+layout(set = 0, binding = 29, rgba32f) uniform readonly image2D prev_temporal_lightcache_point_visibility;
+#define LC_OUT_VISIBILITY out_temporal_lightcache_point_visibility
+#define LC_PREV_VISIBILITY prev_temporal_lightcache_point_visibility
+#define LC_OUT_RESERVOIR out_temporal_lightcache_point_reservoir
+#define LC_PREV_RESERVOIR prev_temporal_lightcache_point_reservoir
+#define LC_OUT_RANDOM out_temporal_lightcache_point_random
+#define LC_PREV_RANDOM prev_temporal_lightcache_point_random
+#define LC_OUT_RADIANCE out_lightcache_point_radiance
+#define LC_OUT_DIRECTION out_lightcache_point_direction
+layout(set = 0, binding = 34, rgba32f) uniform readonly image2D regir_onion_point;
+#define REGIR_ONION_IMAGE regir_onion_point
+#include "lightcache_ris.glsl"

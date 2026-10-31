@@ -4,6 +4,7 @@
 #include "vk_math.h"
 #include "r_textures.h"
 #include "vk_lightmap.h"
+#include "vk_lightcache.h"
 #include "vk_render.h"
 #include "vk_geometry.h"
 #include "vk_light.h"
@@ -880,6 +881,8 @@ void R_BrushModelDraw( const cl_entity_t *ent, int render_mode, float blend, con
 		Matrix4x4_Copy(transform, in_transform);
 	else
 		Matrix4x4_LoadIdentity(transform);
+
+	RT_LightCacheTransform(mod, transform);
 
 	if (bmodel->patch_rendermode >= 0)
 		render_mode = bmodel->patch_rendermode;

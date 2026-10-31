@@ -1,0 +1,39 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set = 0, binding = 10, rgba16f) uniform readonly image2D lightcache_point_radiance;
+layout(set = 0, binding = 11, rgba16f) uniform readonly image2D lightcache_point_direction;
+layout(set = 0, binding = 12, rgba16f) uniform readonly image2D lightcache_poly_radiance;
+layout(set = 0, binding = 13, rgba16f) uniform readonly image2D lightcache_poly_direction;
+layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_lightcache_shy;
+layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_lightcache_cocg;
+#include "lightcache_geometry.glsl"
+#include "spherical_harmonics.glsl"
+void main() {
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy), res = ubo.ubo.res;
+    if (any(greaterThanEqual(pix, res)) || !lightcacheEnabled()) return;
+    uint index = uint(pix.y * res.x + pix.x);
+    SH accum; accum.shY = vec4(0); accum.CoCg = vec2(0);
+    float total = 0.0;
+    if (lightcacheEnabled() && lightcacheInCapacity(index, res)) {
+        // Nine visible light probes, accumulated with their own RIS directions.
+        // No RGB blur, direction averaging, or second shadow trace.
+        for (int y = -1; y <= 1; ++y) for (int x = -1; x <= 1; ++x) {
+            uint neighbor;
+            if (!lightcacheNeighbor(index, ivec2(x,y), neighbor) || !lightcacheInCapacity(neighbor, res)) continue;
+            ivec2 tap = lightcachePixel(neighbor, res);
+            float weight = float((x == 0 ? 2 : 1) * (y == 0 ? 2 : 1));
+            accumulate_SH(accum, irradiance_to_SH(imageLoad(lightcache_point_radiance, tap).rgb,
+                imageLoad(lightcache_point_direction, tap).xyz), weight);
+            accumulate_SH(accum, irradiance_to_SH(imageLoad(lightcache_poly_radiance, tap).rgb,
+                imageLoad(lightcache_poly_direction, tap).xyz), weight);
+            total += weight;
+        }
+    }
+    imageStore(out_lightcache_shy, pix, clamp(accum.shY / max(total, 1.0), vec4(-65504), vec4(65504)));
+    imageStore(out_lightcache_cocg, pix, vec4(clamp(accum.CoCg / max(total, 1.0), vec2(-65504), vec2(65504)), 0, 0));
+}

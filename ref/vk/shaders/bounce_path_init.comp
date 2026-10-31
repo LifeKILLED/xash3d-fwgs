@@ -36,6 +36,7 @@ layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_bounce_path
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_bounce_path_fresh_ray_origin_length;
 layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_bounce_path_fresh_meta;
 layout(set = 0, binding = 29, rgba32f) uniform writeonly image2D out_bounce_path_history_ref;
+layout(set = 0, binding = 30, rgba32f) uniform writeonly image2D out_bounce_path_fresh_lightmap_uv;
 
 layout(set = 0, binding = 40, rgba16f) uniform readonly image2D prev_temporal_bounce_path_throughput;
 layout(set = 0, binding = 41, rgba32f) uniform readonly image2D prev_temporal_bounce_path_hit_pos;
@@ -52,6 +53,7 @@ layout(set = 0, binding = 53, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
+#include "ray_lightmap.glsl"
 #include "noise.glsl"
 #include "temporal_reservoir_rotation.glsl"
 #include "brdf.glsl"
@@ -62,6 +64,8 @@ layout(set = 0, binding = 53, std430) readonly buffer Vertices { Vertex a[]; } v
 
 const float shadow_offset_fudge = 0.1;
 #include "light_common.glsl"
+
+vec4 bounce_path_hit_lightmap_uv;
 
 #define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
 #define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
@@ -104,6 +108,8 @@ bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary pay
 
 	surface.emissive.rgb = vec3(0.0);
 	primaryRayHit(rq, payload, surface);
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_LIGHTCACHE_GI) != 0u)
+		bounce_path_hit_lightmap_uv = rayLightmapUV(rq);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;
@@ -113,6 +119,7 @@ bool traceBouncePathHit(vec3 origin, vec3 direction, inout RayPayloadPrimary pay
 
 void clearFreshLane(ivec2 pix)
 {
+	imageStore(out_bounce_path_fresh_lightmap_uv, pix, vec4(0));
 	imageStore(out_bounce_path_fresh_throughput, pix, vec4(0.0));
 	imageStore(out_bounce_path_fresh_hit_pos, pix, vec4(0.0));
 	imageStore(out_bounce_path_fresh_normals_gs, pix, vec4(0.0));
@@ -136,6 +143,7 @@ void storeFreshLane(
 {
 	imageStore(out_bounce_path_fresh_throughput, pix, vec4(stage_throughput, float(BRDF_TYPE_DIFFUSE)));
 	imageStore(out_bounce_path_fresh_hit_pos, pix, did_hit ? payload.hit_t : vec4(0.0));
+	imageStore(out_bounce_path_fresh_lightmap_uv, pix, did_hit ? bounce_path_hit_lightmap_uv : vec4(0));
 	imageStore(out_bounce_path_fresh_normals_gs, pix, did_hit ? surface.normals_gs : vec4(0.0));
 	imageStore(out_bounce_path_fresh_material_rmxx, pix, did_hit ? surface.material_rmxx : vec4(0.0));
 	imageStore(out_bounce_path_fresh_base_color_a, pix, did_hit ? LINEARtoSRGB(surface.base_color_a) : vec4(0.0));
@@ -379,6 +387,7 @@ void main()
 		}
 
 		RayPayloadPrimary payload;
+		bounce_path_hit_lightmap_uv = vec4(0);
 		payload.hit_t = vec4(0.0);
 		RayPrimarySurface surface;
 		surface.base_color_a = vec4(0.0);

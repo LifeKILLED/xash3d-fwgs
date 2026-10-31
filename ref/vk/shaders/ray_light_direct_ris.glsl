@@ -129,6 +129,10 @@ void risDirectDiffuseLoadShadingSurface(
 #include "light_ris.glsl"
 
 void main() {
+	// The lightmap-cache view shades its own probes. Do not also trace screen DI.
+	// This branch is uniform across the workgroup, before any RIS barriers.
+	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_DIFFUSE_CACHE)
+		return;
 #ifdef RAY_QUERY
 	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
 	const ivec2 res = ubo.ubo.res;
@@ -152,8 +156,9 @@ void main() {
 	vec3 geometry_normal = vec3(0.0, 0.0, 1.0);
 	vec3 shading_normal = vec3(0.0, 0.0, 1.0);
 	bool surface_active = false;
+	const bool direct_disabled = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_DIRECT) != 0u;
 
-	if (in_bounds) {
+	if (in_bounds && !direct_disabled) {
 		const vec4 material_data = imageLoad(material_rmxx, pix);
 		material.base_color = SRGBtoLINEAR(imageLoad(base_color_a, pix).rgb);
 		material.metalness = material_data.g;

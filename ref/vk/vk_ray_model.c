@@ -248,6 +248,10 @@ void RT_FrameAddModel( struct rt_model_s *model, rt_frame_add_model_t args ) {
 	Matrix3x4_Copy(draw_instance.transform_row, args.transform);
 	Matrix4x4_Copy(draw_instance.prev_transform_row, args.prev_transform);
 
+	if (args.lightmap_uv) {
+		Vector2Copy(*args.lightmap_uv, draw_instance.lightmap_uv);
+		draw_instance.lightmap_uv_valid = 1;
+	}
 	RT_VkAccelAddDrawInstance(&draw_instance);
 }
 

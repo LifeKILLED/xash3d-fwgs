@@ -5,6 +5,10 @@
 	"regir_onion_poly": {
 		"comp": "regir_onion_poly"
 	},
+	"lightcache_point": { "comp": "lightcache_point" },
+	"lightcache_poly": { "comp": "lightcache_poly" },
+	"lightcache_sh": { "comp": "lightcache_sh" },
+	"lightcache_sh_temporal": { "comp": "lightcache_sh_temporal" },
 	"primary_ray": {
 		/*
 		"rgen": "ray_primary",

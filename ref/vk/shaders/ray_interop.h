@@ -54,7 +54,7 @@ struct Vertex {
 	vec3 normal;
 	vec3 tangent;
 	vec2 gl_tc;
-	vec2 _unused_lm_tc;
+	vec2 lm_tc;
 	uint color;
 };
 
@@ -110,7 +110,8 @@ struct ModelHeader {
 	mat4 prev_transform;
 	vec4 color;
 	uint mode;
-	PAD(3)
+	uint lightmap_uv_valid;
+	vec2 lightmap_uv;
 };
 
 struct Kusok {
@@ -207,6 +208,7 @@ struct LightCluster {
 #define DEBUG_DISPLAY_DIFFUSE 16
 #define DEBUG_DISPLAY_SPECULAR 17
 #define DEBUG_DISPLAY_RESERVOIR_REUSING 18
+#define DEBUG_DISPLAY_DIRECT_DIFFUSE_CACHE 19
 // add more when needed
 
 #define DEBUG_FLAG_WHITE_FURNACE (1<<0)
@@ -226,6 +228,8 @@ struct LightCluster {
 #define RENDERER_FLAG_DIRECT_VISIBILITY_WEIGHT_CLAMP (1<<12)
 #define RENDERER_FLAG_DIRECT_VISIBILITY_MEDIAN (1<<13)
 #define RENDERER_FLAG_DIRECT_VISIBILITY_GRADIENT (1<<14)
+#define RENDERER_FLAG_DISABLE_DIRECT (1<<15)
+#define RENDERER_FLAG_LIGHTCACHE_GI (1<<16)
 
 #define ASVGF_COMPATIBILITY_STATS 0u
 #define ASVGF_COMPATIBILITY_LUMA_DELTA 1u
