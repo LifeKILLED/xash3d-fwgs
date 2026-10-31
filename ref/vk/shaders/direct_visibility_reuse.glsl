@@ -716,6 +716,14 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			}
 		}
 #endif
+#ifdef RIS_LIGHTCACHE_UV_IMAGE
+        for (int lobe = 0; lobe < 2; ++lobe) {
+            if (!risVisibilityHasSample(r[lobe])) {
+                r[lobe].reservoir = risSeedLightcacheReservoir(pix, pix, lobe, 1.0,
+                    P, geometry_N, N, V, material);
+            }
+        }
+#endif
 		const bool test_candidate_visibility = risVisibilityTestInitialCandidates();
 		for (uint j = 0u; j < candidate_count; ++j) {
 			RegirOnionCandidate proposal;

@@ -17,8 +17,7 @@ layout(set = 0, binding = LIGHTCACHE_GEOMETRY_BINDING, std430) readonly buffer L
 } lightcache_geometry;
 
 bool lightcacheEnabled() {
-    return ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_DIFFUSE_CACHE ||
-        (ubo.ubo.renderer_flags & RENDERER_FLAG_LIGHTCACHE_GI) != 0u;
+    return true; // RIS restarts consume the cache in ordinary rendering too.
 }
 
 bool lightcacheUpdateDisabled() {
@@ -88,4 +87,28 @@ bool lightcacheBilinearFootprint(uint index, vec2 uv, ivec2 res,
     }
     return true;
 }
+// RIS gathers the natural 2x2 LM neighborhood. Unlike SH filtering, it must
+// neither extrapolate nor clamp an outside tap back onto an island's edge.
+// Invalid taps are marked before conversion to packed storage coordinates.
+bool lightcacheReservoirFootprint(uint index, vec2 uv, ivec2 res, out ivec2 taps[4]) {
+    LightcacheProbe p = lightcache_geometry.probes[index];
+    vec2 source = uv * 1024.0 - vec2(0.5) - vec2(p.lm_s, p.lm_t);
+    vec2 coordinate = vec2(lightcacheProbeCoordinate(source.x, p.lm_width, p.width),
+                           lightcacheProbeCoordinate(source.y, p.lm_height, p.height));
+    ivec2 lo = ivec2(floor(coordinate));
+    bool have_tap = false;
+    for (int i = 0; i < 4; ++i) {
+        taps[i] = ivec2(-1);
+        ivec2 xy = lo + ivec2(i & 1, i >> 1);
+        if (any(lessThan(xy, ivec2(0))) ||
+            any(greaterThanEqual(xy, ivec2(p.width, p.height)))) continue;
+        uint neighbor = p.first + uint(xy.y) * p.width + uint(xy.x);
+        if (!lightcacheInCapacity(neighbor, res) ||
+            lightcache_geometry.probes[neighbor].island != p.island) continue;
+        taps[i] = lightcachePixel(neighbor, res);
+        have_tap = true;
+    }
+    return have_tap;
+}
+
 #endif

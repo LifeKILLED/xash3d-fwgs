@@ -33,6 +33,8 @@ layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_refraction_
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_refraction_prev_hit_pos;
 layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_refraction_ray_origin_length;
 
+layout(set = 0, binding = 89, rgba32f) uniform writeonly image2D out_refraction_lightmap_uv;
+
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
@@ -40,6 +42,8 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
+#include "ray_lightmap.glsl"
+vec4 ris_hit_lightmap_uv;
 #define REFRACTION_RIS_COORDS_ONLY 1
 #include "refraction_ris_common.glsl"
 #undef REFRACTION_RIS_COORDS_ONLY
@@ -121,6 +125,7 @@ void clearRefractionLayer(ivec2 pix)
 {
 	imageStore(out_refraction_throughput, pix, vec4(0.0));
 	imageStore(out_refraction_hit_pos, pix, vec4(0.0));
+	imageStore(out_refraction_lightmap_uv, pix, vec4(0.0));
 	imageStore(out_refraction_normals_gs, pix, vec4(0.0));
 	imageStore(out_refraction_material_rmxx, pix, vec4(0.0));
 	imageStore(out_refraction_base_color_a, pix, vec4(0.0));
@@ -142,6 +147,7 @@ void storeRefractionHit(
 {
 	imageStore(out_refraction_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_refraction_hit_pos, pix, payload.hit_t);
+	imageStore(out_refraction_lightmap_uv, pix, ris_hit_lightmap_uv);
 	imageStore(out_refraction_normals_gs, pix, surface.normals_gs);
 	imageStore(out_refraction_material_rmxx, pix, surface.material_rmxx);
 	imageStore(out_refraction_base_color_a, pix, LINEARtoSRGB(surface.base_color_a));
@@ -160,6 +166,7 @@ void storeRefractionMiss(
 {
 	imageStore(out_refraction_throughput, pix, vec4(0.0));
 	imageStore(out_refraction_hit_pos, pix, vec4(0.0));
+	imageStore(out_refraction_lightmap_uv, pix, vec4(0.0));
 	imageStore(out_refraction_normals_gs, pix, vec4(0.0));
 	imageStore(out_refraction_material_rmxx, pix, vec4(0.0));
 	imageStore(out_refraction_base_color_a, pix, vec4(0.0));
@@ -247,6 +254,7 @@ bool getRefractionHit(vec3 origin, vec3 direction, float max_dist, inout RayPayl
 
 	surface.emissive.rgb = vec3(0.0);
 	primaryRayHit(rq, payload, surface);
+	ris_hit_lightmap_uv = rayLightmapUV(rq);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;

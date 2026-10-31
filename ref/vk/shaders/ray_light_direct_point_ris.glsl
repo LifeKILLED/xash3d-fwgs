@@ -113,5 +113,6 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RIS_SPLIT_PREV_SPECULAR_RANDOM_IMAGE prev_temporal_ris_point_specular_random
 #endif
 #define RIS_DIRECT_INIT_HALF_RES 0
+#define RIS_LIGHTCACHE_UV_IMAGE surface_lightmap_uv
 #define LIGHT_POINT 1
 #include "ray_light_direct_ris.glsl"

@@ -35,6 +35,8 @@ layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_reflection_
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_reflection_direction_pdf;
 layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_reflection_ray_origin_length;
 
+layout(set = 0, binding = 89, rgba32f) uniform writeonly image2D out_reflection_lightmap_uv;
+
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
@@ -42,6 +44,8 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
+#include "ray_lightmap.glsl"
+vec4 ris_hit_lightmap_uv;
 #include "noise.glsl"
 #include "brdf.glsl"
 #include "skybox.glsl"
@@ -93,6 +97,7 @@ bool getReflectionHit(vec3 origin, vec3 direction, inout RayPayloadPrimary paylo
 
 	surface.emissive.rgb = vec3(0.0);
 	primaryRayHit(rq, payload, surface);
+	ris_hit_lightmap_uv = rayLightmapUV(rq);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;
@@ -105,6 +110,7 @@ void clearReflectionSample(ivec2 pix)
 {
 	imageStore(out_reflection_throughput, pix, vec4(0.0));
 	imageStore(out_reflection_hit_pos, pix, vec4(0.0));
+	imageStore(out_reflection_lightmap_uv, pix, vec4(0.0));
 	imageStore(out_reflection_normals_gs, pix, vec4(0.0));
 	imageStore(out_reflection_material_rmxx, pix, vec4(0.0));
 	imageStore(out_reflection_base_color_a, pix, vec4(0.0));
@@ -128,6 +134,7 @@ void storeReflectionHit(
 {
 	imageStore(out_reflection_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_reflection_hit_pos, pix, payload.hit_t);
+	imageStore(out_reflection_lightmap_uv, pix, ris_hit_lightmap_uv);
 	imageStore(out_reflection_normals_gs, pix, surface.normals_gs);
 	imageStore(out_reflection_material_rmxx, pix, surface.material_rmxx);
 	imageStore(out_reflection_base_color_a, pix, LINEARtoSRGB(surface.base_color_a));
@@ -147,6 +154,7 @@ void storeReflectionMiss(
 {
 	imageStore(out_reflection_throughput, pix, vec4(throughput, 0.0));
 	imageStore(out_reflection_hit_pos, pix, vec4(0.0));
+	imageStore(out_reflection_lightmap_uv, pix, vec4(0.0));
 	imageStore(out_reflection_normals_gs, pix, vec4(0.0));
 	imageStore(out_reflection_material_rmxx, pix, vec4(0.0));
 	imageStore(out_reflection_base_color_a, pix, vec4(0.0));

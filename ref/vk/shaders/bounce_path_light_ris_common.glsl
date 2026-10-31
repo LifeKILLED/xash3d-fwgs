@@ -52,7 +52,10 @@ bool risFindTemporalHistoryPixel(
 }
 
 #include "bounce_path_common.glsl"
+#define RIS_LIGHTCACHE_RESERVOIRS 1
 #include "light_ris.glsl"
+layout(set = 0, binding = 98, rgba32f) uniform readonly image2D bounce_path_fresh_lightmap_uv;
+layout(set = 0, binding = 99, rgba32f) uniform readonly image2D prev_temporal_bounce_path_lightmap_uv;
 
 RisTemporalReservoir bouncePathDecodeLocalReservoir(
 	vec4 encoded,
@@ -155,6 +158,7 @@ void bouncePathAddAlwaysSampledLights(
 
 bool bouncePathBuildVisibleLocalReservoir(
 	BouncePathSurface surface,
+	vec4 lightmap_uv,
 	ivec2 random_pix,
 	uint path_seed,
 	uint lane,
@@ -183,6 +187,11 @@ bool bouncePathBuildVisibleLocalReservoir(
 		lane,
 		uint(random_pix.x),
 		uint(random_pix.y) ^ uint(BOUNCE_PATH_LIGHT_SLOT_BASE)));
+
+    if (ris_active) {
+        reservoir = risSeedLightcacheReservoirUV(lightmap_uv, random_pix, 0, 1.0,
+            surface.P, surface.geometry_N, surface.transport_N, surface.V, surface.material);
+    }
 
 	if (ris_active && (RIS_UNIFORM_LIGHT_CANDIDATES != 0 ||
 		(ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u)) {
@@ -313,6 +322,7 @@ void main()
 			vec3 fresh_diffuse;
 			bouncePathBuildVisibleLocalReservoir(
 				fresh_surface,
+				imageLoad(bounce_path_fresh_lightmap_uv, output_pix),
 				output_pix,
 				fresh_seed,
 				lane,
@@ -344,6 +354,7 @@ void main()
 			// Only one point/poly lane is fully rebuilt per historical path and frame.
 			bouncePathBuildVisibleLocalReservoir(
 				history_surface,
+				imageLoad(prev_temporal_bounce_path_lightmap_uv, history_atlas_pix),
 				output_pix,
 				history_seed ^ 0x68737472u,
 				lane,

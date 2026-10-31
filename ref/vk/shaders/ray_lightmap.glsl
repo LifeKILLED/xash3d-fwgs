@@ -12,6 +12,7 @@ vec4 rayLightmapUV(rayQueryEXT rq) {
     vec2 a = GET_VERTEX(uint(getIndex(base)) + k.vertex_offset).lm_tc;
     vec2 b = GET_VERTEX(uint(getIndex(base + 1u)) + k.vertex_offset).lm_tc;
     vec2 c = GET_VERTEX(uint(getIndex(base + 2u)) + k.vertex_offset).lm_tc;
+    // Keep the exact fractional hit coordinate; only cache lookup selects texels.
     vec2 uv = a * (1.0 - bary.x - bary.y) + b * bary.x + c * bary.y;
     return vec4(uv, any(notEqual(uv, vec2(0))) ? 1.0 : 0.0, 0);
 }

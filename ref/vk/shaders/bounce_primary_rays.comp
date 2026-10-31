@@ -32,6 +32,8 @@ layout(set = 0, binding = 26, rgba16f) uniform writeonly image2D out_bounce_emis
 layout(set = 0, binding = 27, rgba32f) uniform writeonly image2D out_first_bounce_direction;
 layout(set = 0, binding = 28, rgba32f) uniform writeonly image2D out_bounce_ray_origin_length;
 
+layout(set = 0, binding = 89, rgba32f) uniform writeonly image2D out_bounce_lightmap_uv;
+
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
 layout(set = 0, binding = 31, std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
 layout(set = 0, binding = 32, std430) readonly buffer Indices { uint16_t a[]; } indices;
@@ -39,6 +41,8 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
+#include "ray_lightmap.glsl"
+vec4 ris_hit_lightmap_uv;
 #include "noise.glsl"
 #include "brdf.glsl"
 #define BOUNCE_RIS_COORDS_ONLY 1
@@ -91,6 +95,7 @@ bool getBounceHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload, 
 
 	surface.emissive.rgb = vec3(0.0);
 	primaryRayHit(rq, payload, surface);
+	ris_hit_lightmap_uv = rayLightmapUV(rq);
 	if (payload.hit_t.w < 0.0) {
 		payload.hit_t.w = -payload.hit_t.w;
 		return false;
@@ -103,6 +108,7 @@ void clearBounceSample(ivec2 pix)
 {
 	imageStore(out_bounce_throughput, pix, vec4(0.0));
 	imageStore(out_bounce_hit_pos, pix, vec4(0.0));
+	imageStore(out_bounce_lightmap_uv, pix, vec4(0.0));
 	imageStore(out_bounce_normals_gs, pix, vec4(0.0));
 	imageStore(out_bounce_material_rmxx, pix, vec4(0.0));
 	imageStore(out_bounce_base_color_a, pix, vec4(0.0));
@@ -124,6 +130,7 @@ void storeBounceHit(
 {
 	imageStore(out_bounce_throughput, pix, vec4(throughput, float(brdf_type)));
 	imageStore(out_bounce_hit_pos, pix, payload.hit_t);
+	imageStore(out_bounce_lightmap_uv, pix, ris_hit_lightmap_uv);
 	imageStore(out_bounce_normals_gs, pix, surface.normals_gs);
 	imageStore(out_bounce_material_rmxx, pix, surface.material_rmxx);
 	imageStore(out_bounce_base_color_a, pix, LINEARtoSRGB(surface.base_color_a));
@@ -143,6 +150,7 @@ void storeBounceMiss(
 {
 	imageStore(out_bounce_throughput, pix, vec4(throughput, float(brdf_type)));
 	imageStore(out_bounce_hit_pos, pix, vec4(0.0));
+	imageStore(out_bounce_lightmap_uv, pix, vec4(0.0));
 	imageStore(out_bounce_normals_gs, pix, vec4(0.0));
 	imageStore(out_bounce_material_rmxx, pix, vec4(0.0));
 	imageStore(out_bounce_base_color_a, pix, vec4(0.0));

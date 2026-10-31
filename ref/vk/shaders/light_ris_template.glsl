@@ -536,6 +536,10 @@ bool risShadeUnifiedReservoir(
 #endif
 }
 
+#if defined(RIS_LIGHTCACHE_UV_IMAGE) || defined(RIS_LIGHTCACHE_RESERVOIRS)
+#include "lightcache_reservoir_sampling.glsl"
+#endif
+
 #if RIS_VISIBILITY_REUSE_SUPPORTED
 #include "direct_visibility_reuse.glsl"
 #endif
@@ -606,6 +610,17 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 				P, geometry_N, N, confidence_N, V, material, pix);
 		}
 	}
+#endif
+
+#ifdef RIS_LIGHTCACHE_UV_IMAGE
+    if (ris_active) {
+        for (int lobe = 0; lobe < RIS_UNIFIED_RESERVOIR_COUNT; ++lobe) {
+            if (!risTemporalReservoirValid(reservoirs[lobe])) {
+                reservoirs[lobe] = risSeedLightcacheReservoir(surface_pix, pix, lobe,
+                    inv_discrete_light_pdf, P, geometry_N, N, V, material);
+            }
+        }
+    }
 #endif
 
 #if !defined(RIS_DISABLE_CANDIDATES) || !RIS_DISABLE_CANDIDATES

@@ -7,7 +7,7 @@ rt_debug_display_only DIRECT_DIFFUSE_CACHE
 ```
 
 An empty `rt_debug_display_only` restores the usual rendering. Cache passes run
-when this view or `rt_lightcache_gi` is enabled; their images belong to the
+in ordinary rendering as well to seed RIS restarts; their images belong to the
 ordinary screen-sized meatpipe graph.
 In the cache view, the ordinary screen `light_direct_point` and
 `light_direct_poly` shaders return before lighting or shadow rays. Their dispatch
@@ -34,6 +34,36 @@ for both candidate paths, using the shared four-tap SH coefficient filter and
 island-edge extrapolation. Missing cache bindings contribute no direct light;
 they do not fall back to full point/poly lighting. All added path images use
 the ordinary screen extent and existing resource discovery.
+
+## RIS restart seeding
+
+When temporal validation leaves a lobe without a reservoir (including missing
+reprojection and lifetime expiry), direct and secondary RIS consume the four
+same-island lightmap cache taps before their ordinary candidates. Secondary passes use the LM UV of their own ray hit to address the same diffuse
+cache; reflection/refraction do not have separate lighting caches. Compound GI
+path slots do the same whenever rebuilt. Valid history is retained without
+cache seeding. Missing UV, stale cache state, invalid lights and empty reservoirs
+are skipped. Taps outside the original island are rejected, not clamped or
+replaced by edge texels.
+
+LM UV remain fractional: brush UV are barycentrically interpolated at the ray
+hit, studio bindings use float coordinates, and UV images are RGBA32F. Before
+selecting the 2x2 footprint, RIS jitters the hit UV independently in X/Y by
+[-0.5, 0.5) source-lightmap texels (1/1024 in normalized atlas coordinates).
+The random offset changes with the frame seed. Island lookup uses the original
+UV, so jitter cannot cross into another packed island. Stored UV are unchanged.
+
+The four taps are adjacent texels in the island-local lightmap cache grid,
+not screen-space neighbors. Each valid neighbor contributes one proposal (M = 1),
+using its normalized estimator W = weight_sum / (source_M * source_target).
+Selection mass is current_target * W * cached_visibility. The source's temporal
+sample count and total mass are not imported, so four cache taps cannot bring
+hundreds of historical candidates into a newly reset screen reservoir. All four neighbors
+enter without bilinear attenuation; only UV dithering varies the footprint. The target is evaluated
+at the current receiver without a shadow ray. Unlike SH coefficients, reservoir
+proposals do not use interpolation or signed edge extrapolation. Normal candidates and final
+shading keep their existing behavior. Cache updates can still be frozen with
+`rt_disable_lightcache_update`.
 
 ## Geometry and addressing
 
