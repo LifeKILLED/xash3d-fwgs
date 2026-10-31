@@ -35,6 +35,16 @@ island-edge extrapolation. Missing cache bindings contribute no direct light;
 they do not fall back to full point/poly lighting. All added path images use
 the ordinary screen extent and existing resource discovery.
 
+## Current reservoir debug view
+
+`rt_debug_display_only LIGHT_CACHE` displays the current-frame point and polygon
+cache reservoir estimator outputs at the visible surface's shading normal.
+It reads raw cache radiance/direction images directly, with nearest-texel lookup:
+no SH conversion, cache spatial filter, SH temporal filter, material base color,
+or metalness-dependent reflection projection. Reservoir temporal reuse inside
+the cache updater remains active. Missing UV is black; capacity overflow is
+magenta. Screen direct-light evaluation is skipped in this debug view.
+
 ## RIS restart seeding
 
 When temporal validation leaves a lobe without a reservoir (including missing
@@ -95,6 +105,10 @@ All rendered submodels of the entity use that same binding. Vanilla branches
 that return sky/fullbright without a lightmap hit have no cache binding.
 
 ## Lighting
+
+Cache reservoirs use an independent random lifetime reset with probability
+`1/5000` per frame (mean lifetime 5000 frames). Invalid lights and visibility
+failures still invalidate history. Screen RIS lifetimes are independent.
 
 Point and polygon passes use the existing concrete light samplers, reservoir
 encoding/merge/reweight helpers, paired permutations, visibility arithmetic, and

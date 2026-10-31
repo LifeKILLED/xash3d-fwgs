@@ -1,6 +1,8 @@
 #include "lightcache_geometry.glsl"
 #include "utils.glsl"
 bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N);
+// Cache history lives about 5000 frames on average; screen RIS keeps its own lifetime.
+#define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 5000.0)
 #include "light_ris_common.glsl"
 #include "regir_onion.glsl"
 // The cache has no screen-space surface; these functions only satisfy the

@@ -144,7 +144,8 @@ void risDirectDiffuseLoadShadingSurface(
 void main() {
 	// The lightmap-cache view shades its own probes. Do not also trace screen DI.
 	// This branch is uniform across the workgroup, before any RIS barriers.
-	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_DIFFUSE_CACHE)
+	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_DIFFUSE_CACHE ||
+        ubo.ubo.debug_display_only == DEBUG_DISPLAY_LIGHT_CACHE)
 		return;
 #ifdef RAY_QUERY
 	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);

@@ -35,6 +35,11 @@ layout(set = 0, binding = 14, rgba32f) uniform readonly image2D position_t;
 
 layout(set = 0, binding = 15, rgba32f) uniform readonly image2D surface_lightmap_uv;
 #include "lightcache_sampling.glsl"
+// Raw current-frame cache estimator outputs; no SH or spatial/temporal filter.
+layout(set = 0, binding = 93, rgba16f) uniform readonly image2D lightcache_point_radiance;
+layout(set = 0, binding = 94, rgba16f) uniform readonly image2D lightcache_point_direction;
+layout(set = 0, binding = 95, rgba16f) uniform readonly image2D lightcache_poly_radiance;
+layout(set = 0, binding = 96, rgba16f) uniform readonly image2D lightcache_poly_direction;
 
 //#define DEBUG_NOISE
 #ifdef DEBUG_NOISE
@@ -101,6 +106,25 @@ void main() {
 
 	vec3 geometry_normal, shading_normal;
 	readNormals(pix, geometry_normal, shading_normal);
+
+    if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_LIGHT_CACHE) {
+        const vec4 uv = imageLoad(surface_lightmap_uv, pix);
+        const uint encoded = has_primary_surface && uv.z > 0.0 ? lightcacheLookup(uv.xy) : 0u;
+        vec3 color = vec3(0.0);
+        if (encoded > 0u && lightcacheInCapacity(encoded - 1u, res)) {
+            const ivec2 tap = lightcachePixel(encoded - 1u, res);
+            // Cache radiance has the probe's receiver cosine removed. Apply
+            // this visible surface's shading normal to each selected direction.
+            color = imageLoad(lightcache_point_radiance, tap).rgb *
+                max(dot(shading_normal, imageLoad(lightcache_point_direction, tap).xyz), 0.0);
+            color += imageLoad(lightcache_poly_radiance, tap).rgb *
+                max(dot(shading_normal, imageLoad(lightcache_poly_direction, tap).xyz), 0.0);
+        } else if (encoded > 0u) {
+            color = vec3(1.0, 0.0, 1.0);
+        }
+        imageStore(out_dest, pix, vec4(LINEARtoSRGB(color), 1.0));
+        return;
+    }
 
 	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_DIRECT_DIFFUSE_CACHE) {
         vec4 uv = imageLoad(surface_lightmap_uv, pix);

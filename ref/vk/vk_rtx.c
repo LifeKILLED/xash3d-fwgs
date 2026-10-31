@@ -527,6 +527,7 @@ static void parseDebugDisplayValue( void ) {
 	X(INDIRECT, "indirect lighting only (bounced), diffuse and specular together") \
 	X(INDIRECT_DIFF, "indirect diffuse only") \
 	X(DIRECT_DIFFUSE_CACHE, "direct diffuse lightmap SH cache") \
+	X(LIGHT_CACHE, "current-frame light cache reservoirs on shading normal") \
 	X(INDIRECT_SPEC, "indirect specular only") \
 	X(TRIHASH, "each triangle is drawn with random color") \
 	X(MATERIAL, "red = roughness, green = metalness") \
