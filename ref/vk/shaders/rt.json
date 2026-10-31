@@ -103,22 +103,14 @@
 	"bounce_path_resolve": {
 		"comp": "bounce_path_resolve"
 	},
+	"reflection_path_prepare": {
+		"comp": "reflection_path_prepare"
+	},
+	"reflection_path_claim": {
+		"comp": "reflection_path_claim"
+	},
 	"reflection_primary_rays": {
 		"comp": "reflection_primary_rays"
-	},
-	// "reflection_legacy_blending": {
-	// 	"rgen": "reflection_legacy_blending_pipeline",
-	// 	"miss": ["empty"],
-	// 	"hit": [{}, {}, {"any": "trace_post_legacy"}]
-	// },
-	"reflection_legacy_blending": {
-		"comp": "reflection_legacy_blending_query"
-	},
-	"reflection_light_poly_ris": {
-		"comp": "reflection_light_poly_ris"
-	},
-	"reflection_light_point_ris": {
-		"comp": "reflection_light_point_ris"
 	},
 	"reflection_light_ris_resolve": {
 		"comp": "reflection_light_ris_resolve"

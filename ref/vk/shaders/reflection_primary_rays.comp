@@ -24,6 +24,18 @@ layout(set = 0, binding = 10, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 11, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 12, rgba8) uniform readonly image2D material_rmxx;
 layout(set = 0, binding = 13, rgba8) uniform readonly image2D base_color_a;
+layout(set = 0, binding = 14, rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set = 0, binding = 15, rgba32f) uniform readonly image2D reflection_path_reprojection;
+layout(set = 0, binding = 16, rgba16f) uniform readonly image2D reflection_path_history_ready;
+layout(set = 0, binding = 17, rgba32f) uniform readonly image2D prev_reflection_hit_pos;
+
+// Selected random pair, primary roughness, and frame stamp. The reservoir stores
+// target, weight sum, effective candidate count, and normalized output weight.
+layout(set = 0, binding = 40, rgba32f) uniform readonly image2D prev_temporal_reflection_path_random;
+layout(set = 0, binding = 41, rgba32f) uniform readonly image2D prev_temporal_reflection_path_reservoir;
+layout(set = 0, binding = 43, rgba32f) uniform writeonly image2D out_temporal_reflection_path_random;
+layout(set = 0, binding = 44, rgba32f) uniform writeonly image2D out_temporal_reflection_path_reservoir;
+layout(set = 0, binding = 45, rgba16f) uniform writeonly image2D out_temporal_reflection_path_normals;
 
 layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_reflection_throughput;
 layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_reflection_hit_pos;
@@ -49,6 +61,14 @@ vec4 ris_hit_lightmap_uv;
 #include "noise.glsl"
 #include "brdf.glsl"
 #include "skybox.glsl"
+#include "trace_post_query.glsl"
+#include "lightcache_sampling.glsl"
+#include "reflection_path_config.glsl"
+#include "reflection_path_weights.glsl"
+
+#define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
+#include "temporal_reprojection.glsl"
+#undef LOAD_REFLECTION_RAY_LENGTH
 
 struct MaterialEx {
 	MaterialProperties prop;
@@ -65,8 +85,10 @@ vec3 offsetReflectionRayOrigin(vec3 hit_pos, vec3 geometry_normal, vec3 bounce_d
 	return hit_pos + geometry_normal * (eps * normal_sign);
 }
 
-bool getReflectionHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload, inout RayPrimarySurface surface)
+bool getReflectionHit(vec3 origin, vec3 direction, inout RayPayloadPrimary payload,
+	inout RayPrimarySurface surface, out bool polygon_light)
 {
+	polygon_light = false;
 	rayQueryEXT rq;
 	const uint flags = 0
 		| gl_RayFlagsCullFrontFacingTrianglesEXT
@@ -96,6 +118,11 @@ bool getReflectionHit(vec3 origin, vec3 direction, inout RayPayloadPrimary paylo
 	}
 
 	surface.emissive.rgb = vec3(0.0);
+	const uint hit_kusok_index = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, true) +
+		rayQueryGetIntersectionGeometryIndexEXT(rq, true);
+	const Kusok hit_kusok = getKusok(hit_kusok_index);
+	polygon_light = hit_kusok.material.tex_base_color != TEX_BASE_SKYBOX &&
+		hit_kusok.polygon_light != 0u;
 	primaryRayHit(rq, payload, surface);
 	ris_hit_lightmap_uv = rayLightmapUV(rq);
 	if (payload.hit_t.w < 0.0) {
@@ -118,6 +145,9 @@ void clearReflectionSample(ivec2 pix)
 	imageStore(out_reflection_emissive, pix, vec4(0.0));
 	imageStore(out_reflection_direction_pdf, pix, vec4(0.0));
 	imageStore(out_reflection_ray_origin_length, pix, vec4(0.0));
+	imageStore(out_temporal_reflection_path_random, pix, vec4(0.0));
+	imageStore(out_temporal_reflection_path_reservoir, pix, vec4(0.0));
+	imageStore(out_temporal_reflection_path_normals, pix, vec4(0.0));
 }
 
 void storeReflectionHit(
@@ -164,92 +194,193 @@ void storeReflectionMiss(
 	imageStore(out_reflection_ray_origin_length, pix, vec4(ray_origin, ray_length));
 }
 
+struct ReflectionPathSample {
+	RayPayloadPrimary payload;
+	RayPrimarySurface surface;
+	vec4 lightmap_uv;
+	vec3 throughput;
+	vec3 emissive;
+	vec3 direction;
+	vec3 origin;
+	vec3 contribution;
+	float pdf;
+	bool hit;
+};
+
+ReflectionPathSample traceReflectionPath(vec2 random_pair, vec3 P, vec3 V, MaterialEx mat)
+{
+	ReflectionPathSample candidate;
+	candidate.payload.hit_t = vec4(0.0);
+	candidate.surface.base_color_a = vec4(0.0);
+	candidate.surface.emissive = vec4(0.0);
+	candidate.surface.material_rmxx = vec4(0.0);
+	candidate.surface.normals_gs = vec4(0.0);
+	candidate.lightmap_uv = vec4(0.0);
+	candidate.throughput = vec3(0.0);
+	candidate.emissive = vec3(0.0);
+	candidate.direction = vec3(0.0);
+	candidate.origin = vec3(0.0);
+	candidate.contribution = vec3(0.0);
+	candidate.pdf = 0.0;
+	candidate.hit = false;
+
+	vec3 direction;
+	vec3 throughput = vec3(1.0);
+	const int brdf_type = brdfGetSample(random_pair, mat.prop, V,
+		mat.geometry_normal, mat.shading_normal, direction, throughput);
+	if (brdf_type == BRDF_TYPE_NONE || IS_INVALIDV(direction) || IS_INVALIDV(throughput) ||
+		all(lessThan(throughput, kThrougputExtinctionThreshold))) {
+		// This is a black candidate of the uniform random domain, not an absent
+		// candidate. Its count and small positive target still enter the reservoir.
+		return candidate;
+	}
+
+	candidate.direction = direction;
+	candidate.pdf = ggxReflectionPdf(mat.shading_normal, V, direction, mat.prop.roughness);
+	candidate.origin = offsetReflectionRayOrigin(P, mat.geometry_normal, direction, kRayNormalOffsetFudge);
+	ris_hit_lightmap_uv = vec4(0.0);
+	bool polygon_light;
+	candidate.hit = getReflectionHit(candidate.origin, direction, candidate.payload, candidate.surface, polygon_light);
+	candidate.lightmap_uv = candidate.hit ? ris_hit_lightmap_uv : vec4(0.0);
+
+	// Composite every candidate before selecting it. Applying legacy blending
+	// only to the winner would leave translucent emission out of its target.
+	TracePostLegacyPayload legacy = tracePostLegacyQuery(candidate.origin, direction, candidate.payload.hit_t.w);
+	const vec4 blend = tracePostCompositeLegacy(legacy);
+	// Only brush polygon lights belong to DI. Sky and emissive effects,
+	// including solid beams in the opaque path, retain their own emission.
+	const vec3 background_emissive = polygon_light ? vec3(0.0) : candidate.surface.emissive.rgb;
+	candidate.emissive = throughput * (SRGBtoLINEAR(blend.rgb) + background_emissive * blend.a);
+	// Polygon emitters belong to direct specular. Keep their intersection as
+	// an occluder, but exclude both emission and cached surface shading from
+	// reflection. Legacy geometry in front of the emitter still contributes.
+	candidate.throughput = polygon_light ? vec3(0.0) : throughput * blend.a;
+	candidate.contribution = candidate.emissive;
+	if (candidate.hit && !polygon_light) {
+		const vec3 N = normalDecode(candidate.surface.normals_gs.zw);
+		const vec3 cached_light = lightcacheSampleLighting(candidate.lightmap_uv,
+			N, -direction, candidate.surface.material_rmxx.g);
+		candidate.contribution += candidate.throughput * candidate.surface.base_color_a.rgb * cached_light;
+	}
+	candidate.contribution = max(candidate.contribution, vec3(0.0));
+	return candidate;
+}
+
+bool findReflectionPathHistory(ivec2 pix, out ivec2 history_pix, out vec4 random_meta, out vec4 reservoir)
+{
+	history_pix = ivec2(-1);
+	random_meta = vec4(0.0);
+	reservoir = vec4(0.0);
+#if REFLECTION_PATH_TEMPORAL_REUSE
+	if (imageLoad(reflection_path_history_ready, pix).r <= 0.5) {
+		return false;
+	}
+	history_pix = ivec2(imageLoad(reflection_path_reprojection, pix).xy) - ivec2(1);
+	random_meta = imageLoad(prev_temporal_reflection_path_random, history_pix);
+	reservoir = imageLoad(prev_temporal_reflection_path_reservoir, history_pix);
+	return true; // Prepare validated metadata; claim removed local copies.
+#else
+	return false;
+#endif
+}
+
+float reflectionPathHistoryCap(ivec2 pix, ivec2 history_pix, ReflectionPathSample history)
+{
+	const vec3 prev_P = imageLoad(geometry_prev_position, pix).xyz;
+	const vec3 camera = ubo.ubo.inv_view[3].xyz;
+	const vec3 prev_camera = ubo.ubo.prev_inv_view[3].xyz;
+	const float relative_camera_motion = length(camera - prev_camera) / max(length(prev_P - prev_camera), 1.0);
+	const float pixel_motion = max(length(vec2(history_pix - pix)) - 0.5, 0.0);
+	const float motion = max(pixel_motion / REFLECTION_PATH_MOTION_PIXELS,
+		relative_camera_motion / REFLECTION_PATH_RELATIVE_CAMERA_MOTION);
+	float cap = reflectionPathConfidenceCap(motion, REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES,
+		REFLECTION_PATH_MOVING_HISTORY_CAP);
+	const vec4 old_hit = imageLoad(prev_reflection_hit_pos, history_pix);
+	if ((old_hit.w > 0.0) != history.hit || dot(history.direction, history.direction) <= 1e-6) {
+		return 1.0;
+	}
+	if (history.hit) {
+		const float relative_shift = length(history.payload.hit_t.xyz - old_hit.xyz) /
+			max(length(old_hit.xyz - prev_P), 1.0);
+		cap = min(cap, reflectionPathConfidenceCap(relative_shift / REFLECTION_PATH_RELATIVE_HIT_CHANGE,
+			REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES, 1.0));
+	}
+	return cap;
+}
+
 void main()
 {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
 	if (any(greaterThanEqual(pix, ubo.ubo.res))) {
 		return;
 	}
-
 	clearReflectionSample(pix);
-
-	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REFLECTION) != 0) {
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REFLECTION) != 0u) {
 		return;
 	}
-
 	const vec4 pos_t = imageLoad(position_t, pix);
 	if (pos_t.w <= 0.0) {
 		return;
 	}
 
-	rand01_state = ubo.ubo.random_seed
-		+ uint(pix.x) * 1833u
-		+ uint(pix.y) * 31337u
-		+ 0x7265666cu;
-
+	rand01_state = ubo.ubo.random_seed + uint(pix.x) * 1833u + uint(pix.y) * 31337u + 0x7265666cu;
+	// Reserve selection randomness before either ray changes the RNG state.
+	vec2 selected_random = vec2(rand01(), rand01());
+	const float selection_random = rand01();
 	const vec2 uv = (vec2(pix) + vec2(0.5)) / vec2(ubo.ubo.res) * 2.0 - 1.0;
 	const vec4 target = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1.0, 1.0);
-	const vec3 direction = normalize((ubo.ubo.inv_view * vec4(target.xyz, 0.0)).xyz);
-
-	const vec4 material_data = imageLoad(material_rmxx, pix);
+	const vec3 V = -normalize((ubo.ubo.inv_view * vec4(target.xyz, 0.0)).xyz);
 	const vec4 packed_normal = imageLoad(normals_gs, pix);
-
 	MaterialEx mat;
 	mat.prop.base_color = vec3(1.0);
 	mat.prop.metalness = 1.0;
-	mat.prop.roughness = material_data.r;
+	mat.prop.roughness = imageLoad(material_rmxx, pix).r;
 	mat.geometry_normal = normalDecode(packed_normal.xy);
 	mat.shading_normal = normalDecode(packed_normal.zw);
 
-	vec3 reflection_direction;
-	vec3 throughput = vec3(1.0);
-	const vec2 rnd = vec2(rand01(), rand01());
-	const int brdf_type = brdfGetSample(rnd, mat.prop, -direction, mat.geometry_normal, mat.shading_normal, reflection_direction, throughput);
-	if (brdf_type == BRDF_TYPE_NONE || any(isnan(reflection_direction))) {
-		return;
+	ReflectionPathSample selected = traceReflectionPath(selected_random, pos_t.xyz, V, mat);
+	float selected_target = reflectionPathTarget(selected.contribution);
+	float weight_sum = selected_target;
+	float M = 1.0;
+	vec4 history_random;
+	vec4 history_reservoir;
+	ivec2 history_pix;
+	if (findReflectionPathHistory(pix, history_pix, history_random, history_reservoir)) {
+		// Identity shift in [0,1)^2: retrace the historical random pair through
+		// current GGX, current geometry, legacy blending, and current SH lighting.
+		// Throughput already belongs to this random-domain estimator. Dividing
+		// by ggxReflectionPdf again would double-apply the sampling correction.
+		ReflectionPathSample history = traceReflectionPath(history_random.xy, pos_t.xyz, V, mat);
+		const float history_target = reflectionPathTarget(history.contribution);
+		const float history_cap = reflectionPathHistoryCap(pix, history_pix, history);
+		const float history_M = reflectionPathCappedCount(history_reservoir.z, history_cap);
+		const float history_mass = reflectionPathHistoryMass(history_reservoir.x,
+			history_reservoir.y, history_reservoir.z, history_target, history_cap);
+		weight_sum += history_mass;
+		M += history_M;
+		const bool select_smaller = selection_random < reflectionPathSmallProbability(selected_target, history_mass);
+		const bool select_history = history_mass <= selected_target ? select_smaller : !select_smaller;
+		if (select_history) {
+			selected = history;
+			selected_random = history_random.xy;
+			selected_target = history_target;
+		}
 	}
+	const float output_weight = reflectionPathOutputWeight(weight_sum, M, selected_target);
+	const float stored_M = reflectionPathCappedCount(M, REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES);
+	imageStore(out_temporal_reflection_path_reservoir, pix,
+		vec4(selected_target, reflectionPathCappedMass(weight_sum, M, REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES), stored_M, output_weight));
+	imageStore(out_temporal_reflection_path_random, pix,
+		vec4(selected_random, mat.prop.roughness, float((ubo.ubo.frame_counter & 65535u) + 1u)));
+	imageStore(out_temporal_reflection_path_normals, pix, packed_normal);
 
-	const float reflection_pdf = ggxReflectionPdf(mat.shading_normal, -direction, reflection_direction, mat.prop.roughness);
-
-	if (IS_INVALIDV(throughput)) {
-		throughput = vec3(0.0);
+	if (selected.hit) {
+		ris_hit_lightmap_uv = selected.lightmap_uv;
+		storeReflectionHit(pix, selected.payload, selected.surface, selected.throughput,
+			selected.emissive, -selected.direction, selected.payload.hit_t.xyz - pos_t.xyz,
+			selected.pdf, selected.origin, selected.payload.hit_t.w);
+	} else {
+		storeReflectionMiss(pix, selected.throughput, selected.emissive,
+			-selected.direction, selected.origin, selected.payload.hit_t.w);
 	}
-	if (all(lessThan(throughput, kThrougputExtinctionThreshold))) {
-		return;
-	}
-
-	RayPayloadPrimary payload;
-	payload.hit_t = vec4(0.0);
-	RayPrimarySurface surface;
-	surface.base_color_a = vec4(0.0);
-	surface.emissive = vec4(0.0);
-	surface.material_rmxx = vec4(0.0);
-	surface.normals_gs = vec4(0.0);
-
-	const vec3 reflection_ray_origin = offsetReflectionRayOrigin(pos_t.xyz, mat.geometry_normal, reflection_direction, kRayNormalOffsetFudge);
-	const bool did_hit = getReflectionHit(reflection_ray_origin, reflection_direction, payload, surface);
-
-	if (!did_hit) {
-		storeReflectionMiss(
-			pix,
-			throughput,
-			surface.emissive.rgb,
-			-reflection_direction,
-			reflection_ray_origin,
-			payload.hit_t.w);
-		return;
-	}
-
-	const vec3 segment = payload.hit_t.xyz - pos_t.xyz;
-	storeReflectionHit(
-		pix,
-		payload,
-		surface,
-		throughput,
-		vec3(0.0),
-		-reflection_direction,
-		segment,
-		reflection_pdf,
-		reflection_ray_origin,
-		payload.hit_t.w);
 }

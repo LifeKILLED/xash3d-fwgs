@@ -35,6 +35,101 @@ island-edge extrapolation. Missing cache bindings contribute no direct light;
 they do not fall back to full point/poly lighting. All added path images use
 the ordinary screen extent and existing resource discovery.
 
+## Reflection lighting
+
+Reflection hits always use the current temporal SH lightmap cache, independently
+of `rt_lightcache_gi` and primary roughness. Resolve uses the same four-tap cache
+sampling and metalness-dependent SH projection as compound GI, multiplied by
+the secondary material base color and reflection throughput. The reflection
+point/poly RIS lighting passes are omitted from the render graph, so they do not
+sample lights or trace shadow rays.
+
+`reflection_primary_rays` maintains a temporal reservoir of reflected paths.
+Every active primary pixel generates one fresh GGX random pair and, when primary
+plane depth, geometry/shading normals, roughness and frame continuity accept
+history, replays the selected historical pair from the current primary surface.
+Both rays trace current geometry, composite legacy blended geometry, and sample
+the current SH cache. Their targets are luminance of the complete path estimator
+(including secondary base color, throughput, sky and emission), floored at 1e-6.
+Black/geometrically rejected GGX samples still count as candidates. The old
+standalone reflection legacy-blending pass is omitted to avoid compositing twice.
+Committed opaque/alpha-tested hits tagged with `Kusok.polygon_light` are excluded
+from reflection: both emission and cached surface shading are suppressed, since
+polygon emitters belong to direct specular. They still terminate/occlude the
+ray; geometry behind an emitter is not exposed. Sky and legacy emission in
+front of the hit remain included. Rejected light hits still count as black
+reservoir candidates. The tag identifies emissive brush surfaces, rather than
+all positive emissive materials: sky and effect geometry (including opaque
+solid beams) retain emission. The tag occupies existing Kusok padding.
+
+The reservoir operates in the uniform GGX random-pair domain, not secondary-hit
+area or solid angle. Replay has an identity shift/Jacobian there; the existing
+GGX sample throughput is preserved without dividing by the direction PDF again.
+Historical target is re-evaluated every frame. Its mass is reweighted by
+`new_target / old_target`, and effective count and mass are capped proportionally
+at 64 samples. Resolve multiplies the entire winning path, including sky/legacy
+emission, by `weight_sum / (M * selected_target)` once. G-buffer direction and
+distance describe the winning current-frame path for reconstruction/denoising.
+
+The three ping-pong `temporal_reflection_path_*` images store random pair +
+roughness/frame stamp, reservoir target/mass/count/weight, and primary normals.
+Geometry is retraced rather than retained, so moving secondary surfaces and
+changing visibility cannot reuse stale hit shading. This first version uses
+primary-surface reprojection and temporal replay only; spatial resampling and
+reflection-parallax history lookup are not implemented. An accepted historical
+candidate costs a second opaque/alpha ray and legacy-blending query per pixel.
+SH lighting remains the shared diffuse-cache approximation for all roughnesses.
+
+Before tracing, `reflection_path_prepare` validates each primary pixel's history
+and records its source pixel and selected GGX random pair. `reflection_path_claim`
+then compares identities with four axial neighbors (left/right/up/down). A lower
+hashed owner key wins (pixel coordinates break ties); other copies discard history and
+use their fresh candidate. Comparing random pairs also catches existing copies
+in distinct historical texels during camera retreat. This is local thinning:
+large patches can retain spatially separated owners, but identical surviving
+owners cannot be axial neighbors. Diagonals are deliberately excluded. The claim
+pass always issues four neighbor reads without early loop exits. Prepare stores
+an 8-bit owner key in the fractional part of source X (`key / 512`, below 0.5),
+so claim needs no neighbor hashes or extra key image; integer conversion still
+recovers the source coordinate. Neither pass traces rays.
+
+Motion reduces the history confidence cap from 64 toward 4 based on reprojection
+displacement and camera translation relative to primary depth. After replay,
+secondary-hit displacement further reduces confidence; switching hit/miss or
+replaying an invalid GGX direction limits history to one effective sample.
+Mass and effective count are reduced together, preserving the historical
+normalized estimator instead of multiplying reflected radiance by a penalty.
+For equal normalized path weights/targets, a fresh path wins about 1/5 of merges
+with four historical samples, rather than 1/65 with a saturated static history.
+An independent 1/128 restart probability also prevents indefinitely persistent
+history without using brightness to decide resets. In static unchanged regions,
+confidence can build back up toward 64.
+
+Identity-based thinning and transport-dependent confidence are adaptation
+heuristics, not a guarantee of an unbiased full ReSTIR PT estimator. They trade
+some temporal stability for faster replacement during motion. Reprojection is
+still on the primary surface; there is no parallax lookup or spatial path reuse.
+
+Compile-time controls live in `shaders/reflection_path_config.glsl`:
+`REFLECTION_PATH_TEMPORAL_REUSE=0` selects only the fresh path (unit output weight)
+for comparison; `REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES` controls the history cap.
+`REFLECTION_PATH_TARGET_LUMINANCE_MAX=1.3` caps the candidate target luminance.
+`REFLECTION_PATH_FINAL_LUMINANCE_MAX=1.3` caps resolved reflection luminance after
+RIS normalization, including sky/beam emission, by scaling RGB uniformly.
+`REFLECTION_PATH_DEDUPLICATION=0` disables the four-tap duplicate cleanup.
+`REFLECTION_PATH_MOVING_HISTORY_CAP`, `REFLECTION_PATH_MOTION_PIXELS`,
+`REFLECTION_PATH_RELATIVE_CAMERA_MOTION`, and `REFLECTION_PATH_RELATIVE_HIT_CHANGE`
+control confidence penalties. `REFLECTION_PATH_RESTART_PROBABILITY=0` disables
+independent restarts.
+
+Validation: `python waf build`, Vulkan SDK `spirv-val --target-env vulkan1.2`
+for the reflection primary/resolve SPIR-V. The standalone C test
+`tests/reflection_path_weights.c` compiles the actual scalar GLSL helpers and
+enumerates temporal selection outcomes against exact integrals, including
+changing illumination, black paths, saturated counts, and constant mirrors.
+It also checks local owner uniqueness, key ties, distinct sample preservation,
+and confidence-cap normalization. Validate the prepare/claim SPIR-V as well.
+
 ## Current reservoir debug view
 
 `rt_debug_display_only LIGHT_CACHE` displays the current-frame point and polygon
@@ -50,7 +145,8 @@ magenta. Screen direct-light evaluation is skipped in this debug view.
 When temporal validation leaves a lobe without a reservoir (including missing
 reprojection and lifetime expiry), direct and secondary RIS consume the four
 same-island lightmap cache taps before their ordinary candidates. Secondary passes use the LM UV of their own ray hit to address the same diffuse
-cache; reflection/refraction do not have separate lighting caches. Compound GI
+cache; refraction does not have a separate lighting cache. Reflection reads the
+temporal SH cache directly as described above. Compound GI
 path slots do the same whenever rebuilt. Valid history is retained without
 cache seeding. Missing UV, stale cache state, invalid lights and empty reservoirs
 are skipped. Taps outside the original island are rejected, not clamped or

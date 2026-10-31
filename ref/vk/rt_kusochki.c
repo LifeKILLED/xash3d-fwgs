@@ -103,6 +103,10 @@ static void applyMaterialToKusok(vk_kusok_data_t* kusok, const vk_render_geometr
 
 	// TODO emissive is potentially "dynamic", not tied to the material directly, as it is specified per-surface in rad files
 	VectorCopy(geom->emissive, kusok->emissive);
+	// Dynamic draw-once effects (including solid beams) also carry emissive
+	// colors, but are not the brush polygons sampled by direct polygon lighting.
+	kusok->polygon_light = geom->surf_deprecate != NULL &&
+		(geom->emissive[0] > 0.0f || geom->emissive[1] > 0.0f || geom->emissive[2] > 0.0f);
 	Vector4Copy(mat->base_color, kusok->material.base_color);
 
 	if (override_color) {

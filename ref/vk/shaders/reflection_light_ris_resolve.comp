@@ -19,14 +19,14 @@ layout(set = 0, binding = 13, rgba8) uniform readonly image2D reflection_materia
 layout(set = 0, binding = 14, rgba8) uniform readonly image2D reflection_base_color_a;
 layout(set = 0, binding = 15, rgba16f) uniform readonly image2D reflection_view_dir;
 layout(set = 0, binding = 16, rgba16f) uniform readonly image2D reflection_emissive;
-layout(set = 0, binding = 17, rgba16f) uniform readonly image2D reflection_light_poly_diffuse;
-layout(set = 0, binding = 18, rgba16f) uniform readonly image2D reflection_light_poly_specular;
-layout(set = 0, binding = 19, rgba16f) uniform readonly image2D reflection_light_point_diffuse;
-layout(set = 0, binding = 20, rgba16f) uniform readonly image2D reflection_light_point_specular;
+layout(set = 0, binding = 17, rgba32f) uniform readonly image2D reflection_lightmap_uv;
+layout(set = 0, binding = 18, rgba32f) uniform readonly image2D temporal_reflection_path_reservoir;
 
 layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_indirect_specular;
 
 #include "reflection_ris_common.glsl"
+#include "lightcache_sampling.glsl"
+#include "reflection_path_config.glsl"
 
 void main()
 {
@@ -48,16 +48,18 @@ void main()
 	MaterialProperties material;
 	const bool surface_active = reflectionRisLoadSurface(pix, P, geometry_N, shading_N, V, material, throughput, unused_emissive);
 	if (surface_active) {
-		const vec3 diffuse_light =
-			imageLoad(reflection_light_poly_diffuse, pix).rgb +
-			imageLoad(reflection_light_point_diffuse, pix).rgb;
-		const vec3 specular_light =
-			imageLoad(reflection_light_poly_specular, pix).rgb +
-			imageLoad(reflection_light_point_specular, pix).rgb;
-		const vec3 hit_color = mixFinalColor(material.base_color, diffuse_light, specular_light, material.metalness);
+		// Match compound GI's temporal SH cache approximation at every roughness,
+		// including the shared cache projection for metallic secondary surfaces.
+		const vec3 cached_light = lightcacheSampleLighting(
+			imageLoad(reflection_lightmap_uv, pix), shading_N, V, material.metalness);
+		const vec3 hit_color = material.base_color * cached_light;
 		indirect_specular += throughput * hit_color;
 	}
 
+	// Both surface lighting and precomposited sky/legacy emission belong to the
+	// selected path and must receive its RIS normalization exactly once.
+	indirect_specular *= imageLoad(temporal_reflection_path_reservoir, pix).w;
+	indirect_specular = reflectionPathClampFinalLighting(indirect_specular);
 	DEBUG_VALIDATE_RANGE_VEC3("reflection_ris_resolve.specular", indirect_specular, 0.0, 1e6);
 
 	imageStore(out_indirect_specular, pix, vec4(indirect_specular, 0.0));
