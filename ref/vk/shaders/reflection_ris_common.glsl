@@ -1,6 +1,12 @@
 #ifndef REFLECTION_RIS_COMMON_GLSL_INCLUDED
 #define REFLECTION_RIS_COMMON_GLSL_INCLUDED
 
+// The global proposal PDF is folded into reservoir mass, without cluster scans.
+#include "ris_config.h"
+#if RIS_UNIFORM_LIGHT_CANDIDATES && !defined(RIS_REGIR_ONLY)
+#define RIS_REGIR_ONLY 1
+#endif
+
 #ifndef RIS_SIMPLIFIED_RESAMPLING
 #define RIS_SIMPLIFIED_RESAMPLING 1
 #endif

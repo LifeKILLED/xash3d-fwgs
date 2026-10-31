@@ -59,6 +59,19 @@ RisVisibilityWindow lcWindow(vec4 meta) {
 void main() {
     ivec2 pix = ivec2(gl_GlobalInvocationID.xy), res = ubo.ubo.res;
     if (any(greaterThanEqual(pix, res)) || !lightcacheEnabled()) return;
+    if (lightcacheUpdateDisabled()) {
+        // Carry history through the normal ping-pong without tracing or RIS.
+        bool valid = lcHistoryReady(pix, res);
+        imageStore(LC_OUT_RESERVOIR, pix, valid ? imageLoad(LC_PREV_RESERVOIR, pix) : vec4(0));
+        imageStore(LC_OUT_RANDOM, pix, valid ? imageLoad(LC_PREV_RANDOM, pix) : vec4(0));
+        imageStore(LC_OUT_VISIBILITY, pix, valid ? imageLoad(LC_PREV_VISIBILITY, pix) : vec4(0));
+#if LIGHT_POINT
+        vec4 state = valid ? imageLoad(prev_temporal_lightcache_state, pix) : vec4(0);
+        if (valid) state.w = float(ubo.ubo.frame_counter);
+        imageStore(out_temporal_lightcache_state, pix, state);
+#endif
+        return;
+    }
     uint index = uint(pix.y * res.x + pix.x);
     bool cache_active = lightcacheEnabled() && lightcacheInCapacity(index, res);
     RisTemporalReservoir r = risInvalidTemporalReservoir();
@@ -68,20 +81,22 @@ void main() {
     rand01_state = xxhash32(uvec4(index, ubo.ubo.random_seed, ubo.ubo.frame_counter, uint(LIGHT_POINT)));
     if (cache_active) {
         vec3 P, N; lightcacheSurface(index, P, N);
+        // Stable lightmap texels reuse only their own history.
+        ivec2 hp = pix;
+#if RIS_RESERVOIR_PERMUTATIONS
         LightcacheProbe probe = lightcache_geometry.probes[index];
         ivec2 local = ivec2(probe.local_index % probe.width, probe.local_index / probe.width);
         ivec2 partner = temporalReservoirPairPermutationPixel(local, ivec2(probe.width, probe.height),
             ubo.ubo.frame_counter, probe.island, 0.75);
         uint previous = probe.first + uint(partner.y) * probe.width + uint(partner.x);
-        ivec2 hp = pix;
-        // Match DI's symmetric rule: exchange only two full-light histories.
-        // Shadow boundaries keep their canonical texel histories.
+        // Exchange only full-light histories; shadow boundaries stay canonical.
         bool self_ready = lcHistoryReady(pix, res);
         vec4 self_meta = self_ready ? imageLoad(LC_PREV_VISIBILITY, pix) : vec4(0);
         if (self_ready && lightcacheInCapacity(previous, res)) {
             ivec2 pp = lightcachePixel(previous, res);
             if (lcHistoryReady(pp, res) && risVisibilityWindowsPermitSwap(lcWindow(self_meta), lcWindow(imageLoad(LC_PREV_VISIBILITY, pp)))) hp = pp;
         }
+#endif
         RisTemporalReservoir history = risInvalidTemporalReservoir();
         float history_visibility = 0.0;
         if (lcHistoryReady(hp, res)) {
@@ -102,19 +117,23 @@ void main() {
             } else history = risInvalidTemporalReservoir();
         }
         uint count = lcLightCount();
+#if !RIS_UNIFORM_LIGHT_CANDIDATES
         uint proposal_rng = rand01_state;
         uint cell = 0u;
         bool use_regir = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u &&
             regirSelectOnionCell(P, proposal_rng, cell);
-        // Outside the camera-centered onion, the lightmap still needs lighting:
-        // use the existing uniform proposal domain instead of dropping probes.
-        for (uint i = 0u; i < REGIR_ONION_LOOKUP_CANDIDATES && count > 0u; ++i) {
+#endif
+        // Includes sky and flashlights in the same uniform proposal domain.
+        for (uint i = 0u; i < uint(RIS_PRIMARY_CANDIDATES) && count > 0u; ++i) {
             RegirOnionCandidate proposal;
+#if !RIS_UNIFORM_LIGHT_CANDIDATES
             if (use_regir) {
                 if (!regirLoadOnionCandidate(cell, i, proposal_rng, proposal)) { r.sample_count += 1.0; continue; }
-            } else {
-                proposal.light_id = min(uint(rand01() * float(count)), count - 1u);
-                proposal.inv_source_pdf = float(count);
+            } else
+#endif
+            {
+            proposal.light_id = min(uint(rand01() * float(count)), count - 1u);
+            proposal.inv_source_pdf = float(count);
             }
             RisLightSample light; vec3 d, l; vec3 rnd = vec3(rand01(), rand01(), rand01());
             if (!lcLoadLight(proposal.light_id, light) || !lcSample(light, rnd, P, N, false, d, l) || luminance(d) <= RIS_WEIGHT_EPSILON) {
@@ -126,11 +145,8 @@ void main() {
             candidate.sample_random = rnd; candidate.sample_count = 1.0;
             r = risMergeTemporalCandidateWeighted(r, candidate, candidate.mixed_weight * proposal.inv_source_pdf, rand01());
         }
-#if LIGHT_POINT
-        // ReGIR excludes environment/flashlight sources. Include each as a
-        // separate proposal stratum in the same diffuse reservoir. Its mass is
-        // N * target so that final division by the N ordinary proposals sums
-        // these sources rather than averaging them with the ordinary stratum.
+#if LIGHT_POINT && !RIS_UNIFORM_LIGHT_CANDIDATES
+        // ReGIR excludes sky/flashlight sources: add their separate stratum.
         if (use_regir) for (uint id = 0u; id < count; ++id) {
             PointLight point = lights.m.point_lights[id];
             if (point.environment == 0u && point.flashlight == 0u) continue;

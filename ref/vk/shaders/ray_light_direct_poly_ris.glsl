@@ -1,4 +1,6 @@
 #define RIS_VISIBILITY_REUSE_SUPPORTED 1
+#define RIS_VISIBILITY_ZAPAS 0
+#define RIS_VISIBILITY_PERMUTATION RIS_RESERVOIR_PERMUTATIONS
 
 #define GLSL
 #include "ray_interop.h"
@@ -69,6 +71,7 @@ layout(set = 0, binding = 46, rgba32f) uniform readonly image2D prev_temporal_ri
 layout(set = 0, binding = 47, rgba16f) uniform readonly image2D prev_temporal_ris_visibility_normals;
 layout(set = 0, binding = 48, rgba8) uniform readonly image2D prev_temporal_ris_visibility_material;
 
+#if RIS_VISIBILITY_ZAPAS
 layout(set = 0, binding = 52, rgba32f) uniform writeonly image2D out_temporal_zapas_poly;
 layout(set = 0, binding = 53, rgba32f) uniform readonly image2D prev_temporal_zapas_poly;
 layout(set = 0, binding = 54, rgba32f) uniform writeonly image2D out_temporal_zapas_poly_random;
@@ -77,6 +80,7 @@ layout(set = 0, binding = 56, rgba32f) uniform writeonly image2D out_temporal_za
 layout(set = 0, binding = 57, rgba32f) uniform readonly image2D prev_temporal_zapas_poly_specular;
 layout(set = 0, binding = 58, rgba32f) uniform writeonly image2D out_temporal_zapas_poly_specular_random;
 layout(set = 0, binding = 59, rgba32f) uniform readonly image2D prev_temporal_zapas_poly_specular_random;
+#endif
 
 
 layout(set = 0, binding = 30, std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
@@ -87,7 +91,7 @@ layout(set = 0, binding = 33, std430) readonly buffer Vertices { Vertex a[]; } v
 #define RAY_QUERY
 #define RIS_INIT_PASS 1
 #define RIS_UNIFIED_PASS 1
-#define RIS_USE_SHARED_TEMPORAL_ROTATION 1
+#define RIS_USE_SHARED_TEMPORAL_ROTATION RIS_RESERVOIR_PERMUTATIONS
 #define RIS_SEPARATE_DIFFUSE_TARGET_NORMAL 1
 #define RIS_REGIR_ONLY 1
 #ifndef RIS_DIRECT_DIFFUSE_SHADING_PERMUTATION

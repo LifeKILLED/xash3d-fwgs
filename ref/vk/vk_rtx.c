@@ -660,6 +660,7 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 					  (CVAR_TO_BOOL(rt_disable_gi) ? RENDERER_FLAG_DISABLE_GI : 0) |
 					  (CVAR_TO_BOOL(rt_disable_direct) ? RENDERER_FLAG_DISABLE_DIRECT : 0) |
 					  (CVAR_TO_BOOL(rt_lightcache_gi) ? RENDERER_FLAG_LIGHTCACHE_GI : 0) |
+					  (CVAR_TO_BOOL(rt_disable_lightcache_update) ? RENDERER_FLAG_DISABLE_LIGHTCACHE_UPDATE : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reprojection) ? RENDERER_FLAG_DISABLE_REPROJECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reflection) ? RENDERER_FLAG_DISABLE_REFLECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_refraction) ? RENDERER_FLAG_DISABLE_REFRACTION : 0) |

@@ -16,6 +16,7 @@ layout(set = 0, binding = 21, rgba16f) uniform writeonly image2D out_lightcache_
 void main() {
     ivec2 pix = ivec2(gl_GlobalInvocationID.xy), res = ubo.ubo.res;
     if (any(greaterThanEqual(pix, res)) || !lightcacheEnabled()) return;
+    if (lightcacheUpdateDisabled()) return;
     uint index = uint(pix.y * res.x + pix.x);
     SH accum; accum.shY = vec4(0); accum.CoCg = vec2(0);
     float total = 0.0;

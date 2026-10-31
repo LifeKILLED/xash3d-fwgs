@@ -1,6 +1,14 @@
 #ifndef LIGHT_RIS_LIGHTS_GLSL_INCLUDED
 #define LIGHT_RIS_LIGHTS_GLSL_INCLUDED
 
+#if defined(RIS_DISABLE_SHADOW_RAYS) && RIS_DISABLE_SHADOW_RAYS
+#define RIS_SHADOWED(pos_, dir_, dist_) false
+#define RIS_SHADOWED_SKY(pos_, dir_) false
+#else
+#define RIS_SHADOWED(pos_, dir_, dist_) shadowed(pos_, dir_, dist_)
+#define RIS_SHADOWED_SKY(pos_, dir_) shadowedSky(pos_, dir_)
+#endif
+
 #if LIGHT_POINT && LIGHT_POLYGON
 #error RIS typed light include expects one light type per shader
 #endif
@@ -502,7 +510,7 @@ bool risEvaluatePolygonSamplePositionWithInvPdf(
 		return false;
 	}
 
-	if (visibility_test && shadowed(P, L, dist)) {
+	if (visibility_test && RIS_SHADOWED(P, L, dist)) {
 		return false;
 	}
 
@@ -592,7 +600,7 @@ bool risPolygonSamplePositionVisible(
 	if (dot(N, L) <= 1e-5 || dot(-L, light_N) <= 1e-5) {
 		return false;
 	}
-	return !visibility_test || !shadowed(P, L, dist);
+	return !visibility_test || !RIS_SHADOWED(P, L, dist);
 }
 
 bool risEvaluateConcreteSample(
@@ -608,6 +616,12 @@ bool risEvaluateConcreteSample(
 {
 	vec3 sample_pos;
 	float inv_area_pdf;
+#if defined(RIS_FAST_FINAL_SHADING) && RIS_FAST_FINAL_SHADING
+	const vec2 weights = risLightWeights(light_sample, P, N, V, material);
+	diffuse = weights.x * light_sample.light.emissive;
+	specular = weights.y * light_sample.light.emissive;
+	return any(greaterThan(weights, vec2(0.0)));
+#else
 #if RIS_POLYGON_ANALYTIC_DIFFUSE && RIS_POLYGON_LTC_SPECULAR
 	if (!risSampleUniformPolygonTriangle(light_sample.light, sample_random, sample_pos)) {
 #else
@@ -645,6 +659,7 @@ bool risEvaluateConcreteSample(
 	}
 	#endif
 	return evaluated;
+#endif
 #endif
 }
 
@@ -701,7 +716,7 @@ bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
 		return false;
 	}
 
-	return !shadowed(P, L, dist);
+	return !RIS_SHADOWED(P, L, dist);
 }
 
 #define RIS_COMPUTE_LIGHTING_INIT computePolygonLightingRISInit
@@ -1064,10 +1079,10 @@ bool risEvaluatePointLightContribution(
 
 	if (visibility_test) {
 		if (is_environment) {
-			if (shadowedSky(P, light_dir)) {
+			if (RIS_SHADOWED_SKY(P, light_dir)) {
 				return false;
 			}
-		} else if (shadowed(P, light_dir, light_dist + shadow_offset_fudge)) {
+		} else if (RIS_SHADOWED(P, light_dir, light_dist + shadow_offset_fudge)) {
 			return false;
 		}
 	}
@@ -1100,7 +1115,7 @@ bool risLightVisible(RisLightSample light_sample, vec3 P, vec3 N)
 		return false;
 	}
 
-	return !shadowed(P, light_dir, light_dist + shadow_offset_fudge);
+	return !RIS_SHADOWED(P, light_dir, light_dist + shadow_offset_fudge);
 }
 
 bool risEvaluateLight(
@@ -1141,9 +1156,16 @@ bool risEvaluateConcreteSample(
 	out vec3 diffuse,
 	out vec3 specular)
 {
+	#if defined(RIS_FAST_FINAL_SHADING) && RIS_FAST_FINAL_SHADING
+	const vec2 weights = risLightWeights(light_sample, P, N, V, material);
+	diffuse = weights.x * light_sample.light.color_stopdot.rgb;
+	specular = weights.y * light_sample.light.color_stopdot.rgb;
+	return any(greaterThan(weights, vec2(0.0)));
+	#else
 	return risEvaluatePointLightContribution(
 		light_sample.light, sample_random.yz, P, N, V, material, 1.0,
 		visibility_test, diffuse, specular);
+	#endif
 }
 
 bool risConcreteSampleVisible(
@@ -1164,7 +1186,7 @@ bool risConcreteSampleVisible(
 		if (dot(N, light_dir) <= 1e-5) {
 			return false;
 		}
-		return !shadowedSky(P, light_dir);
+		return !RIS_SHADOWED_SKY(P, light_dir);
 	}
 
 	const vec3 to_light = point_light.origin_r2.xyz - P;
@@ -1181,7 +1203,7 @@ bool risConcreteSampleVisible(
 		dot(light_dir, axis) < point_light.dir_stopdot2.a) {
 		return false;
 	}
-	return !shadowed(P, light_dir, light_dist + shadow_offset_fudge);
+	return !RIS_SHADOWED(P, light_dir, light_dist + shadow_offset_fudge);
 }
 
 void computePointAlwaysSampledLights(

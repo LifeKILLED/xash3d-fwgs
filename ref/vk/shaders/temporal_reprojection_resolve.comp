@@ -9,6 +9,8 @@
 #include "noise.glsl"
 #include "temporal_reservoir_rotation.glsl"
 
+#define TEMPORAL_RESERVOIR_PERMUTATIONS RIS_RESERVOIR_PERMUTATIONS
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
@@ -137,6 +139,12 @@ bool temporalLoadDirectPrimarySurface(
 
 void resolveDirectSource(ivec2 pix, ivec2 res)
 {
+#if !TEMPORAL_RESERVOIR_PERMUTATIONS
+	ivec2 history_pix;
+	const vec2 source = temporalDirectSourceReady(pix, history_pix)
+		? temporalReprojectionEncodeSource(history_pix, false) : vec2(0.0);
+	imageStore(out_temporal_reprojection_direct_source, pix, vec4(source, source));
+#else
 	const uint permutation_frame_seed = xxhash32(uvec4(
 		ubo.ubo.frame_counter, ubo.ubo.random_seed,
 		TEMPORAL_DIRECT_ROTATION_SALT, 0x6672616du));
@@ -203,10 +211,20 @@ void resolveDirectSource(ivec2 pix, ivec2 res)
 			: vec2(0.0));
 	imageStore(out_temporal_reprojection_direct_source, pix,
 		vec4(diffuse_source, specular_source));
+#endif
 }
 
 void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 {
+#if !TEMPORAL_RESERVOIR_PERMUTATIONS
+	ivec2 history_local_pix;
+	ivec2 history_screen_pix;
+	const bool ready = temporalBounceSourceReady(local_pix, half_res,
+		history_local_pix, history_screen_pix);
+	const vec2 source = ready
+		? temporalReprojectionEncodeSource(history_local_pix, false) : vec2(0.0);
+	imageStore(out_temporal_reprojection_bounce_source, local_pix, vec4(source, 0.0, 0.0));
+#else
 	const uint permutation_frame_seed = xxhash32(uvec4(
 		ubo.ubo.frame_counter, ubo.ubo.random_seed,
 		TEMPORAL_BOUNCE_ROTATION_SALT, 0x6672616du));
@@ -272,6 +290,7 @@ void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 			: vec2(0.0));
 	imageStore(out_temporal_reprojection_bounce_source, local_pix,
 		vec4(source, 0.0, 0.0));
+#endif
 }
 
 void main()

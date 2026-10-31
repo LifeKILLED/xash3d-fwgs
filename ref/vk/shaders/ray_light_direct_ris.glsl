@@ -126,6 +126,19 @@ void risDirectDiffuseLoadShadingSurface(
 #endif
 #endif
 
+// Shadow-test fresh candidates and reprojected samples before reservoir merge.
+#define RIS_DISABLE_SHADOW_RAYS 0
+// Reproject the main reservoirs; zapas and permutations are disabled by the entry shaders.
+#define RIS_FRESH_CANDIDATES_ONLY 0
+#define RIS_SIMPLE_TEMPORAL_REUSE 1
+// Use the existing light-weight proxies for candidate selection, not shading.
+#define RIS_SIMPLIFIED_RESAMPLING 1
+// Evaluate the selected sample with the full BRDF/LTC lighting functions.
+#define RIS_DISABLE_FINAL_SHADING 0
+#define RIS_FAST_FINAL_SHADING 0
+// Temporary diagnostic: draw candidates uniformly from the global light lists.
+#define RIS_DISABLE_CANDIDATES 0
+// RIS_UNIFORM_LIGHT_CANDIDATES is controlled by ris_config.h.
 #include "light_ris.glsl"
 
 void main() {

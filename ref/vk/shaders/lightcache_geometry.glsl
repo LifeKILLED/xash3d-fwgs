@@ -21,6 +21,10 @@ bool lightcacheEnabled() {
         (ubo.ubo.renderer_flags & RENDERER_FLAG_LIGHTCACHE_GI) != 0u;
 }
 
+bool lightcacheUpdateDisabled() {
+    return (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_LIGHTCACHE_UPDATE) != 0u;
+}
+
 ivec2 lightcachePixel(uint index, ivec2 res) {
     return ivec2(index % uint(res.x), index / uint(res.x));
 }

@@ -479,6 +479,13 @@ void risMergeConcreteCandidate(
 		risTemporalRandom01(pix, random_salt));
 }
 
+vec3 risSelectedLightDebugColor(uint light_id)
+{
+	const uint h = xxhash32(uvec4(light_id, 0u, 0u, 0u));
+	return vec3(float(h & 255u), float((h >> 8u) & 255u),
+		float((h >> 16u) & 255u)) / 255.0;
+}
+
 bool risShadeUnifiedReservoir(
 	inout RisTemporalReservoir reservoir,
 	float inv_discrete_light_pdf,
@@ -496,6 +503,11 @@ bool risShadeUnifiedReservoir(
 		return false;
 	}
 
+#if defined(RIS_DISABLE_FINAL_SHADING) && RIS_DISABLE_FINAL_SHADING
+	selected_diffuse = risSelectedLightDebugColor(reservoir.light_id);
+	selected_specular = selected_diffuse;
+	return true;
+#else
 	RIS_LIGHT_SAMPLE light;
 	if (!RIS_LOAD_LIGHT(reservoir.light_id, light)) {
 		reservoir = risInvalidTemporalReservoir();
@@ -521,6 +533,7 @@ bool risShadeUnifiedReservoir(
 	selected_diffuse *= reservoir_weight;
 	selected_specular *= reservoir_weight;
 	return true;
+#endif
 }
 
 #if RIS_VISIBILITY_REUSE_SUPPORTED
@@ -568,6 +581,7 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 	const float inv_discrete_light_pdf = float(eligible_light_count);
 #endif
 
+#if !defined(RIS_FRESH_CANDIDATES_ONLY) || !RIS_FRESH_CANDIDATES_ONLY
 	if (ris_active) {
 		const vec3 prev_position = RIS_LOAD_TEMPORAL_REFERENCE_POSITION(surface_pix);
 		for (int lobe = 0; lobe < RIS_UNIFIED_RESERVOIR_COUNT; ++lobe) {
@@ -592,22 +606,45 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 				P, geometry_N, N, confidence_N, V, material, pix);
 		}
 	}
+#endif
 
+#if !defined(RIS_DISABLE_CANDIDATES) || !RIS_DISABLE_CANDIDATES
 #if RIS_REGIR_ONLY
+#if defined(RIS_UNIFORM_LIGHT_CANDIDATES) && RIS_UNIFORM_LIGHT_CANDIDATES
+	if (ris_active) {
+#else
 	if (ris_active && (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u) {
+#endif
 		uint rnd = regirHash(
 			ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^
 			uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
 		uint cell_index;
+#if defined(RIS_UNIFORM_LIGHT_CANDIDATES) && RIS_UNIFORM_LIGHT_CANDIDATES
+#if LIGHT_POINT
+		const uint proposal_light_count = lights.m.num_point_lights;
+#else
+		const uint proposal_light_count = lights.m.num_polygons;
+#endif
+		if (proposal_light_count > 0u) {
+#else
 		if (regirSelectOnionCell(P, rnd, cell_index)) {
+#endif
 			for (uint j = 0u; j < REGIR_ONION_LOOKUP_CANDIDATES; ++j) {
 				RegirOnionCandidate onion_candidate;
+#if defined(RIS_UNIFORM_LIGHT_CANDIDATES) && RIS_UNIFORM_LIGHT_CANDIDATES
+				onion_candidate.light_id = min(
+					uint(regirRandom(rnd) * float(proposal_light_count)), proposal_light_count - 1u);
+				onion_candidate.inv_source_pdf = float(proposal_light_count);
+#else
 				if (!regirLoadOnionCandidate(cell_index, j, rnd, onion_candidate)) {
 					continue;
 				}
+#endif
 
 				RIS_LIGHT_SAMPLE candidate_light;
 				if (!RIS_LOAD_LIGHT(onion_candidate.light_id, candidate_light)) {
+					for (int lobe = 0; lobe < RIS_UNIFIED_RESERVOIR_COUNT; ++lobe)
+						reservoirs[lobe].sample_count += 1.0;
 					continue;
 				}
 
@@ -703,6 +740,7 @@ void RIS_COMPUTE_LIGHTING_UNIFIED(
 	}
 #endif
 
+#endif
 	for (int lobe = 0; lobe < RIS_UNIFIED_RESERVOIR_COUNT; ++lobe) {
 		vec3 selected_diffuse;
 		vec3 selected_specular;
@@ -854,19 +892,38 @@ RisTemporalReservoir RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
 	uint rnd = regirHash(ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^ uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
 	uint cell_index;
 
+#if RIS_UNIFORM_LIGHT_CANDIDATES
+#if LIGHT_POINT
+	const uint proposal_light_count = lights.m.num_point_lights;
+#else
+	const uint proposal_light_count = lights.m.num_polygons;
+#endif
+	if (proposal_light_count == 0u)
+		return reservoir;
+#else
 	if (!regirSelectOnionCell(P, rnd, cell_index)) {
 		return reservoir;
 	}
+#endif
 
 	for (uint j = 0u; j < REGIR_ONION_LOOKUP_CANDIDATES; ++j) {
 		RegirOnionCandidate onion_candidate;
 
+#if RIS_UNIFORM_LIGHT_CANDIDATES
+		onion_candidate.light_id = min(uint(regirRandom(rnd) * float(proposal_light_count)),
+			proposal_light_count - 1u);
+		onion_candidate.inv_source_pdf = float(proposal_light_count);
+#else
 		if (!regirLoadOnionCandidate(cell_index, j, rnd, onion_candidate)) {
 			continue;
 		}
+#endif
 
 		RIS_LIGHT_SAMPLE light;
 		if (!RIS_LOAD_LIGHT(onion_candidate.light_id, light)) {
+#if RIS_UNIFORM_LIGHT_CANDIDATES
+			reservoir.sample_count += 1.0;
+#endif
 			continue;
 		}
 
@@ -876,6 +933,9 @@ RisTemporalReservoir RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
 		const float mixed_weight = risPrimaryMixedWeight(weights, material.metalness);
 
 		if (mixed_weight <= RIS_WEIGHT_EPSILON || !RIS_LIGHT_VISIBLE(light, P, N)) {
+#if RIS_UNIFORM_LIGHT_CANDIDATES
+			reservoir.sample_count += 1.0;
+#endif
 			continue;
 		}
 

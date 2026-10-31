@@ -184,7 +184,8 @@ bool bouncePathBuildVisibleLocalReservoir(
 		uint(random_pix.x),
 		uint(random_pix.y) ^ uint(BOUNCE_PATH_LIGHT_SLOT_BASE)));
 
-	if (ris_active && (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u) {
+	if (ris_active && (RIS_UNIFORM_LIGHT_CANDIDATES != 0 ||
+		(ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u)) {
 		bool regir_accepted = false;
 		reservoir = RIS_MERGE_REGIR_VISIBLE_CANDIDATES(
 			surface.P,
@@ -209,7 +210,7 @@ bool bouncePathBuildVisibleLocalReservoir(
 #endif
 	}
 
-	// ReGIR's onion_candidate.inv_source_pdf is already folded into weight_sum.
+	// The proposal's inverse PDF (including uniform N) is folded into weight_sum.
 	// No cluster-dependent PDF is applied when evaluating or rotating the cache.
 #if RIS_REGIR_ONLY
 	const float source_inv_pdf = 1.0;

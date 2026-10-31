@@ -1,10 +1,10 @@
 {
-	"regir_onion_point": {
-		"comp": "regir_onion_point"
-	},
-	"regir_onion_poly": {
-		"comp": "regir_onion_poly"
-	},
+	// "regir_onion_point": {
+	// 	"comp": "regir_onion_point"
+	// },
+	// "regir_onion_poly": {
+	// 	"comp": "regir_onion_poly"
+	// },
 	"lightcache_point": { "comp": "lightcache_point" },
 	"lightcache_poly": { "comp": "lightcache_poly" },
 	"lightcache_sh": { "comp": "lightcache_sh" },

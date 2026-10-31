@@ -1,6 +1,8 @@
 #ifndef LIGHT_RIS_EXPERIMENTAL_GLSL_INCLUDED
 #define LIGHT_RIS_EXPERIMENTAL_GLSL_INCLUDED
 
+#include "ris_config.h"
+
 // Reuse visibility results produced by neighboring init invocations through
 // workgroup shared memory. Disabling this keeps the per-texel Bayer segment,
 // but removes shared memory, workgroup barriers, and neighbor gathering.

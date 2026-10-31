@@ -8,6 +8,13 @@
 #include "direct_visibility_weights.glsl"
 #include "direct_visibility_window.glsl"
 
+#ifndef RIS_VISIBILITY_ZAPAS
+#define RIS_VISIBILITY_ZAPAS 1
+#endif
+#ifndef RIS_VISIBILITY_PERMUTATION
+#define RIS_VISIBILITY_PERMUTATION 1
+#endif
+
 #if !RIS_SPLIT_LOBE_RESERVOIRS || !RIS_DIRECT_DIFFUSE_REGIR_REVERT || !RIS_REGIR_ONLY
 #error Direct visibility reuse requires the current split direct ReGIR layout
 #endif
@@ -101,7 +108,12 @@ bool risVisibilityHasSample(RisZapasReservoir z)
 
 bool risVisibilityTestInitialCandidates()
 {
+#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+	// One visibility result per fresh candidate, shared by both lobes.
+	return true;
+#else
 	return (ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_CANDIDATES) != 0u;
+#endif
 }
 
 bool risVisibilityMedianEnabled()
@@ -118,9 +130,18 @@ float risVisibilityHistoryTag()
 {
 	// Isolate both diagnostic switches: neither candidate visibility nor the
 	// ReGIR/uniform proposal comparison should inherit the other path's mass.
+#if defined(RIS_UNIFORM_LIGHT_CANDIDATES) && RIS_UNIFORM_LIGHT_CANDIDATES
+	const bool uniform_proposals = true;
+#else
 	const bool uniform_proposals = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) != 0u;
+#endif
 	const float window_method = risVisibilityGradientEnabled() ? 2.0 : (risVisibilityMedianEnabled() ? 1.0 : 0.0);
-	return 1536.0 + 16.0 * float(ubo.ubo.di_visibility_reuse >> 1u) +
+#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+	const float layout_tag = 256.0;
+#else
+	const float layout_tag = RIS_VISIBILITY_ZAPAS != 0 ? 1536.0 : 1024.0;
+#endif
+	return layout_tag + 16.0 * float(ubo.ubo.di_visibility_reuse >> 1u) +
 		(risVisibilityTestInitialCandidates() ? 1.0 : 0.0) +
 		(uniform_proposals ? 2.0 : 0.0) + 4.0 * window_method;
 }
@@ -131,6 +152,14 @@ bool risVisibilityUnshadowedWeights(RIS_LIGHT_SAMPLE light, vec3 sample_random,
 	// User-requested direct diffuse proxy: geometry normal for selection and
 	// all temporal cross-targets; specular keeps its shading-normal target.
 	// Final shading still evaluates both lobes with the shading normal.
+	
+#if RIS_SIMPLIFIED_RESAMPLING
+	const vec2 geometry_weights = RIS_LIGHT_WEIGHTS(
+		light, s.P, s.geometry_N, s.V, s.material);
+	const vec2 shading_weights = RIS_LIGHT_WEIGHTS(
+		light, s.P, s.shading_N, s.V, s.material);
+	weights = vec2(geometry_weights.x, shading_weights.y);
+#else
 	vec3 geometry_diffuse;
 	vec3 unused_geometry_specular;
 	const bool geometry_valid = risEvaluateConcreteSample(light, sample_random,
@@ -146,6 +175,7 @@ bool risVisibilityUnshadowedWeights(RIS_LIGHT_SAMPLE light, vec3 sample_random,
 	const vec2 shading_weights = shading_valid
 		? risContributionLobeWeights(vec3(0.0), shading_specular) : vec2(0.0);
 	weights = vec2(geometry_weights.x, shading_weights.y);
+#endif
 	return any(greaterThan(weights, vec2(0.0)));
 }
 
@@ -203,9 +233,16 @@ RisVisibilityReservoir risVisibilityDecode(vec4 encoded, vec4 random_count, floa
 	const uint hash_window = uint(max(encoded.y, 0.0));
 	r.reservoir.light_id = risDecodeLightId(float(light_count & 2047u));
 	r.reservoir.light_hash = hash_window & RIS_TEMPORAL_HASH_MASK;
+	#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+	// The lightweight path has no visibility window. Reuse those eight bits
+	// for lifetime: 16 hash bits + 8 lifetime bits fit float32 exactly.
+	r.window = RisVisibilityWindow(0u, 0u, 0u);
+	r.lifetime = (hash_window >> 16u) & 255u;
+	#else
 	r.window = risVisibilityUnpackWindow(light_count, hash_window);
-	r.age = (light_count >> 14u) & 255u;
 	r.lifetime = 0u; // Stored alongside the corresponding zapas hash.
+	#endif
+	r.age = (light_count >> 14u) & 255u;
 	r.reservoir.mixed_weight = max(encoded.z, 0.0);
 	r.reservoir.weight_sum = max(encoded.w, 0.0);
 	r.reservoir.sample_random = clamp(random_count.xyz, vec3(0.0), vec3(1.0));
@@ -220,10 +257,17 @@ vec4 risVisibilityEncode(RisVisibilityReservoir r)
 	if (!risVisibilityHasSample(r)) {
 		return vec4(0.0);
 	}
+	#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+	return vec4(float((uint(risEncodeLightId(r.reservoir.light_id)) & 2047u) |
+		((r.age & 255u) << 14u)),
+		float((r.reservoir.light_hash & 65535u) | ((r.lifetime & 255u) << 16u)),
+		r.reservoir.mixed_weight, r.reservoir.weight_sum);
+	#else
 	return vec4(float(risVisibilityPackLightCount(uint(risEncodeLightId(r.reservoir.light_id)), r.window.count) |
 		((r.age & 255u) << 14u)),
 		float(risVisibilityPackHashWindow(r.reservoir.light_hash, r.window)),
 		r.reservoir.mixed_weight, r.reservoir.weight_sum);
+	#endif
 }
 
 void risVisibilityStore(ivec2 pix, RisVisibilityReservoir r[2])
@@ -238,6 +282,18 @@ void risVisibilityStore(ivec2 pix, RisVisibilityReservoir r[2])
 		vec4(0.0, r[0].visibility, r[1].visibility, risVisibilityHistoryTag()));
 }
 
+uint risVisibilityLifetime(ivec2 pix, uint birth_frame, int lobe, bool zapas)
+{
+#if !RIS_VISIBILITY_ZAPAS && (!defined(RIS_SIMPLE_TEMPORAL_REUSE) || !RIS_SIMPLE_TEMPORAL_REUSE)
+	// Reprojection changes pixel coordinates. Use only the birth frame and
+	// lobe in this layout so the lifetime can be reconstructed without zapas.
+	pix = ivec2(0);
+#endif
+	const uint h = xxhash32(uvec4(uvec2(pix), birth_frame,
+		RIS_PRIMARY_MERGE_RANDOM_SALT ^ (uint(lobe) * 0x9e3779b9u) ^ (zapas ? 0x7a617061u : 0x6d61696eu)));
+	return zapas ? 5u + h % 26u : 1u + h % 200u;
+}
+
 void risVisibilityLoad(ivec2 pix, out RisVisibilityReservoir r[2])
 {
 	r[0] = risVisibilityEmpty();
@@ -250,8 +306,17 @@ void risVisibilityLoad(ivec2 pix, out RisVisibilityReservoir r[2])
 	r[0] = risVisibilityDecode(imageLoad(VIS_PREV_RESERVOIR, pix), imageLoad(VIS_PREV_RANDOM, pix), meta.y);
 	r[1] = risVisibilityDecode(imageLoad(RIS_SPLIT_PREV_SPECULAR_RESERVOIR_IMAGE, pix),
 		imageLoad(RIS_SPLIT_PREV_SPECULAR_RANDOM_IMAGE, pix), meta.z);
+#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+	// Lifetime was decoded from each main reservoir; it travels with history.
+#elif RIS_VISIBILITY_ZAPAS
 	r[0].lifetime = (uint(imageLoad(prev_temporal_ris_zapas, pix).y) >> 16u) & 255u;
 	r[1].lifetime = (uint(imageLoad(prev_temporal_ris_zapas_specular, pix).y) >> 16u) & 255u;
+#else
+	// No extra image: lifetime is deterministic from the original birth frame.
+	// History is from frame_counter-1; age counts frames since that birth.
+	r[0].lifetime = risVisibilityLifetime(pix, ubo.ubo.frame_counter - 1u - r[0].age, 0, false);
+	r[1].lifetime = risVisibilityLifetime(pix, ubo.ubo.frame_counter - 1u - r[1].age, 1, false);
+#endif
 
 }
 
@@ -294,10 +359,8 @@ RisVisibilityReservoir risVisibilityResample(
 
 void risVisibilityStartLifetime(inout RisVisibilityReservoir r, ivec2 pix, int lobe, bool zapas)
 {
-	const uint h = xxhash32(uvec4(uvec2(pix), ubo.ubo.frame_counter,
-		RIS_PRIMARY_MERGE_RANDOM_SALT ^ (uint(lobe) * 0x9e3779b9u) ^ (zapas ? 0x7a617061u : 0x6d61696eu)));
 	r.age = 0u;
-	r.lifetime = zapas ? 5u + h % 26u : 1u + h % 200u;
+	r.lifetime = risVisibilityLifetime(pix, ubo.ubo.frame_counter, lobe, zapas);
 }
 
 RisZapasReservoir risZapasFresh(RisVisibilityReservoir initial, ivec2 pix, int lobe)
@@ -338,6 +401,7 @@ RisZapasReservoir risVisibilityDecodeZapas(vec4 packed, vec4 random_count)
 	return z;
 }
 
+#if RIS_VISIBILITY_ZAPAS
 void risVisibilityStoreZapas(ivec2 pix, RisZapasReservoir z[2], RisVisibilityReservoir main[2])
 {
 	imageStore(out_temporal_ris_zapas, pix, risVisibilityEncodeZapas(z[0], main[0].lifetime));
@@ -345,6 +409,7 @@ void risVisibilityStoreZapas(ivec2 pix, RisZapasReservoir z[2], RisVisibilityRes
 	imageStore(out_temporal_ris_zapas_specular, pix, risVisibilityEncodeZapas(z[1], main[1].lifetime));
 	imageStore(out_temporal_ris_zapas_specular_random, pix, vec4(z[1].reservoir.sample_random, z[1].reservoir.sample_count));
 }
+#endif
 
 uvec2 risZapasLoadSource(vec2 packed)
 {
@@ -575,10 +640,14 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		return;
 	}
 	RisVisibilitySurface s = RisVisibilitySurface(P, geometry_N, N, V, material);
+#if RIS_VISIBILITY_ZAPAS
 	RisZapasReservoir zapas[2];
 	zapas[0] = risZapasEmpty();
 	zapas[1] = risZapasEmpty();
+#endif
+#if !defined(RIS_DISABLE_CANDIDATES) || !RIS_DISABLE_CANDIDATES
 	if (ris_active) {
+#if !defined(RIS_FRESH_CANDIDATES_ONLY) || !RIS_FRESH_CANDIDATES_ONLY
 		ivec2 history_pix;
 		const bool reprojected = temporalReprojectionDecodePixel(
 			imageLoad(temporal_reprojection_map, pix).rg, ubo.ubo.res, history_pix);
@@ -589,16 +658,64 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		uvec2 zapas_sources[2];
 		zapas_sources[0] = uvec2(RIS_INVALID_LIGHT_ID, 0u);
 		zapas_sources[1] = uvec2(RIS_INVALID_LIGHT_ID, 0u);
+		#if RIS_VISIBILITY_ZAPAS
 		if (compatible) {
 			zapas_sources[0] = risZapasLoadSource(imageLoad(prev_temporal_ris_zapas, history_pix).xy);
 			zapas_sources[1] = risZapasLoadSource(imageLoad(prev_temporal_ris_zapas_specular, history_pix).xy);
 		}
+		#endif
+#else
+		uvec2 zapas_sources[2];
+		zapas_sources[0] = uvec2(RIS_INVALID_LIGHT_ID, 0u);
+		zapas_sources[1] = uvec2(RIS_INVALID_LIGHT_ID, 0u);
+#endif
 		uint rng = regirHash(ubo.ubo.random_seed ^ uint(pix.x) * 1833u ^
 			uint(pix.y) * 31337u ^ RIS_PRIMARY_MERGE_RANDOM_SALT);
 		uint cell = 0u;
+#if defined(RIS_UNIFORM_LIGHT_CANDIDATES) && RIS_UNIFORM_LIGHT_CANDIDATES
+		const bool use_regir = false;
+#else
 		const bool use_regir = (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REGIR) == 0u;
+#endif
 		const bool have_cell = use_regir && regirSelectOnionCell(P, rng, cell);
 		const uint candidate_count = use_regir ? uint(REGIR_ONION_LOOKUP_CANDIDATES) : uint(RIS_PRIMARY_CANDIDATES);
+#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+		// Seed the reservoir before fresh candidates. No previous surface,
+		// cross-target MIS, visibility-window probes, or neighbor exchange.
+		if (compatible && imageLoad(temporal_reprojection_ready, pix).r > 0.5) {
+			RisVisibilityReservoir history[2];
+			risVisibilityLoad(history_pix, history);
+			for (int lobe = 0; lobe < 2; ++lobe) {
+				if (!risVisibilityHasSample(history[lobe]) ||
+					risVisibilityLifetimeExpired(history[lobe].age, history[lobe].lifetime) ||
+					!RIS_LIGHT_HASH_MATCHES(history[lobe].reservoir.light_id,
+						history[lobe].reservoir.light_hash)) {
+					continue;
+				}
+				const float current_target = risVisibilityTarget(history[lobe], s, lobe);
+				if (!(current_target > RIS_WEIGHT_EPSILON) ||
+					isnan(current_target) || isinf(current_target)) {
+					continue;
+				}
+				risVisibilityCapHistory(history[lobe], float(candidate_count));
+				if (!(history[lobe].reservoir.sample_count > 0.0)) {
+					continue;
+				}
+				// Validate this saved replay sample at the current receiver once.
+				// A blocked history must not contribute mass to fresh candidates.
+				if (risVisibilityTrace(history[lobe], s) == 0.0) {
+					continue;
+				}
+				history[lobe].visibility = 1.0;
+				// Preserve W while expressing accumulated mass in today's target.
+				history[lobe].reservoir.weight_sum *= current_target /
+					history[lobe].reservoir.mixed_weight;
+				history[lobe].reservoir.mixed_weight = current_target;
+				history[lobe].age += 1u;
+				r[lobe] = history[lobe];
+			}
+		}
+#endif
 		const bool test_candidate_visibility = risVisibilityTestInitialCandidates();
 		for (uint j = 0u; j < candidate_count; ++j) {
 			RegirOnionCandidate proposal;
@@ -632,6 +749,9 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			for (int lobe = 0; lobe < 2; ++lobe) {
 				r[lobe].reservoir.sample_count += 1.0;
 				const float target = risUnifiedTargetWeight(candidate_weights, material, lobe);
+				// RIS selection mass is p_hat / q. The fast target already includes
+				// light luminance; do not multiply it by light color again. Uniform
+				// proposals over N list entries have q = 1/N, including rejected IDs.
 				const float mass = risVisibilityInitialCandidateMass(target, proposal.inv_source_pdf,
 					candidate_visible ? 1.0 : 0.0);
 				if (!(mass > 0.0) || isnan(mass) || isinf(mass)) {
@@ -663,6 +783,7 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 				r[lobe].reservoir.weight_sum = 0.0;
 			}
 		}
+#if (!defined(RIS_FRESH_CANDIDATES_ONLY) || !RIS_FRESH_CANDIDATES_ONLY) && (!defined(RIS_SIMPLE_TEMPORAL_REUSE) || !RIS_SIMPLE_TEMPORAL_REUSE)
 		// Keep the actual fresh estimator, including visibility rejection and M.
 		// A detector-triggered restart must not synthesize W from visibility.
 		RisVisibilityReservoir initial[2];
@@ -674,6 +795,7 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		if (compatible) {
 			canonical_previous = risVisibilityPreviousSurface(history_pix);
 		}
+#if RIS_VISIBILITY_ZAPAS
 		for (int lobe = 0; lobe < 2; ++lobe) {
 			RisZapasReservoir old_zapas = risZapasEmpty();
 			if (zapas_sources[lobe].x != RIS_INVALID_LIGHT_ID) {
@@ -688,6 +810,7 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			}
 			zapas[lobe] = risVisibilityUpdateZapas(initial[lobe], s, old_zapas, canonical_previous, pix, lobe);
 		}
+#endif
 		if (source_ready) {
 			RisVisibilityReservoir history[2];
 			risVisibilityLoad(history_pix, history);
@@ -700,8 +823,10 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 					continue;
 				}
 				ivec2 source_pix = history_pix;
+#if RIS_VISIBILITY_PERMUTATION
 				risVisibilityPermuteFullLightHistory(pix, history_pix, s, lobe,
 					history[lobe], source_pix);
+#endif
 				const RisVisibilitySurface hs = all(equal(source_pix, history_pix))
 					? canonical_previous : risVisibilityPreviousSurface(source_pix);
 				risVisibilityCapHistory(history[lobe], r[lobe].reservoir.sample_count);
@@ -718,35 +843,53 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 		}
 		for (int lobe = 0; lobe < 2; ++lobe) {
 			if (replace_main[lobe]) {
+#if RIS_VISIBILITY_ZAPAS
 				const bool use_zapas = risVisibilityMayUseZapas(reprojected, compatible,
 					replace_main[lobe], risVisibilityHasSample(zapas[lobe]), zapas[lobe].age);
+#endif
 				RisVisibilityReservoir replacement = initial[lobe];
+#if RIS_VISIBILITY_ZAPAS
 				if (use_zapas) {
 					replacement = risVisibilityEmpty();
 					replacement.reservoir = zapas[lobe].reservoir;
 					replacement.visibility = 1.0;
 				}
+#endif
 				replacement.window = risVisibilityWindowSelect(replacement.reservoir.light_id,
 					replacement.reservoir.light_hash, r[lobe].reservoir.light_id,
 					r[lobe].reservoir.light_hash, r[lobe].window, replacement.visibility >= 0.5 ? 1u : 0u);
 				r[lobe] = replacement;
 				risVisibilityStartLifetime(r[lobe], pix, lobe, false);
+#if RIS_VISIBILITY_ZAPAS
 				if (use_zapas) {
 					zapas[lobe] = risZapasFresh(initial[lobe], pix, lobe);
 				}
+#endif
 			}
+#if RIS_VISIBILITY_ZAPAS
 			if (!source_ready) {
 				// A relaxed many-to-one loser may consume a valid zapas once, but
 				// cannot keep duplicating its history into a growing pixel block.
 				zapas[lobe] = risZapasFresh(initial[lobe], pix, lobe);
 			}
+#endif
 			if (r[lobe].lifetime == 0u) {
 				risVisibilityStartLifetime(r[lobe], pix, lobe, false);
 			}
 		}
+#endif
+#if defined(RIS_SIMPLE_TEMPORAL_REUSE) && RIS_SIMPLE_TEMPORAL_REUSE
+		for (int lobe = 0; lobe < 2; ++lobe) {
+			if (r[lobe].lifetime == 0u)
+				risVisibilityStartLifetime(r[lobe], pix, lobe, false);
+		}
+#endif
 	}
+#endif
 	risVisibilityStore(pix, r);
+#if RIS_VISIBILITY_ZAPAS
 	risVisibilityStoreZapas(pix, zapas, r);
+#endif
 }
 
 void risVisibilityShadeReservoirs(RisVisibilityReservoir r[2], vec3 P, vec3 N, vec3 V,
@@ -754,6 +897,12 @@ void risVisibilityShadeReservoirs(RisVisibilityReservoir r[2], vec3 P, vec3 N, v
 {
 	diffuse = vec3(0.0);
 	specular = vec3(0.0);
+#if defined(RIS_DISABLE_FINAL_SHADING) && RIS_DISABLE_FINAL_SHADING
+	if (risVisibilityHasSample(r[0]))
+		diffuse = risSelectedLightDebugColor(r[0].reservoir.light_id);
+	if (risVisibilityHasSample(r[1]))
+		specular = risSelectedLightDebugColor(r[1].reservoir.light_id);
+#else
 	for (int lobe = 0; lobe < 2; ++lobe) {
 		RIS_LIGHT_SAMPLE light;
 		vec3 d;
@@ -762,6 +911,9 @@ void risVisibilityShadeReservoirs(RisVisibilityReservoir r[2], vec3 P, vec3 N, v
 			!risEvaluateConcreteSample(light, r[lobe].reservoir.sample_random, P, N, V, material, false, d, sp)) {
 			continue;
 		}
+		// Shade the real contribution with W = sum(p_hat/q)/(M*p_hat_selected).
+		// The denominator must use the SAME proxy stored during selection, not
+		// the luminance of the full BRDF/LTC contribution evaluated above.
 		// Eq. (5), with an optional legacy W clamp for the diagnostic comparison.
 		const float target = r[lobe].reservoir.mixed_weight;
 		const float mass = r[lobe].reservoir.weight_sum;
@@ -787,6 +939,7 @@ void risVisibilityShadeReservoirs(RisVisibilityReservoir r[2], vec3 P, vec3 N, v
 			specular = shaded;
 		}
 	}
+#endif
 }
 
 #undef VIS_OUT_RESERVOIR
