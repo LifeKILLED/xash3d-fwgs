@@ -52,15 +52,23 @@ RisTemporalReservoir risSeedLightcacheReservoirUV(
         vec4 random_count = imageLoad(RIS_LC_RANDOM, taps[tap]);
         source.sample_random = random_count.xyz;
         source.sample_count = random_count.w;
-        if (!risTemporalReservoirValid(source) || !RIS_LIGHT_HASH_MATCHES(source.light_id, source.light_hash)) continue;
-        // One cache neighbor supplies one proposal, not its temporal history M.
-        // Zero-target/blocked proposals still contribute one to the count.
-        result.sample_count += 1.0;
-        RIS_LIGHT_SAMPLE light; vec2 lobes;
-        if (!RIS_LOAD_LIGHT(source.light_id, light) ||
-            !risEvaluateUnifiedResamplingTarget(light, source.sample_random,
-                P, geometry_N, N, V, material, false, lobes)) continue;
+        if (!risTemporalReservoirValid(source) || !RIS_RESOLVE_RESERVOIR_LIGHT_ID(source)) continue;
+        RIS_LIGHT_SAMPLE light;
+        vec2 lobes = vec2(0.0);
+        const bool evaluated = RIS_LOAD_LIGHT(source.light_id, light) &&
+            risEvaluateUnifiedResamplingTarget(light, source.sample_random,
+                P, geometry_N, N, V, material, false, lobes);
         float target = risUnifiedTargetWeight(lobes * target_scale, material, lobe);
+        // Confidence scales BOTH mass and M, preserving W = mass/(M*target).
+        // Scaling mass alone would dim the cache seed rather than just make
+        // it easier for fresh candidates to replace. Keep zero proposals in M.
+        float penalized_target = risUnifiedTargetWeight(
+            lobes * vec2(0.3, 0.1) * target_scale, material, lobe);
+        float cache_confidence = target > RIS_WEIGHT_EPSILON
+            ? penalized_target / target
+            : risUnifiedTargetWeight(vec2(0.3, 0.1), material, lobe);
+        result.sample_count += cache_confidence;
+        if (!evaluated) continue;
         float visibility = clamp(imageLoad(RIS_LC_VISIBILITY, taps[tap]).x, 0.0, 1.0);
         // Preserve the normalized source estimator W while resetting M to one.
         // Importing its whole temporal mass would overwhelm fresh candidates.
@@ -68,7 +76,7 @@ RisTemporalReservoir risSeedLightcacheReservoirUV(
         float inv_pdf = source.weight_sum /
             max(source.sample_count * source.mixed_weight, RIS_WEIGHT_EPSILON) /
             max(target_scale, RIS_WEIGHT_EPSILON);
-        float mass = target * inv_pdf * visibility;
+        float mass = target * inv_pdf * visibility * cache_confidence;
         if (!(mass > RIS_WEIGHT_EPSILON) || isnan(mass) || isinf(mass)) continue;
         float total_mass = result.weight_sum + mass;
         if (result.weight_sum == 0.0 ||

@@ -144,10 +144,6 @@ const float shadow_offset_fudge = .1;
 #define RIS_TEMPORAL_SHADING_CONFIDENCE 0
 #endif
 
-#ifndef RIS_TEMPORAL_LIGHT_ID_SEARCH_RADIUS
-#define RIS_TEMPORAL_LIGHT_ID_SEARCH_RADIUS 4
-#endif
-
 #ifndef RIS_BAYER_SHARED_VISIBILITY
 #define RIS_BAYER_SHARED_VISIBILITY 0
 #endif

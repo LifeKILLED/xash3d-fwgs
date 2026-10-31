@@ -3,6 +3,8 @@
 bool risLoadSpatialSurface(ivec2 pix, out vec3 P, out vec3 N);
 // Cache history lives about 5000 frames on average; screen RIS keeps its own lifetime.
 #define RIS_TEMPORAL_RANDOM_RESET_PROBABILITY (1.0 / 5000.0)
+// Weight confidence is allowed to reject history; world-space geometry is not.
+#define RIS_TEMPORAL_SHADING_CONFIDENCE 1
 #include "light_ris_common.glsl"
 #include "regir_onion.glsl"
 // The cache has no screen-space surface; these functions only satisfy the
@@ -29,6 +31,29 @@ bool lcLoadLight(uint id, out RisLightSample light) {
 #endif
     return true;
 }
+bool lcLightHashMatches(uint id, uint hash) {
+    RisLightSample light;
+    return lcLoadLight(id, light) && risLightHash(light) == hash;
+}
+bool lcLightSlotValid(uint id) { return id < lcLightCount(); }
+#define RIS_ID_RECOVERY_FUNCTION lcRecoverLightId
+#define RIS_ID_RECOVERY_HASH_MATCHES lcLightHashMatches
+#define RIS_ID_RECOVERY_SLOT_VALID lcLightSlotValid
+#include "light_id_recovery.glsl"
+
+// Concrete emitter sample is fixed in lightmap space, independent of frame,
+// random_seed, packed storage coordinates, and the brush's world transform.
+vec3 lcStableSampleRandom(uint index, uint light_id) {
+    LightcacheProbe probe = lightcache_geometry.probes[index];
+    uvec2 local = uvec2(probe.local_index % probe.width, probe.local_index / probe.width);
+    uvec2 lm_texel = uvec2(probe.lm_s, probe.lm_t) + 2u * local;
+    uint seed = xxhash32(uvec4(lm_texel, light_id, uint(LIGHT_POINT)));
+    return vec3(
+        uintToFloat01(xxhash32(uvec2(seed, 0x6c637378u))),
+        uintToFloat01(xxhash32(uvec2(seed, 0x6c637379u))),
+        uintToFloat01(xxhash32(uvec2(seed, 0x6c63737au))));
+}
+
 MaterialProperties lcMaterial() {
     MaterialProperties m; m.base_color = vec3(1); m.metalness = 0; m.roughness = 1; return m;
 }
@@ -83,22 +108,10 @@ void main() {
     rand01_state = xxhash32(uvec4(index, ubo.ubo.random_seed, ubo.ubo.frame_counter, uint(LIGHT_POINT)));
     if (cache_active) {
         vec3 P, N; lightcacheSurface(index, P, N);
-        // Stable lightmap texels reuse only their own history.
-        ivec2 hp = pix;
-#if RIS_RESERVOIR_PERMUTATIONS
-        LightcacheProbe probe = lightcache_geometry.probes[index];
-        ivec2 local = ivec2(probe.local_index % probe.width, probe.local_index / probe.width);
-        ivec2 partner = temporalReservoirPairPermutationPixel(local, ivec2(probe.width, probe.height),
-            ubo.ubo.frame_counter, probe.island, 0.75);
-        uint previous = probe.first + uint(partner.y) * probe.width + uint(partner.x);
-        // Exchange only full-light histories; shadow boundaries stay canonical.
-        bool self_ready = lcHistoryReady(pix, res);
-        vec4 self_meta = self_ready ? imageLoad(LC_PREV_VISIBILITY, pix) : vec4(0);
-        if (self_ready && lightcacheInCapacity(previous, res)) {
-            ivec2 pp = lightcachePixel(previous, res);
-            if (lcHistoryReady(pp, res) && risVisibilityWindowsPermitSwap(lcWindow(self_meta), lcWindow(imageLoad(LC_PREV_VISIBILITY, pp)))) hp = pp;
-        }
-#endif
+        // Identity reprojection: a lightmap texel always inherits itself.
+        // Brush motion/rotation changes only current P/N and the target weight,
+        // never the history address or surface eligibility. No permutations.
+        const ivec2 hp = pix;
         RisTemporalReservoir history = risInvalidTemporalReservoir();
         float history_visibility = 0.0;
         if (lcHistoryReady(hp, res)) {
@@ -109,10 +122,19 @@ void main() {
             vec4 meta = imageLoad(LC_PREV_VISIBILITY, hp);
             history_visibility = meta.x;
             window = lcWindow(meta);
+            if (risTemporalReservoirValid(history))
+                history.light_id = lcRecoverLightId(history.light_id, history.light_hash);
             RisLightSample old; vec3 d, l;
-            if (risTemporalReservoirValid(history) && lcLoadLight(history.light_id, old) && risLightHash(old) == history.light_hash &&
+            if (risTemporalReservoirValid(history) && lcLoadLight(history.light_id, old) &&
                 lcSample(old, history.sample_random, P, N, false, d, l)) {
                 float target = luminance(d);
+                // Hash changes (e.g. moving light geometry) are not surface
+                // rejection. Re-evaluate the current slot, then apply only
+                // target-weight confidence and the independent lifetime test.
+                const uint current_hash = risLightHash(old);
+                window = risVisibilityWindowSelect(history.light_id, current_hash,
+                    history.light_id, history.light_hash, window, history_visibility >= 0.5 ? 1u : 0u);
+                history.light_hash = current_hash;
                 history = risReweightTemporalReservoir(history, target, target, rand01());
                 float cap = max(4.0, 4.0 * ubo.ubo.di_visibility_history);
                 if (history.sample_count > cap) { history.weight_sum *= cap / history.sample_count; history.sample_count = cap; }
@@ -137,7 +159,7 @@ void main() {
             proposal.light_id = min(uint(rand01() * float(count)), count - 1u);
             proposal.inv_source_pdf = float(count);
             }
-            RisLightSample light; vec3 d, l; vec3 rnd = vec3(rand01(), rand01(), rand01());
+            RisLightSample light; vec3 d, l; vec3 rnd = lcStableSampleRandom(index, proposal.light_id);
             if (!lcLoadLight(proposal.light_id, light) || !lcSample(light, rnd, P, N, false, d, l) || luminance(d) <= RIS_WEIGHT_EPSILON) {
                 r.sample_count += 1.0; continue;
             }
@@ -152,7 +174,7 @@ void main() {
         if (use_regir) for (uint id = 0u; id < count; ++id) {
             PointLight point = lights.m.point_lights[id];
             if (point.environment == 0u && point.flashlight == 0u) continue;
-            RisLightSample light; vec3 d, l; vec3 rnd = vec3(rand01(), rand01(), rand01());
+            RisLightSample light; vec3 d, l; vec3 rnd = lcStableSampleRandom(index, id);
             if (!lcLoadLight(id, light) || !lcSample(light, rnd, P, N, false, d, l) || luminance(d) <= RIS_WEIGHT_EPSILON) continue;
             RisTemporalCandidate candidate;
             candidate.light_id = id; candidate.light_hash = risLightHash(light);
@@ -182,12 +204,12 @@ void main() {
             visibility = risVisibilityAverage(fresh_visibility, fresh_mass, history_visibility, history_mass);
             window = risVisibilityWindowSelect(r.light_id, r.light_hash, history.light_id, history.light_hash,
                 window, visibility >= 0.5 ? 1u : 0u);
-            // The existing seven-frame source detector observes a fresh point on
-            // the selected light. It also makes moving shadows invalidate reuse.
+            // Observe the same concrete point used by selection and shading.
+            // Moving geometry still changes visibility; frames do not move the
+            // sample on the emitter for an otherwise unchanged texel/source.
             RisLightSample selected;
             if (lcLoadLight(r.light_id, selected)) {
-                vec3 rnd = vec3(rand01(), rand01(), rand01());
-                bool visible = lcSample(selected, rnd, P, N, true, d, l);
+                bool visible = lcSample(selected, r.sample_random, P, N, true, d, l);
                 window = risVisibilityWindowPush(window, visible ? 1u : 0u);
                 if ((ubo.ubo.renderer_flags & RENDERER_FLAG_DIRECT_VISIBILITY_GRADIENT) != 0u)
                     visibility = risVisibilityWindowGradientUpdate(window, visibility);

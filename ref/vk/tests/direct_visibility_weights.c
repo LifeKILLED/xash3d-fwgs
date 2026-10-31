@@ -39,6 +39,12 @@ static int near(double a, double b)
 
 int main(void)
 {
+    // Weak cache seeds reduce selection confidence, not shaded brightness.
+    // Exercise the real shader normalization with fractional effective M.
+    const float cache_shaded = risVisibilityShade(2.0f, 3.0f, 30.0f, 5.0f, 1.0f);
+    assert(near(risVisibilityShade(2.0f, 3.0f, 30.0f * 0.3f, 5.0f * 0.3f, 1.0f), cache_shaded));
+    assert(near(risVisibilityShade(2.0f, 3.0f, 30.0f * 0.1f, 5.0f * 0.1f, 1.0f), cache_shaded));
+
 	// Full light bypasses the old visibility average only after seven valid
 	// observations. Penumbra and incomplete windows retain that same average.
 	RisVisibilityWindow full_light = {127, 7, 0};

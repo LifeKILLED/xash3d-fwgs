@@ -66,7 +66,12 @@ UV, so jitter cannot cross into another packed island. Stored UV are unchanged.
 The four taps are adjacent texels in the island-local lightmap cache grid,
 not screen-space neighbors. Each valid neighbor contributes one proposal (M = 1),
 using its normalized estimator W = weight_sum / (source_M * source_target).
-Selection mass is current_target * W * cached_visibility. The source's temporal
+Cache confidence is 0.3 for diffuse and 0.1 for specular: both selection mass
+and effective M are multiplied by this factor, preserving normalized brightness
+W while making the seed easier to replace. Unsplit reservoirs combine the
+factors using the current BRDF lobe targets. The stored target and normalized
+inverse proposal weight remain unchanged, including diffuse ReGIR reversion.
+The source's temporal
 sample count and total mass are not imported, so four cache taps cannot bring
 hundreds of historical candidates into a newly reset screen reservoir. All four neighbors
 enter without bilinear attenuation; only UV dithering varies the footprint. The target is evaluated
@@ -119,12 +124,27 @@ and flashlight sources, excluded from ReGIR, enter as separate proposal strata
 in the same diffuse reservoir. Concrete sampling and weighting are independent
 of the receiving surface's material and view.
 
-Visibility is measured for the fresh RIS winner and a fresh point on the
-selected source. History reuses scalar visibility; the shared median/gradient
-controls update its seven-frame detector. Only paired full-light histories may
-exchange. Old samples are evaluated using current probe geometry; position and
-normal history are not stored. History count is capped using
-`di_visibility_history`. No geometry rejection/reprojection is performed.
+Concrete emitter sample coordinates are hashed from the texel's lightmap
+address and light ID/type, independently of frame number, frame random seed,
+and brush world transform. Fresh candidate shading, winner visibility, and the
+selected source's visibility detector all replay that same stable sample.
+Proposal selection, reservoir merging and lifetime retain their changing RNG.
+UV dithering when reading cache reservoirs remains independent.
+
+Visibility is measured for the fresh RIS winner and the saved concrete point on
+the selected source. History reuses scalar visibility; the shared median/gradient
+controls update its seven-frame detector. Reservoir and lighting history always
+reproject to the identical lightmap texel ID, including moving/rotating brushes.
+There are no history permutations or world-position, normal, depth, plane,
+material, or screen-reprojection gates. Old samples are evaluated using current
+probe geometry; position and normal history are not stored. Changed light hashes
+do not reject the reservoir: all point/poly RIS paths first check the current
+slot, then ID + 1 and ID - 1 for the saved hash. If neither neighbor matches,
+the original ID is retained, re-evaluated, and its hash refreshed. A missing
+original slot can still be recovered from a matching immediate neighbor. History can reset on target-weight confidence, shadow rejection, or
+its independent lifetime. History count is capped using `di_visibility_history`.
+Cache epoch, allocation capacity, resolution and ping-pong frame validity still
+protect against reading incompatible storage.
 
 The SH pass accumulates nine same-island taps, keeping each light's concrete RIS
 sample direction. Outputs are two RGBA16F images (`shY` and `CoCg`); RIS data is

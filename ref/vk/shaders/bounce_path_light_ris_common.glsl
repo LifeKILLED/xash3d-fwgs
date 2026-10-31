@@ -264,7 +264,7 @@ bool bouncePathShadeCachedLocalReservoir(
 #endif
 
 	bool shaded = false;
-	if (risTemporalReservoirValid(updated_reservoir)) {
+	if (risResolveReservoirLightId(updated_reservoir)) {
 		vec3 selected_specular;
 		shaded = risShadeUnifiedReservoir(
 			updated_reservoir,

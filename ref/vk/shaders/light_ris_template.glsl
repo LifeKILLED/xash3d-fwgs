@@ -61,6 +61,16 @@ bool RIS_LIGHT_HASH_MATCHES(uint light_id, uint light_hash)
 	return RIS_LOAD_LIGHT(light_id, light) && RIS_LIGHT_HASH(light) == light_hash;
 }
 
+bool risLightSlotValid(uint light_id)
+{
+    RIS_LIGHT_SAMPLE light;
+    return RIS_LOAD_LIGHT(light_id, light);
+}
+#define RIS_ID_RECOVERY_FUNCTION risRecoverLightId
+#define RIS_ID_RECOVERY_HASH_MATCHES RIS_LIGHT_HASH_MATCHES
+#define RIS_ID_RECOVERY_SLOT_VALID risLightSlotValid
+#include "light_id_recovery.glsl"
+
 bool RIS_RESOLVE_RESERVOIR_LIGHT_ID(inout RisTemporalReservoir reservoir)
 {
 	if (!risTemporalReservoirValid(reservoir)) {
@@ -71,28 +81,12 @@ bool RIS_RESOLVE_RESERVOIR_LIGHT_ID(inout RisTemporalReservoir reservoir)
 		return true;
 	}
 
-	const uint original_light_id = reservoir.light_id;
-	for (uint distance = 1u; distance <= uint(RIS_TEMPORAL_LIGHT_ID_SEARCH_RADIUS); ++distance) {
-		if (original_light_id >= distance) {
-			const uint previous_light_id = original_light_id - distance;
-			if (RIS_LIGHT_HASH_MATCHES(previous_light_id, reservoir.light_hash)) {
-				reservoir.light_id = previous_light_id;
-				return true;
-			}
-		}
-
-		const uint next_light_id = original_light_id + distance;
-		if (next_light_id > original_light_id && RIS_LIGHT_HASH_MATCHES(next_light_id, reservoir.light_hash)) {
-			reservoir.light_id = next_light_id;
-			return true;
-		}
-	}
-
-	// Hash is only an ID-shift recovery hint. If no neighbor matches, retain the
-	// original slot and treat the mismatch as a dynamically changed light rather
-	// than invalidating otherwise valid temporal history.
-	RIS_LIGHT_SAMPLE current_slot_light;
-	return RIS_LOAD_LIGHT(original_light_id, current_slot_light);
+    const uint recovered_id = risRecoverLightId(reservoir.light_id, reservoir.light_hash);
+    RIS_LIGHT_SAMPLE current_light;
+    if (recovered_id == RIS_INVALID_LIGHT_ID || !RIS_LOAD_LIGHT(recovered_id, current_light)) return false;
+    reservoir.light_id = recovered_id;
+    reservoir.light_hash = RIS_LIGHT_HASH(current_light);
+    return true;
 }
 
 bool RIS_LOAD_PREVIOUS_RESERVOIR(

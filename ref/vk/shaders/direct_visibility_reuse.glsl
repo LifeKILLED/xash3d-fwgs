@@ -197,23 +197,14 @@ float risVisibilityTarget(RisVisibilityReservoir r, RisVisibilitySurface s, int 
 
 bool risVisibilityResolveLight(inout RisTemporalReservoir reservoir)
 {
-	if (RIS_LIGHT_HASH_MATCHES(reservoir.light_id, reservoir.light_hash)) {
-		return true;
-	}
-	const uint original = reservoir.light_id;
-	for (uint distance = 1u; distance <= uint(RIS_TEMPORAL_LIGHT_ID_SEARCH_RADIUS); ++distance) {
-		if (original >= distance && RIS_LIGHT_HASH_MATCHES(original - distance, reservoir.light_hash)) {
-			reservoir.light_id = original - distance;
-			return true;
-		}
-		if (original + distance > original && RIS_LIGHT_HASH_MATCHES(original + distance, reservoir.light_hash)) {
-			reservoir.light_id = original + distance;
-			return true;
-		}
-	}
-	// Reusing a different light with the old p_hat/W/V is not a valid mapping.
-	// Unlike the legacy resolver, do not keep an unverified current array slot.
-	return false;
+    // Zapas also calls this with identity only (no mass/M), so resolve the ID
+    // independently of reservoir statistics.
+    const uint recovered_id = risRecoverLightId(reservoir.light_id, reservoir.light_hash);
+    RIS_LIGHT_SAMPLE light;
+    if (recovered_id == RIS_INVALID_LIGHT_ID || !RIS_LOAD_LIGHT(recovered_id, light)) return false;
+    reservoir.light_id = recovered_id;
+    reservoir.light_hash = RIS_LIGHT_HASH(light);
+    return true;
 }
 
 float risVisibilityTrace(RisVisibilityReservoir r, RisVisibilitySurface s)
@@ -688,8 +679,7 @@ void risVisibilityInitial(vec3 P, vec3 geometry_N, vec3 N, vec3 V,
 			for (int lobe = 0; lobe < 2; ++lobe) {
 				if (!risVisibilityHasSample(history[lobe]) ||
 					risVisibilityLifetimeExpired(history[lobe].age, history[lobe].lifetime) ||
-					!RIS_LIGHT_HASH_MATCHES(history[lobe].reservoir.light_id,
-						history[lobe].reservoir.light_hash)) {
+					!risVisibilityResolveLight(history[lobe].reservoir)) {
 					continue;
 				}
 				const float current_target = risVisibilityTarget(history[lobe], s, lobe);
