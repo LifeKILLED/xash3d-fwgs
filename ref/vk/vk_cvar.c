@@ -46,12 +46,13 @@ void VK_LoadCvarsAfterInit( void )
 		rt_disable_direct = gEngine.Cvar_Get("rt_disable_direct", "0", FCVAR_GLCONFIG, "Disable screen direct lighting, including flashlight; keep lightmap cache enabled");
 		rt_lightcache_gi = gEngine.Cvar_Get("rt_lightcache_gi", "0", FCVAR_GLCONFIG, "Use the lightmap SH cache instead of point/poly lighting at GI path vertices");
 		rt_disable_lightcache_update = gEngine.Cvar_Get("rt_disable_lightcache_update", "0", FCVAR_GLCONFIG, "Freeze light cache updates and keep sampling cached lighting");
+		rt_lightcache_bruteforce = gEngine.Cvar_Get("rt_lightcache_bruteforce", "0", FCVAR_GLCONFIG, "Light cache update: 0 RIS (one selected sample per light type), 1 sum every light in the legacy light cluster");
 		rt_disable_reflection = gEngine.Cvar_Get("rt_disable_reflection", "0", FCVAR_GLCONFIG, "Disable reflection rays and RIS lighting for indirect specular");
 		rt_disable_refraction = gEngine.Cvar_Get("rt_disable_refraction", "0", FCVAR_GLCONFIG, "Disable refraction rays and RIS lighting for transparency refraction");
 		rt_disable_reconstruction = gEngine.Cvar_Get("rt_disable_reconstruction", "0", FCVAR_GLCONFIG, "Disable spatial reconstruction pass for indirect specular");
 		rt_disable_atrous = gEngine.Cvar_Get("rt_disable_atrous", "0", FCVAR_GLCONFIG, "Disable a-trous spatial filtering, including SH GI filtering; keep temporal accumulation");
 		rt_disable_sh_gi_denoising = gEngine.Cvar_Get("rt_disable_sh_gi_denoising", "0", FCVAR_GLCONFIG, "Disable SH-based denoising for indirect diffuse GI");
-		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable temporal reprojection in denoiser");
+		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable ASVGF history reprojection only; keep reservoir and light cache history enabled");
 		rt_disable_regir = gEngine.Cvar_Get("rt_disable_regir", "0", FCVAR_GLCONFIG, "Disable ReGIR Onion candidates and use random RIS candidates");
 		rt_regir_onion_radius = gEngine.Cvar_Get("rt_regir_onion_radius", "8192", FCVAR_GLCONFIG, "Maximum camera-centered ReGIR Onion radius");
 		rt_direct_visibility_reuse = gEngine.Cvar_Get("rt_direct_visibility_reuse", "1", FCVAR_GLCONFIG, "Direct visibility reuse: 0 legacy RIS, 1 temporal visibility reuse (Tokuyoshi 2024)");

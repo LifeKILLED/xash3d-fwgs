@@ -42,10 +42,10 @@
 #define BOUNCE_PATH_MAX_HISTORY_AGE 0u
 #endif
 
-// At equal target weights, 256 effective samples give a fresh path roughly a
-// 1 / 257 replacement probability per frame once the reservoir is saturated.
+// At equal target weights, 2560 effective samples give a fresh path roughly a
+// 1 / 2561 replacement probability per frame once the reservoir is saturated.
 #ifndef BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES
-#define BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES 256.0
+#define BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES 500.0
 #endif
 
 #ifndef BOUNCE_PATH_MAX_OUTPUT_WEIGHT

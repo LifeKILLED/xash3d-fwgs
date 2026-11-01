@@ -9,7 +9,7 @@
 #endif
 
 #ifndef REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES
-#define REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES 64.0
+#define REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES 640.0
 #endif
 
 // Reject local copies of the same historical random pair before ray tracing.
@@ -19,7 +19,7 @@
 
 // Motion caps confidence, rather than multiplying the final radiance.
 #ifndef REFLECTION_PATH_MOVING_HISTORY_CAP
-#define REFLECTION_PATH_MOVING_HISTORY_CAP 4.0
+#define REFLECTION_PATH_MOVING_HISTORY_CAP 40.0
 #endif
 #ifndef REFLECTION_PATH_MOTION_PIXELS
 #define REFLECTION_PATH_MOTION_PIXELS 2.0
@@ -34,7 +34,7 @@
 // Independent restarts prevent an old path surviving indefinitely, even while
 // stationary. This RNG is separate from the path's target and selection RNG.
 #ifndef REFLECTION_PATH_RESTART_PROBABILITY
-#define REFLECTION_PATH_RESTART_PROBABILITY (1.0 / 128.0)
+#define REFLECTION_PATH_RESTART_PROBABILITY (1.0 / 1280.0)
 #endif
 
 // Keep black samples in the reservoir domain/count, including GGX samples

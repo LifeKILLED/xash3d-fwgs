@@ -1,0 +1,97 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_shader_16bit_storage : require
+#define GLSL
+#include "ray_interop.h"
+#undef GLSL
+#define RAY_QUERY
+layout(local_size_x=8, local_size_y=8) in;
+layout(set=0,binding=1) uniform accelerationStructureEXT tlas;
+layout(set=0,binding=2) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set=0,binding=6) uniform sampler2D textures[MAX_TEXTURES];
+layout(set=0,binding=7,std430) readonly buffer SBOLights { LightsMetadata m; } lights;
+layout(set=0,binding=8,align=1) readonly buffer UBOLightClusters {
+    LightCluster clusters_[MAX_LIGHT_CLUSTERS];
+} light_grid;
+layout(set=0,binding=20,rgba16f) uniform writeonly image2D out_lc_point;
+layout(set=0,binding=30,std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
+layout(set=0,binding=31,std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
+layout(set=0,binding=32,std430) readonly buffer Indices { uint16_t a[]; } indices;
+layout(set=0,binding=33,std430) readonly buffer Vertices { Vertex a[]; } vertices;
+#include "utils.glsl"
+#include "noise.glsl"
+#include "brdf.glsl"
+const float shadow_offset_fudge = 0.01;
+#include "light_common.glsl"
+#include "lightcache_geometry.glsl"
+#include "lc_independent.glsl"
+
+vec3 pointRadiance(PointLight l, vec3 P, vec3 N, vec2 random) {
+    vec3 axis; float omega; float distance = 10000.0;
+    if (l.environment != 0u) {
+        axis = normalize(l.dir_stopdot2.xyz);
+        omega = 2.0*kPi*max(1.0-l.dir_stopdot2.w, 0.0);
+    } else {
+        vec3 d = l.origin_r2.xyz-P;
+        float d2 = dot(d,d);
+        if (d2 <= l.origin_r2.w || d2 < 1e-8) return vec3(0);
+        distance = sqrt(d2); axis = d/distance;
+        // Stable 1-sqrt(1-x), including small distant lights.
+        float x = clamp(l.origin_r2.w/d2,0.0,1.0);
+        omega = 2.0*kPi*x/(1.0+sqrt(1.0-x));
+    }
+    vec3 L = normalize(orthonormalBasisZ(axis)*sampleConeZ(random, 1.0-omega/(2.0*kPi)));
+    float spot = 1.0;
+    if (l.environment == 0u && l.color_stopdot.w > l.dir_stopdot2.w)
+        spot = clamp((dot(-L,l.dir_stopdot2.xyz)-l.dir_stopdot2.w)/
+            (l.color_stopdot.w-l.dir_stopdot2.w),0.0,1.0);
+    vec3 c = lcDiffuse(l.color_stopdot.rgb*omega*spot,N,L);
+    if (lcWeight(c) == 0.0) return vec3(0);
+    bool blocked = l.environment != 0u ? shadowedSky(P,L) : shadowed(P,L,distance);
+    return blocked ? vec3(0) : c;
+}
+// Fixed emitter coordinates for this original LM texel/light pair, in both modes.
+vec3 lightSampleRandom(uint index,uint light_id) {
+    LightcacheProbe p=lightcache_geometry.probes[index];
+    uvec2 texel=uvec2(p.lm_s,p.lm_t)+2u*uvec2(p.local_index%p.width,p.local_index/p.width);
+    return rand3_f01(uvec3(texel,light_id^0x1c401u));
+}
+void main() {
+    ivec2 pix=ivec2(gl_GlobalInvocationID.xy), res=ubo.ubo.res;
+    if (any(greaterThanEqual(pix,res))) return;
+    vec3 value=vec3(0);
+    uint index=uint(pix.y*res.x+pix.x);
+    if (lightcacheInCapacity(index,res) && !lightcacheUpdateDisabled()) {
+        vec3 P,N; lightcacheSurface(index,P,N);
+        if ((ubo.ubo.renderer_flags & RENDERER_FLAG_LIGHTCACHE_BRUTEFORCE)!=0u) {
+            // Same world-space grid and packed cluster list as legacy lighting.
+            ivec3 cell=ivec3(floor(P/LIGHT_GRID_CELL_SIZE))-lights.m.grid_min_cell;
+            if (all(greaterThanEqual(cell,ivec3(0))) && all(lessThan(cell,lights.m.grid_size))) {
+                uint cluster=uint(dot(cell,ivec3(1,lights.m.grid_size.x,
+                    lights.m.grid_size.x*lights.m.grid_size.y)));
+                if (cluster<MAX_LIGHT_CLUSTERS) {
+                    uint count=min(uint(light_grid.clusters_[cluster].num_point_lights),MAX_VISIBLE_POINT_LIGHTS);
+                    for (uint j=0u;j<count;++j) {
+                        uint id=uint(light_grid.clusters_[cluster].point_lights[j]);
+                        if (id>=lights.m.num_point_lights) continue;
+                        vec3 random=lightSampleRandom(index,id);
+                        value+=pointRadiance(lights.m.point_lights[id],P,N,random.xy);
+                    }
+                }
+            }
+        } else {
+            LCReservoir reservoir=LCReservoir(0,0,0);
+            uint selected=0u, count=lights.m.num_point_lights;
+            for (uint j=0u;j<8u && count>0u;++j) {
+                vec3 r=rand3_f01(uvec3(index,ubo.ubo.frame_counter,j+0x1c100u));
+                uint id=min(uint(r.x*float(count)),count-1u);
+                if (lcOffer(reservoir,lcPointWeight(lights.m.point_lights[id],P,N),float(count),r.y)) selected=id;
+            }
+            vec3 random=lightSampleRandom(index,selected);
+            if (reservoir.target>0.0)
+                value=pointRadiance(lights.m.point_lights[selected],P,N,random.xy)*lcNormalization(reservoir);
+        }
+    }
+    imageStore(out_lc_point,pix,vec4(clamp(value,vec3(0),vec3(65504)),0));
+}

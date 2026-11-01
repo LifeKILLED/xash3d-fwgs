@@ -654,6 +654,17 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 		rt_lightcache_gi->flags &= ~FCVAR_CHANGED;
 		g_rtx.discontinuity = true;
 	}
+	if (rt_bounces->flags & FCVAR_CHANGED) {
+		rt_bounces->flags &= ~FCVAR_CHANGED;
+		g_rtx.discontinuity = true;
+	}
+	if (rt_lightcache_bruteforce->flags & FCVAR_CHANGED) {
+		rt_lightcache_bruteforce->flags &= ~FCVAR_CHANGED;
+		g_rtx.discontinuity = true;
+	}
+	// Clamp only to the storage range, independently of the old four-lane atlas.
+	ret.bounce_count = rt_bounces->value > 0.0f
+		? (uint32_t)Q_min((double)rt_bounces->value, (double)UINT32_MAX) : 0u;
 	ret.renderer_flags = SET_RENDERER_FLAG(RENDERER_FLAG_ONLY_DIFFUSE_GI) |
 					  SET_RENDERER_FLAG(RENDERER_FLAG_SEPARATED_REFLECTION) |
 					  (disable_sh_gi_denoising ? 0 : RENDERER_FLAG_DENOISE_GI_BY_SH) |
@@ -662,6 +673,7 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 					  (CVAR_TO_BOOL(rt_disable_direct) ? RENDERER_FLAG_DISABLE_DIRECT : 0) |
 					  (CVAR_TO_BOOL(rt_lightcache_gi) ? RENDERER_FLAG_LIGHTCACHE_GI : 0) |
 					  (CVAR_TO_BOOL(rt_disable_lightcache_update) ? RENDERER_FLAG_DISABLE_LIGHTCACHE_UPDATE : 0) |
+					  (CVAR_TO_BOOL(rt_lightcache_bruteforce) ? RENDERER_FLAG_LIGHTCACHE_BRUTEFORCE : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reprojection) ? RENDERER_FLAG_DISABLE_REPROJECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reflection) ? RENDERER_FLAG_DISABLE_REFLECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_refraction) ? RENDERER_FLAG_DISABLE_REFRACTION : 0) |

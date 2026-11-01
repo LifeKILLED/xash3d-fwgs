@@ -1,3 +1,5 @@
+// RGB cache experiment has no legacy RIS reservoir encoding.
+#if 0
 // Address the diffuse light cache at the receiving surface of each RIS pass.
 // Current-frame cache reservoirs are already shadow-tested by the cache update.
 #define LIGHTCACHE_GEOMETRY_BINDING 90
@@ -105,4 +107,17 @@ RisTemporalReservoir risSeedLightcacheReservoir(
     return risSeedLightcacheReservoirUV(imageLoad(RIS_LIGHTCACHE_UV_IMAGE, surface_pix),
         pix, lobe, target_scale, P, geometry_N, N, V, material);
 }
+#endif
+
+#else
+RisTemporalReservoir risSeedLightcacheReservoirUV(
+    vec4 uv, ivec2 pix, int lobe, float target_scale,
+    vec3 P, vec3 geometry_N, vec3 N, vec3 V, MaterialProperties material)
+{ return risInvalidTemporalReservoir(); }
+#ifdef RIS_LIGHTCACHE_UV_IMAGE
+RisTemporalReservoir risSeedLightcacheReservoir(
+    ivec2 surface_pix, ivec2 pix, int lobe, float target_scale,
+    vec3 P, vec3 geometry_N, vec3 N, vec3 V, MaterialProperties material)
+{ return risInvalidTemporalReservoir(); }
+#endif
 #endif

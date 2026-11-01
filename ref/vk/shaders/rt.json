@@ -5,10 +5,10 @@
 	// "regir_onion_poly": {
 	// 	"comp": "regir_onion_poly"
 	// },
-	"lightcache_point": { "comp": "lightcache_point" },
-	"lightcache_poly": { "comp": "lightcache_poly" },
-	"lightcache_sh": { "comp": "lightcache_sh" },
-	"lightcache_sh_temporal": { "comp": "lightcache_sh_temporal" },
+	// Independent RGB cache experiment. Original passes remain in their source files.
+	"lc_update_point": { "comp": "lc_update_point" },
+	"lc_update_polygon": { "comp": "lc_update_polygon" },
+	"lc_filter": { "comp": "lc_filter" },
 	"primary_ray": {
 		/*
 		"rgen": "ray_primary",
@@ -87,34 +87,11 @@
 	// 	"comp": "bounce_light_ris_resolve"
 	// },
 
-	// Compound-path bounce GI: one temporal reservoir owns the complete path.
-	"bounce_path_init": {
-		"comp": "bounce_path_init"
-	},
-	"bounce_path_legacy_blending": {
-		"comp": "bounce_path_legacy_blending_query"
-	},
-	"bounce_path_light_point_ris": {
-		"comp": "bounce_path_light_point_ris"
-	},
-	"bounce_path_light_poly_ris": {
-		"comp": "bounce_path_light_poly_ris"
-	},
-	"bounce_path_resolve": {
-		"comp": "bounce_path_resolve"
-	},
-	"reflection_path_prepare": {
-		"comp": "reflection_path_prepare"
-	},
-	"reflection_path_claim": {
-		"comp": "reflection_path_claim"
-	},
-	"reflection_primary_rays": {
-		"comp": "reflection_primary_rays"
-	},
-	"reflection_light_ris_resolve": {
-		"comp": "reflection_light_ris_resolve"
-	},
+	// Original compound bounce and reflection passes temporarily disconnected.
+	"reflection_path_prepare": { "comp": "reflection_path_prepare" },
+	"reflection_path_claim": { "comp": "reflection_path_claim" },
+	"lc_reflection": { "comp": "lc_reflection" },
+	"lc_bounce": { "comp": "lc_bounce" },
 	"refraction_primary_rays": {
 		"comp": "refraction_primary_rays"
 	},
