@@ -359,3 +359,17 @@ Radiance confidence сравнивает target replay с сохранённым
 линейно от 1 при отношении 1 до 0 при 1/1.5 и 1.5, за пределами — 0.
 История принимается с вероятностью confidence, иначе остаётся свежий кандидат.
 Предел задаёт BOUNCE_PATH_RADIANCE_RATIO. Сброс 1/200 также сохраняется.
+
+Reflection теперь использует тот же принцип seed replay и замены вклада истории,
+что и bounce. Metadata: X = точный seed 0..8388607, Y = format tag 2,
+Z = roughness (без отбраковки по ней), W = frame stamp. Старые random-pair
+истории не принимаются. Мировой сферический вектор переворачивается по shading
+normal, затем его угол деформируется под изотропный GGX NDF. Tangent frame
+не строится; PDF сохраняет half-vector Jacobian. Зеркальный предел <0.004
+сохранён. Геометрическая нормаль задаёт отступ и допустимость исходящего луча.
+Проверки истории повторяют bounce: предыдущая плоскость, restart 1/200,
+MAG reset/replacement 0.25, мягкий radiance confidence с границами 1/1.5..1.5.
+Parallax, roughness rejection, saved-frame/camera/hit confidence и старые
+prepare/claim maps больше не используются lc_reflection. Настройки проверок
+общие с bounce в bounce_path_config.glsl. Контракт spatial reconstruction
+(цвет, сегмент луча, PDF) сохранён.
