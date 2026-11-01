@@ -26,8 +26,14 @@ layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_temporal_re
 #define TEMPORAL_MANY_TO_ONE_NON_OWNER_REJECT_PROBABILITY 0.5
 #endif
 
+#ifndef TEMPORAL_BOUNCE_MAG_REJECTION
+#define TEMPORAL_BOUNCE_MAG_REJECTION 1
+#endif
+#ifndef TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY
+#define TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY 0.25
+#endif
+
 const uint TEMPORAL_DIRECT_OWNER_SALT = 0x646f776eu;
-const uint TEMPORAL_BOUNCE_OWNER_SALT = 0x626f776eu;
 const uint TEMPORAL_DIRECT_RELAX_SALT = 0x646d3278u;
 const uint TEMPORAL_BOUNCE_RELAX_SALT = 0x626d3278u;
 
@@ -114,6 +120,26 @@ bool temporalSourceReady(
 		TEMPORAL_MANY_TO_ONE_NON_OWNER_REJECT_PROBABILITY;
 }
 
+bool temporalBounceMagReady(ivec2 pix,ivec2 half_res)
+{
+	ivec2 source;
+	if (!temporalMapTarget(pix,half_res,true,source) ||
+		any(greaterThanEqual(source,half_res))) return false;
+#if TEMPORAL_BOUNCE_MAG_REJECTION
+	const ivec2 offsets[4]=ivec2[4](ivec2(0,-1),ivec2(0,1),ivec2(-1,0),ivec2(1,0));
+	bool duplicate=false;
+	for (int i=0;i<4;++i) {
+		ivec2 other;
+		bool valid=temporalMapTarget(pix+offsets[i],half_res,true,other);
+		duplicate=duplicate || (valid && all(equal(source,other)));
+	}
+	// One trial if any axial neighbor shares the source, not one per duplicate.
+	if (duplicate && temporalReprojectionRandom01(pix,ubo.ubo.random_seed,
+		TEMPORAL_BOUNCE_RELAX_SALT)<TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY) return false;
+#endif
+	return true;
+}
+
 void main()
 {
 	const ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
@@ -129,13 +155,8 @@ void main()
 		TEMPORAL_DIRECT_OWNER_SALT,
 		TEMPORAL_DIRECT_RELAX_SALT);
 
-	const ivec2 half_res = (res + ivec2(1)) / 2;
-	const bool bounce_ready = all(lessThan(pix, half_res)) && temporalSourceReady(
-		pix,
-		half_res,
-		true,
-		TEMPORAL_BOUNCE_OWNER_SALT,
-		TEMPORAL_BOUNCE_RELAX_SALT);
+	const ivec2 half_res = res / 2;
+	const bool bounce_ready = all(lessThan(pix, half_res)) && temporalBounceMagReady(pix,half_res);
 
 	imageStore(out_temporal_reprojection_ready, pix,
 		vec4(direct_ready ? 1.0 : 0.0, bounce_ready ? 1.0 : 0.0, 0.0, 0.0));

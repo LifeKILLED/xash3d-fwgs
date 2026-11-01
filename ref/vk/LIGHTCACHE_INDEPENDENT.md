@@ -162,7 +162,27 @@ Bounce тоже сохраняет резервуар целого пути, а 
 material не отбраковывают bounce history. `TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS=1`
 в подготовке/resolve карт задаёт обычную проекцию previous world position
 именно для `pix*2`, без выбора другой поверхности из 2x2. Парная перестановка
-также не требует совместимости плоскостей; many-to-one ownership сохранён.
+также не требует совместимости плоскостей.
+
+Для bounce вместо прежнего 5x5 owner/reject теста используется 5-tap MAG rejection
+в `temporal_reprojection_claim.comp`: центр, верх, низ, лево, право. Сравниваются
+только history coordinates исходной карты репроекции до парной перестановки,
+переведённые в half-resolution reservoir texels. Если хотя бы один осевой сосед
+ссылается на тот же source, история центра отбрасывается с вероятностью 1/4.
+Это одна попытка на центр независимо от числа дубликатов, без выбора владельца
+и без сравнения поверхностей, яркости или seed. За границей соседи пропускаются,
+а не clamped на центр. Макросы `TEMPORAL_BOUNCE_MAG_REJECTION=1` и
+`TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY=0.25` задают эксперимент. Direct RIS
+сохраняет прежний owner/reject механизм. Отказ даёт свежий path reservoir.
+
+Reflection использует такой же 5-tap тест адресов history texels в
+`reflection_path_claim.comp`, до трассировки. Макросы в
+`reflection_path_config.glsl`: `REFLECTION_PATH_MAG_REJECTION=1`,
+`REFLECTION_PATH_MAG_REJECT_PROBABILITY=0.25`. Fractional owner key в source.x
+отбрасывается перед сравнением координат. При включённом MAG старый
+детерминированный owner-тест reflection не применяется дополнительно; он
+остаётся доступен при `REFLECTION_PATH_MAG_REJECTION=0`. Соседи за границей
+не считаются копиями центра. Одна попытка 1/4 независимо от числа совпадений.
 Seed однозначно задаёт случайные размеры всего пути независимо от текущих
 pixel/frame. Исторический путь полностью переигрывается от текущей primary
 поверхности: все сегменты заново проверяют видимость и читают текущий cache.

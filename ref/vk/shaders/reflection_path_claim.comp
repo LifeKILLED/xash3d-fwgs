@@ -5,6 +5,7 @@
 #undef GLSL
 #include "reflection_path_config.glsl"
 #include "reflection_path_ownership.glsl"
+#include "noise.glsl"
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 10, rgba32f) uniform readonly image2D reflection_path_reprojection;
@@ -16,7 +17,21 @@ void main()
 	if (any(greaterThanEqual(pix, ubo.ubo.res))) return;
 	const vec4 source = imageLoad(reflection_path_reprojection, pix);
 	bool owner = all(greaterThan(source.xy, vec2(0.0)));
-#if REFLECTION_PATH_DEDUPLICATION
+#if REFLECTION_PATH_MAG_REJECTION
+	const ivec2 offsets[4]=ivec2[4](ivec2(0,-1),ivec2(0,1),ivec2(-1,0),ivec2(1,0));
+	bool duplicate=false;
+	// Ignore the fractional owner key in source.x: compare only history pixels.
+	const ivec2 history_pix=ivec2(source.xy)-ivec2(1);
+	for (int tap=0;tap<4;++tap) {
+		ivec2 neighbor=pix+offsets[tap];
+		if (any(lessThan(neighbor,ivec2(0))) || any(greaterThanEqual(neighbor,ubo.ubo.res))) continue;
+		vec4 other=imageLoad(reflection_path_reprojection,neighbor);
+		duplicate=duplicate || (all(greaterThan(other.xy,vec2(0))) &&
+			all(equal(history_pix,ivec2(other.xy)-ivec2(1))));
+	}
+	float random=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x726d6167u)));
+	owner=owner && !(duplicate && random<REFLECTION_PATH_MAG_REJECT_PROBABILITY);
+#elif REFLECTION_PATH_DEDUPLICATION
 	const uint key = uint(fract(source.x) * 512.0);
 	const ivec2 offsets[4] = ivec2[4](ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
 	// Fixed four taps: no per-neighbor hashes, early return, or divergent break.
