@@ -25,8 +25,6 @@ layout(set=0,binding=31,std430) readonly buffer Kusochki { Kusok a[]; } kusochki
 layout(set=0,binding=32,std430) readonly buffer Indices { uint16_t a[]; } indices;
 layout(set=0,binding=33,std430) readonly buffer Vertices { Vertex a[]; } vertices;
 // Reuse the existing primary-plane reprojection and local path ownership passes.
-layout(set=0,binding=15,rgba32f) uniform readonly image2D reflection_path_reprojection;
-layout(set=0,binding=16,rgba16f) uniform readonly image2D reflection_path_history_ready;
 layout(set=0,binding=17,rgba32f) uniform readonly image2D geometry_prev_position;
 layout(set=0,binding=40,rgba32f) uniform readonly image2D prev_temporal_reflection_path_random;
 layout(set=0,binding=41,rgba32f) uniform readonly image2D prev_temporal_reflection_path_reservoir;
@@ -39,13 +37,6 @@ layout(set=0,binding=18,rgba16f) uniform readonly image2D prev_temporal_asvgf_re
 layout(set=0,binding=47,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_hit_identity;
 layout(set=0,binding=48,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_hit_identity;
 layout(set=0,binding=49,rgba16f) uniform readonly image2D prev_temporal_reflection_path_normals;
-layout(set=0,binding=50,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_luminance;
-layout(set=0,binding=51,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_luminance;
-layout(set=0,binding=52,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_view;
-layout(set=0,binding=53,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_view;
-layout(set=0,binding=54,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_raw;
-layout(set=0,binding=55,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_raw;
-layout(set=0,binding=56,rgba32f) uniform readonly image2D prev_reflection_direction_pdf;
 layout(set=0,binding=57,rgba32f) uniform readonly image2D prev_position_t;
 layout(set=0,binding=58,rgba16f) uniform readonly image2D prev_normals_gs;
 #include "bounce_path_config.glsl"
@@ -192,14 +183,11 @@ void main() {
     ivec2 pix=ivec2(gl_GlobalInvocationID.xy), res=ubo.ubo.res;
     if (any(greaterThanEqual(pix,res))) return;
     imageStore(out_indirect_specular,pix,vec4(0));
-    imageStore(out_temporal_lc_reflection_raw,pix,vec4(0));
-    imageStore(out_temporal_lc_reflection_luminance,pix,vec4(0));
     imageStore(out_reflection_direction_pdf,pix,vec4(0));
     imageStore(out_temporal_reflection_path_random,pix,vec4(0));
     imageStore(out_temporal_reflection_path_reservoir,pix,vec4(0));
     imageStore(out_temporal_reflection_path_normals,pix,vec4(0));
     imageStore(out_reflection_hit_pos,pix,vec4(0));
-    imageStore(out_temporal_lc_reflection_view,pix,vec4(0));
     imageStore(out_temporal_lc_reflection_hit_identity,pix,vec4(0));
     vec4 position=imageLoad(position_t,pix);
     if (position.w<=0.0 || (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REFLECTION)!=0u) return;
@@ -277,9 +265,7 @@ void main() {
     }
     float W=lcNormalization(reservoir);
     vec3 color=selected*W;
-    imageStore(out_temporal_lc_reflection_raw,pix,vec4(selected,float((ubo.ubo.frame_counter&65535u)+1u)));
     // Preserve raw estimator luminance: target/final clamps hide fireflies.
-    imageStore(out_temporal_lc_reflection_luminance,pix,vec4(lcWeight(selected*W),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),replay_ratio));
     color*=min(1.0,REFLECTION_PATH_FINAL_LUMINANCE_MAX/max(lcWeight(color),1e-6));
     imageStore(out_indirect_specular,pix,vec4(clamp(color,vec3(0),vec3(65504)),0));
     imageStore(out_reflection_direction_pdf,pix,vec4(direction*hit.w,pdf));
@@ -291,5 +277,4 @@ void main() {
     // The chosen pair has now been evaluated in this frame: next frame uses
     // this normal/view as its saved validation frame, never an indefinitely old one.
     imageStore(out_temporal_reflection_path_normals,pix,normals);
-    imageStore(out_temporal_lc_reflection_view,pix,vec4(V,float((ubo.ubo.frame_counter&65535u)+1u)));
 }

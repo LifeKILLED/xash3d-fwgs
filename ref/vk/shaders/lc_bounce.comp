@@ -22,16 +22,10 @@ layout(set=0,binding=30,std430) readonly buffer ModelHeaders { ModelHeader a[]; 
 layout(set=0,binding=31,std430) readonly buffer Kusochki { Kusok a[]; } kusochki;
 layout(set=0,binding=32,std430) readonly buffer Indices { uint16_t a[]; } indices;
 layout(set=0,binding=33,std430) readonly buffer Vertices { Vertex a[]; } vertices;
-layout(set=0,binding=15,rgba32f) uniform readonly image2D temporal_reprojection_bounce_source;
 layout(set=0,binding=40,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_path;
 layout(set=0,binding=41,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_reservoir;
 layout(set=0,binding=43,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_path;
 layout(set=0,binding=44,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_reservoir;
-layout(set=0,binding=46,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_luminance;
-layout(set=0,binding=47,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_luminance;
-layout(set=0,binding=48,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_raw;
-layout(set=0,binding=49,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_raw;
-layout(set=0,binding=50,rgba32f) uniform readonly image2D prev_first_bounce_direction;
 layout(set=0,binding=51,rgba32f) uniform readonly image2D geometry_prev_position;
 layout(set=0,binding=52,rgba32f) uniform readonly image2D prev_position_t;
 layout(set=0,binding=53,rgba16f) uniform readonly image2D prev_normals_gs;
@@ -111,8 +105,6 @@ void main() {
     ivec2 pix=ivec2(gl_GlobalInvocationID.xy), res=ubo.ubo.res;
     if (any(greaterThanEqual(pix,res))) return;
     imageStore(out_indirect_diffuse,pix,vec4(0));
-    imageStore(out_temporal_lc_bounce_raw,pix,vec4(0));
-    imageStore(out_temporal_lc_bounce_luminance,pix,vec4(0));
     imageStore(out_first_bounce_direction,pix,vec4(0));
     imageStore(out_temporal_lc_bounce_path,pix,vec4(0));
     imageStore(out_temporal_lc_bounce_reservoir,pix,vec4(0));
@@ -127,7 +119,7 @@ void main() {
     vec3 first_direction;
     vec3 selected=tracePath(selected_seed,position.xyz,G,first_direction);
     float history_cap=BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES;
-    float replay_ratio=1.0; bool transported=false; vec4 transported_reservoir=vec4(0);
+    float replay_ratio=1.0;
     LCReservoir reservoir=LCReservoir(0,0,0);
     lcOffer(reservoir,lcPathTarget(selected),1.0,0.0);
     vec4 previous_position=imageLoad(geometry_prev_position,primary_pix);
@@ -190,13 +182,11 @@ void main() {
         }
     }
             }
-    float W=transported ? transported_reservoir.w : lcNormalization(reservoir);
-    imageStore(out_temporal_lc_bounce_raw,pix,vec4(selected,float((ubo.ubo.frame_counter&65535u)+1u)));
-    imageStore(out_temporal_lc_bounce_luminance,pix,vec4(lcWeight(selected*W),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),replay_ratio));
+    float W=lcNormalization(reservoir);
     float weight=W;
     imageStore(out_indirect_diffuse,pix,vec4(clamp(selected*weight,vec3(0),vec3(65504)),0));
     imageStore(out_first_bounce_direction,pix,vec4(first_direction,0));
     imageStore(out_temporal_lc_bounce_path,pix,vec4(float(selected_seed),0.0,
         float(ubo.ubo.bounce_count),float((ubo.ubo.frame_counter & 65535u)+1u)));
-    imageStore(out_temporal_lc_bounce_reservoir,pix,transported ? transported_reservoir : lcEncodePath(reservoir,history_cap));
+    imageStore(out_temporal_lc_bounce_reservoir,pix,lcEncodePath(reservoir,history_cap));
 }

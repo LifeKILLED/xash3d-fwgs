@@ -235,10 +235,6 @@ struct LightCluster {
 #define RENDERER_FLAG_DISABLE_DIRECT (1<<15)
 #define RENDERER_FLAG_LIGHTCACHE_GI (1<<16)
 #define RENDERER_FLAG_DISABLE_LIGHTCACHE_UPDATE (1<<17)
-#define RENDERER_FLAG_LIGHTCACHE_BRUTEFORCE (1<<18)
-#define RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION (1<<19)
-#define RENDERER_FLAG_PATH_UNIT_WEIGHT (1<<20)
-#define RENDERER_FLAG_PATH_TRANSPORT_ONLY (1<<21)
 
 #define ASVGF_COMPATIBILITY_STATS 0u
 #define ASVGF_COMPATIBILITY_LUMA_DELTA 1u
@@ -386,9 +382,7 @@ struct UniformBuffer {
 	STRUCT AsvgfParams asvgf;
 
 	uint bounce_count; // rt_bounces; independent GI keeps the entire path in one pixel.
-	float path_history_cap;
-	uint path_reservoir_debug;
-	PAD(1)
+	PAD(3)
 };
 
 #undef PAD

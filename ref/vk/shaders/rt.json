@@ -88,8 +88,6 @@
 	// },
 
 	// Original compound bounce and reflection passes temporarily disconnected.
-	"reflection_path_prepare": { "comp": "reflection_path_prepare" },
-	"reflection_path_claim": { "comp": "reflection_path_claim" },
 	"lc_reflection": { "comp": "lc_reflection" },
 	"lc_bounce": { "comp": "lc_bounce" },
 	"refraction_primary_rays": {

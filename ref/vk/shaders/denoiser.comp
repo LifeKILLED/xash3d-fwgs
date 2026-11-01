@@ -41,10 +41,6 @@ layout(set=0,binding=93,rgba16f) uniform readonly image2D lc_point;
 layout(set=0,binding=95,rgba16f) uniform readonly image2D lc_polygon;
 
 // Raw diagnostics deliberately bypass SH, ASVGF and spatial reconstruction.
-layout(set=0,binding=98,rgba32f) uniform readonly image2D temporal_reflection_path_reservoir;
-layout(set=0,binding=99,rgba32f) uniform readonly image2D temporal_lc_reflection_luminance;
-layout(set=0,binding=100,rgba32f) uniform readonly image2D temporal_lc_bounce_reservoir;
-layout(set=0,binding=101,rgba32f) uniform readonly image2D temporal_lc_bounce_luminance;
 
 //#define DEBUG_NOISE
 #ifdef DEBUG_NOISE
@@ -102,27 +98,7 @@ void main() {
 		return;
 	}
 
-    if (ubo.ubo.path_reservoir_debug>0u) {
-        bool bounce=ubo.ubo.debug_display_only==DEBUG_DISPLAY_INDIRECT_DIFF;
-        ivec2 q=bounce ? min(pix/2,res/2-1) : pix;
-        vec4 r=bounce ? imageLoad(temporal_lc_bounce_reservoir,q) : imageLoad(temporal_reflection_path_reservoir,q);
-        vec4 l=bounce ? imageLoad(temporal_lc_bounce_luminance,q) : imageLoad(temporal_lc_reflection_luminance,q);
-        vec3 color=vec3(0);
-        if (r.z>0.0) {
-            if (any(isnan(r)) || any(isinf(r)) || any(isnan(l)) || any(isinf(l))) color=vec3(1,0,1);
-            else if (ubo.ubo.path_reservoir_debug==4u) {
-                float change=log2(max(l.a,1e-6));
-                color=vec3(0.15)+vec3(max(change,0.0),0,max(-change,0.0))/8.0;
-            } else {
-                float value=ubo.ubo.path_reservoir_debug==1u ? r.z :
-                    (ubo.ubo.path_reservoir_debug==2u ? r.w : l.g);
-                float scale=ubo.ubo.path_reservoir_debug==3u ? 4.0 : 12.0;
-                color=vec3(log2(1.0+max(value,0.0))/scale);
-            }
-        }
-        imageStore(out_dest,pix,vec4(clamp(color,vec3(0),vec3(1)),1));
-        return;
-    }
+
 
 	const vec4 base_color_a_sample = imageLoad(base_color_a, pix);
 	const vec3 base_color = SRGBtoLINEAR(base_color_a_sample.rgb);

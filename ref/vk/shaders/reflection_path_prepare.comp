@@ -37,7 +37,7 @@ void main()
 		imageLoad(position_t, pix).w <= 0.0) return;
 	const float restart = uintToFloat01(xxhash32(uvec4(
 		uvec2(pix), ubo.ubo.random_seed, 0x72737472u)));
-	bool diagnostic=(ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION)!=0u;
+	const bool diagnostic=false;
 	if (!diagnostic && restart < REFLECTION_PATH_RESTART_PROBABILITY) return;
 	const vec4 normals = imageLoad(normals_gs, pix);
 	ivec2 history_pix;

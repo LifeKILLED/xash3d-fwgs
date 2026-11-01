@@ -28,11 +28,9 @@ graph = (ROOT / "ref/vk/shaders/rt.json").read_text()
 graph = re.sub(r"//[^\n]*|/\*.*?\*/", "", graph, flags=re.S)
 passes = list(json.loads(re.sub(r",\s*([}\]])", r"\1", graph)))
 for producer, consumer in (
-    ("primary_ray", "lc_bounce"), ("primary_ray", "reflection_path_prepare"),
+    ("primary_ray", "lc_bounce"), ("primary_ray", "lc_reflection"),
     ("temporal_reprojection_resolve", "lc_bounce"),
     ("lc_filter", "lc_bounce"), ("lc_filter", "lc_reflection"),
-    ("reflection_path_prepare", "reflection_path_claim"),
-    ("reflection_path_claim", "lc_reflection"),
     ("lc_reflection", "spatial_reconstruction_pass1"),
     ("lc_bounce", "indiff_sh_init"), ("lc_bounce", "indiff_at1"),
     ("indiff_sh_save", "final_precombine"),
@@ -68,61 +66,18 @@ __CONFIG__
 __HELPERS__
 bool close(float a,float b) { return std::abs(a-b)<2e-5f*max(1.f,max(std::abs(a),std::abs(b))); }
 int main() {
-    // The old selected path was uniform here. Reweight under changed lighting,
-    // enumerate both selection outcomes exactly, and compare with the integral.
-    const float before[3]={0.f,2.f,9.f}, after[3]={7.f,0.f,1.f};
-    for (float oldM : {1.f,64.f,256.f,2560.f}) for (float cap : {1.f,4.f,256.f,640.f,2560.f}) {
-        double mean=0;
-        for (int old=0;old<3;++old) for (int fresh=0;fresh<3;++fresh) {
-            float freshValue=3*after[fresh], historyValue=3*after[old];
-            float freshTarget=max(freshValue,1e-6f), historyTarget=max(historyValue,1e-6f);
-            float oldTarget=max(3*before[old],1e-6f);
-            vec4 h(oldTarget,oldTarget*oldM,oldM,1);
-            LCReservoir base{0,0,0};
-            assert(lcOffer(base,freshTarget,1,0));
-            float mass=h.y*(min(oldM,cap)/oldM)*(historyTarget/oldTarget);
-            double probability=double(mass)/(double(base.sum)+mass);
-            LCReservoir a=base,b=base;
-            assert(lcMergePath(a,h,historyTarget,cap,mass<=base.sum?0.f:0.999999f));
-            assert(!lcMergePath(b,h,historyTarget,cap,mass<=base.sum?0.999999f:0.f));
-            mean+=(probability*historyValue*lcNormalization(a)+
-                (1-probability)*freshValue*lcNormalization(b))/9;
-            vec4 stored=lcEncodePath(a,cap);
-            LCReservoir decoded{stored.y,stored.z,stored.x};
-            assert(close(lcNormalization(a),lcNormalization(decoded)));
-            assert(close(stored.w,lcNormalization(decoded)));
-        }
-        assert(std::abs(mean-8.0)<1e-4);
+    for (float cap : {1.f,4.f,500.f,2560.f}) {
+        LCReservoir r{21,7,3};
+        vec4 h=lcEncodePath(r,cap);
+        LCReservoir decoded{h.y,h.z,h.x};
+        assert(close(lcNormalization(r),lcNormalization(decoded)));
+        assert(close(h.w,lcNormalization(decoded)));
     }
-    // Confidence limits cannot brighten constant estimators.
-    LCReservoir r{0,0,0}; lcOffer(r,2,1,0);
-    lcMergePath(r,vec4(2,512,256,1),2,4,0);
-    assert(close(lcNormalization(r),1));
-    // A seed carries the whole path without float bit-pattern/NaN corruption.
-    for (uint seed : {0u,1u,65535u,65536u,0x7fc00000u,0xffffffffu})
-        assert(lcUnpackPathSeed(lcPackPathSeed(seed))==seed);
+    for (uint seed : {0u,1u,8388607u}) assert(uint(float(seed))==seed);
     assert(lcMirrorPath(0,1));
     assert(lcMirrorPath(0.003f,0.98f));
     assert(!lcMirrorPath(0.004f,1));
     assert(!lcMirrorPath(0,0.979f));
-    // A normal-map tilt can move an otherwise unchanged planar reflection by
-    // many pixels. Confidence must use saved-frame transport, not that new ray.
-    float apparentShift=std::tan(0.7f)/0.025f;
-    assert(close(lcTransportConfidence(apparentShift,640),1));
-    assert(close(lcTransportConfidence(0,640),640));
-    assert(close(lcTransportConfidence(1,640),320));
-    // Pure camera rotation may move the address by hundreds of pixels. A
-    // transported reservoir with unchanged world-space contribution must retain
-    // its confidence and unit normalization, regardless of address permutation.
-    assert(close(lcCameraConfidence(0,100,0.01f,640,40),640));
-    assert(lcCameraConfidence(10,100,0.01f,640,40)<640);
-    for (int permutation=0;permutation<4;++permutation) for (int pixel=0;pixel<4;++pixel) {
-        float c=0.2f*float(1+(pixel+permutation)%4);
-        LCReservoir current{0,0,0}; lcOffer(current,c,1,0);
-        lcMergePath(current,vec4(c,c*640,640,1),c,
-            lcCameraConfidence(0,100,0.01f,640,40),0.5f);
-        assert(close(lcNormalization(current),1));
-    }
     // Normal-incidence, white GGX cannot return per-sample energy above one
     // with a matching NDF proposal. The old roughness-vs-roughness^2 mismatch
     // breaks this bound by tens/hundreds even before temporal reuse.
@@ -142,35 +97,6 @@ int main() {
             assert(dRatio*G1<=1.0001f);
         }
     }
-    float ratio=LC_PATH_RELIGHT_MAX_RATIO;
-    assert(lcPathRelightValid(1,1));
-    assert(lcPathRelightValid(0,0));
-    assert(!lcPathRelightValid(NAN,1));
-    assert(!lcPathRelightValid(1,INFINITY));
-    assert(!lcPathRelightValid(-1,1));
-#if LC_PATH_RELIGHT_REJECTION
-    assert(lcPathRelightValid(1,ratio));
-    assert(lcPathRelightValid(ratio,1));
-    assert(!lcPathRelightValid(1,ratio+1));
-    assert(!lcPathRelightValid(ratio+1,1));
-    // A dark historical path with large W must not monopolize the reservoir
-    // when the same random pair becomes bright after quantized reprojection.
-    LCReservoir fresh{0,0,0}; lcOffer(fresh,0.05f,1,0);
-    if (lcPathRelightValid(0,0.5f)) lcMergePath(fresh,vec4(1e-6f,1,640,0),0.5f,640,0.5f);
-    assert(close(fresh.count,1) && close(lcNormalization(fresh),1));
-#endif
-    // Four-tap median and strict boundaries use the current experimental macros.
-    float young=LC_PATH_FIREFLY_MIN_SAMPLES, mature=young+1;
-    float probability=LC_PATH_FIREFLY_KILL_PROBABILITY;
-    float draw=probability*0.5f, boundary=2.5f*LC_PATH_FIREFLY_RATIO;
-    assert(!lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),draw,0));
-    assert(!lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),draw,young));
-    assert(lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),draw,mature)==(probability>0));
-    assert(!lcRejectPathFirefly(boundary,vec4(1,100,2,3),draw,mature));
-    assert(!lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),probability,mature));
-    assert(lcRejectPathFirefly(1,vec4(0,0,0,0),draw,mature)==(probability>0));
-    assert(!lcRejectPathFirefly(0,vec4(0,0,0,0),draw,mature));
-    assert(!lcRejectPathFirefly(10,vec4(10,10,10,10),draw,mature));
     // History replacement is centered on the reprojected texel. Every valid
     // 3x3 neighbor appears exactly once; edges never clamp a choice to center.
     for (int width=1;width<=7;++width) for (int height=1;height<=7;++height)
@@ -190,14 +116,13 @@ int main() {
             seen[index]=true;
         }
     }
-    std::puts("Path reservoir tests passed: relighting, black paths, caps, normalization, seed identity.");
+    std::puts("Path reservoir tests passed: caps, normalization, seed identity, GGX PDF, history neighbors.");
 }
 """
 harness = harness.replace("#include <cstdint>", "#include <cstdint>\n#include <initializer_list>")
 harness = harness.replace("__CONFIG__", "\n".join(re.findall(r"^#define LC_PATH_(?:FIREFLY|RELIGHT)_.*$", source, re.M)))
 harness = harness.replace("__HELPERS__", "\n".join(function(name) for name in (
-    "lcOffer", "lcNormalization", "lcMergePath", "lcEncodePath", "lcMirrorPath", "lcRejectPathFirefly", "lcTransportConfidence",
-    "lcPackPathSeed", "lcUnpackPathSeed", "lcCameraConfidence", "lcReflectionProposalAlpha2", "lcPathRelightValid")) + "\n" +
+    "lcOffer", "lcNormalization", "lcEncodePath", "lcMirrorPath", "lcReflectionProposalAlpha2")) + "\n" +
     function("temporalHistoryNeighbor3x3Index",
              (ROOT / "ref/vk/shaders/temporal_reservoir_rotation.glsl").read_text()))
 out = ROOT / "build/shader-test"

@@ -658,24 +658,6 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 		rt_bounces->flags &= ~FCVAR_CHANGED;
 		g_rtx.discontinuity = true;
 	}
-	if (rt_lightcache_bruteforce->flags & FCVAR_CHANGED) {
-		rt_lightcache_bruteforce->flags &= ~FCVAR_CHANGED;
-		g_rtx.discontinuity = true;
-	}
-	if (rt_path_reprojection_no_rejection->flags & FCVAR_CHANGED) {
-		rt_path_reprojection_no_rejection->flags &= ~FCVAR_CHANGED;
-		g_rtx.discontinuity = true;
-	}
-	cvar_t *path_controls[] = { rt_path_reservoir_reuse, rt_path_reservoir_history_cap };
-	for (size_t i=0; i<COUNTOF(path_controls); ++i) {
-		if (path_controls[i]->flags & FCVAR_CHANGED) {
-			path_controls[i]->flags &= ~FCVAR_CHANGED;
-			g_rtx.discontinuity = true;
-		}
-	}
-	ret.path_history_cap = rt_path_reservoir_history_cap->value>0.0f
-		? Q_min(rt_path_reservoir_history_cap->value,16777215.0f) : 0.0f;
-	ret.path_reservoir_debug = (uint32_t)Q_max(0.0f,Q_min(rt_path_reservoir_debug->value,4.0f));
 	// Clamp only to the storage range, independently of the old four-lane atlas.
 	ret.bounce_count = rt_bounces->value > 0.0f
 		? (uint32_t)Q_min((double)rt_bounces->value, (double)UINT32_MAX) : 0u;
@@ -687,11 +669,6 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 					  (CVAR_TO_BOOL(rt_disable_direct) ? RENDERER_FLAG_DISABLE_DIRECT : 0) |
 					  (CVAR_TO_BOOL(rt_lightcache_gi) ? RENDERER_FLAG_LIGHTCACHE_GI : 0) |
 					  (CVAR_TO_BOOL(rt_disable_lightcache_update) ? RENDERER_FLAG_DISABLE_LIGHTCACHE_UPDATE : 0) |
-					  (CVAR_TO_BOOL(rt_lightcache_bruteforce) ? RENDERER_FLAG_LIGHTCACHE_BRUTEFORCE : 0) |
-					  ((CVAR_TO_BOOL(rt_path_reprojection_no_rejection) || CVAR_TO_BOOL(rt_path_reservoir_transport_only)) ? RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION : 0) |
-					  (!CVAR_TO_BOOL(rt_path_reservoir_reuse) ? RENDERER_FLAG_DISABLE_RESERVOIR_REUSING : 0) |
-					  (CVAR_TO_BOOL(rt_path_reservoir_unit_weight) ? RENDERER_FLAG_PATH_UNIT_WEIGHT : 0) |
-					  (CVAR_TO_BOOL(rt_path_reservoir_transport_only) ? RENDERER_FLAG_PATH_TRANSPORT_ONLY : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reprojection) ? RENDERER_FLAG_DISABLE_REPROJECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_reflection) ? RENDERER_FLAG_DISABLE_REFLECTION : 0) |
 					  (CVAR_TO_BOOL(rt_disable_refraction) ? RENDERER_FLAG_DISABLE_REFRACTION : 0) |

@@ -51,7 +51,7 @@ vec3 pointRadiance(PointLight l, vec3 P, vec3 N, vec2 random) {
     bool blocked = l.environment != 0u ? shadowedSky(P,L) : shadowed(P,L,distance);
     return blocked ? vec3(0) : c;
 }
-// Fixed emitter coordinates for this original LM texel/light pair, in both modes.
+// Fixed emitter coordinates for this original LM texel/light pair, for every frame.
 vec3 lightSampleRandom(uint index,uint light_id) {
     LightcacheProbe p=lightcache_geometry.probes[index];
     uvec2 texel=uvec2(p.lm_s,p.lm_t)+2u*uvec2(p.local_index%p.width,p.local_index/p.width);
@@ -64,7 +64,7 @@ void main() {
     uint index=uint(pix.y*res.x+pix.x);
     if (lightcacheInCapacity(index,res) && !lightcacheUpdateDisabled()) {
         vec3 P,N; lightcacheSurface(index,P,N);
-        if ((ubo.ubo.renderer_flags & RENDERER_FLAG_LIGHTCACHE_BRUTEFORCE)!=0u) {
+
             // Same world-space grid and packed cluster list as legacy lighting.
             ivec3 cell=ivec3(floor(P/LIGHT_GRID_CELL_SIZE))-lights.m.grid_min_cell;
             if (all(greaterThanEqual(cell,ivec3(0))) && all(lessThan(cell,lights.m.grid_size))) {
@@ -80,18 +80,7 @@ void main() {
                     }
                 }
             }
-        } else {
-            LCReservoir reservoir=LCReservoir(0,0,0);
-            uint selected=0u, count=lights.m.num_point_lights;
-            for (uint j=0u;j<8u && count>0u;++j) {
-                vec3 r=rand3_f01(uvec3(index,ubo.ubo.frame_counter,j+0x1c100u));
-                uint id=min(uint(r.x*float(count)),count-1u);
-                if (lcOffer(reservoir,lcPointWeight(lights.m.point_lights[id],P,N),float(count),r.y)) selected=id;
-            }
-            vec3 random=lightSampleRandom(index,selected);
-            if (reservoir.target>0.0)
-                value=pointRadiance(lights.m.point_lights[selected],P,N,random.xy)*lcNormalization(reservoir);
-        }
+
     }
     imageStore(out_lc_point,pix,vec4(clamp(value,vec3(0),vec3(65504)),0));
 }

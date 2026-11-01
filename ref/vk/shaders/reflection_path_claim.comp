@@ -18,10 +18,7 @@ void main()
 	const vec4 source = imageLoad(reflection_path_reprojection, pix);
 	bool owner = all(greaterThan(source.xy, vec2(0.0)));
 	bool replace_history=false;
-	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION)!=0u) {
-		imageStore(out_reflection_path_history_ready,pix,vec4(owner?1.0:0.0,0,0,0));
-		return;
-	}
+
 #if REFLECTION_PATH_MAG_REJECTION
 	const ivec2 offsets[4]=ivec2[4](ivec2(0,-1),ivec2(0,1),ivec2(-1,0),ivec2(1,0));
 	bool duplicate=false;
