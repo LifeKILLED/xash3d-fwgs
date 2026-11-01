@@ -224,7 +224,7 @@ void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 		history_local_pix, history_screen_pix);
 	const vec2 source = ready
 		? temporalReprojectionEncodeSource(history_local_pix, false) : vec2(0.0);
-	imageStore(out_temporal_reprojection_bounce_source, local_pix, vec4(source, 0.0, 0.0));
+	imageStore(out_temporal_reprojection_bounce_source, local_pix, vec4(source, imageLoad(temporal_reprojection_ready, local_pix).b, 0.0));
 #else
 	const uint permutation_frame_seed = xxhash32(uvec4(
 		ubo.ubo.frame_counter, ubo.ubo.random_seed,
@@ -295,7 +295,7 @@ void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 			? temporalReprojectionEncodeSource(self_history_local_pix, false)
 			: vec2(0.0));
 	imageStore(out_temporal_reprojection_bounce_source, local_pix,
-		vec4(source, 0.0, 0.0));
+		vec4(source, imageLoad(temporal_reprojection_ready, local_pix).b, 0.0));
 #endif
 }
 

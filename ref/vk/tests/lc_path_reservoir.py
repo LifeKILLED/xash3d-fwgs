@@ -40,15 +40,15 @@ for producer, consumer in (
     assert passes.index(producer) < passes.index(consumer), (producer, consumer)
 
 
-def function(name):
-    start = source.rfind("\n", 0, source.index(name + "(")) + 1
-    brace = source.index("{", start)
+def function(name, code=source):
+    start = code.rfind("\n", 0, code.index(name + "(")) + 1
+    brace = code.index("{", start)
     depth = 1
     end = brace + 1
     while depth:
-        depth += (source[end] == "{") - (source[end] == "}")
+        depth += (code[end] == "{") - (code[end] == "}")
         end += 1
-    return source[start:end].replace("inout LCReservoir r", "LCReservoir &r")
+    return code[start:end].replace("inout LCReservoir r", "LCReservoir &r")
 
 
 harness = r"""
@@ -57,6 +57,8 @@ harness = r"""
 #include <cstdio>
 #include <cstdint>
 using uint = uint32_t;
+using std::isnan;
+using std::isinf;
 float min(float a,float b) { return a<b?a:b; }
 float max(float a,float b) { return a>b?a:b; }
 struct vec2 { float x,y; vec2(float a,float b):x(a),y(b){} };
@@ -109,6 +111,54 @@ int main() {
     assert(close(lcTransportConfidence(apparentShift,640),1));
     assert(close(lcTransportConfidence(0,640),640));
     assert(close(lcTransportConfidence(1,640),320));
+    // Pure camera rotation may move the address by hundreds of pixels. A
+    // transported reservoir with unchanged world-space contribution must retain
+    // its confidence and unit normalization, regardless of address permutation.
+    assert(close(lcCameraConfidence(0,100,0.01f,640,40),640));
+    assert(lcCameraConfidence(10,100,0.01f,640,40)<640);
+    for (int permutation=0;permutation<4;++permutation) for (int pixel=0;pixel<4;++pixel) {
+        float c=0.2f*float(1+(pixel+permutation)%4);
+        LCReservoir current{0,0,0}; lcOffer(current,c,1,0);
+        lcMergePath(current,vec4(c,c*640,640,1),c,
+            lcCameraConfidence(0,100,0.01f,640,40),0.5f);
+        assert(close(lcNormalization(current),1));
+    }
+    // Normal-incidence, white GGX cannot return per-sample energy above one
+    // with a matching NDF proposal. The old roughness-vs-roughness^2 mismatch
+    // breaks this bound by tens/hundreds even before temporal reuse.
+    for (float roughness : {0.1f,0.2f,0.5f,0.9f}) {
+        float alpha=roughness*roughness, brdfA2=alpha*alpha;
+        float proposalA2=lcReflectionProposalAlpha2(roughness);
+        for (int i=0;i<2048;++i) {
+            float u=(i+0.5f)/2048;
+            float h2=(1-u)/(1+(proposalA2-1)*u);
+            float NoL=2*h2-1;
+            if (NoL<=0) continue;
+            float proposalDenom=1+(proposalA2-1)*h2;
+            float brdfDenom=1+(brdfA2-1)*h2;
+            float dRatio=(brdfA2/(brdfDenom*brdfDenom))/
+                (proposalA2/(proposalDenom*proposalDenom));
+            float G1=2*NoL/(NoL+std::sqrt(brdfA2+(1-brdfA2)*NoL*NoL));
+            assert(dRatio*G1<=1.0001f);
+        }
+    }
+    float ratio=LC_PATH_RELIGHT_MAX_RATIO;
+    assert(lcPathRelightValid(1,1));
+    assert(lcPathRelightValid(0,0));
+    assert(!lcPathRelightValid(NAN,1));
+    assert(!lcPathRelightValid(1,INFINITY));
+    assert(!lcPathRelightValid(-1,1));
+#if LC_PATH_RELIGHT_REJECTION
+    assert(lcPathRelightValid(1,ratio));
+    assert(lcPathRelightValid(ratio,1));
+    assert(!lcPathRelightValid(1,ratio+1));
+    assert(!lcPathRelightValid(ratio+1,1));
+    // A dark historical path with large W must not monopolize the reservoir
+    // when the same random pair becomes bright after quantized reprojection.
+    LCReservoir fresh{0,0,0}; lcOffer(fresh,0.05f,1,0);
+    if (lcPathRelightValid(0,0.5f)) lcMergePath(fresh,vec4(1e-6f,1,640,0),0.5f,640,0.5f);
+    assert(close(fresh.count,1) && close(lcNormalization(fresh),1));
+#endif
     // Four-tap median and strict boundaries use the current experimental macros.
     float young=LC_PATH_FIREFLY_MIN_SAMPLES, mature=young+1;
     float probability=LC_PATH_FIREFLY_KILL_PROBABILITY;
@@ -121,14 +171,35 @@ int main() {
     assert(lcRejectPathFirefly(1,vec4(0,0,0,0),draw,mature)==(probability>0));
     assert(!lcRejectPathFirefly(0,vec4(0,0,0,0),draw,mature));
     assert(!lcRejectPathFirefly(10,vec4(10,10,10,10),draw,mature));
+    // History replacement is centered on the reprojected texel. Every valid
+    // 3x3 neighbor appears exactly once; edges never clamp a choice to center.
+    for (int width=1;width<=7;++width) for (int height=1;height<=7;++height)
+    for (int y=0;y<height;++y) for (int x=0;x<width;++x) {
+        int count=0;
+        for (int dy=-1;dy<=1;++dy) for (int dx=-1;dx<=1;++dx)
+            if ((dx||dy) && x+dx>=0 && x+dx<width && y+dy>=0 && y+dy<height) ++count;
+        if (!count) {
+            assert(temporalHistoryNeighbor3x3Index(x,y,width,height,0)==y*width+x);
+            continue;
+        }
+        bool seen[49]={};
+        for (int choice=0;choice<count;++choice) {
+            int index=temporalHistoryNeighbor3x3Index(x,y,width,height,uint(choice));
+            assert(index>=0 && index<width*height && index!=y*width+x && !seen[index]);
+            assert(std::abs(index%width-x)<=1 && std::abs(index/width-y)<=1);
+            seen[index]=true;
+        }
+    }
     std::puts("Path reservoir tests passed: relighting, black paths, caps, normalization, seed identity.");
 }
 """
 harness = harness.replace("#include <cstdint>", "#include <cstdint>\n#include <initializer_list>")
-harness = harness.replace("__CONFIG__", "\n".join(re.findall(r"^#define LC_PATH_FIREFLY_.*$", source, re.M)))
+harness = harness.replace("__CONFIG__", "\n".join(re.findall(r"^#define LC_PATH_(?:FIREFLY|RELIGHT)_.*$", source, re.M)))
 harness = harness.replace("__HELPERS__", "\n".join(function(name) for name in (
     "lcOffer", "lcNormalization", "lcMergePath", "lcEncodePath", "lcMirrorPath", "lcRejectPathFirefly", "lcTransportConfidence",
-    "lcPackPathSeed", "lcUnpackPathSeed")))
+    "lcPackPathSeed", "lcUnpackPathSeed", "lcCameraConfidence", "lcReflectionProposalAlpha2", "lcPathRelightValid")) + "\n" +
+    function("temporalHistoryNeighbor3x3Index",
+             (ROOT / "ref/vk/shaders/temporal_reservoir_rotation.glsl").read_text()))
 out = ROOT / "build/shader-test"
 out.mkdir(parents=True, exist_ok=True)
 cpp = out / "lc_path_reservoir.cpp"

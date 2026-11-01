@@ -13,7 +13,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 2) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set = 0, binding = 10, rgba32f) uniform readonly image2D temporal_reprojection_map;
 
-// .r = direct source ready, .g = bounce source ready.
+// .r = direct ready, .g = bounce ready, .b = bounce MAG history replacement.
 layout(set = 0, binding = 20, rgba16f) uniform writeonly image2D out_temporal_reprojection_ready;
 
 #ifndef TEMPORAL_MANY_TO_ONE_OWNER_RADIUS
@@ -120,8 +120,9 @@ bool temporalSourceReady(
 		TEMPORAL_MANY_TO_ONE_NON_OWNER_REJECT_PROBABILITY;
 }
 
-bool temporalBounceMagReady(ivec2 pix,ivec2 half_res)
+bool temporalBounceMagReady(ivec2 pix,ivec2 half_res,out bool replace_history)
 {
+	replace_history=false;
 	ivec2 source;
 	if (!temporalMapTarget(pix,half_res,true,source) ||
 		any(greaterThanEqual(source,half_res))) return false;
@@ -134,8 +135,8 @@ bool temporalBounceMagReady(ivec2 pix,ivec2 half_res)
 		duplicate=duplicate || (valid && all(equal(source,other)));
 	}
 	// One trial if any axial neighbor shares the source, not one per duplicate.
-	if (duplicate && temporalReprojectionRandom01(pix,ubo.ubo.random_seed,
-		TEMPORAL_BOUNCE_RELAX_SALT)<TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY) return false;
+	replace_history=duplicate && temporalReprojectionRandom01(pix,ubo.ubo.random_seed,
+		TEMPORAL_BOUNCE_RELAX_SALT)<TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY;
 #endif
 	return true;
 }
@@ -156,8 +157,9 @@ void main()
 		TEMPORAL_DIRECT_RELAX_SALT);
 
 	const ivec2 half_res = res / 2;
-	const bool bounce_ready = all(lessThan(pix, half_res)) && temporalBounceMagReady(pix,half_res);
+	bool replace_history=false;
+	const bool bounce_ready = all(lessThan(pix, half_res)) && temporalBounceMagReady(pix,half_res,replace_history);
 
 	imageStore(out_temporal_reprojection_ready, pix,
-		vec4(direct_ready ? 1.0 : 0.0, bounce_ready ? 1.0 : 0.0, 0.0, 0.0));
+		vec4(direct_ready ? 1.0 : 0.0, bounce_ready ? 1.0 : 0.0, replace_history ? 1.0 : 0.0, 0.0));
 }

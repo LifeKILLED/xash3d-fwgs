@@ -1,6 +1,23 @@
 #ifndef TEMPORAL_RESERVOIR_ROTATION_GLSL_INCLUDED
 #define TEMPORAL_RESERVOIR_ROTATION_GLSL_INCLUDED
 
+// Uniformly select an in-bounds neighbor of a history texel; never the center
+// unless the whole domain is 1x1. No reads or duplicate/surface tests here.
+int temporalHistoryNeighbor3x3Index(int x,int y,int width,int height,uint random)
+{
+	int x0=x>0?x-1:x, x1=x+1<width?x+1:x;
+	int y0=y>0?y-1:y, y1=y+1<height?y+1:y;
+	int count=(x1-x0+1)*(y1-y0+1)-1;
+	if (count<=0) return y*width+x;
+	uint choice=random%uint(count);
+	for (int yy=y0;yy<=y1;++yy) for (int xx=x0;xx<=x1;++xx) {
+		if (xx==x && yy==y) continue;
+		if (choice==0u) return yy*width+xx;
+		--choice;
+	}
+	return y*width+x;
+}
+
 // All reprojection metadata is stored in the image formats already supported by
 // sebastian.py. Integer pixel coordinates are represented numerically in
 // RGBA32F channels; no integer image format is required.

@@ -96,7 +96,8 @@ primary-plane history, проверяют frame stamp, roughness и geometry nor
 удаляют локальные копии и выполняют независимый restart. Shading normal delta
 между кадрами больше не является hard reject. Motion и
 изменение secondary hit ограничивают confidence с сохранением нормализации.
-GGX NDF sampling использует PDF с half-vector Jacobian; roughness < 0.004
+GGX NDF sampling использует тот же alpha=roughness² (alpha²=roughness⁴), что
+и BRDF, включая floor 1e-5 из ggxD; PDF учитывает half-vector Jacobian. Roughness < 0.004
 считается зеркалом. Target ограничен 1e-6..1.3, confidence — 640 (при движении
 снижается, как в исходном reflection), финальная luminance — 1.3.
 
@@ -118,6 +119,16 @@ Geometry normal/depth/disocclusion, hemisphere, roughness, ownership, restart и
 anti-firefly проверки сохраняются. Дополнительного visibility ray нет для уже
 подтверждённого parallax reuse. В bounce такого normal-map hard reject не было:
 весь diffuse transport использует geometry normals.
+
+При неподвижном camera origin confidence не уменьшается от расстояния между
+текущим и history pix: экранный сдвиг от вращения камеры не является world-space
+изменением view в той же точке. Translation confidence вычисляется только по
+расстоянию между camera origins относительно глубины primary точки. Проверка
+реального transport change в сохранённом frame остаётся.
+
+Если origins совпадают с допуском `REFLECTION_PATH_PARALLAX_TRANSLATION_EPSILON`
+(0.001 world units), reflection оставляет ровно адрес прямой проекции: отдельный
+2x2 parallax поиск не меняет донора в этом случае.
 
 Средний интервал независимого restart reflection увеличен с 128 до 1280 кадров,
 static/moving confidence caps — с 64/4 до 640/40. У bounce нет принудительного
@@ -168,12 +179,17 @@ material не отбраковывают bounce history. `TEMPORAL_BOUNCE_SKIP_S
 в `temporal_reprojection_claim.comp`: центр, верх, низ, лево, право. Сравниваются
 только history coordinates исходной карты репроекции до парной перестановки,
 переведённые в half-resolution reservoir texels. Если хотя бы один осевой сосед
-ссылается на тот же source, история центра отбрасывается с вероятностью 1/4.
-Это одна попытка на центр независимо от числа дубликатов, без выбора владельца
-и без сравнения поверхностей, яркости или seed. За границей соседи пропускаются,
+ссылается на тот же source, с вероятностью 1/4 история центра заменяется
+случайным history texel из 3x3 вокруг окончательного адреса репроекции, исключая
+центральный. Это одна попытка на центр независимо от числа дубликатов, без выбора
+владельца и без сравнения поверхностей, яркости или seed. За границей соседи пропускаются,
 а не clamped на центр. Макросы `TEMPORAL_BOUNCE_MAG_REJECTION=1` и
 `TEMPORAL_BOUNCE_MAG_REJECT_PROBABILITY=0.25` задают эксперимент. Direct RIS
-сохраняет прежний owner/reject механизм. Отказ даёт свежий path reservoir.
+сохраняет прежний owner/reject механизм. Для bounce claim сохраняет ready=1
+и передаёт replacement marker через ready.B и resolved source.B. После обычной
+перестановки donor выбирается 3x3 neighbor вокруг полученного history source.
+Выбор не проверяется повторно на дупликацию. Веса/M и seed целиком загружаются
+из нового адреса; обычные frame/metadata/relight проверки остаются.
 
 Reflection использует такой же 5-tap тест адресов history texels в
 `reflection_path_claim.comp`, до трассировки. Макросы в
@@ -183,6 +199,15 @@ Reflection использует такой же 5-tap тест адресов hi
 детерминированный owner-тест reflection не применяется дополнительно; он
 остаётся доступен при `REFLECTION_PATH_MAG_REJECTION=0`. Соседи за границей
 не считаются копиями центра. Одна попытка 1/4 независимо от числа совпадений.
+Для reflection ready.G отмечает замену; 3x3 neighbor выбирается уже после
+parallax lookup вокруг окончательного history texel, не вокруг текущего pix.
+При замене parallax confidence shortcut отключён: новый сосед не был подтверждён
+parallax-проверкой. Random pair, reservoir, frame normal/view, hit и luminance
+берутся из одного нового адреса. Common helper `temporalHistoryNeighbor3x3Index`
+выбирает только in-bounds соседей (на краю подмножество из восьми), не clamped
+центр. Исключение — вырожденное изображение 1x1, где соседей вообще нет.
+Макросы с суффиксом REJECT_PROBABILITY теперь задают вероятность такой замены,
+а не сброса. Ни повторного duplicate-теста, ни поиска самого старого M нет.
 Seed однозначно задаёт случайные размеры всего пути независимо от текущих
 pixel/frame. Исторический путь полностью переигрывается от текущей primary
 поверхности: все сегменты заново проверяют видимость и читают текущий cache.
@@ -201,8 +226,25 @@ pixel/frame. Исторический путь полностью переигр
 Bounce path histories, как и его цвет, занимают лишь первую четверть; остальные
 четверти очищаются. Резервуаров выбора источников света в secondary проходах нет.
 
+Отдельный от медианного firefly filter эксперимент — relight confidence для
+reflection и bounce. `LC_PATH_RELIGHT_REJECTION=1`, `LC_PATH_RELIGHT_MAX_RATIO=4.0`,
+`LC_PATH_RELIGHT_LUMINANCE_FLOOR=1e-6` в `lc_independent.glsl`. Сравнивается
+luminance одной и той же выбранной pair/seed до умножения на RIS weight W:
+сохранённый вклад и переоценённый текущий вклад. Если отношение большего к меньшему
+(с floor) больше 4, historical path полностью пропускается до merge, включая
+его mass и M. При отказе остаётся свежий резервуар, без наследования старого W.
+Невалидные/нечисловые вклады также пропускаются. Это эвристика: сильное настоящее
+изменение освещения/пути тоже сбросит историю. Она не проверяет соседние поверхности.
+
+Для этого в обоих `temporal_lc_*_luminance` хранится R = normalized estimator,
+G = raw selected-path luminance, B = frame stamp. Reflection view history также
+хранит frame stamp в W. Проверка stamp не даёт объединить sample/frame и radiance
+из разных кадров; добавленный формат автоматически начинает со свежей истории.
+Сравнивать новый raw вклад с прежним R (цветом после W) нельзя: это создавало бы
+ложные resets от изменения самого веса резервуара.
+
 Экспериментальный anti-firefly gate при репроекции задан макросами в
-`lc_independent.glsl`: `LC_PATH_FIREFLY_REJECTION=1`, `LC_PATH_FIREFLY_RATIO=1.5`,
+`lc_independent.glsl`: `LC_PATH_FIREFLY_REJECTION=0` (сейчас выключен), `LC_PATH_FIREFLY_RATIO=1.5`,
 `LC_PATH_FIREFLY_KILL_PROBABILITY=0.25`, `LC_PATH_FIREFLY_MIN_SAMPLES=8`. Для фактического history source (после
 parallax выбора у reflection) читаются четыре осевых соседа left/right/up/down
 в предыдущем изображении luminance. Медиана — среднее двух центральных значений.
@@ -212,7 +254,7 @@ parallax выбора у reflection) читаются четыре осевых 
 для соседей нет. На границе координаты clamped; bounce ограничен своей четвертью.
 Для luminance есть отдельные `temporal_lc_reflection_luminance` и
 `temporal_lc_bounce_luminance`: они хранят luminance полного estimator с RIS
-нормализацией в R. Возраст для gate берётся из существующего reservoir M
+нормализацией в R (G/B используются relight confidence, описанным выше). Возраст для gate берётся из существующего reservoir M
 (один свежий кандидат на кадр), отдельного счётчика возраста нет.
 Luminance хранится до final luminance/output-weight clamps, чтобы clamp не скрывал
 светляк. RNG отбрасывания независим от RNG пути и света. Макрос 0 выключает gate.
@@ -267,7 +309,10 @@ temporal RGB с четырьмя taps. Для возврата старого в
 и reflection prepare/claim. `python ref/vk/tests/lc_path_reservoir.py` компилирует
 реальные GLSL helpers как C++ и перебирает варианты temporal selection: смену
 освещения, нулевые пути, caps до 2560, сохранение нормализации, точную упаковку seed и порог mirror normals.
-Тест также проверяет порядок producer/consumer проходов в реальном `rt.json`.
+Тест также проверяет порядок producer/consumer проходов в реальном `rt.json`,
+сохранение нормализации при перестановке history адресов с неподвижным origin,
+energy bound белого GGX при normal incidence и rejection dark-to-bright history
+до роста её mass. Проверены граничные значения relight ratio и нечисловые данные.
 В игре проверить studio на освещённом полу, вращающийся brush, islands 1×1 и с
 нечётными размерами, reload карты, смену resolution и freeze/unfreeze. Отдельно
 проверить spot/environment, polygon backface и alpha-masked occluders.

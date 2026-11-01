@@ -122,11 +122,20 @@ void main() {
     lcOffer(reservoir,lcPathTarget(selected),1.0,0.0);
     ivec2 source; bool rotated;
     uint disabled=RENDERER_FLAG_DISABLE_RESERVOIR_REUSING;
+    vec4 reprojection=imageLoad(temporal_reprojection_bounce_source,pix);
     if ((ubo.ubo.renderer_flags & disabled)==0u && temporalReprojectionDecodeSource(
-        imageLoad(temporal_reprojection_bounce_source,pix).rg,res/2,source,rotated)) {
+        reprojection.rg,res/2,source,rotated)) {
+        if (reprojection.b>0.5) {
+            ivec2 extent=res/2;
+            uint random=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626e6233u));
+            int neighbor=temporalHistoryNeighbor3x3Index(source.x,source.y,extent.x,extent.y,random);
+            source=ivec2(neighbor%extent.x,neighbor/extent.x);
+        }
         vec4 metadata=imageLoad(prev_temporal_lc_bounce_path,source);
         vec4 previous=imageLoad(prev_temporal_lc_bounce_reservoir,source);
-        bool valid=!any(isnan(metadata)) && !any(isinf(metadata)) &&
+        vec4 previous_luminance=imageLoad(prev_temporal_lc_bounce_luminance,source);
+        bool valid=previous_luminance.b==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
+            !any(isnan(metadata)) && !any(isinf(metadata)) &&
             all(greaterThanEqual(metadata.xy,vec2(0))) && all(lessThanEqual(metadata.xy,vec2(65535))) &&
             metadata.z==float(ubo.ubo.bounce_count) &&
             metadata.w==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
@@ -139,12 +148,13 @@ void main() {
             // No donor-surface comparisons: the seed is replayed on this surface.
             vec3 history=tracePath(seed,position.xyz,G,history_direction);
             float random=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x7073656cu)));
-            if (lcMergePath(reservoir,previous,lcPathTarget(history),BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES,random)) {
+            if (lcPathRelightValid(previous_luminance.g,lcWeight(history)) &&
+                lcMergePath(reservoir,previous,lcPathTarget(history),BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES,random)) {
                 selected=history; selected_seed=seed; first_direction=history_direction;
             }
         }
     }
-    imageStore(out_temporal_lc_bounce_luminance,pix,vec4(lcWeight(selected*lcNormalization(reservoir)),0,0,0));
+    imageStore(out_temporal_lc_bounce_luminance,pix,vec4(lcWeight(selected*lcNormalization(reservoir)),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),0));
     float weight=min(lcNormalization(reservoir),BOUNCE_PATH_MAX_OUTPUT_WEIGHT);
     imageStore(out_indirect_diffuse,pix,vec4(clamp(selected*weight,vec3(0),vec3(65504)),0));
     imageStore(out_first_bounce_direction,pix,vec4(first_direction,0));

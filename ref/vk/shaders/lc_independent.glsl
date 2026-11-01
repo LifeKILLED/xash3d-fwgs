@@ -12,6 +12,37 @@
 #ifndef LC_PATH_FIREFLY_MIN_SAMPLES
 #define LC_PATH_FIREFLY_MIN_SAMPLES 8
 #endif
+#ifndef LC_PATH_RELIGHT_REJECTION
+#define LC_PATH_RELIGHT_REJECTION 1
+#endif
+#ifndef LC_PATH_RELIGHT_MAX_RATIO
+#define LC_PATH_RELIGHT_MAX_RATIO 1.25
+#endif
+#ifndef LC_PATH_RELIGHT_LUMINANCE_FLOOR
+#define LC_PATH_RELIGHT_LUMINANCE_FLOOR 1e-6
+#endif
+// Compare the same selected path before RIS normalization, never color * W.
+bool lcPathRelightValid(float previous, float current) {
+    if (isnan(previous) || isinf(previous) || isnan(current) || isinf(current) ||
+        previous<0.0 || current<0.0) return false;
+#if LC_PATH_RELIGHT_REJECTION
+    float lo=max(min(previous,current),LC_PATH_RELIGHT_LUMINANCE_FLOOR);
+    float hi=max(max(previous,current),LC_PATH_RELIGHT_LUMINANCE_FLOOR);
+    return hi<=lo*LC_PATH_RELIGHT_MAX_RATIO;
+#else
+    return true;
+#endif
+}
+// Match brdfComputeGltfModel: alpha = roughness^2; ggxD clamps alpha^2.
+float lcReflectionProposalAlpha2(float roughness) {
+    float alpha=roughness*roughness;
+    return max(alpha*alpha,1e-5);
+}
+float lcCameraConfidence(float translation, float distance, float relative_motion,
+    float maximum, float minimum) {
+    float motion=translation/max(distance,1.0)/relative_motion;
+    return max(minimum,maximum/(1.0+motion*motion));
+}
 // Deliberately image-space only: median of four taps, no surface validation.
 bool lcRejectPathFirefly(float value, vec4 taps, float random, float sample_count) {
     float lo=max(min(taps.x,taps.y),min(taps.z,taps.w));
