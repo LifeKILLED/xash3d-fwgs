@@ -5,6 +5,8 @@
 `lc_reflection.comp`, `lc_bounce.comp` (шейдеры находятся в `shaders/`).
 В `rt.json` включены новые проходы вместо старых lightcache, compound bounce
 и reflection; существующие reflection prepare/claim сохранены для репроекции. Старые исходники сохранены. Point, polygon, reflection и многошаговый diffuse bounce выполняются отдельными dispatch.
+Первый и все последующие bounce лучи используют исключительно geometry normal;
+shading normal применяется только в SH projection после экранного denoising.
 
 ## Входные данные и LM UV
 
@@ -90,12 +92,32 @@ epoch, resolution и последовательных кадров. Freeze (`rt_
 её target, сумму весов и эффективное число семплов. Каждый кадр строится свежий
 путь; historical random pair переигрывается на текущей геометрии и текущем RGB
 cache. Существующие `reflection_path_prepare` / `reflection_path_claim` выбирают
-primary-plane history, проверяют frame stamp, roughness и geometry/shading
-normals, удаляют локальные копии и выполняют независимый restart. Motion и
+primary-plane history, проверяют frame stamp, roughness и geometry normal,
+удаляют локальные копии и выполняют независимый restart. Shading normal delta
+между кадрами больше не является hard reject. Motion и
 изменение secondary hit ограничивают confidence с сохранением нормализации.
 GGX NDF sampling использует PDF с half-vector Jacobian; roughness < 0.004
 считается зеркалом. Target ограничен 1e-6..1.3, confidence — 640 (при движении
 снижается, как в исходном reflection), финальная luminance — 1.3.
+
+`REFLECTION_PATH_VALIDATE_SAVED_FRAME=1` разделяет confidence validation и shading.
+В `temporal_lc_reflection_view` сохраняется точный view vector выбранного семпла;
+normal frame сохраняется в `temporal_reflection_path_normals`. Историческая pair
+проверяется в сохранённых shading normal/view/roughness, а не в новой случайно
+изменившейся normal-map выборке. Если frame изменился, дополнительный visibility
+ray из текущей primary поверхности проверяет этот старый отскок на текущей
+геометрии; для сравнения с historical hit secondary точка переводится в previous
+world coordinates через vertex/model motion. Этот ray не вычисляет свет.
+Статичный совпадающий frame использует уже выполненную трассировку.
+
+Сам historical contribution, target, PDF, итоговый ray segment и выбранные
+выходные данные по-прежнему пересчитываются по текущим normal/view и текущему
+cache. Поэтому не используется старое освещение или PDF от другой normal.
+В конце кадра сохраняется текущий frame выбранной pair для следующей проверки.
+Geometry normal/depth/disocclusion, hemisphere, roughness, ownership, restart и
+anti-firefly проверки сохраняются. Дополнительного visibility ray нет для уже
+подтверждённого parallax reuse. В bounce такого normal-map hard reject не было:
+весь diffuse transport использует geometry normals.
 
 Средний интервал независимого restart reflection увеличен с 128 до 1280 кадров,
 static/moving confidence caps — с 64/4 до 640/40. У bounce нет принудительного
@@ -133,9 +155,14 @@ compositor. Cache хранит E/pi (единичную Lambert radiance), по�
 Bounce тоже сохраняет резервуар целого пути, а не результат смешивания RGB.
 `temporal_lc_bounce_path` хранит seed (две точные 16-битные части), число отскоков
 и frame stamp; `temporal_lc_bounce_reservoir` — target, sum, M, W;
-`temporal_lc_bounce_normals` — primary normals. Существующая
+Существующая
 `temporal_reprojection_bounce_source` задаёт history donor, включая текущую
-парную перестановку. Проверяются границы, frame, число отскоков и geometry normal.
+парную перестановку. Проверяются границы, frame, число отскоков и валидность reservoir metadata.
+Поверхности донора не сравниваются: geometry/shading normals, depth/plane и
+material не отбраковывают bounce history. `TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS=1`
+в подготовке/resolve карт задаёт обычную проекцию previous world position
+именно для `pix*2`, без выбора другой поверхности из 2x2. Парная перестановка
+также не требует совместимости плоскостей; many-to-one ownership сохранён.
 Seed однозначно задаёт случайные размеры всего пути независимо от текущих
 pixel/frame. Исторический путь полностью переигрывается от текущей primary
 поверхности: все сегменты заново проверяют видимость и читают текущий cache.
@@ -156,11 +183,11 @@ Bounce path histories, как и его цвет, занимают лишь пе
 
 Экспериментальный anti-firefly gate при репроекции задан макросами в
 `lc_independent.glsl`: `LC_PATH_FIREFLY_REJECTION=1`, `LC_PATH_FIREFLY_RATIO=1.5`,
-`LC_PATH_FIREFLY_KILL_PROBABILITY=0.1`, `LC_PATH_FIREFLY_MIN_SAMPLES=4`. Для фактического history source (после
+`LC_PATH_FIREFLY_KILL_PROBABILITY=0.25`, `LC_PATH_FIREFLY_MIN_SAMPLES=8`. Для фактического history source (после
 parallax выбора у reflection) читаются четыре осевых соседа left/right/up/down
 в предыдущем изображении luminance. Медиана — среднее двух центральных значений.
-Если эффективное число семплов source резервуара M строго больше 4 и его luminance
-строго больше медианы ×1.5, с вероятностью 0.1 история
+Если эффективное число семплов source резервуара M строго больше 8 и его luminance
+строго больше медианы ×1.5, с вероятностью 0.25 история
 не участвует в merge; остаётся свежий путь. Никаких depth/normal/material gates
 для соседей нет. На границе координаты clamped; bounce ограничен своей четвертью.
 Для luminance есть отдельные `temporal_lc_reflection_luminance` и

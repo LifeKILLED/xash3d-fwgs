@@ -103,22 +103,31 @@ int main() {
     assert(lcMirrorPath(0.003f,0.98f));
     assert(!lcMirrorPath(0.004f,1));
     assert(!lcMirrorPath(0,0.979f));
-    // Four-tap median, strict 1.5 ratio, independent 10% rejection boundary.
-    assert(!lcRejectPathFirefly(4,vec4(1,100,2,3),0.05f,0));
-    assert(!lcRejectPathFirefly(4,vec4(1,100,2,3),0.05f,4));
-    assert(lcRejectPathFirefly(4,vec4(1,100,2,3),0.05f,5));
-    assert(!lcRejectPathFirefly(3.75f,vec4(1,100,2,3),0.05f,5));
-    assert(!lcRejectPathFirefly(4,vec4(1,100,2,3),0.1f,5));
-    assert(lcRejectPathFirefly(1,vec4(0,0,0,0),0.05f,5));
-    assert(!lcRejectPathFirefly(0,vec4(0,0,0,0),0.05f,5));
-    assert(!lcRejectPathFirefly(10,vec4(10,10,10,10),0.05f,5));
+    // A normal-map tilt can move an otherwise unchanged planar reflection by
+    // many pixels. Confidence must use saved-frame transport, not that new ray.
+    float apparentShift=std::tan(0.7f)/0.025f;
+    assert(close(lcTransportConfidence(apparentShift,640),1));
+    assert(close(lcTransportConfidence(0,640),640));
+    assert(close(lcTransportConfidence(1,640),320));
+    // Four-tap median and strict boundaries use the current experimental macros.
+    float young=LC_PATH_FIREFLY_MIN_SAMPLES, mature=young+1;
+    float probability=LC_PATH_FIREFLY_KILL_PROBABILITY;
+    float draw=probability*0.5f, boundary=2.5f*LC_PATH_FIREFLY_RATIO;
+    assert(!lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),draw,0));
+    assert(!lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),draw,young));
+    assert(lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),draw,mature)==(probability>0));
+    assert(!lcRejectPathFirefly(boundary,vec4(1,100,2,3),draw,mature));
+    assert(!lcRejectPathFirefly(boundary+1,vec4(1,100,2,3),probability,mature));
+    assert(lcRejectPathFirefly(1,vec4(0,0,0,0),draw,mature)==(probability>0));
+    assert(!lcRejectPathFirefly(0,vec4(0,0,0,0),draw,mature));
+    assert(!lcRejectPathFirefly(10,vec4(10,10,10,10),draw,mature));
     std::puts("Path reservoir tests passed: relighting, black paths, caps, normalization, seed identity.");
 }
 """
 harness = harness.replace("#include <cstdint>", "#include <cstdint>\n#include <initializer_list>")
 harness = harness.replace("__CONFIG__", "\n".join(re.findall(r"^#define LC_PATH_FIREFLY_.*$", source, re.M)))
 harness = harness.replace("__HELPERS__", "\n".join(function(name) for name in (
-    "lcOffer", "lcNormalization", "lcMergePath", "lcEncodePath", "lcMirrorPath", "lcRejectPathFirefly",
+    "lcOffer", "lcNormalization", "lcMergePath", "lcEncodePath", "lcMirrorPath", "lcRejectPathFirefly", "lcTransportConfidence",
     "lcPackPathSeed", "lcUnpackPathSeed")))
 out = ROOT / "build/shader-test"
 out.mkdir(parents=True, exist_ok=True)

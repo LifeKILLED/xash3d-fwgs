@@ -1,7 +1,7 @@
 #ifndef LC_INDEPENDENT_GLSL
 #define LC_INDEPENDENT_GLSL
 #ifndef LC_PATH_FIREFLY_REJECTION
-#define LC_PATH_FIREFLY_REJECTION 1
+#define LC_PATH_FIREFLY_REJECTION 0
 #endif
 #ifndef LC_PATH_FIREFLY_RATIO
 #define LC_PATH_FIREFLY_RATIO 1.5
@@ -38,6 +38,9 @@ bool lcPathHistoryValid(vec4 h) {
 }
 bool lcMirrorPath(float roughness, float normal_dot) {
     return roughness<0.004 && normal_dot>=0.98;
+}
+float lcTransportConfidence(float relative_shift, float maximum) {
+    return max(1.0,maximum/(1.0+relative_shift*relative_shift));
 }
 // Re-evaluate the selected path in its uniform random domain. Cap mass and M
 // together so limiting confidence never changes the source estimator's scale.

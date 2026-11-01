@@ -24,6 +24,7 @@ layout(set = 0, binding = 20, rgba32f) uniform writeonly image2D out_temporal_re
 #define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
 #define REPROJECTION_LOAD_PREV_DEPTH_META(pix_) imageLoad(prev_temporal_asvgf_reproj_depth, (pix_))
 #define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+#define TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS 1
 #include "temporal_reprojection.glsl"
 #undef TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE
 #undef REPROJECTION_LOAD_PREV_DEPTH_META

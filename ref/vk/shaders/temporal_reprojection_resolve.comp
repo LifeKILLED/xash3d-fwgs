@@ -29,6 +29,7 @@ layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_temporal_re
 #define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
 #define REPROJECTION_LOAD_PREV_DEPTH_META(pix_) imageLoad(prev_temporal_asvgf_reproj_depth, (pix_))
 #define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
+#define TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS 1
 #include "temporal_reprojection.glsl"
 #undef TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE
 #undef REPROJECTION_LOAD_PREV_DEPTH_META
@@ -252,6 +253,9 @@ void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 		partner_history_local_pix,
 		partner_history_screen_pix);
 
+#if TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS
+    bool swap_pair=any(notEqual(partner,local_pix)) && self_ready && partner_ready;
+#else
 	bool swap_pair = false;
 	if (any(notEqual(partner, local_pix)) && self_ready && partner_ready) {
 		vec3 self_prev_position;
@@ -282,6 +286,8 @@ void resolveBounceSource(ivec2 local_pix, ivec2 half_res)
 					self_history_screen_pix);
 		}
 	}
+
+#endif
 
 	const vec2 source = swap_pair
 		? temporalReprojectionEncodeSource(partner_history_local_pix, true)

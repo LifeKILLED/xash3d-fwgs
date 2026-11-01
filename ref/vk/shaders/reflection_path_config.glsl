@@ -8,6 +8,11 @@
 #define REFLECTION_PATH_TEMPORAL_REUSE 1
 #endif
 
+// Validate transport in the saved sampling frame, then shade in today's frame.
+#ifndef REFLECTION_PATH_VALIDATE_SAVED_FRAME
+#define REFLECTION_PATH_VALIDATE_SAVED_FRAME 1
+#endif
+
 #ifndef REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES
 #define REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES 640.0
 #endif

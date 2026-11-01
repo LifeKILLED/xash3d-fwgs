@@ -52,7 +52,6 @@ void main()
 		any(lessThan(random_meta.xy, vec2(0.0))) || any(greaterThanEqual(random_meta.xy, vec2(1.0))) ||
 		abs(random_meta.z - imageLoad(material_rmxx, pix).r) > 0.05 ||
 		dot(normalDecode(old_normals.xy), normalDecode(normals.xy)) < 0.95 ||
-		dot(normalDecode(old_normals.zw), normalDecode(normals.zw)) < 0.95 ||
 		reservoir.x <= 0.0 || reservoir.y <= 0.0 || reservoir.z < 1.0) return;
 	const uint owner_key = xxhash32(uvec4(uvec2(pix), ubo.ubo.random_seed, 0x726f776eu)) & 255u;
 	vec2 encoded_source = vec2(history_pix) + 1.0;

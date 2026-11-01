@@ -25,10 +25,8 @@ layout(set=0,binding=33,std430) readonly buffer Vertices { Vertex a[]; } vertice
 layout(set=0,binding=15,rgba32f) uniform readonly image2D temporal_reprojection_bounce_source;
 layout(set=0,binding=40,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_path;
 layout(set=0,binding=41,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_reservoir;
-layout(set=0,binding=42,rgba16f) uniform readonly image2D prev_temporal_lc_bounce_normals;
 layout(set=0,binding=43,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_path;
 layout(set=0,binding=44,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_reservoir;
-layout(set=0,binding=45,rgba16f) uniform writeonly image2D out_temporal_lc_bounce_normals;
 layout(set=0,binding=46,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_luminance;
 layout(set=0,binding=47,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_luminance;
 #include "noise.glsl"
@@ -110,15 +108,13 @@ void main() {
     imageStore(out_first_bounce_direction,pix,vec4(0));
     imageStore(out_temporal_lc_bounce_path,pix,vec4(0));
     imageStore(out_temporal_lc_bounce_reservoir,pix,vec4(0));
-    imageStore(out_temporal_lc_bounce_normals,pix,vec4(0));
     // Only the first quadrant belongs to the path/SH sample. Others stay zero.
     if (any(greaterThanEqual(pix,res/2)) || ubo.ubo.bounce_count==0u ||
         (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_GI)!=0u) return;
     ivec2 primary_pix=pix*2;
     vec4 position=imageLoad(position_t,primary_pix);
     if (position.w<=0.0) return;
-    vec4 normals=imageLoad(normals_gs,primary_pix);
-    vec3 G=normalDecode(normals.xy);
+    vec3 G=normalDecode(imageLoad(normals_gs,primary_pix).xy);
     uint selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x66726573u));
     vec3 first_direction;
     vec3 selected=tracePath(selected_seed,position.xyz,G,first_direction);
@@ -130,17 +126,17 @@ void main() {
         imageLoad(temporal_reprojection_bounce_source,pix).rg,res/2,source,rotated)) {
         vec4 metadata=imageLoad(prev_temporal_lc_bounce_path,source);
         vec4 previous=imageLoad(prev_temporal_lc_bounce_reservoir,source);
-        vec4 previous_normals=imageLoad(prev_temporal_lc_bounce_normals,source);
         bool valid=!any(isnan(metadata)) && !any(isinf(metadata)) &&
             all(greaterThanEqual(metadata.xy,vec2(0))) && all(lessThanEqual(metadata.xy,vec2(65535))) &&
             metadata.z==float(ubo.ubo.bounce_count) &&
             metadata.w==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
-            dot(G,normalDecode(previous_normals.xy))>=0.95 && lcPathHistoryValid(previous);
+            lcPathHistoryValid(previous);
         if (valid && !rejectFireflyHistory(source,pix,previous.z)) {
             uint seed=lcUnpackPathSeed(metadata.xy);
             vec3 history_direction;
             // Replay every segment, including rotated donors, on current geometry.
             // Thus visibility and current RGB-cache lighting are refreshed together.
+            // No donor-surface comparisons: the seed is replayed on this surface.
             vec3 history=tracePath(seed,position.xyz,G,history_direction);
             float random=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x7073656cu)));
             if (lcMergePath(reservoir,previous,lcPathTarget(history),BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES,random)) {
@@ -155,5 +151,4 @@ void main() {
     imageStore(out_temporal_lc_bounce_path,pix,vec4(lcPackPathSeed(selected_seed),
         float(ubo.ubo.bounce_count),float((ubo.ubo.frame_counter & 65535u)+1u)));
     imageStore(out_temporal_lc_bounce_reservoir,pix,lcEncodePath(reservoir,BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES));
-    imageStore(out_temporal_lc_bounce_normals,pix,normals);
 }

@@ -755,6 +755,19 @@ bool reprojectHalfResAtlasPrimaryPlanePixelDetailed(
 	out ivec2 history_local_pix,
 	out ivec2 history_screen_pix)
 {
+#if defined(TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS) && TEMPORAL_BOUNCE_SKIP_SURFACE_CHECKS
+    // Match lc_bounce's actual primary sample; do not pick another surface in 2x2.
+    history_local_pix=ivec2(-1); history_screen_pix=ivec2(-1);
+    ivec2 primary_pix=local_pix*2;
+    if (any(lessThan(local_pix,ivec2(0))) || any(greaterThanEqual(local_pix,half_res)) ||
+        any(greaterThanEqual(primary_pix,ubo.ubo.res)) || imageLoad(position_t,primary_pix).w<=0.0) return false;
+    float clip_w;
+    if (!projectWorldToPrevFramePixel(imageLoad(geometry_prev_position,primary_pix).xyz,
+        ubo.ubo.res,history_screen_pix,clip_w)) return false;
+    history_local_pix=history_screen_pix/2;
+    return all(greaterThanEqual(history_local_pix,ivec2(0))) && all(lessThan(history_local_pix,half_res));
+#else
+
 	history_local_pix = ivec2(-1);
 	history_screen_pix = ivec2(-1);
 
@@ -790,6 +803,7 @@ bool reprojectHalfResAtlasPrimaryPlanePixelDetailed(
 	history_local_pix = history_screen_pix / 2;
 	return all(greaterThanEqual(history_local_pix, ivec2(0))) &&
 		all(lessThan(history_local_pix, half_res));
+#endif
 }
 
 bool reprojectHalfResAtlasPrimaryPlanePixel(

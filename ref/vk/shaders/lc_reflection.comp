@@ -41,6 +41,8 @@ layout(set=0,binding=48,rgba32f) uniform writeonly image2D out_temporal_lc_refle
 layout(set=0,binding=49,rgba16f) uniform readonly image2D prev_temporal_reflection_path_normals;
 layout(set=0,binding=50,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_luminance;
 layout(set=0,binding=51,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_luminance;
+layout(set=0,binding=52,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_view;
+layout(set=0,binding=53,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_view;
 #include "reflection_path_config.glsl"
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
@@ -55,7 +57,7 @@ layout(set=0,binding=51,rgba32f) uniform writeonly image2D out_temporal_lc_refle
 #undef REPROJECTION_LOAD_PREV_DEPTH_META
 #undef LOAD_REFLECTION_RAY_LENGTH
 
-vec3 cachedHit(vec3 origin,vec3 direction,out vec4 hit,out vec4 identity,out vec3 previous_hit) {
+vec3 cachedHit(vec3 origin,vec3 direction,out vec4 hit,out vec4 identity,out vec3 previous_hit,bool lighting) {
     hit=vec4(0); identity=vec4(0); previous_hit=vec3(0);
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq,tlas,gl_RayFlagsCullFrontFacingTrianglesEXT,
@@ -67,15 +69,18 @@ vec3 cachedHit(vec3 origin,vec3 direction,out vec4 hit,out vec4 identity,out vec
             rayQueryConfirmIntersectionEXT(rq);
     }
     if (rayQueryGetIntersectionTypeEXT(rq,true)!=gl_RayQueryCommittedIntersectionTriangleEXT) return vec3(0);
-    RayPayloadPrimary payload; RayPrimarySurface surface;
-    primaryRayHit(rq,payload,surface);
-    if (payload.hit_t.w<=0.0) return vec3(0);
-    hit=payload.hit_t;
+    int ko=rayQueryGetIntersectionInstanceCustomIndexEXT(rq,true)+rayQueryGetIntersectionGeometryIndexEXT(rq,true);
+    if (getKusok(uint(ko)).material.tex_base_color==TEX_BASE_SKYBOX) return vec3(0);
+    hit=vec4(origin+direction*rayQueryGetIntersectionTEXT(rq,true),rayQueryGetIntersectionTEXT(rq,true));
     identity=vec4(float(rayQueryGetIntersectionInstanceIdEXT(rq,true)+1),
         float(rayQueryGetIntersectionInstanceCustomIndexEXT(rq,true)+rayQueryGetIntersectionGeometryIndexEXT(rq,true)+1),
         float(rayQueryGetIntersectionPrimitiveIndexEXT(rq,true)+1),1);
     Geometry geometry=readHitGeometry(rq,0.0,rayQueryGetIntersectionBarycentricsEXT(rq,true));
     previous_hit=geometry.prev_pos;
+    if (!lighting) return vec3(0);
+    RayPayloadPrimary payload; RayPrimarySurface surface;
+    primaryRayHit(rq,payload,surface);
+    hit=payload.hit_t;
     vec4 uv=rayLightmapUV(rq);
     uint encoded=uv.z>0.0 ? lightcacheLookup(uv.xy) : 0u;
     if (encoded==0u || !lightcacheInCapacity(encoded-1u,ubo.ubo.res)) return vec3(0);
@@ -85,20 +90,24 @@ vec3 cachedHit(vec3 origin,vec3 direction,out vec4 hit,out vec4 identity,out vec
     for (int i=0;i<4;++i) color+=imageLoad(temporal_lc_radiance,taps[i]).rgb*weights[i];
     return max(color,vec3(0))*surface.base_color_a.rgb*(1.0-surface.material_rmxx.g);
 }
-vec3 traceReflection(vec2 r, vec3 P, vec3 G, vec3 N, vec3 V,
-    MaterialProperties material,out vec3 L,out float pdf,out vec4 hit,out vec4 identity,out vec3 previous_hit) {
-    vec2 rm=vec2(material.roughness,material.metalness);
+vec3 reflectionDirection(vec2 r,vec3 N,vec3 V,float roughness,out float pdf) {
     vec4 rotation=getRotationToZAxis(N);
     // GGX NDF sampling with the matching half-vector Jacobian PDF.
-    float a2=rm.x*rm.x;
+    float a2=roughness*roughness;
     float cos_theta=sqrt((1.0-r.x)/max(1.0+(a2-1.0)*r.x,1e-8));
     float sin_theta=sqrt(max(1.0-cos_theta*cos_theta,0.0));
     vec3 H=rotatePoint(invertRotation(rotation),vec3(sin_theta*cos(2.0*kPi*r.y),
         sin_theta*sin(2.0*kPi*r.y),cos_theta));
-    L=rm.x<0.004 ? reflect(-V,N) : reflect(-V,H);
+    vec3 L=roughness<0.004 ? reflect(-V,N) : reflect(-V,H);
     L=normalize(L);
-    pdf=rm.x<0.004 ? 1.0 : (dot(V,H)>0.0 ?
+    pdf=roughness<0.004 ? 1.0 : (dot(V,H)>0.0 ?
         ggxD(a2,max(dot(N,H),0.0))*max(dot(N,H),0.0)/(4.0*dot(V,H)) : 0.0);
+    return L;
+}
+vec3 traceReflection(vec2 r, vec3 P, vec3 G, vec3 N, vec3 V,
+    MaterialProperties material,out vec3 L,out float pdf,out vec4 hit,out vec4 identity,out vec3 previous_hit) {
+    vec2 rm=vec2(material.roughness,material.metalness);
+    L=reflectionDirection(r,N,V,rm.x,pdf);
     vec3 value=vec3(0); hit=vec4(0); identity=vec4(0); previous_hit=vec3(0);
     if (dot(L,G)>0.0 && pdf>0.0) {
         vec3 throughput;
@@ -109,7 +118,7 @@ vec3 traceReflection(vec2 r, vec3 P, vec3 G, vec3 N, vec3 V,
             vec3 unused; evalSplitBRDF(N,L,V,material,unused,throughput);
             throughput/=pdf;
         }
-        value=cachedHit(P+G*0.01,L,hit,identity,previous_hit)*throughput;
+        value=cachedHit(P+G*0.01,L,hit,identity,previous_hit,true)*throughput;
     }
     return value;
 }
@@ -126,9 +135,32 @@ float reflectionHistoryCap(ivec2 pix,ivec2 source,vec4 hit,vec3 direction) {
     if (hit.w>0.0) {
         float shift=length(hit.xyz-old_hit.xyz)/max(length(old_hit.xyz-prev_P),1.0)/
             REFLECTION_PATH_RELATIVE_HIT_CHANGE;
-        cap=min(cap,max(1.0,REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES/(1.0+shift*shift)));
+        cap=min(cap,lcTransportConfidence(shift,REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES));
     }
     return cap;
+}
+float savedFrameHistoryCap(ivec2 pix,ivec2 source,vec2 random_pair,float old_roughness,
+    vec3 P,vec3 G,vec3 N,vec3 V,float roughness,vec4 current_hit,vec3 current_direction,vec3 current_previous_hit) {
+    vec4 validation_hit=current_hit;
+    vec3 validation_direction=current_direction;
+    if (validation_hit.w>0.0) validation_hit.xyz=current_previous_hit;
+#if REFLECTION_PATH_VALIDATE_SAVED_FRAME
+    vec3 saved_N=normalDecode(imageLoad(prev_temporal_reflection_path_normals,source).zw);
+    vec3 saved_V=imageLoad(prev_temporal_lc_reflection_view,source).xyz;
+    // Static identical frames reuse the already-traced ray. During movement,
+    // replay the source frame only for visibility/confidence, without lighting.
+    if (length(saved_N-N)>1e-5 || length(saved_V-V)>1e-5 || old_roughness!=roughness) {
+        float pdf;
+        validation_direction=reflectionDirection(random_pair,saved_N,saved_V,old_roughness,pdf);
+        validation_hit=vec4(0);
+        if (pdf>0.0 && dot(validation_direction,G)>0.0) {
+            vec4 identity; vec3 previous_hit;
+            cachedHit(P+G*0.01,validation_direction,validation_hit,identity,previous_hit,false);
+            if (validation_hit.w>0.0) validation_hit.xyz=previous_hit;
+        }
+    }
+#endif
+    return reflectionHistoryCap(pix,source,validation_hit,validation_direction);
 }
 // Project the previous-frame secondary point through the mirror's previous
 // plane, then require an actually visible matching historical reflection.
@@ -199,6 +231,7 @@ void main() {
     imageStore(out_temporal_reflection_path_reservoir,pix,vec4(0));
     imageStore(out_temporal_reflection_path_normals,pix,vec4(0));
     imageStore(out_reflection_hit_pos,pix,vec4(0));
+    imageStore(out_temporal_lc_reflection_view,pix,vec4(0));
     imageStore(out_temporal_lc_reflection_hit_identity,pix,vec4(0));
     vec4 position=imageLoad(position_t,pix);
     if (position.w<=0.0 || (ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_REFLECTION)!=0u) return;
@@ -224,12 +257,14 @@ void main() {
         vec4 metadata=imageLoad(prev_temporal_reflection_path_random,source);
         vec4 previous=imageLoad(prev_temporal_reflection_path_reservoir,source);
         // Prepare/claim validate frame, normals, roughness and path ownership.
-        if (lcPathHistoryValid(previous) && !rejectFireflyHistory(source,pix,previous.z)) {
+        if (lcPathHistoryValid(previous) && imageLoad(prev_temporal_lc_reflection_view,source).w>0.0 &&
+            !rejectFireflyHistory(source,pix,previous.z)) {
             vec3 history_direction,history_previous_hit; float history_pdf; vec4 history_hit,history_identity;
             vec3 history=traceReflection(metadata.xy,position.xyz,G,N,V,material,
                 history_direction,history_pdf,history_hit,history_identity,history_previous_hit);
             float cap=parallax ? REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES :
-                reflectionHistoryCap(pix,source,history_hit,history_direction);
+                savedFrameHistoryCap(pix,source,metadata.xy,metadata.z,position.xyz,G,N,V,rm.x,
+                    history_hit,history_direction,history_previous_hit);
             if (lcMergePath(reservoir,previous,min(lcPathTarget(history),REFLECTION_PATH_TARGET_LUMINANCE_MAX),cap,random.z)) {
                 selected=history; selected_random=metadata.xy;
                 direction=history_direction; pdf=history_pdf; hit=history_hit;
@@ -248,5 +283,8 @@ void main() {
     imageStore(out_temporal_reflection_path_random,pix,
         vec4(selected_random,rm.x,float((ubo.ubo.frame_counter & 65535u)+1u)));
     imageStore(out_temporal_reflection_path_reservoir,pix,lcEncodePath(reservoir,REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES));
+    // The chosen pair has now been evaluated in this frame: next frame uses
+    // this normal/view as its saved validation frame, never an indefinitely old one.
     imageStore(out_temporal_reflection_path_normals,pix,normals);
+    imageStore(out_temporal_lc_reflection_view,pix,vec4(V,1));
 }
