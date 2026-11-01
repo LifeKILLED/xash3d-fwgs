@@ -33,7 +33,7 @@ void main() {
                 count+=1.0;
             }
             value/=max(count,1.0);
-            if (valid) value=mix(imageLoad(prev_temporal_lc_radiance,pix).rgb,value,0.1);
+            // Temporal blending temporarily disabled: current-frame 3x3 box only.
         } else if (valid) value=imageLoad(prev_temporal_lc_radiance,pix).rgb;
     }
     imageStore(out_temporal_lc_radiance,pix,vec4(clamp(value,vec3(0),vec3(65504)),0));

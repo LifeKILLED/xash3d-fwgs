@@ -32,6 +32,12 @@ void VK_LoadCvarsAfterInit( void );
 	X(rt_lightcache_gi) \
 	X(rt_disable_lightcache_update) \
 	X(rt_lightcache_bruteforce) \
+	X(rt_path_reprojection_no_rejection) \
+	X(rt_path_reservoir_reuse) \
+	X(rt_path_reservoir_unit_weight) \
+	X(rt_path_reservoir_history_cap) \
+	X(rt_path_reservoir_debug) \
+	X(rt_path_reservoir_transport_only) \
 	X(rt_disable_reflection) \
 	X(rt_disable_refraction) \
 	X(rt_disable_reconstruction) \

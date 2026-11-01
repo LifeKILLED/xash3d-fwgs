@@ -43,6 +43,9 @@ layout(set=0,binding=50,rgba32f) uniform readonly image2D prev_temporal_lc_refle
 layout(set=0,binding=51,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_luminance;
 layout(set=0,binding=52,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_view;
 layout(set=0,binding=53,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_view;
+layout(set=0,binding=54,rgba32f) uniform readonly image2D prev_temporal_lc_reflection_raw;
+layout(set=0,binding=55,rgba32f) uniform writeonly image2D out_temporal_lc_reflection_raw;
+layout(set=0,binding=56,rgba32f) uniform readonly image2D prev_reflection_direction_pdf;
 #include "reflection_path_config.glsl"
 #include "ray_primary_common.glsl"
 #include "ray_primary_hit.glsl"
@@ -211,6 +214,7 @@ bool parallaxPathSource(ivec2 pix,ivec2 plane_source,vec3 G,vec3 N,float roughne
     return found;
 }
 bool rejectFireflyHistory(ivec2 source,ivec2 pix,float sample_count) {
+    if ((ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION)!=0u) return false;
 #if LC_PATH_FIREFLY_REJECTION
     if (sample_count<=LC_PATH_FIREFLY_MIN_SAMPLES) return false;
     ivec2 hi=ubo.ubo.res-1;
@@ -229,6 +233,7 @@ void main() {
     ivec2 pix=ivec2(gl_GlobalInvocationID.xy), res=ubo.ubo.res;
     if (any(greaterThanEqual(pix,res))) return;
     imageStore(out_indirect_specular,pix,vec4(0));
+    imageStore(out_temporal_lc_reflection_raw,pix,vec4(0));
     imageStore(out_temporal_lc_reflection_luminance,pix,vec4(0));
     imageStore(out_reflection_direction_pdf,pix,vec4(0));
     imageStore(out_temporal_reflection_path_random,pix,vec4(0));
@@ -250,14 +255,18 @@ void main() {
     vec2 selected_random=random.xy;
     vec3 direction,previous_hit; float pdf; vec4 hit,identity;
     vec3 selected=traceReflection(selected_random,position.xyz,G,N,V,material,direction,pdf,hit,identity,previous_hit);
+    float history_cap=ubo.ubo.path_history_cap>0.0 ? max(1.0,ubo.ubo.path_history_cap) : REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES;
+    float replay_ratio=1.0; bool transported=false; vec4 transported_reservoir=vec4(0);
+    vec4 selected_normals=normals; vec3 selected_view=V; float selected_roughness=rm.x;
     LCReservoir reservoir=LCReservoir(0,0,0);
     lcOffer(reservoir,min(lcPathTarget(selected),REFLECTION_PATH_TARGET_LUMINANCE_MAX),1.0,0.0);
+    bool diagnostic=(ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION)!=0u;
     uint disabled=RENDERER_FLAG_DISABLE_RESERVOIR_REUSING;
     vec4 history_ready=imageLoad(reflection_path_history_ready,pix);
     if ((ubo.ubo.renderer_flags & disabled)==0u && history_ready.r>0.5) {
         ivec2 source=ivec2(imageLoad(reflection_path_reprojection,pix).xy)-1;
         ivec2 parallax_source;
-        bool parallax=parallaxPathSource(pix,source,G,N,rm.x,hit,identity,previous_hit,parallax_source);
+        bool parallax=!diagnostic && parallaxPathSource(pix,source,G,N,rm.x,hit,identity,previous_hit,parallax_source);
         if (parallax) source=parallax_source;
         if (history_ready.g>0.5) {
             uint random=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x726e6233u));
@@ -275,36 +284,54 @@ void main() {
             lcPathHistoryValid(previous) && previous_luminance.b==previous_stamp &&
             imageLoad(prev_temporal_lc_reflection_view,source).w==previous_stamp &&
             !rejectFireflyHistory(source,pix,previous.z)) {
-            vec3 history_direction,history_previous_hit; float history_pdf; vec4 history_hit,history_identity;
-            vec3 history=traceReflection(metadata.xy,position.xyz,G,N,V,material,
-                history_direction,history_pdf,history_hit,history_identity,history_previous_hit);
-            // Reject a strong change before new_target/old_target can amplify
-            // the history mass. Dropped history contributes neither mass nor M.
-            if (lcPathRelightValid(previous_luminance.g,lcWeight(history))) {
-                float cap=parallax ? REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES :
-                    savedFrameHistoryCap(pix,source,metadata.xy,metadata.z,position.xyz,G,N,V,rm.x,
-                        history_hit,history_direction,history_previous_hit);
-                if (lcMergePath(reservoir,previous,min(lcPathTarget(history),REFLECTION_PATH_TARGET_LUMINANCE_MAX),cap,random.z)) {
-                    selected=history; selected_random=metadata.xy;
-                    direction=history_direction; pdf=history_pdf; hit=history_hit;
-                    identity=history_identity;
+            if ((ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_TRANSPORT_ONLY)!=0u) {
+                vec4 raw=imageLoad(prev_temporal_lc_reflection_raw,source);
+                if (raw.a==previous_stamp) {
+                    selected=raw.rgb; selected_random=metadata.xy; selected_roughness=metadata.z;
+                    vec4 ray=imageLoad(prev_reflection_direction_pdf,source);
+                    direction=length(ray.xyz)>0.0 ? normalize(ray.xyz) : vec3(0); pdf=ray.w;
+                    hit=imageLoad(prev_reflection_hit_pos,source);
+                    identity=imageLoad(prev_temporal_lc_reflection_hit_identity,source);
+                    selected_normals=imageLoad(prev_temporal_reflection_path_normals,source);
+                    selected_view=imageLoad(prev_temporal_lc_reflection_view,source).xyz;
+                    reservoir=LCReservoir(previous.y,previous.z,previous.x);
+                    transported=true; transported_reservoir=previous;
+                }
+            } else {
+                vec3 history_direction,history_previous_hit; float history_pdf; vec4 history_hit,history_identity;
+                vec3 history=traceReflection(metadata.xy,position.xyz,G,N,V,material,
+                    history_direction,history_pdf,history_hit,history_identity,history_previous_hit);
+                replay_ratio=max(lcWeight(history),1e-6)/max(previous_luminance.g,1e-6);
+                // Reject a strong change before new_target/old_target can amplify
+                // the history mass. Dropped history contributes neither mass nor M.
+                if (diagnostic || lcPathRelightValid(previous_luminance.g,lcWeight(history))) {
+                    float cap=(diagnostic || parallax) ? REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES :
+                        savedFrameHistoryCap(pix,source,metadata.xy,metadata.z,position.xyz,G,N,V,rm.x,
+                            history_hit,history_direction,history_previous_hit);
+                    if (lcMergePath(reservoir,previous,min(lcPathTarget(history),REFLECTION_PATH_TARGET_LUMINANCE_MAX),min(cap,history_cap),random.z)) {
+                        selected=history; selected_random=metadata.xy;
+                        direction=history_direction; pdf=history_pdf; hit=history_hit;
+                        identity=history_identity;
+                    }
                 }
             }
         }
     }
-    vec3 color=selected*lcNormalization(reservoir);
+    float W=transported ? transported_reservoir.w : lcNormalization(reservoir);
+    vec3 color=selected*((ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_UNIT_WEIGHT)!=0u ? 1.0 : W);
+    imageStore(out_temporal_lc_reflection_raw,pix,vec4(selected,float((ubo.ubo.frame_counter&65535u)+1u)));
     // Preserve raw estimator luminance: target/final clamps hide fireflies.
-    imageStore(out_temporal_lc_reflection_luminance,pix,vec4(lcWeight(color),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),0));
+    imageStore(out_temporal_lc_reflection_luminance,pix,vec4(lcWeight(selected*W),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),replay_ratio));
     color*=min(1.0,REFLECTION_PATH_FINAL_LUMINANCE_MAX/max(lcWeight(color),1e-6));
     imageStore(out_indirect_specular,pix,vec4(clamp(color,vec3(0),vec3(65504)),0));
     imageStore(out_reflection_direction_pdf,pix,vec4(direction*hit.w,pdf));
     imageStore(out_reflection_hit_pos,pix,hit);
     imageStore(out_temporal_lc_reflection_hit_identity,pix,identity);
     imageStore(out_temporal_reflection_path_random,pix,
-        vec4(selected_random,rm.x,float((ubo.ubo.frame_counter & 65535u)+1u)));
-    imageStore(out_temporal_reflection_path_reservoir,pix,lcEncodePath(reservoir,REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES));
+        vec4(selected_random,selected_roughness,float((ubo.ubo.frame_counter & 65535u)+1u)));
+    imageStore(out_temporal_reflection_path_reservoir,pix,transported ? transported_reservoir : lcEncodePath(reservoir,history_cap));
     // The chosen pair has now been evaluated in this frame: next frame uses
     // this normal/view as its saved validation frame, never an indefinitely old one.
-    imageStore(out_temporal_reflection_path_normals,pix,normals);
-    imageStore(out_temporal_lc_reflection_view,pix,vec4(V,float((ubo.ubo.frame_counter&65535u)+1u)));
+    imageStore(out_temporal_reflection_path_normals,pix,selected_normals);
+    imageStore(out_temporal_lc_reflection_view,pix,vec4(selected_view,float((ubo.ubo.frame_counter&65535u)+1u)));
 }

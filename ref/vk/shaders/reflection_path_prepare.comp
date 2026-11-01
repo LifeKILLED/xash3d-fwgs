@@ -37,21 +37,28 @@ void main()
 		imageLoad(position_t, pix).w <= 0.0) return;
 	const float restart = uintToFloat01(xxhash32(uvec4(
 		uvec2(pix), ubo.ubo.random_seed, 0x72737472u)));
-	if (restart < REFLECTION_PATH_RESTART_PROBABILITY) return;
+	bool diagnostic=(ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION)!=0u;
+	if (!diagnostic && restart < REFLECTION_PATH_RESTART_PROBABILITY) return;
 	const vec4 normals = imageLoad(normals_gs, pix);
 	ivec2 history_pix;
+	if (diagnostic) {
+		float clip_w;
+		if (!projectWorldToPrevFramePixel(imageLoad(geometry_prev_position,pix).xyz,
+			ubo.ubo.res,history_pix,clip_w)) return;
+	} else {
 	float threshold;
 	if (!findBestReprojectedHistoryTexelForParams(ubo.ubo.asvgf.indirect_specular,
 		imageLoad(geometry_prev_position, pix).xyz, normalDecode(normals.xy),
 		pix, ubo.ubo.res, history_pix, threshold)) return;
+	}
 	const vec4 random_meta = imageLoad(prev_temporal_reflection_path_random, history_pix);
 	const vec4 reservoir = imageLoad(prev_temporal_reflection_path_reservoir, history_pix);
 	const vec4 old_normals = imageLoad(prev_temporal_reflection_path_normals, history_pix);
 	if (IS_INVALIDV(random_meta) || IS_INVALIDV(reservoir) ||
 		random_meta.w != float(((ubo.ubo.frame_counter - 1u) & 65535u) + 1u) ||
 		any(lessThan(random_meta.xy, vec2(0.0))) || any(greaterThanEqual(random_meta.xy, vec2(1.0))) ||
-		abs(random_meta.z - imageLoad(material_rmxx, pix).r) > 0.05 ||
-		dot(normalDecode(old_normals.xy), normalDecode(normals.xy)) < 0.95 ||
+		(!diagnostic && (abs(random_meta.z - imageLoad(material_rmxx, pix).r) > 0.05 ||
+		dot(normalDecode(old_normals.xy), normalDecode(normals.xy)) < 0.95)) ||
 		reservoir.x <= 0.0 || reservoir.y <= 0.0 || reservoir.z < 1.0) return;
 	const uint owner_key = xxhash32(uvec4(uvec2(pix), ubo.ubo.random_seed, 0x726f776eu)) & 255u;
 	vec2 encoded_source = vec2(history_pix) + 1.0;

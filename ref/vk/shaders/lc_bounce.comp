@@ -29,6 +29,12 @@ layout(set=0,binding=43,rgba32f) uniform writeonly image2D out_temporal_lc_bounc
 layout(set=0,binding=44,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_reservoir;
 layout(set=0,binding=46,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_luminance;
 layout(set=0,binding=47,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_luminance;
+layout(set=0,binding=48,rgba32f) uniform readonly image2D prev_temporal_lc_bounce_raw;
+layout(set=0,binding=49,rgba32f) uniform writeonly image2D out_temporal_lc_bounce_raw;
+layout(set=0,binding=50,rgba32f) uniform readonly image2D prev_first_bounce_direction;
+layout(set=0,binding=51,rgba32f) uniform readonly image2D geometry_prev_position;
+layout(set=0,binding=52,rgba32f) uniform readonly image2D prev_position_t;
+layout(set=0,binding=53,rgba16f) uniform readonly image2D prev_normals_gs;
 #include "noise.glsl"
 #include "temporal_reservoir_rotation.glsl"
 #include "bounce_path_config.glsl"
@@ -73,37 +79,39 @@ vec3 tracePath(uint seed,vec3 P,vec3 G,out vec3 first_direction) {
     first_direction=vec3(0);
     for (uint bounce=0u;bounce<ubo.ubo.bounce_count;++bounce) {
         vec3 random=rand3_f01(uvec3(seed,bounce,0x1cb0u));
-        vec3 direction=normalize(sampleCosineHemisphereAroundVectorUnnormalized(random.xy,G));
+        float z=2.0*random.x-1.0;
+        float phi=6.28318530718*random.y;
+        float radius=sqrt(max(0.0,1.0-z*z));
+        vec3 direction=vec3(radius*cos(phi),radius*sin(phi),z);
+        if (dot(direction,G)<0.0) direction*=vec3(-1.0);
         if (bounce==0u) first_direction=direction;
         RayPayloadPrimary payload; RayPrimarySurface surface; vec4 uv;
         if (!traceBounce(P+G*0.01,direction,payload,surface,uv)) break;
         throughput*=surface.base_color_a.rgb*(1.0-surface.material_rmxx.g);
         color+=throughput*cachedIrradiance(uv);
-        if (max(throughput.r,max(throughput.g,throughput.b))<=0.0) break;
+        if (max(throughput.r,max(throughput.g,throughput.b))<=1e-3) break;
         P=payload.hit_t.xyz;
         G=normalDecode(surface.normals_gs.xy);
     }
     return color;
 }
-bool rejectFireflyHistory(ivec2 source,ivec2 pix,float sample_count) {
-#if LC_PATH_FIREFLY_REJECTION
-    if (sample_count<=LC_PATH_FIREFLY_MIN_SAMPLES) return false;
-    ivec2 hi=ubo.ubo.res/2-1;
-    vec4 taps=vec4(
-        imageLoad(prev_temporal_lc_bounce_luminance,clamp(source+ivec2(-1,0),ivec2(0),hi)).r,
-        imageLoad(prev_temporal_lc_bounce_luminance,clamp(source+ivec2(1,0),ivec2(0),hi)).r,
-        imageLoad(prev_temporal_lc_bounce_luminance,clamp(source+ivec2(0,-1),ivec2(0),hi)).r,
-        imageLoad(prev_temporal_lc_bounce_luminance,clamp(source+ivec2(0,1),ivec2(0),hi)).r);
-    float random=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x6266666cu)));
-    return lcRejectPathFirefly(imageLoad(prev_temporal_lc_bounce_luminance,source).r,taps,random,sample_count);
-#else
-    return false;
-#endif
+// Raw projection shared by the center and its four screen neighbors.
+bool bounceHistoryPixel(ivec2 pixel,out ivec2 source) {
+    source=ivec2(0);
+    if (any(lessThan(pixel,ivec2(0))) || any(greaterThanEqual(pixel,ubo.ubo.res/2))) return false;
+    if (imageLoad(position_t,pixel*2).w<=0.0) return false;
+    vec4 clip=ubo.ubo.prev_proj*ubo.ubo.prev_view*vec4(imageLoad(geometry_prev_position,pixel*2).xyz,1);
+    if (any(isnan(clip)) || any(isinf(clip)) || clip.w<=0.0) return false;
+    vec2 uv=clip.xy/clip.w*0.5+0.5;
+    if (any(lessThan(uv,vec2(0))) || any(greaterThanEqual(uv,vec2(1)))) return false;
+    source=ivec2(floor(uv*vec2(ubo.ubo.res)))/2;
+    return all(lessThan(source,ubo.ubo.res/2));
 }
 void main() {
     ivec2 pix=ivec2(gl_GlobalInvocationID.xy), res=ubo.ubo.res;
     if (any(greaterThanEqual(pix,res))) return;
     imageStore(out_indirect_diffuse,pix,vec4(0));
+    imageStore(out_temporal_lc_bounce_raw,pix,vec4(0));
     imageStore(out_temporal_lc_bounce_luminance,pix,vec4(0));
     imageStore(out_first_bounce_direction,pix,vec4(0));
     imageStore(out_temporal_lc_bounce_path,pix,vec4(0));
@@ -115,50 +123,80 @@ void main() {
     vec4 position=imageLoad(position_t,primary_pix);
     if (position.w<=0.0) return;
     vec3 G=normalDecode(imageLoad(normals_gs,primary_pix).xy);
-    uint selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x66726573u));
+    uint selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x66726573u)) & 8388607u;
     vec3 first_direction;
     vec3 selected=tracePath(selected_seed,position.xyz,G,first_direction);
+    float history_cap=BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES;
+    float replay_ratio=1.0; bool transported=false; vec4 transported_reservoir=vec4(0);
     LCReservoir reservoir=LCReservoir(0,0,0);
     lcOffer(reservoir,lcPathTarget(selected),1.0,0.0);
-    ivec2 source; bool rotated;
-    uint disabled=RENDERER_FLAG_DISABLE_RESERVOIR_REUSING;
-    vec4 reprojection=imageLoad(temporal_reprojection_bounce_source,pix);
-    if ((ubo.ubo.renderer_flags & disabled)==0u && temporalReprojectionDecodeSource(
-        reprojection.rg,res/2,source,rotated)) {
-        if (reprojection.b>0.5) {
-            ivec2 extent=res/2;
-            uint random=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626e6233u));
-            int neighbor=temporalHistoryNeighbor3x3Index(source.x,source.y,extent.x,extent.y,random);
-            source=ivec2(neighbor%extent.x,neighbor/extent.x);
+    vec4 previous_position=imageLoad(geometry_prev_position,primary_pix);
+    float restart=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626c6966u)));
+    ivec2 source;
+    bool projected=bounceHistoryPixel(pix,source);
+    if (projected) {
+        const ivec2 offsets[4]=ivec2[4](ivec2(-1,0),ivec2(1,0),ivec2(0,-1),ivec2(0,1));
+        bool duplicate=false;
+        for (int i=0;i<4;++i) {
+            ivec2 neighbor;
+            if (bounceHistoryPixel(pix+offsets[i],neighbor) && all(equal(neighbor,source))) duplicate=true;
         }
+        if (duplicate && uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626d6b6cu)))<BOUNCE_PATH_MAG_RESET_PROBABILITY)
+            projected=false;
+        uint rng=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626d6167u));
+        if (projected && duplicate && uintToFloat01(rng)<BOUNCE_PATH_MAG_REPLACEMENT_PROBABILITY) {
+            int index=temporalHistoryNeighbor3x3Index(source.x,source.y,res.x/2,res.y/2,
+                xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626e6233u)));
+            source=ivec2(index%(res.x/2),index/(res.x/2));
+        }
+    }
+    if (projected && restart>=BOUNCE_PATH_RESTART_PROBABILITY) {
+        // Validate the actual half-resolution donor against its previous plane.
+        // Tangential displacement from pixel quantization is deliberately ignored.
+        vec4 donor=imageLoad(prev_position_t,source*2);
+        vec3 donor_normal=normalDecode(imageLoad(prev_normals_gs,source*2).xy);
+        float plane_error=abs(dot(previous_position.xyz-donor.xyz,donor_normal));
+        if (donor.w<=0.0 || isnan(plane_error) || isinf(plane_error) ||
+            plane_error>BOUNCE_PATH_REPROJECTION_PLANE_TOLERANCE) projected=false;
+    } else projected=false;
+    if (projected) {
         vec4 metadata=imageLoad(prev_temporal_lc_bounce_path,source);
         vec4 previous=imageLoad(prev_temporal_lc_bounce_reservoir,source);
-        vec4 previous_luminance=imageLoad(prev_temporal_lc_bounce_luminance,source);
-        bool valid=previous_luminance.b==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
-            !any(isnan(metadata)) && !any(isinf(metadata)) &&
-            all(greaterThanEqual(metadata.xy,vec2(0))) && all(lessThanEqual(metadata.xy,vec2(65535))) &&
-            metadata.z==float(ubo.ubo.bounce_count) &&
-            metadata.w==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
-            lcPathHistoryValid(previous);
-        if (valid && !rejectFireflyHistory(source,pix,previous.z)) {
-            uint seed=lcUnpackPathSeed(metadata.xy);
+        if (metadata.w==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
+            metadata.z==float(ubo.ubo.bounce_count) && lcPathHistoryValid(previous)) {
+            uint seed=uint(metadata.x);
             vec3 history_direction;
-            // Replay every segment, including rotated donors, on current geometry.
-            // Thus visibility and current RGB-cache lighting are refreshed together.
-            // No donor-surface comparisons: the seed is replayed on this surface.
             vec3 history=tracePath(seed,position.xyz,G,history_direction);
-            float random=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x7073656cu)));
-            if (lcPathRelightValid(previous_luminance.g,lcWeight(history)) &&
-                lcMergePath(reservoir,previous,lcPathTarget(history),BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES,random)) {
-                selected=history; selected_seed=seed; first_direction=history_direction;
+            float target=lcPathTarget(history);
+            float old_luminance=max(previous.x,1e-6);
+            replay_ratio=target/old_luminance;
+            float limit=BOUNCE_PATH_RADIANCE_RATIO;
+            float confidence=clamp(replay_ratio<1.0 ?
+                (replay_ratio-1.0/limit)/(1.0-1.0/limit) :
+                (limit-replay_ratio)/(limit-1.0),0.0,1.0);
+            float rejection=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x62636f6eu)));
+            if (rejection<confidence) {
+            // Replace exactly the selected historical candidate's contribution.
+            // Replaying it does not add a sample to M.
+            reservoir=LCReservoir(max(0.0,previous.y-previous.x)+target,previous.z,target);
+            vec3 fresh=selected; vec3 fresh_direction=first_direction;
+            selected=history; selected_seed=seed; first_direction=history_direction;
+            float choose=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x7073656cu)));
+            if (lcOffer(reservoir,lcPathTarget(fresh),1.0,choose)) {
+                selected=fresh;
+                selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x66726573u)) & 8388607u;
+                first_direction=fresh_direction;
             }
         }
     }
-    imageStore(out_temporal_lc_bounce_luminance,pix,vec4(lcWeight(selected*lcNormalization(reservoir)),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),0));
-    float weight=min(lcNormalization(reservoir),BOUNCE_PATH_MAX_OUTPUT_WEIGHT);
+            }
+    float W=transported ? transported_reservoir.w : lcNormalization(reservoir);
+    imageStore(out_temporal_lc_bounce_raw,pix,vec4(selected,float((ubo.ubo.frame_counter&65535u)+1u)));
+    imageStore(out_temporal_lc_bounce_luminance,pix,vec4(lcWeight(selected*W),lcWeight(selected),float((ubo.ubo.frame_counter&65535u)+1u),replay_ratio));
+    float weight=W;
     imageStore(out_indirect_diffuse,pix,vec4(clamp(selected*weight,vec3(0),vec3(65504)),0));
     imageStore(out_first_bounce_direction,pix,vec4(first_direction,0));
-    imageStore(out_temporal_lc_bounce_path,pix,vec4(lcPackPathSeed(selected_seed),
+    imageStore(out_temporal_lc_bounce_path,pix,vec4(float(selected_seed),0.0,
         float(ubo.ubo.bounce_count),float((ubo.ubo.frame_counter & 65535u)+1u)));
-    imageStore(out_temporal_lc_bounce_reservoir,pix,lcEncodePath(reservoir,BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES));
+    imageStore(out_temporal_lc_bounce_reservoir,pix,transported ? transported_reservoir : lcEncodePath(reservoir,history_cap));
 }

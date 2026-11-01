@@ -30,6 +30,25 @@
 #endif
 
 
+#ifndef BOUNCE_PATH_MAG_RESET_PROBABILITY
+#define BOUNCE_PATH_MAG_RESET_PROBABILITY 0.25
+#endif
+#ifndef BOUNCE_PATH_MAG_REPLACEMENT_PROBABILITY
+#define BOUNCE_PATH_MAG_REPLACEMENT_PROBABILITY 0.25
+#endif
+#ifndef BOUNCE_PATH_RADIANCE_RATIO
+#define BOUNCE_PATH_RADIANCE_RATIO 1.5
+#endif
+
+// Independent per-frame restart; expected survival is 200 frames.
+#ifndef BOUNCE_PATH_RESTART_PROBABILITY
+#define BOUNCE_PATH_RESTART_PROBABILITY (1.0 / 200.0)
+#endif
+// World-space distance to the previous donor plane (tangential error ignored).
+#ifndef BOUNCE_PATH_REPROJECTION_PLANE_TOLERANCE
+#define BOUNCE_PATH_REPROJECTION_PLANE_TOLERANCE 0.1
+#endif
+
 // Temporal lifetime and effective reservoir size for compound bounce GI.
 // These settings are intentionally independent from direct RIS. Dark indirect
 // lighting may need several seconds of stable history before rare doorway or

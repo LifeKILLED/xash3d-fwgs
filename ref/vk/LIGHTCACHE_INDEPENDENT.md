@@ -8,6 +8,21 @@
 Первый и все последующие bounce лучи используют исключительно geometry normal;
 shading normal применяется только в SH projection после экранного denoising.
 
+## Диагностика репроекции без отбраковки
+
+`rt_path_reprojection_no_rejection 1` (временно включён по умолчанию) передаётся
+через `RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION`. Для reflection/bounce
+используется прямая проекция previous world position, без parallax-поиска,
+перестановки доноров, depth/plane/normal/roughness reject, MAG, случайного restart,
+firefly/relight reject и понижения transport confidence. Сами трассировки,
+переоценка target и формула merge не меняются. Остаются bounds/active primary,
+frame stamps, числовая валидность metadata и reservoir, совместимость bounce count;
+ограничение максимального M уменьшает mass и M вместе, не меняя W.
+ASVGF и light cache этой опцией не меняются. Переключение сбрасывает историю один
+раз для чистого сравнения. `rt_path_reprojection_no_rejection 0` возвращает все
+сохранённые рабочие механизмы (включая MAG replacement 3x3). Описанные ниже
+поведенческие проверки относятся к обычному режиму 0.
+
 ## Входные данные и LM UV
 
 * `ray_interop.h`: `UniformBuffer`, `PointLight`, `PolygonLight`, `LightsMetadata`,
@@ -316,3 +331,31 @@ energy bound белого GGX при normal incidence и rejection dark-to-brigh
 В игре проверить studio на освещённом полу, вращающийся brush, islands 1×1 и с
 нечётными размерами, reload карты, смену resolution и freeze/unfreeze. Отдельно
 проверить spot/environment, polygon backface и alpha-masked occluders.
+
+## Новый bounce: мировой seed replay
+
+Bounce использует один новый кандидат за кадр. Seed — целое 0..8388607,
+точно представимое в float32 (все целые до 16777216 представимы точно).
+Metadata теперь содержит seed в X, 0 в Y, bounce count в Z, stamp в W.
+Для каждого номера отскока seed задаёт равномерную мировую сферу; направление
+умножается на -1 при отрицательном dot с geometry normal. Tangent frame
+и cosine sampling не используются. Отступ origin равен geometry normal * 0.01,
+остановка по максимальной компоненте throughput <= 0.001.
+История берётся прямой проекцией geometry_prev_position, без MAG, перестановок,
+проверок поверхностей, длин и radiance confidence. Остаются границы изображения,
+stamp, совместимость числа отскоков и числовая валидность состояния.
+Путь истории переигрывается, sum := sum - old_target + new_target, M сохраняется.
+Затем обычным reservoir offer добавляется один свежий кандидат. Cap масштабирует
+sum и M вместе. Диагностические transport/unit-weight/reuse переключатели
+больше не изменяют этот bounce. Reflection не изменён этим переходом.
+
+Bounce MAG: сравниваются адреса прямой репроекции центра и четырёх осевых
+соседей. При совпадении история сбрасывается с вероятностью 0.25. Для выживших
+дубликатов независимо с вероятностью 0.25 выбирается случайный сосед 3x3
+вокруг history source, исключая центр. Проверка плоскости применяется к итоговому
+источнику. Вероятности: BOUNCE_PATH_MAG_RESET_PROBABILITY и
+BOUNCE_PATH_MAG_REPLACEMENT_PROBABILITY.
+Radiance confidence сравнивает target replay с сохранённым raw target до W:
+линейно от 1 при отношении 1 до 0 при 1/1.5 и 1.5, за пределами — 0.
+История принимается с вероятностью confidence, иначе остаётся свежий кандидат.
+Предел задаёт BOUNCE_PATH_RADIANCE_RATIO. Сброс 1/200 также сохраняется.

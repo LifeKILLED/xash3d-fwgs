@@ -126,6 +126,7 @@ bool temporalBounceMagReady(ivec2 pix,ivec2 half_res,out bool replace_history)
 	ivec2 source;
 	if (!temporalMapTarget(pix,half_res,true,source) ||
 		any(greaterThanEqual(source,half_res))) return false;
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_PATH_REPROJECTION_NO_REJECTION)!=0u) return true;
 #if TEMPORAL_BOUNCE_MAG_REJECTION
 	const ivec2 offsets[4]=ivec2[4](ivec2(0,-1),ivec2(0,1),ivec2(-1,0),ivec2(1,0));
 	bool duplicate=false;
