@@ -190,7 +190,9 @@ def transform(kernel, resource_map, bounce, frontend=False):
     members = {m['name']: m for m in constant_members(json.loads((PORT / 'kernels.json').read_text())['kernels'])}
     source = re.sub(r'\bnrd\.(g\w+)', lambda match: uniform_expression(members[match[1]]), source)
     assert not re.search(r'\b(texture2D|utexture2D|sampler2D|textureLod|texelFetch|textureGather)\b', source), (kernel['name'], re.findall(r'.*(?:texture2D|sampler2D|textureGather|textureLod|texelFetch).*', source))
-    return source
+    from readable_shaders import restore
+    stage = 'prepare' if frontend else kernel['source'].removeprefix('REBLUR_').removesuffix('.cs.hlsl').lower()
+    return restore(source,stage)
 
 
 def generate():

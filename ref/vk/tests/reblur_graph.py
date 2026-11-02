@@ -168,6 +168,22 @@ for width,height in [(63,31),(1152,864),(1921,1081),(3840,2160)]:
 
 for path in (VK / 'shaders/reblur').glob('*.comp'):
     text = path.read_text()
+    stage=path.stem.split('_',1)[1]
+    if stage in ('blur','postblur','prepass'):
+        assert 'for (int sampleIndex = 0; sampleIndex < 8; ++sampleIndex)' in text,path
+        assert 'radianceSum += sampleRadiance * sampleWeight;' in text,path
+    if stage in ('historyfix','temporalaccumulation','temporalstabilization'):
+        assert 'for (uint sharedIndex = gl_LocalInvocationIndex;' in text,path
+    if stage=='classifytiles':
+        assert 'for (int sampleX = 0; sampleX < 2; ++sampleX)' in text,path
+        assert 'for (int sampleY = 0; sampleY < 4; ++sampleY)' in text,path
+    assert not re.search(r'\b(?:tapValue|sharedValue)\d+\b',text),path
+    helper_calls=set(re.findall(r'\b(reblur\w+)\s*\(',text))
+    helper_definitions=set(re.findall(r'\b(?:void|vec4|uvec4)\s+(reblur\w+)\s*\(',text))
+    assert helper_calls <= helper_definitions | {'reblurEnabled','reblurExtent'},(path,helper_calls-helper_definitions)
+    numeric_ids=set(re.findall(r'\b_\d+\b',text))
+    declared_ids=set(re.findall(r'\b(?:float|bool|u?int|[biu]?vec[234]|mat[234])\s+(_\d+)\b',text))
+    assert numeric_ids<=declared_ids,(path,numeric_ids-declared_ids)
     assert not re.search(r'\b(?:texture2D|utexture2D|sampler2D|textureLod|textureGather\w*|texelFetch\w*)\b',text), path
     assert 'if(!reblurEnabled()) return;' in text
     assert 'uimage2D' not in text
@@ -178,6 +194,12 @@ for path in (VK / 'shaders/reblur').glob('*.comp'):
     assert not re.search(r'uniform image2D\b',text), path
     for fmt in re.findall(r'layout\(set=0,binding=\d+,(\w+)\)', text):
         assert fmt in formats, (path, fmt)
+
+# Folding shared preloads must cover exactly the old threadIndex + k*128
+# entries, without duplication and without moving the workgroup barrier.
+for count in (180,384):
+    entries=[index for thread in range(128) for index in range(thread,count,128)]
+    assert sorted(entries)==list(range(count))
 
 # Every filter parameter is a named field of the existing shared UBO, read
 # directly by GLSL and filled directly by the CPU helper (no packed packet).

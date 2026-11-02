@@ -127,3 +127,11 @@ half-resolution projection math.
 and reference metadata. It is an offline development tool, not a build/runtime
 dependency. `export_shaders.py` can regenerate the original translation using
 optional upstream checkouts and DXC/SPIRV-Cross; normal builds need neither.
+
+`readable_shaders.py` is an offline postprocessor used by the graph generator.
+It restores the eight-tap spatial filter loops, tile classification loops and
+cooperative shared-memory preload loops. Repeated tap/preload bodies must
+match after variable substitution before they can be folded. Tap order,
+Gaussian constants, accumulation order, tracking RNG and workgroup barriers
+are retained. Surface values and filter weights receive semantic names;
+unresolved compiler temporaries keep their original SSA identifiers.

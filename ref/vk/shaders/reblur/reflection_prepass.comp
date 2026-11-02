@@ -21,79 +21,27 @@ vec4 reblurFetch_reblur_reflection_scratch_5(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_reflection_scratch_5,p);
 }
-vec4 reblurNearest_reblur_reflection_scratch_5(vec2 uv) { return imageLoad(reblur_reflection_scratch_5,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_reflection_scratch_5(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_reflection_scratch_5,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_reflection_scratch_5(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_scratch_5,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
 vec4 reblurFetch_reblur_reflection_normal(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_reflection_normal,p);
-}
-vec4 reblurNearest_reblur_reflection_normal(vec2 uv) { return imageLoad(reblur_reflection_normal,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_reflection_normal(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_reflection_normal,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_reflection_normal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_reflection_normal(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_reflection_normal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_normal,clamp(b,ivec2(0),reblurExtent()-1)).x);
 }
 
 vec4 reblurFetch_reblur_reflection_viewz(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_reflection_viewz,p);
 }
-vec4 reblurNearest_reblur_reflection_viewz(vec2 uv) { return imageLoad(reblur_reflection_viewz,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_reflection_viewz(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_reflection_viewz,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_viewz,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_reflection_viewz,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_viewz,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_reflection_viewz(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_reflection_viewz,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_viewz,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_reflection_viewz,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_viewz,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
 vec4 reblurFetch_reblur_reflection_signal(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_reflection_signal,p);
 }
-vec4 reblurNearest_reblur_reflection_signal(vec2 uv) { return imageLoad(reblur_reflection_signal,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_reflection_signal(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_reflection_signal,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_signal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_reflection_signal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_signal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_reflection_signal(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_reflection_signal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_signal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_reflection_signal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_signal,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
+
 void reblurStore_out_reblur_reflection_work(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_work,p,v); }
 void reblurStore_out_reblur_reflection_scratch_2(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_scratch_2,p,vec4(v.x,0.0,0.0,1.0)); }
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 vec3 _125;
-
-
-
-
-
-
-
-
-
 
 spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
 spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
@@ -110,11 +58,11 @@ void main()
     if(any(greaterThanEqual(gl_WorkGroupID.xy,ubo.ubo.reblur_groups_16x16[REBLUR_SIGNAL].xy))) return;
     do
     {
-        ivec2 _149 = ivec2((((((uvec2(ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) + uvec2(15u)) / uvec2(16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        ivec2 pixelPos = ivec2((((((uvec2(ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) + uvec2(15u)) / uvec2(16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
         bool _163;
-        if (!(reblurFetch_reblur_reflection_scratch_5(ivec2(uvec2(_149 >> ivec2(4)))).x != 0.0))
+        if (!(reblurFetch_reblur_reflection_scratch_5(ivec2(uvec2(pixelPos >> ivec2(4)))).x != 0.0))
         {
-            _163 = any(greaterThan(_149, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
+            _163 = any(greaterThan(pixelPos, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
         }
         else
         {
@@ -124,44 +72,44 @@ void main()
         {
             break;
         }
-        uvec2 _166 = uvec2(_149);
-        float _173 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_166)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        if (!(_173 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]))
+        uvec2 _166 = uvec2(pixelPos);
+        float viewDepth = abs(reblurFetch_reblur_reflection_viewz(ivec2(_166)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
+        if (!(viewDepth < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]))
         {
             break;
         }
-        vec4 _181 = reblurFetch_reblur_reflection_normal(ivec2(_166));
-        float _184 = (_181.z * 2.0) - 1.0;
-        float _185 = _181.x;
-        float _186 = _181.y;
-        float _187 = _185 - _186;
-        float _189 = (_185 + _186) - 1.0;
+        vec4 packedNormalRoughness = reblurFetch_reblur_reflection_normal(ivec2(_166));
+        float _184 = (packedNormalRoughness.z * 2.0) - 1.0;
+        float encodedNormalX2 = packedNormalRoughness.x;
+        float encodedNormalY2 = packedNormalRoughness.y;
+        float _187 = encodedNormalX2 - encodedNormalY2;
+        float _189 = (encodedNormalX2 + encodedNormalY2) - 1.0;
         float _198 = abs(_184);
         vec3 _202 = vec4(_187, _189, float((_184 < 0.0) ? (-1) : 1) * ((1.0 - abs(_187)) - abs(_189)), _198).xyz;
-        vec3 _207 = (_202 * inversesqrt(spvNMax(dot(_202, _202), 9.999999717180685365747194737196e-10))).xyz;
-        mat4 _210 = transpose(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL]);
-        vec3 _218 = _207 * mat3(_210[0].xyz, _210[1].xyz, _210[2].xyz);
-        vec2 _223 = (vec2(_149) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
-        bool _232 = ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0;
-        vec2 _235 = ((_223 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _173 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-        vec3 _236 = vec3(_235.x, _235.y, _125.z);
-        _236.z = _173;
-        vec3 _243;
-        if (_232)
+        vec3 normalWorld = (_202 * inversesqrt(spvNMax(dot(_202, _202), 9.999999717180685365747194737196e-10))).xyz;
+        mat4 viewToWorld = transpose(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL]);
+        vec3 normalView = normalWorld * mat3(viewToWorld[0].xyz, viewToWorld[1].xyz, viewToWorld[2].xyz);
+        vec2 pixelUv = (vec2(pixelPos) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
+        bool isPerspective = ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0;
+        vec2 positionViewXY = ((pixelUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
+        vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, _125.z);
+        positionView.z = viewDepth;
+        vec3 viewDirection;
+        if (isPerspective)
         {
-            _243 = normalize(-_236);
+            viewDirection = normalize(-positionView);
         }
         else
         {
-            _243 = vec3(0.0, 0.0, -1.0);
+            viewDirection = vec3(0.0, 0.0, -1.0);
         }
-        float _245 = abs(dot(_218, _243));
+        float _245 = abs(dot(normalView, viewDirection));
         float _248 = abs(ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-        float _250 = ubo.ubo.reblur_min_rect_dim_mul_unproject[REBLUR_SIGNAL] * mix(_173, 1.0, _248);
-        ivec2 _261 = _149;
-        _261.x = _149.x >> (((ubo.ubo.reblur_spec_checkerboard[REBLUR_SIGNAL] == 2u) ? 0 : 1) & 31);
-        vec4 _264 = reblurFetch_reblur_reflection_signal(ivec2(uvec2(_261)));
-        vec4 _1767;
+        float frustumSize = ubo.ubo.reblur_min_rect_dim_mul_unproject[REBLUR_SIGNAL] * mix(viewDepth, 1.0, _248);
+        ivec2 _261 = pixelPos;
+        _261.x = pixelPos.x >> (((ubo.ubo.reblur_spec_checkerboard[REBLUR_SIGNAL] == 2u) ? 0 : 1) & 31);
+        vec4 centerRadiance = reblurFetch_reblur_reflection_signal(ivec2(uvec2(_261)));
+        vec4 filteredRadiance;
         if (ubo.ubo.reblur_spec_prepass_blur_radius[REBLUR_SIGNAL] != 0.0)
         {
             uint _272 = _166.x;
@@ -184,330 +132,95 @@ void main()
             float _327 = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * _323));
             float _334 = clamp((pow(clamp(1.0 - _245, 0.0, 1.0), 10.86489963531494140625) * (1.0 - _327)) + _327, 0.0, 1.0);
             float _352 = (1.0 - exp2(((-200.0) * _198) * _198)) * pow(_323, 0.5);
-            float _363 = _264.w;
-            float _364 = _363 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_173) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, _352));
-            float _390 = 1.0 / (ubo.ubo.reblur_plane_dist_sensitivity[REBLUR_SIGNAL] * _250);
-            float _393 = -(dot(_218, _236) * _390);
+            float centerHitDistance = centerRadiance.w;
+            float _364 = centerHitDistance * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(viewDepth) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, _352));
+            float planeWeightScale = 1.0 / (ubo.ubo.reblur_plane_dist_sensitivity[REBLUR_SIGNAL] * frustumSize);
+            float planeWeightBias = -(dot(normalView, positionView) * planeWeightScale);
             float _399 = clamp(0.75 * mix(clamp(ubo.ubo.reblur_lobe_angle_fraction[REBLUR_SIGNAL], 0.0, 1.0), 1.0, 0.0909090936183929443359375), 0.0, 1.0);
-            float _406 = 0.5 / spvNMax(atan(_323 * sqrt(_399 / (1.00000095367431640625 - _399))), 0.00294117652811110019683837890625);
+            float normalWeightScale = 0.5 / spvNMax(atan(_323 * sqrt(_399 / (1.00000095367431640625 - _399))), 0.00294117652811110019683837890625);
             float _413 = 1.0 / mix(0.00999999977648258209228515625, 1.0, clamp(_198 * (ubo.ubo.reblur_roughness_fraction[REBLUR_SIGNAL] * 2.0), 0.0, 1.0));
             float _415 = -(_198 * _413);
-            float _416 = _363 * (-11.0);
-            float _420 = (ubo.ubo.reblur_min_hit_distance_weight[REBLUR_SIGNAL] * 2.0) * _352;
-            vec2 _421 = ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy * spvNMin(spvNMax((clamp(sqrt(clamp(clamp(_364 / _250, 0.0, 1.0), 0.0, 1.0)), 0.0, 1.0) * ubo.ubo.reblur_spec_prepass_blur_radius[REBLUR_SIGNAL]) * _352, ubo.ubo.reblur_min_blur_radius[REBLUR_SIGNAL] * _352), ((_364 * abs(dot(_218, vec4(normalize(mix(_218, reflect(-_243, _218), vec3(_334))), _334).xyz))) * (_323 * 0.65465319156646728515625)) / (ubo.ubo.reblur_unproject[REBLUR_SIGNAL] * mix(_173 + (_364 * _334), 1.0, _248)));
-            vec4 _432 = vec4(ubo.ubo.reblur_rotator_pre[REBLUR_SIGNAL].xz * _421.x, ubo.ubo.reblur_rotator_pre[REBLUR_SIGNAL].yw * _421.y);
+            float _416 = centerHitDistance * (-11.0);
+            float minHitDistanceWeight = (ubo.ubo.reblur_min_hit_distance_weight[REBLUR_SIGNAL] * 2.0) * _352;
+            vec2 _421 = ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy * spvNMin(spvNMax((clamp(sqrt(clamp(clamp(_364 / frustumSize, 0.0, 1.0), 0.0, 1.0)), 0.0, 1.0) * ubo.ubo.reblur_spec_prepass_blur_radius[REBLUR_SIGNAL]) * _352, ubo.ubo.reblur_min_blur_radius[REBLUR_SIGNAL] * _352), ((_364 * abs(dot(normalView, vec4(normalize(mix(normalView, reflect(-viewDirection, normalView), vec3(_334))), _334).xyz))) * (_323 * 0.65465319156646728515625)) / (ubo.ubo.reblur_unproject[REBLUR_SIGNAL] * mix(viewDepth + (_364 * _334), 1.0, _248)));
+            vec4 scaledRotator = vec4(ubo.ubo.reblur_rotator_pre[REBLUR_SIGNAL].xz * _421.x, ubo.ubo.reblur_rotator_pre[REBLUR_SIGNAL].yw * _421.y);
             float _434 = (_364 == 0.0) ? 1000000.0 : _364;
-            vec2 _435 = _432.xz;
-            vec2 _437 = _223 + (_435 * (-1.0));
-            vec2 _444 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_437 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _450 = uvec2(ivec2(_444 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _455 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_450)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _460 = ((_444 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _455 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _461 = vec3(_460.x, _460.y, _125.z);
-            _461.z = _455;
-            vec4 _464 = reblurFetch_reblur_reflection_normal(ivec2(_450));
-            float _467 = (_464.z * 2.0) - 1.0;
-            float _468 = _464.x;
-            float _469 = _464.y;
-            float _470 = _468 - _469;
-            float _472 = (_468 + _469) - 1.0;
-            float _481 = abs(_467);
-            vec3 _485 = vec4(_470, _472, float((_467 < 0.0) ? (-1) : 1) * ((1.0 - abs(_470)) - abs(_472)), _481).xyz;
-            float _491 = dot(_207, (_485 * inversesqrt(spvNMax(dot(_485, _485), 9.999999717180685365747194737196e-10))).xyz);
-            float _501 = spvNMax(_181.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]);
-            float _510 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_491, 0.0, 1.0)) * sqrt(clamp(1.0 - _491, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _521 = clamp((abs((_481 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _532 = clamp((abs((dot(_218, _461) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _540 = (!(_455 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_437, _444)) ? 1.0 : 0.51685130596160888671875) * float(_501 == spvNMax(_464.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_510 * _510) * (3.0 - (_510 * 2.0)))) * ((_521 * _521) * (3.0 - (_521 * 2.0)))) * ((_532 * _532) * (3.0 - (_532 * 2.0))));
-            vec4 _545 = mix(reblurFetch_reblur_reflection_signal(ivec2(_450)), vec4(0.0), bvec4(_540 == 0.0));
-            float _546 = _545.w;
-            float _559 = _546 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_455) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _481) * _481)) * pow(clamp(_481, 0.0, 1.0), 0.5)));
-            uint _566 = (_322 ^ (_322 >> 16u)) * 2146121005u;
-            uint _569 = (_566 ^ (_566 >> 15u)) * 2221713035u;
-            uint _571 = _569 ^ (_569 >> 16u);
-            float _580;
-            if ((uintBitsToFloat((_571 >> 9u) | 1065353216u) - 1.0) < ((_540 * _245) * float(_559 != 0.0)))
-            {
-                _580 = spvNMin(_434, _559);
-            }
-            else
-            {
-                _580 = _434;
-            }
-            float _592 = clamp((_198 - 0.5) * 2.0, 0.0, 1.0);
-            float _598 = (-3.0) * abs((_546 * 11.0) + _416);
-            float _604 = ((_540 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_559 / ((length(_461 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_598 * _598) - _598) + 1.0)));
-            vec2 _608 = _432.yw;
-            vec2 _610 = _223 + (_608 * 1.0);
-            vec2 _617 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_610 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _623 = uvec2(ivec2(_617 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _628 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_623)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _633 = ((_617 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _628 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _634 = vec3(_633.x, _633.y, _461.z);
-            _634.z = _628;
-            vec4 _637 = reblurFetch_reblur_reflection_normal(ivec2(_623));
-            float _640 = (_637.z * 2.0) - 1.0;
-            float _641 = _637.x;
-            float _642 = _637.y;
-            float _643 = _641 - _642;
-            float _645 = (_641 + _642) - 1.0;
-            float _654 = abs(_640);
-            vec3 _658 = vec4(_643, _645, float((_640 < 0.0) ? (-1) : 1) * ((1.0 - abs(_643)) - abs(_645)), _654).xyz;
-            float _664 = dot(_207, (_658 * inversesqrt(spvNMax(dot(_658, _658), 9.999999717180685365747194737196e-10))).xyz);
-            float _680 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_664, 0.0, 1.0)) * sqrt(clamp(1.0 - _664, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _691 = clamp((abs((_654 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _702 = clamp((abs((dot(_218, _634) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _710 = (!(_628 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_610, _617)) ? 1.0 : 0.51685130596160888671875) * float(_501 == spvNMax(_637.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_680 * _680) * (3.0 - (_680 * 2.0)))) * ((_691 * _691) * (3.0 - (_691 * 2.0)))) * ((_702 * _702) * (3.0 - (_702 * 2.0))));
-            vec4 _715 = mix(reblurFetch_reblur_reflection_signal(ivec2(_623)), vec4(0.0), bvec4(_710 == 0.0));
-            float _716 = _715.w;
-            float _729 = _716 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_628) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _654) * _654)) * pow(clamp(_654, 0.0, 1.0), 0.5)));
-            uint _736 = (_571 ^ (_571 >> 16u)) * 2146121005u;
-            uint _739 = (_736 ^ (_736 >> 15u)) * 2221713035u;
-            uint _741 = _739 ^ (_739 >> 16u);
-            float _750;
-            if ((uintBitsToFloat((_741 >> 9u) | 1065353216u) - 1.0) < ((_710 * _245) * float(_729 != 0.0)))
-            {
-                _750 = spvNMin(_580, _729);
-            }
-            else
-            {
-                _750 = _580;
-            }
-            float _763 = (-3.0) * abs((_716 * 11.0) + _416);
-            float _769 = ((_710 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_729 / ((length(_634 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_763 * _763) - _763) + 1.0)));
-            vec2 _774 = _223 + (_435 * 1.0);
-            vec2 _781 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_774 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _787 = uvec2(ivec2(_781 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _792 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_787)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _797 = ((_781 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _792 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _798 = vec3(_797.x, _797.y, _634.z);
-            _798.z = _792;
-            vec4 _801 = reblurFetch_reblur_reflection_normal(ivec2(_787));
-            float _804 = (_801.z * 2.0) - 1.0;
-            float _805 = _801.x;
-            float _806 = _801.y;
-            float _807 = _805 - _806;
-            float _809 = (_805 + _806) - 1.0;
-            float _818 = abs(_804);
-            vec3 _822 = vec4(_807, _809, float((_804 < 0.0) ? (-1) : 1) * ((1.0 - abs(_807)) - abs(_809)), _818).xyz;
-            float _828 = dot(_207, (_822 * inversesqrt(spvNMax(dot(_822, _822), 9.999999717180685365747194737196e-10))).xyz);
-            float _844 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_828, 0.0, 1.0)) * sqrt(clamp(1.0 - _828, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _855 = clamp((abs((_818 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _866 = clamp((abs((dot(_218, _798) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _874 = (!(_792 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_774, _781)) ? 1.0 : 0.51685130596160888671875) * float(_501 == spvNMax(_801.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_844 * _844) * (3.0 - (_844 * 2.0)))) * ((_855 * _855) * (3.0 - (_855 * 2.0)))) * ((_866 * _866) * (3.0 - (_866 * 2.0))));
-            vec4 _879 = mix(reblurFetch_reblur_reflection_signal(ivec2(_787)), vec4(0.0), bvec4(_874 == 0.0));
-            float _880 = _879.w;
-            float _893 = _880 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_792) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _818) * _818)) * pow(clamp(_818, 0.0, 1.0), 0.5)));
-            uint _900 = (_741 ^ (_741 >> 16u)) * 2146121005u;
-            uint _903 = (_900 ^ (_900 >> 15u)) * 2221713035u;
-            uint _905 = _903 ^ (_903 >> 16u);
-            float _914;
-            if ((uintBitsToFloat((_905 >> 9u) | 1065353216u) - 1.0) < ((_874 * _245) * float(_893 != 0.0)))
-            {
-                _914 = spvNMin(_750, _893);
-            }
-            else
-            {
-                _914 = _750;
-            }
-            float _927 = (-3.0) * abs((_880 * 11.0) + _416);
-            float _933 = ((_874 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_893 / ((length(_798 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_927 * _927) - _927) + 1.0)));
-            vec2 _938 = _223 + (_608 * (-1.0));
-            vec2 _945 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_938 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _951 = uvec2(ivec2(_945 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _956 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_951)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _961 = ((_945 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _956 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _962 = vec3(_961.x, _961.y, _798.z);
-            _962.z = _956;
-            vec4 _965 = reblurFetch_reblur_reflection_normal(ivec2(_951));
-            float _968 = (_965.z * 2.0) - 1.0;
-            float _969 = _965.x;
-            float _970 = _965.y;
-            float _971 = _969 - _970;
-            float _973 = (_969 + _970) - 1.0;
-            float _982 = abs(_968);
-            vec3 _986 = vec4(_971, _973, float((_968 < 0.0) ? (-1) : 1) * ((1.0 - abs(_971)) - abs(_973)), _982).xyz;
-            float _992 = dot(_207, (_986 * inversesqrt(spvNMax(dot(_986, _986), 9.999999717180685365747194737196e-10))).xyz);
-            float _1008 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_992, 0.0, 1.0)) * sqrt(clamp(1.0 - _992, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1019 = clamp((abs((_982 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1030 = clamp((abs((dot(_218, _962) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1038 = (!(_956 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_938, _945)) ? 1.0 : 0.51685130596160888671875) * float(_501 == spvNMax(_965.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_1008 * _1008) * (3.0 - (_1008 * 2.0)))) * ((_1019 * _1019) * (3.0 - (_1019 * 2.0)))) * ((_1030 * _1030) * (3.0 - (_1030 * 2.0))));
-            vec4 _1043 = mix(reblurFetch_reblur_reflection_signal(ivec2(_951)), vec4(0.0), bvec4(_1038 == 0.0));
-            float _1044 = _1043.w;
-            float _1057 = _1044 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_956) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _982) * _982)) * pow(clamp(_982, 0.0, 1.0), 0.5)));
-            uint _1064 = (_905 ^ (_905 >> 16u)) * 2146121005u;
-            uint _1067 = (_1064 ^ (_1064 >> 15u)) * 2221713035u;
-            uint _1069 = _1067 ^ (_1067 >> 16u);
-            float _1078;
-            if ((uintBitsToFloat((_1069 >> 9u) | 1065353216u) - 1.0) < ((_1038 * _245) * float(_1057 != 0.0)))
-            {
-                _1078 = spvNMin(_914, _1057);
-            }
-            else
-            {
-                _1078 = _914;
-            }
-            float _1091 = (-3.0) * abs((_1044 * 11.0) + _416);
-            float _1097 = ((_1038 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_1057 / ((length(_962 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_1091 * _1091) - _1091) + 1.0)));
+            vec2 _435 = scaledRotator.xz;
+            float centerMaterial = spvNMax(packedNormalRoughness.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]);
+            float roughnessContactFade = clamp((_198 - 0.5) * 2.0, 0.0, 1.0);
+            vec2 kernelUv0 = pixelUv + (_435 * (-1.0));
+            vec2 _608 = scaledRotator.yw;
+            vec2 kernelUv1 = pixelUv + (_608 * 1.0);
+            vec2 kernelUv2 = pixelUv + (_435 * 1.0);
+            vec2 kernelUv3 = pixelUv + (_608 * (-1.0));
             vec2 _1101 = _435 * (-0.3535533845424652099609375);
             vec2 _1102 = _608 * 0.3535533845424652099609375;
-            vec2 _1104 = _223 + (_1101 + _1102);
-            vec2 _1111 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1104 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _1117 = uvec2(ivec2(_1111 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _1122 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_1117)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _1127 = ((_1111 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _1122 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _1128 = vec3(_1127.x, _1127.y, _962.z);
-            _1128.z = _1122;
-            vec4 _1131 = reblurFetch_reblur_reflection_normal(ivec2(_1117));
-            float _1134 = (_1131.z * 2.0) - 1.0;
-            float _1135 = _1131.x;
-            float _1136 = _1131.y;
-            float _1137 = _1135 - _1136;
-            float _1139 = (_1135 + _1136) - 1.0;
-            float _1148 = abs(_1134);
-            vec3 _1152 = vec4(_1137, _1139, float((_1134 < 0.0) ? (-1) : 1) * ((1.0 - abs(_1137)) - abs(_1139)), _1148).xyz;
-            float _1158 = dot(_207, (_1152 * inversesqrt(spvNMax(dot(_1152, _1152), 9.999999717180685365747194737196e-10))).xyz);
-            float _1174 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1158, 0.0, 1.0)) * sqrt(clamp(1.0 - _1158, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1185 = clamp((abs((_1148 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1196 = clamp((abs((dot(_218, _1128) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1204 = (!(_1122 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_1104, _1111)) ? 1.0 : 0.84789371490478515625) * float(_501 == spvNMax(_1131.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_1174 * _1174) * (3.0 - (_1174 * 2.0)))) * ((_1185 * _1185) * (3.0 - (_1185 * 2.0)))) * ((_1196 * _1196) * (3.0 - (_1196 * 2.0))));
-            vec4 _1209 = mix(reblurFetch_reblur_reflection_signal(ivec2(_1117)), vec4(0.0), bvec4(_1204 == 0.0));
-            float _1210 = _1209.w;
-            float _1223 = _1210 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_1122) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _1148) * _1148)) * pow(clamp(_1148, 0.0, 1.0), 0.5)));
-            uint _1230 = (_1069 ^ (_1069 >> 16u)) * 2146121005u;
-            uint _1233 = (_1230 ^ (_1230 >> 15u)) * 2221713035u;
-            uint _1235 = _1233 ^ (_1233 >> 16u);
-            float _1244;
-            if ((uintBitsToFloat((_1235 >> 9u) | 1065353216u) - 1.0) < ((_1204 * _245) * float(_1223 != 0.0)))
-            {
-                _1244 = spvNMin(_1078, _1223);
-            }
-            else
-            {
-                _1244 = _1078;
-            }
-            float _1257 = (-3.0) * abs((_1210 * 11.0) + _416);
-            float _1263 = ((_1204 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_1223 / ((length(_1128 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_1257 * _1257) - _1257) + 1.0)));
+            vec2 kernelUv4 = pixelUv + (_1101 + _1102);
             vec2 _1267 = _435 * 0.3535533845424652099609375;
-            vec2 _1269 = _223 + (_1267 + _1102);
-            vec2 _1276 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1269 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _1282 = uvec2(ivec2(_1276 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _1287 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_1282)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _1292 = ((_1276 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _1287 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _1293 = vec3(_1292.x, _1292.y, _1128.z);
-            _1293.z = _1287;
-            vec4 _1296 = reblurFetch_reblur_reflection_normal(ivec2(_1282));
-            float _1299 = (_1296.z * 2.0) - 1.0;
-            float _1300 = _1296.x;
-            float _1301 = _1296.y;
-            float _1302 = _1300 - _1301;
-            float _1304 = (_1300 + _1301) - 1.0;
-            float _1313 = abs(_1299);
-            vec3 _1317 = vec4(_1302, _1304, float((_1299 < 0.0) ? (-1) : 1) * ((1.0 - abs(_1302)) - abs(_1304)), _1313).xyz;
-            float _1323 = dot(_207, (_1317 * inversesqrt(spvNMax(dot(_1317, _1317), 9.999999717180685365747194737196e-10))).xyz);
-            float _1339 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1323, 0.0, 1.0)) * sqrt(clamp(1.0 - _1323, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1350 = clamp((abs((_1313 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1361 = clamp((abs((dot(_218, _1293) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1369 = (!(_1287 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_1269, _1276)) ? 1.0 : 0.84789371490478515625) * float(_501 == spvNMax(_1296.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_1339 * _1339) * (3.0 - (_1339 * 2.0)))) * ((_1350 * _1350) * (3.0 - (_1350 * 2.0)))) * ((_1361 * _1361) * (3.0 - (_1361 * 2.0))));
-            vec4 _1374 = mix(reblurFetch_reblur_reflection_signal(ivec2(_1282)), vec4(0.0), bvec4(_1369 == 0.0));
-            float _1375 = _1374.w;
-            float _1388 = _1375 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_1287) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _1313) * _1313)) * pow(clamp(_1313, 0.0, 1.0), 0.5)));
-            uint _1395 = (_1235 ^ (_1235 >> 16u)) * 2146121005u;
-            uint _1398 = (_1395 ^ (_1395 >> 15u)) * 2221713035u;
-            uint _1400 = _1398 ^ (_1398 >> 16u);
-            float _1409;
-            if ((uintBitsToFloat((_1400 >> 9u) | 1065353216u) - 1.0) < ((_1369 * _245) * float(_1388 != 0.0)))
-            {
-                _1409 = spvNMin(_1244, _1388);
-            }
-            else
-            {
-                _1409 = _1244;
-            }
-            float _1422 = (-3.0) * abs((_1375 * 11.0) + _416);
-            float _1428 = ((_1369 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_1388 / ((length(_1293 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_1422 * _1422) - _1422) + 1.0)));
+            vec2 kernelUv5 = pixelUv + (_1267 + _1102);
             vec2 _1432 = _608 * (-0.3535533845424652099609375);
-            vec2 _1434 = _223 + (_1267 + _1432);
-            vec2 _1441 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1434 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _1447 = uvec2(ivec2(_1441 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _1452 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_1447)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _1457 = ((_1441 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _1452 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _1458 = vec3(_1457.x, _1457.y, _1293.z);
-            _1458.z = _1452;
-            vec4 _1461 = reblurFetch_reblur_reflection_normal(ivec2(_1447));
-            float _1464 = (_1461.z * 2.0) - 1.0;
-            float _1465 = _1461.x;
-            float _1466 = _1461.y;
-            float _1467 = _1465 - _1466;
-            float _1469 = (_1465 + _1466) - 1.0;
-            float _1478 = abs(_1464);
-            vec3 _1482 = vec4(_1467, _1469, float((_1464 < 0.0) ? (-1) : 1) * ((1.0 - abs(_1467)) - abs(_1469)), _1478).xyz;
-            float _1488 = dot(_207, (_1482 * inversesqrt(spvNMax(dot(_1482, _1482), 9.999999717180685365747194737196e-10))).xyz);
-            float _1504 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1488, 0.0, 1.0)) * sqrt(clamp(1.0 - _1488, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1515 = clamp((abs((_1478 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1526 = clamp((abs((dot(_218, _1458) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1534 = (!(_1452 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_1434, _1441)) ? 1.0 : 0.84789371490478515625) * float(_501 == spvNMax(_1461.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_1504 * _1504) * (3.0 - (_1504 * 2.0)))) * ((_1515 * _1515) * (3.0 - (_1515 * 2.0)))) * ((_1526 * _1526) * (3.0 - (_1526 * 2.0))));
-            vec4 _1539 = mix(reblurFetch_reblur_reflection_signal(ivec2(_1447)), vec4(0.0), bvec4(_1534 == 0.0));
-            float _1540 = _1539.w;
-            float _1553 = _1540 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_1452) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _1478) * _1478)) * pow(clamp(_1478, 0.0, 1.0), 0.5)));
-            uint _1560 = (_1400 ^ (_1400 >> 16u)) * 2146121005u;
-            uint _1563 = (_1560 ^ (_1560 >> 15u)) * 2221713035u;
-            uint _1565 = _1563 ^ (_1563 >> 16u);
-            float _1574;
-            if ((uintBitsToFloat((_1565 >> 9u) | 1065353216u) - 1.0) < ((_1534 * _245) * float(_1553 != 0.0)))
+            vec2 kernelUv6 = pixelUv + (_1267 + _1432);
+            vec2 kernelUv7 = pixelUv + (_1101 + _1432);
+            const float sampleGaussianWeights[8] = float[8](
+                0.51685130596160888671875, 0.51685130596160888671875, 0.51685130596160888671875, 0.51685130596160888671875, 0.84789371490478515625, 0.84789371490478515625, 0.84789371490478515625, 0.84789371490478515625);
+            vec2 sampleUvs[8] = vec2[8](kernelUv0, kernelUv1, kernelUv2, kernelUv3, kernelUv4, kernelUv5, kernelUv6, kernelUv7);
+            vec4 radianceSum = centerRadiance;
+            float weightSum = 1.0;
+            uint rngState = _322;
+            float trackingHitDistance = _434;
+            for (int sampleIndex = 0; sampleIndex < 8; ++sampleIndex)
             {
-                _1574 = spvNMin(_1409, _1553);
+                vec2 sampleUv = sampleUvs[sampleIndex];
+                float sampleGaussianWeight = sampleGaussianWeights[sampleIndex];
+                vec2 mirroredUv = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(sampleUv * 0.5) * 2.0)), vec2(0.999989986419677734375));
+                uvec2 samplePixel = uvec2(ivec2(mirroredUv * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
+                float sampleViewDepth = abs(reblurFetch_reblur_reflection_viewz(ivec2(samplePixel)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
+                vec2 sampleViewXY = ((mirroredUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? sampleViewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
+                vec3 sampleViewPosition = vec3(sampleViewXY.x, sampleViewXY.y, 0.0);
+                sampleViewPosition.z = sampleViewDepth;
+                vec4 sampleNormalRoughness = reblurFetch_reblur_reflection_normal(ivec2(samplePixel));
+                float signedRoughness = (sampleNormalRoughness.z * 2.0) - 1.0;
+                float encodedNormalX = sampleNormalRoughness.x;
+                float encodedNormalY = sampleNormalRoughness.y;
+                float octNormalX = encodedNormalX - encodedNormalY;
+                float octNormalY = (encodedNormalX + encodedNormalY) - 1.0;
+                float sampleRoughness = abs(signedRoughness);
+                vec3 sampleNormalUnnormalized = vec4(octNormalX, octNormalY, float((signedRoughness < 0.0) ? (-1) : 1) * ((1.0 - abs(octNormalX)) - abs(octNormalY)), sampleRoughness).xyz;
+                float normalDot = dot(normalWorld, (sampleNormalUnnormalized * inversesqrt(spvNMax(dot(sampleNormalUnnormalized, sampleNormalUnnormalized), 9.999999717180685365747194737196e-10))).xyz);
+                float normalAngleWeight = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(normalDot, 0.0, 1.0)) * sqrt(clamp(1.0 - normalDot, 0.0, 1.0))) * normalWeightScale) - 1.0) * (-1.0), 0.0, 1.0);
+                float roughnessWeight = clamp((abs((sampleRoughness * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
+                float planeWeight = clamp((abs((dot(normalView, sampleViewPosition) * planeWeightScale) + planeWeightBias) - 1.0) * (-1.0), 0.0, 1.0);
+                float geometryWeight = (!(sampleViewDepth < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(sampleUv, mirroredUv)) ? 1.0 : sampleGaussianWeight) * float(centerMaterial == spvNMax(sampleNormalRoughness.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((normalAngleWeight * normalAngleWeight) * (3.0 - (normalAngleWeight * 2.0)))) * ((roughnessWeight * roughnessWeight) * (3.0 - (roughnessWeight * 2.0)))) * ((planeWeight * planeWeight) * (3.0 - (planeWeight * 2.0))));
+                vec4 sampleRadiance = mix(reblurFetch_reblur_reflection_signal(ivec2(samplePixel)), vec4(0.0), bvec4(geometryWeight == 0.0));
+                float sampleHitDistanceNormalized = sampleRadiance.w;
+                float sampleHitDistance = sampleHitDistanceNormalized * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(sampleViewDepth) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * sampleRoughness) * sampleRoughness)) * pow(clamp(sampleRoughness, 0.0, 1.0), 0.5)));
+                uint hashMix0 = (rngState ^ (rngState >> 16u)) * 2146121005u;
+                uint hashMix1 = (hashMix0 ^ (hashMix0 >> 15u)) * 2221713035u;
+                uint hashValue = hashMix1 ^ (hashMix1 >> 16u);
+                float nextTrackingHitDistance;
+                if ((uintBitsToFloat((hashValue >> 9u) | 1065353216u) - 1.0) < ((geometryWeight * _245) * float(sampleHitDistance != 0.0)))
+                {
+                    nextTrackingHitDistance = spvNMin(trackingHitDistance, sampleHitDistance);
+                }
+                else
+                {
+                    nextTrackingHitDistance = trackingHitDistance;
+                }
+                float hitDistanceDelta = (-3.0) * abs((sampleHitDistanceNormalized * 11.0) + _416);
+                float sampleWeight = ((geometryWeight * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(sampleHitDistance / ((length(sampleViewPosition - positionView) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, roughnessContactFade)) * (minHitDistanceWeight + (1.0 / (((hitDistanceDelta * hitDistanceDelta) - hitDistanceDelta) + 1.0)));
+                rngState = hashValue;
+                trackingHitDistance = nextTrackingHitDistance;
+                radianceSum += sampleRadiance * sampleWeight;
+                weightSum += sampleWeight;
             }
-            else
-            {
-                _1574 = _1409;
-            }
-            float _1587 = (-3.0) * abs((_1540 * 11.0) + _416);
-            float _1593 = ((_1534 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_1553 / ((length(_1458 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_1587 * _1587) - _1587) + 1.0)));
-            vec2 _1598 = _223 + (_1101 + _1432);
-            vec2 _1605 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1598 * 0.5) * 2.0)), vec2(0.999989986419677734375));
-            uvec2 _1611 = uvec2(ivec2(_1605 * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy));
-            float _1616 = abs(reblurFetch_reblur_reflection_viewz(ivec2(_1611)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 _1621 = ((_1605 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (_232 ? _1616 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 _1622 = vec3(_1621.x, _1621.y, _1458.z);
-            _1622.z = _1616;
-            vec4 _1625 = reblurFetch_reblur_reflection_normal(ivec2(_1611));
-            float _1628 = (_1625.z * 2.0) - 1.0;
-            float _1629 = _1625.x;
-            float _1630 = _1625.y;
-            float _1631 = _1629 - _1630;
-            float _1633 = (_1629 + _1630) - 1.0;
-            float _1642 = abs(_1628);
-            vec3 _1646 = vec4(_1631, _1633, float((_1628 < 0.0) ? (-1) : 1) * ((1.0 - abs(_1631)) - abs(_1633)), _1642).xyz;
-            float _1652 = dot(_207, (_1646 * inversesqrt(spvNMax(dot(_1646, _1646), 9.999999717180685365747194737196e-10))).xyz);
-            float _1668 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1652, 0.0, 1.0)) * sqrt(clamp(1.0 - _1652, 0.0, 1.0))) * _406) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1679 = clamp((abs((_1642 * _413) + _415) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1690 = clamp((abs((dot(_218, _1622) * _390) + _393) - 1.0) * (-1.0), 0.0, 1.0);
-            float _1698 = (!(_1616 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(_1598, _1605)) ? 1.0 : 0.84789371490478515625) * float(_501 == spvNMax(_1625.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((_1668 * _1668) * (3.0 - (_1668 * 2.0)))) * ((_1679 * _1679) * (3.0 - (_1679 * 2.0)))) * ((_1690 * _1690) * (3.0 - (_1690 * 2.0))));
-            vec4 _1703 = mix(reblurFetch_reblur_reflection_signal(ivec2(_1611)), vec4(0.0), bvec4(_1698 == 0.0));
-            float _1704 = _1703.w;
-            float _1717 = _1704 * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(_1616) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, (1.0 - exp2(((-200.0) * _1642) * _1642)) * pow(clamp(_1642, 0.0, 1.0), 0.5)));
-            uint _1724 = (_1565 ^ (_1565 >> 16u)) * 2146121005u;
-            uint _1727 = (_1724 ^ (_1724 >> 15u)) * 2221713035u;
-            float _1738;
-            if ((uintBitsToFloat(((_1727 ^ (_1727 >> 16u)) >> 9u) | 1065353216u) - 1.0) < ((_1698 * _245) * float(_1717 != 0.0)))
-            {
-                _1738 = spvNMin(_1574, _1717);
-            }
-            else
-            {
-                _1738 = _1574;
-            }
-            float _1751 = (-3.0) * abs((_1704 * 11.0) + _416);
-            float _1757 = ((_1698 * ubo.ubo.reblur_use_prepass_not_only_for_specular_motion_estimation[REBLUR_SIGNAL]) * mix(clamp(_1717 / ((length(_1622 - _236) + 9.9999999747524270787835121154785e-07) + _364), 0.0, 1.0), 1.0, _592)) * (_420 + (1.0 / (((_1751 * _1751) - _1751) + 1.0)));
-            reblurStore_out_reblur_reflection_scratch_2(ivec2(_166),vec4((_1738 == 1000000.0) ? 0.0 : _1738));
-            _1767 = ((((((((_264 + (_545 * _604)) + (_715 * _769)) + (_879 * _933)) + (_1043 * _1097)) + (_1209 * _1263)) + (_1374 * _1428)) + (_1539 * _1593)) + (_1703 * _1757)) * (1.0 / spvNMax((((((((1.0 + _604) + _769) + _933) + _1097) + _1263) + _1428) + _1593) + _1757, 1.0000000036274937255387218471014e-15));
+            reblurStore_out_reblur_reflection_scratch_2(ivec2(_166),vec4((trackingHitDistance == 1000000.0) ? 0.0 : trackingHitDistance));
+            filteredRadiance = radianceSum * (1.0 / spvNMax(weightSum, 1.0000000036274937255387218471014e-15));
         }
         else
         {
-            _1767 = _264;
+            filteredRadiance = centerRadiance;
         }
-        reblurStore_out_reblur_reflection_work(ivec2(_166),_1767);
+        reblurStore_out_reblur_reflection_work(ivec2(_166),filteredRadiance);
         break;
     } while(false);
 }

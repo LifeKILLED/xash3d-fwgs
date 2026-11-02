@@ -38,65 +38,22 @@ vec4 reblurFetch_reblur_bounce_scratch_4(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_bounce_scratch_4,p);
 }
-vec4 reblurNearest_reblur_bounce_scratch_4(vec2 uv) { return imageLoad(reblur_bounce_scratch_4,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_bounce_scratch_4(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_bounce_scratch_4,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_scratch_4,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_bounce_scratch_4,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_scratch_4,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_bounce_scratch_4(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_bounce_scratch_4,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_scratch_4,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_bounce_scratch_4,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_scratch_4,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
 vec4 reblurFetch_reblur_bounce_normal(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_bounce_normal,p);
-}
-vec4 reblurNearest_reblur_bounce_normal(vec2 uv) { return imageLoad(reblur_bounce_normal,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_bounce_normal(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_bounce_normal,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_normal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_bounce_normal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_normal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_bounce_normal(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_bounce_normal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_normal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_bounce_normal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_normal,clamp(b,ivec2(0),reblurExtent()-1)).x);
 }
 
 vec4 reblurFetch_temporal_reblur_bounce_depth(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(temporal_reblur_bounce_depth,p);
 }
-vec4 reblurNearest_temporal_reblur_bounce_depth(vec2 uv) { return imageLoad(temporal_reblur_bounce_depth,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_temporal_reblur_bounce_depth(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(temporal_reblur_bounce_depth,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_bounce_depth,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(temporal_reblur_bounce_depth,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_bounce_depth,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_temporal_reblur_bounce_depth(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(temporal_reblur_bounce_depth,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_bounce_depth,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(temporal_reblur_bounce_depth,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_bounce_depth,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
 vec4 reblurFetch_reblur_bounce_scratch_0(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(reblur_bounce_scratch_0,p);
 }
-vec4 reblurNearest_reblur_bounce_scratch_0(vec2 uv) { return imageLoad(reblur_bounce_scratch_0,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_bounce_scratch_0(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_bounce_scratch_0,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_scratch_0,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_bounce_scratch_0,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_scratch_0,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_bounce_scratch_0(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_bounce_scratch_0,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_scratch_0,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_bounce_scratch_0,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_scratch_0,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
+
 uvec4 reblurUintLoad_reblur_bounce_scratch_1(ivec2 p) {
  vec4 v=imageLoad(reblur_bounce_scratch_1,p); return uvec4(uint(v.x),0u,0u,1u);
 }
@@ -104,81 +61,24 @@ uvec4 reblurFetch_reblur_bounce_scratch_1(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return uvec4(0);
  return reblurUintLoad_reblur_bounce_scratch_1(p);
 }
-uvec4 reblurNearest_reblur_bounce_scratch_1(vec2 uv) { return reblurUintLoad_reblur_bounce_scratch_1(clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-uvec4 reblurGather_reblur_bounce_scratch_1(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return uvec4(reblurUintLoad_reblur_bounce_scratch_1(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,reblurUintLoad_reblur_bounce_scratch_1(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- reblurUintLoad_reblur_bounce_scratch_1(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,reblurUintLoad_reblur_bounce_scratch_1(clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
 vec4 reblurFetch_temporal_reblur_bounce_history(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
  return imageLoad(temporal_reblur_bounce_history,p);
 }
-vec4 reblurNearest_temporal_reblur_bounce_history(vec2 uv) { return imageLoad(temporal_reblur_bounce_history,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_temporal_reblur_bounce_history(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(temporal_reblur_bounce_history,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_bounce_history,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(temporal_reblur_bounce_history,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_bounce_history,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_temporal_reblur_bounce_history(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(temporal_reblur_bounce_history,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_bounce_history,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(temporal_reblur_bounce_history,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_bounce_history,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
-vec4 reblurFetch_prev_temporal_reblur_bounce_stabilized(ivec2 p) {
- if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
- return imageLoad(prev_temporal_reblur_bounce_stabilized,p);
-}
-vec4 reblurNearest_prev_temporal_reblur_bounce_stabilized(vec2 uv) { return imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
 vec4 reblurLinear_prev_temporal_reblur_bounce_stabilized(vec2 uv) {
  vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
  return mix(mix(imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
  mix(imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
 }
-vec4 reblurGather_prev_temporal_reblur_bounce_stabilized(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(prev_temporal_reblur_bounce_stabilized,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 
-vec4 reblurFetch_reblur_bounce_motion(ivec2 p) {
- if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
- return imageLoad(reblur_bounce_motion,p);
-}
-vec4 reblurNearest_reblur_bounce_motion(vec2 uv) { return imageLoad(reblur_bounce_motion,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
-vec4 reblurLinear_reblur_bounce_motion(vec2 uv) {
- vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
- return mix(mix(imageLoad(reblur_bounce_motion,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_motion,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
- mix(imageLoad(reblur_bounce_motion,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_bounce_motion,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
-}
-vec4 reblurGather_reblur_bounce_motion(vec2 uv, ivec2 offset) {
- ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
- return vec4(imageLoad(reblur_bounce_motion,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_motion,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
- imageLoad(reblur_bounce_motion,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_bounce_motion,clamp(b,ivec2(0),reblurExtent()-1)).x);
-}
 void reblurStore_out_temporal_reblur_bounce_internal(ivec2 p,uvec4 v) { imageStore(out_temporal_reblur_bounce_internal,p,vec4(float(v.x & 65535u),0.0,0.0,1.0)); }
 void reblurStore_out_reblur_bounce_work(ivec2 p,vec4 v) { imageStore(out_reblur_bounce_work,p,v); }
 void reblurStore_out_temporal_reblur_bounce_stabilized(ivec2 p,vec4 v) { imageStore(out_temporal_reblur_bounce_stabilized,p,vec4(v.x,0.0,0.0,1.0)); }
 layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
 
 vec3 _148;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 shared float s_DiffLuma[18][10];
 
@@ -197,30 +97,25 @@ void main()
     if(any(greaterThanEqual(gl_WorkGroupID.xy,ubo.ubo.reblur_groups_8x8_8x16[REBLUR_SIGNAL].zw))) return;
     do
     {
-        ivec2 _168 = ivec2((((((uvec2(ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) + uvec2(7u, 15u)) / uvec2(8u, 16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(8u, 16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
-        vec4 _172 = reblurFetch_reblur_bounce_scratch_4(ivec2(uvec2(_168 >> ivec2(4))));
+        ivec2 pixelPos = ivec2((((((uvec2(ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) + uvec2(7u, 15u)) / uvec2(8u, 16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(8u, 16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        vec4 _172 = reblurFetch_reblur_bounce_scratch_4(ivec2(uvec2(pixelPos >> ivec2(4))));
         float _173 = _172.x;
         if (_173 == 0.0)
         {
-            uint _179 = gl_LocalInvocationIndex % 10u;
-            uint _180 = gl_LocalInvocationIndex / 10u;
-            uvec2 _182 = uvec2((_168 - ivec3(gl_LocalInvocationID).xy) - ivec2(1));
-            uvec2 _188 = uvec2(clamp(ivec2(_182 + uvec2(_179, _180)), ivec2(0), ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
-            s_DiffLuma[_180][_179] = (!(abs(reblurFetch_temporal_reblur_bounce_depth(ivec2(_188)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? (-32768.0) : reblurFetch_temporal_reblur_bounce_history(ivec2(_188)).x;
-            uint _205 = gl_LocalInvocationIndex + 128u;
-            uint _206 = _205 % 10u;
-            uint _207 = _205 / 10u;
-            if (_205 < 180u)
+            uvec2 sharedPixelOrigin = uvec2((pixelPos - ivec3(gl_LocalInvocationID).xy) - ivec2(1));
+            for (uint sharedIndex = gl_LocalInvocationIndex; sharedIndex < 180u; sharedIndex += 128u)
             {
-                uvec2 _215 = uvec2(clamp(ivec2(_182 + uvec2(_206, _207)), ivec2(0), ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
-                s_DiffLuma[_207][_206] = (!(abs(reblurFetch_temporal_reblur_bounce_depth(ivec2(_215)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? (-32768.0) : reblurFetch_temporal_reblur_bounce_history(ivec2(_215)).x;
+                uint sharedX = sharedIndex % 10u;
+                uint sharedY = sharedIndex / 10u;
+                uvec2 sharedPixel = uvec2(clamp(ivec2(sharedPixelOrigin + uvec2(sharedX, sharedY)), ivec2(0), ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
+                s_DiffLuma[sharedY][sharedX] = (!(abs(reblurFetch_temporal_reblur_bounce_depth(ivec2(sharedPixel)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? (-32768.0) : reblurFetch_temporal_reblur_bounce_history(ivec2(sharedPixel)).x;
             }
         }
         barrier();
         bool _236;
         if (!(_173 != 0.0))
         {
-            _236 = any(greaterThan(_168, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
+            _236 = any(greaterThan(pixelPos, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
         }
         else
         {
@@ -230,28 +125,28 @@ void main()
         {
             break;
         }
-        uvec2 _239 = uvec2(_168);
-        float _246 = abs(reblurFetch_temporal_reblur_bounce_depth(ivec2(_239)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        if (!(_246 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]))
+        uvec2 _239 = uvec2(pixelPos);
+        float viewDepth = abs(reblurFetch_temporal_reblur_bounce_depth(ivec2(_239)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
+        if (!(viewDepth < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]))
         {
             break;
         }
-        vec2 _257 = (vec2(_168) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
-        vec2 _269 = ((_257 * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * ((ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0) ? _246 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-        vec3 _270 = vec3(_269.x, _269.y, _148.z);
-        _270.z = _246;
+        vec2 pixelUv = (vec2(pixelPos) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
+        vec2 positionViewXY = ((pixelUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * ((ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0) ? viewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
+        vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, _148.z);
+        positionView.z = viewDepth;
         vec3 _292 = (imageLoad(reblur_bounce_motion,ivec2(_239)).xyz * ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].xyz) + ubo.ubo.reblur_mv_bias[REBLUR_SIGNAL].xyz;
         vec2 _315;
         if (ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].w == 0.0)
         {
-            _315 = _257 + _292.xy;
+            _315 = pixelUv + _292.xy;
         }
         else
         {
-            vec4 _308 = vec4((_270 * mat3(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][0].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][1].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][2].xyz)) + _292, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
+            vec4 _308 = vec4((positionView * mat3(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][0].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][1].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][2].xyz)) + _292, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
             _315 = ((_308.xy / vec2(_308.w)) * vec2(0.5, -0.5)) + vec2(0.5);
         }
-        vec2 _323 = roundEven(reblurFetch_reblur_bounce_scratch_0(ivec2(_239)).xy * 63.0);
+        vec2 accumulatedFrameCounts = roundEven(reblurFetch_reblur_bounce_scratch_0(ivec2(_239)).xy * 63.0);
         uvec4 _325 = reblurFetch_reblur_bounce_scratch_1(ivec2(_239));
         uint _326 = _325.x;
         bool _329 = (_326 & 16u) != 0u;
@@ -278,19 +173,19 @@ void main()
         float _373;
         float _376;
         SPIRV_CROSS_UNROLL
-        for (int _377 = 0; _377 <= 2; _372 = _373, _375 = _376, _377++)
+        for (int neighborIndex = 0; neighborIndex <= 2; _372 = _373, _375 = _376, neighborIndex++)
         {
             _373 = _372;
             _376 = _375;
             float _383;
             float _385;
             SPIRV_CROSS_UNROLL
-            for (int _386 = 0; _386 <= 2; _373 = _383, _376 = _385, _386++)
+            for (int neighborIndex2 = 0; neighborIndex2 <= 2; _373 = _383, _376 = _385, neighborIndex2++)
             {
                 bool _395;
-                if (_386 == 1)
+                if (neighborIndex2 == 1)
                 {
-                    _395 = _377 == 1;
+                    _395 = neighborIndex == 1;
                 }
                 else
                 {
@@ -302,7 +197,7 @@ void main()
                     _385 = _376;
                     continue;
                 }
-                ivec2 _399 = ivec3(gl_LocalInvocationID).xy + ivec2(_386, _377);
+                ivec2 _399 = ivec3(gl_LocalInvocationID).xy + ivec2(neighborIndex2, neighborIndex);
                 int _400 = _399.y;
                 int _401 = _399.x;
                 float _405 = (s_DiffLuma[_400][_401] == (-32768.0)) ? s_DiffLuma[_366][_367] : s_DiffLuma[_400][_401];
@@ -312,7 +207,7 @@ void main()
         }
         float _409 = _375 * 0.111111111938953399658203125;
         float _414 = sqrt(abs((_372 * 0.111111111938953399658203125) - (_409 * _409)));
-        float _415 = _323.x;
+        float _415 = accumulatedFrameCounts.x;
         float _426;
         if (_415 < ubo.ubo.reblur_history_fix_frame_num[REBLUR_SIGNAL])
         {
@@ -382,10 +277,10 @@ void main()
         float _571 = mix(spvNMin(_415, ubo.ubo.reblur_history_fix_frame_num[REBLUR_SIGNAL]), _415, _569);
         float _591 = (_364 * (1.0 - (1.0 / (1.0 + ((ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].x * mix(ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].y, 1.0, clamp(_571 / (1.0 + (ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL] * ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].z)), 0.0, 1.0))) * _571))))) * _569;
         float _607 = _414 * (1.0 + ((_591 * 6.0) * ubo.ubo.reblur_frame_rate_scale_smoothed[REBLUR_SIGNAL]));
-        float _614 = mix(_426, clamp(_546, _409 - _607, _409 + _607), spvNMin((_591 * float(_257.x >= ubo.ubo.reblur_split_screen[REBLUR_SIGNAL])) * float(_315.x >= ubo.ubo.reblur_split_screen_prev[REBLUR_SIGNAL]), ubo.ubo.reblur_stabilization_strength[REBLUR_SIGNAL]));
-        vec4 _616 = reblurFetch_temporal_reblur_bounce_history(ivec2(_239));
-        vec3 _621 = _616.xyz * (_614 / spvNMax(_616.x, 9.9999999747524270787835121154785e-07));
-        vec4 _622 = vec4(_621.x, _621.y, _621.z, _616.w);
+        float _614 = mix(_426, clamp(_546, _409 - _607, _409 + _607), spvNMin((_591 * float(pixelUv.x >= ubo.ubo.reblur_split_screen[REBLUR_SIGNAL])) * float(_315.x >= ubo.ubo.reblur_split_screen_prev[REBLUR_SIGNAL]), ubo.ubo.reblur_stabilization_strength[REBLUR_SIGNAL]));
+        vec4 historyRadiance = reblurFetch_temporal_reblur_bounce_history(ivec2(_239));
+        vec3 _621 = historyRadiance.xyz * (_614 / spvNMax(historyRadiance.x, 9.9999999747524270787835121154785e-07));
+        vec4 _622 = vec4(_621.x, _621.y, _621.z, historyRadiance.w);
         float _630;
         if (ubo.ubo.reblur_return_history_length_instead_of_occlusion[REBLUR_SIGNAL] != 0u)
         {
@@ -393,12 +288,12 @@ void main()
         }
         else
         {
-            _630 = _616.w;
+            _630 = historyRadiance.w;
         }
         _622.w = _630;
         reblurStore_out_reblur_bounce_work(ivec2(_239),_622);
         reblurStore_out_temporal_reblur_bounce_stabilized(ivec2(_239),vec4(_614));
-        uvec4 _649 = uvec4((clamp(vec3(roundEven(spvNMin(_571 + 1.0, ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL])) * 0.01587301678955554962158203125, roundEven(spvNMin(_323.y + 1.0, ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL])) * 0.01587301678955554962158203125, reblurFetch_reblur_bounce_normal(ivec2(_239)).w * 0.2000000178813934326171875).xyzz, vec4(0.0), vec4(1.0)) * vec4(63.0, 63.0, 15.0, 0.0)) + vec4(0.5));
+        uvec4 _649 = uvec4((clamp(vec3(roundEven(spvNMin(_571 + 1.0, ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL])) * 0.01587301678955554962158203125, roundEven(spvNMin(accumulatedFrameCounts.y + 1.0, ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL])) * 0.01587301678955554962158203125, reblurFetch_reblur_bounce_normal(ivec2(_239)).w * 0.2000000178813934326171875).xyzz, vec4(0.0), vec4(1.0)) * vec4(63.0, 63.0, 15.0, 0.0)) + vec4(0.5));
         uvec3 _651 = _649.yzw << uvec3(6u, 12u, 16u);
         uvec2 _655 = uvec4(_649.x, _651.x, _651.y, _651.z).xy | _651.yz;
         reblurStore_out_temporal_reblur_bounce_internal(ivec2(_239),uvec4(_655.x | _655.y));
