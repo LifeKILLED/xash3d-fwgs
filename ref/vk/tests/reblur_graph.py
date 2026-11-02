@@ -171,6 +171,11 @@ for path in (VK / 'shaders/reblur').glob('*.comp'):
     assert not re.search(r'\b(?:texture2D|utexture2D|sampler2D|textureLod|textureGather\w*|texelFetch\w*)\b',text), path
     assert 'if(!reblurEnabled()) return;' in text
     assert 'uimage2D' not in text
+    for qualifier,name in re.findall(r'uniform (readonly|writeonly) image2D (\w+);',text):
+        assert name.startswith('out_') == (qualifier == 'writeonly'), (path,name)
+        forbidden = 'imageLoad' if qualifier == 'writeonly' else 'imageStore'
+        assert not re.search(r'\b'+forbidden+r'\(\s*'+re.escape(name)+r'\s*,',text), (path,name,forbidden)
+    assert not re.search(r'uniform image2D\b',text), path
     for fmt in re.findall(r'layout\(set=0,binding=\d+,(\w+)\)', text):
         assert fmt in formats, (path, fmt)
 

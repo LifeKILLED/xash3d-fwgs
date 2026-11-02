@@ -10,7 +10,7 @@ See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt.
 #define NRD_BOUNCE 1
 #include "common.glsl"
 layout(set=0,binding=1,rgba32f) uniform readonly image2D reblur_bounce_viewz;
-layout(set=0,binding=2,rgba8) uniform image2D out_reblur_bounce_scratch_4;
+layout(set=0,binding=2,rgba8) uniform writeonly image2D out_reblur_bounce_scratch_4;
 
 vec4 reblurFetch_reblur_bounce_viewz(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);

@@ -20,10 +20,10 @@ layout(set=0,binding=7,rgba32f) uniform readonly image2D prev_temporal_reblur_bo
 layout(set=0,binding=8,rgba16f) uniform readonly image2D reblur_bounce_work;
 layout(set=0,binding=9,rgba16f) uniform readonly image2D prev_temporal_reblur_bounce_history;
 layout(set=0,binding=10,rgba16f) uniform readonly image2D prev_temporal_reblur_bounce_fast;
-layout(set=0,binding=11,rgba8) uniform image2D out_reblur_bounce_scratch_0;
-layout(set=0,binding=12,rgba16f) uniform image2D out_reblur_bounce_scratch_2;
-layout(set=0,binding=13,rgba16f) uniform image2D out_reblur_bounce_scratch_3;
-layout(set=0,binding=14,rgba16f) uniform image2D out_reblur_bounce_scratch_1;
+layout(set=0,binding=11,rgba8) uniform writeonly image2D out_reblur_bounce_scratch_0;
+layout(set=0,binding=12,rgba16f) uniform writeonly image2D out_reblur_bounce_scratch_2;
+layout(set=0,binding=13,rgba16f) uniform writeonly image2D out_reblur_bounce_scratch_3;
+layout(set=0,binding=14,rgba16f) uniform writeonly image2D out_reblur_bounce_scratch_1;
 
 vec4 reblurFetch_reblur_bounce_scratch_4(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
@@ -184,9 +184,6 @@ vec4 reblurGather_prev_temporal_reblur_bounce_fast(vec2 uv, ivec2 offset) {
 void reblurStore_out_reblur_bounce_scratch_0(ivec2 p,vec4 v) { imageStore(out_reblur_bounce_scratch_0,p,vec4(v.x,0.0,0.0,1.0)); }
 void reblurStore_out_reblur_bounce_scratch_2(ivec2 p,vec4 v) { imageStore(out_reblur_bounce_scratch_2,p,v); }
 void reblurStore_out_reblur_bounce_scratch_3(ivec2 p,vec4 v) { imageStore(out_reblur_bounce_scratch_3,p,vec4(v.x,0.0,0.0,1.0)); }
-uvec4 reblurUintLoad_out_reblur_bounce_scratch_1(ivec2 p) {
- vec4 v=imageLoad(out_reblur_bounce_scratch_1,p); return uvec4(uint(v.x),0u,0u,1u);
-}
 void reblurStore_out_reblur_bounce_scratch_1(ivec2 p,uvec4 v) { imageStore(out_reblur_bounce_scratch_1,p,vec4(float(v.x & 255u),0.0,0.0,1.0)); }
 layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
 

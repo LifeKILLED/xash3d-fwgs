@@ -280,7 +280,7 @@ void RayPassPerform(struct ray_pass_s *pass, vk_combuf_t *combuf, ray_pass_perfo
 		pass->desc.riptors.values[i] = res->acquire_descriptor(res, (vk_resource_acquire_descriptor_args_t){
 			.combuf = combuf,
 			.barriers = &barrier,
-			.access = write ? VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT : VK_ACCESS_2_SHADER_READ_BIT,
+			.access = write ? VK_ACCESS_2_SHADER_WRITE_BIT : VK_ACCESS_2_SHADER_READ_BIT,
 			// Image must remain in GENERAL layout regardless of r/w.
 			// Storage image reads still require GENERAL, not SHADER_READ_ONLY_OPTIMAL
 			// TODO figure out why exactly -- i remain not convinced

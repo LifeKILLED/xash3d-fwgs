@@ -30,10 +30,10 @@ layout(set=0,binding=5,rgba32f) uniform readonly image2D reblur_reflection_scrat
 layout(set=0,binding=6,rgba16f) uniform readonly image2D temporal_reblur_reflection_tracking;
 layout(set=0,binding=7,rgba16f) uniform readonly image2D temporal_reblur_reflection_history;
 layout(set=0,binding=8,rgba16f) uniform readonly image2D prev_temporal_reblur_reflection_stabilized;
-layout(set=0,binding=9,rgba16f) uniform image2D out_reblur_reflection_motion;
-layout(set=0,binding=10,rgba32f) uniform image2D out_temporal_reblur_reflection_internal;
-layout(set=0,binding=11,rgba16f) uniform image2D out_reblur_reflection_work;
-layout(set=0,binding=12,rgba16f) uniform image2D out_temporal_reblur_reflection_stabilized;
+layout(set=0,binding=9,rgba16f) uniform readonly image2D reblur_reflection_motion;
+layout(set=0,binding=10,rgba32f) uniform writeonly image2D out_temporal_reblur_reflection_internal;
+layout(set=0,binding=11,rgba16f) uniform writeonly image2D out_reblur_reflection_work;
+layout(set=0,binding=12,rgba16f) uniform writeonly image2D out_temporal_reblur_reflection_stabilized;
 
 vec4 reblurFetch_reblur_reflection_scratch_5(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
@@ -159,9 +159,21 @@ vec4 reblurGather_prev_temporal_reblur_reflection_stabilized(vec2 uv, ivec2 offs
  return vec4(imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
  imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b,ivec2(0),reblurExtent()-1)).x);
 }
-void reblurStore_out_reblur_reflection_motion(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_motion,p,v); }
-uvec4 reblurUintLoad_out_temporal_reblur_reflection_internal(ivec2 p) {
- vec4 v=imageLoad(out_temporal_reblur_reflection_internal,p); return uvec4(uint(v.x),0u,0u,1u);
+
+vec4 reblurFetch_reblur_reflection_motion(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(reblur_reflection_motion,p);
+}
+vec4 reblurNearest_reblur_reflection_motion(vec2 uv) { return imageLoad(reblur_reflection_motion,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_reblur_reflection_motion(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(reblur_reflection_motion,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_motion,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(reblur_reflection_motion,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_motion,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_reblur_reflection_motion(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(reblur_reflection_motion,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_motion,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(reblur_reflection_motion,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_motion,clamp(b,ivec2(0),reblurExtent()-1)).x);
 }
 void reblurStore_out_temporal_reblur_reflection_internal(ivec2 p,uvec4 v) { imageStore(out_temporal_reblur_reflection_internal,p,vec4(float(v.x & 65535u),0.0,0.0,1.0)); }
 void reblurStore_out_reblur_reflection_work(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_work,p,v); }
@@ -249,7 +261,7 @@ void main()
         vec3 _296 = vec3(_295.x, _295.y, _173.z);
         _296.z = _272;
         vec3 _307 = _296 * mat3(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][0].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][1].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][2].xyz);
-        vec3 _318 = (imageLoad(out_reblur_reflection_motion,ivec2(_265)).xyz * ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].xyz) + ubo.ubo.reblur_mv_bias[REBLUR_SIGNAL].xyz;
+        vec3 _318 = (imageLoad(reblur_reflection_motion,ivec2(_265)).xyz * ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].xyz) + ubo.ubo.reblur_mv_bias[REBLUR_SIGNAL].xyz;
         vec2 _320 = _283 + _318.xy;
         vec2 _385;
         vec3 _386;

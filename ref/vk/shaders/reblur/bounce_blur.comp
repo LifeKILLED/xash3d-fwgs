@@ -15,8 +15,8 @@ layout(set=0,binding=2,rgba16f) uniform readonly image2D reblur_bounce_normal;
 layout(set=0,binding=3,rgba32f) uniform readonly image2D reblur_bounce_viewz;
 layout(set=0,binding=4,rgba8) uniform readonly image2D reblur_bounce_scratch_0;
 layout(set=0,binding=5,rgba16f) uniform readonly image2D reblur_bounce_work;
-layout(set=0,binding=6,rgba32f) uniform image2D out_temporal_reblur_bounce_depth;
-layout(set=0,binding=7,rgba16f) uniform image2D out_reblur_bounce_scratch_2;
+layout(set=0,binding=6,rgba32f) uniform writeonly image2D out_temporal_reblur_bounce_depth;
+layout(set=0,binding=7,rgba16f) uniform writeonly image2D out_reblur_bounce_scratch_2;
 
 vec4 reblurFetch_reblur_bounce_scratch_4(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);

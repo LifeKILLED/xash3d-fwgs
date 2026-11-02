@@ -10,10 +10,10 @@ layout(set=0,binding=3,rgba8) uniform readonly image2D material_rmxx;
 layout(set=0,binding=4,rgba32f) uniform readonly image2D geometry_prev_position;
 layout(set=0,binding=5,rgba16f) uniform readonly image2D indirect_diffuse;
 layout(set=0,binding=6,rgba32f) uniform readonly image2D first_bounce_direction;
-layout(set=0,binding=7,rgba16f) uniform image2D out_reblur_bounce_normal;
-layout(set=0,binding=8,rgba32f) uniform image2D out_reblur_bounce_viewz;
-layout(set=0,binding=9,rgba16f) uniform image2D out_reblur_bounce_motion;
-layout(set=0,binding=10,rgba16f) uniform image2D out_reblur_bounce_signal;
+layout(set=0,binding=7,rgba16f) uniform writeonly image2D out_reblur_bounce_normal;
+layout(set=0,binding=8,rgba32f) uniform writeonly image2D out_reblur_bounce_viewz;
+layout(set=0,binding=9,rgba16f) uniform writeonly image2D out_reblur_bounce_motion;
+layout(set=0,binding=10,rgba16f) uniform writeonly image2D out_reblur_bounce_signal;
 
 vec4 reblurFetch_position_t(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);

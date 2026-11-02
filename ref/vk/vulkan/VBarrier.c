@@ -262,8 +262,10 @@ static int makeImageBarrier(VkImageMemoryBarrier2* out_imb, const r_vkcombuf_bar
 		img->sync.read.access |= imgbar->access;
 		img->sync.read.stage |= dst_stage;
 
-		// Layout transfer makes write state no longer usable (supposedly)
-		if (is_layout_transfer) {
+		// A read-only layout transfer consumes the previous write state.
+		// For read/write access, the write state above describes the NEW access:
+		// preserve it for later barriers and history initialization checks.
+		if (is_layout_transfer && !is_write) {
 			img->sync.write.access = 0;
 			img->sync.write.stage = 0;
 		}

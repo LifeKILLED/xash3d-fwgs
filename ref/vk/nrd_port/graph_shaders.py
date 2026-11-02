@@ -102,8 +102,9 @@ def storage_helpers(name, fmt, unsigned, write):
             mask = 255 if fmt == 'r8ui' else 65535
             decode = 'uint(v.x)'
             encode = f'vec4(float(v.x & {mask}u),0.0,0.0,1.0)'
-        lines += [f'uvec4 reblurUintLoad_{name}(ivec2 p) {{',
-                  f' vec4 v=imageLoad({name},p); return uvec4({decode},0u,0u,1u);', '}']
+        if not write:
+            lines += [f'uvec4 reblurUintLoad_{name}(ivec2 p) {{',
+                      f' vec4 v=imageLoad({name},p); return uvec4({decode},0u,0u,1u);', '}']
         if write:
             lines += [f'void reblurStore_{name}(ivec2 p,uvec4 v) {{ imageStore({name},p,{encode}); }}']
     elif write:
@@ -124,15 +125,23 @@ def transform(kernel, resource_map, bounce, frontend=False):
     unsigned_names = set()
     output_names = set()
     reflection = kernel['reflection']
-    for category, write in [('separate_images', False), ('images', True)]:
+    for category, declared_write in [('separate_images', False), ('images', True)]:
         for binding in reflection.get(category, []):
             old = binding['name']
-            real, fmt = resource_map[(write, binding['binding'])]
+            real, fmt = resource_map[(declared_write, binding['binding'])]
+            write = declared_write
+            if declared_write:
+                write = bool(re.search(r'\bimageStore\(\s*'+re.escape(old)+r'\s*,', source))
+                read = bool(re.search(r'\bimageLoad\(\s*'+re.escape(old)+r'\s*,', source))
+                assert not (read and write), (kernel['name'], old, 'read/write image requires explicit graph support')
+                if not write:
+                    assert read, (kernel['name'], old, 'unused storage image')
+                    real = real.removeprefix('out_')
             unsigned = binding['type'].startswith(('uimage', 'utexture'))
             pattern = r'layout\(set = 0, binding = '+str(binding['binding'])+r'(?:, [^)]*)?\) uniform [^;]+;'
             source, count = re.subn(pattern, '', source)
             assert count == 1, (kernel['name'], binding)
-            declarations.append(f'layout(set=0,binding={len(declarations)+1},{STORAGE_FORMATS[fmt]}) uniform {"" if write else "readonly "}image2D {real};')
+            declarations.append(f'layout(set=0,binding={len(declarations)+1},{STORAGE_FORMATS[fmt]}) uniform {"writeonly " if write else "readonly "}image2D {real};')
             helpers.append(storage_helpers(real,fmt,unsigned,write))
             if unsigned:
                 unsigned_names.add(real)

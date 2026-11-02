@@ -14,8 +14,8 @@ layout(set=0,binding=1,rgba8) uniform readonly image2D reblur_reflection_scratch
 layout(set=0,binding=2,rgba16f) uniform readonly image2D reblur_reflection_normal;
 layout(set=0,binding=3,rgba32f) uniform readonly image2D reblur_reflection_viewz;
 layout(set=0,binding=4,rgba16f) uniform readonly image2D reblur_reflection_signal;
-layout(set=0,binding=5,rgba16f) uniform image2D out_reblur_reflection_work;
-layout(set=0,binding=6,rgba16f) uniform image2D out_reblur_reflection_scratch_2;
+layout(set=0,binding=5,rgba16f) uniform writeonly image2D out_reblur_reflection_work;
+layout(set=0,binding=6,rgba16f) uniform writeonly image2D out_reblur_reflection_scratch_2;
 
 vec4 reblurFetch_reblur_reflection_scratch_5(ivec2 p) {
  if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
