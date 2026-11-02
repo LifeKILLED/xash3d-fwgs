@@ -660,8 +660,8 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 		g_rtx.discontinuity = true;
 	}
 	// Clamp only to the storage range, independently of the old four-lane atlas.
-	ret.nrd_bounce = (uint32_t)bound(0, rt_nrd_bounce->value, 2);
-	ret.nrd_reflection = (uint32_t)bound(0, rt_nrd_reflection->value, 2);
+	ret.nrd_bounce = CVAR_TO_BOOL(rt_nrd_bounce);
+	ret.nrd_reflection = CVAR_TO_BOOL(rt_nrd_reflection);
 	ret.bounce_count = rt_bounces->value > 0.0f
 		? (uint32_t)Q_min((double)rt_bounces->value, (double)UINT32_MAX) : 0u;
 	ret.renderer_flags = SET_RENDERER_FLAG(RENDERER_FLAG_ONLY_DIFFUSE_GI) |

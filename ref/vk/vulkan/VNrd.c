@@ -116,7 +116,7 @@ void R_VkNrdDispatch(vk_combuf_t *combuf,const NrdDispatch *args) {
  for(unsigned lobe=0;lobe<2;lobe++) {
   unsigned mode=lobe?args->specularMode:args->diffuseMode;
   if(!mode) {state.previousMode[lobe]=0;continue;}
-  const NrdMethod *method=&methods[(mode==2?2:0)+lobe];const char *name=lobe?"spec":"diff";
+  const NrdMethod *method=&methods[lobe];const char *name=lobe?"spec":"diff";
   NrdFrame frame=args->frame;frame.signal=lobe;
   if(!lobe) {
    halfProjection(frame.projection,frame.width,frame.height);
@@ -124,7 +124,7 @@ void R_VkNrdDispatch(vk_combuf_t *combuf,const NrdDispatch *args) {
    frame.width/=2;frame.height/=2;frame.previousWidth/=2;frame.previousHeight/=2;
   }
   frame.reset|=state.previousMode[lobe]!=mode || state.previousWidth!=args->frame.width || state.previousHeight!=args->frame.height;
-  unsigned char constants[1024]={0};NrdPrepareConstants(&frame,mode==2,constants);
+  unsigned char constants[1024]={0};NrdPrepareConstants(&frame,constants);
   if(frame.reset) {
    for(unsigned kind=0;kind<2;kind++) for(unsigned i=0;i<32;i++) {
     char poolName[80];snprintf(poolName,sizeof(poolName),"%s_%s_%u",method->name,kind?"transient":"permanent",i);
@@ -134,13 +134,12 @@ void R_VkNrdDispatch(vk_combuf_t *combuf,const NrdDispatch *args) {
   }
   r_vk_image_t *inputs[32]={args->position,args->normals,args->material,args->previousPosition,lobe?args->specular:args->diffuse,lobe?args->specularRay:args->diffuseRay};
   r_vk_image_t *outputs[16]={resource(method,(NrdReference){1,0},0,name),resource(method,(NrdReference){2,0},0,name),resource(method,(NrdReference){0,0},0,name),resource(method,(NrdReference){6,0},0,name)};
-  unsigned char packing[1024]={0};memcpy(packing,args->frame.view,64);unsigned dimensions[]={frame.width,frame.height,!lobe,mode};memcpy(packing+64,dimensions,16);
+  unsigned char packing[1024]={0};memcpy(packing,args->frame.view,64);unsigned dimensions[]={frame.width,frame.height,!lobe,0};memcpy(packing+64,dimensions,16);
   dispatch(combuf,KERNEL_COUNT-1,slot,frame.width,frame.height,packing,inputs,outputs);
   for(unsigned i=0;i<method->count;i++) {
    const NrdPass *pass=&method->passes[i];
    for(unsigned j=0;j<pass->inputCount;j++) inputs[j]=resource(method,pass->inputs[j],frame.frame&1,name);
    for(unsigned j=0;j<pass->outputCount;j++) outputs[j]=resource(method,pass->outputs[j],frame.frame&1,name);
-   if(mode==2 && i>=5) {unsigned step=1u<<(i-5),last=i+1==method->count;memcpy(constants+744,&step,4);memcpy(constants+748,&last,4);}
    unsigned w=frame.width,h=frame.height;
    if(i==0) {w=((w+15)/16)*kernels[pass->kernel].x;h=((h+15)/16)*kernels[pass->kernel].y;}
    dispatch(combuf,pass->kernel,slot,w,h,constants,inputs,outputs);

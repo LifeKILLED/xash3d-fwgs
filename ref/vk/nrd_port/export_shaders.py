@@ -43,9 +43,8 @@ def run(args):
     return p.stdout
 
 def kernels():
-    for algo in ("REBLUR","RELAX"):
-        names=(["ClassifyTiles","HitDistReconstruction","PrePass","TemporalAccumulation","HistoryFix","Blur","PostBlur","TemporalStabilization","SplitScreen","Validation"] if algo=="REBLUR" else
-               ["ClassifyTiles","HitDistReconstruction","PrePass","TemporalAccumulation","HistoryFix","HistoryClamping","Copy","AntiFirefly","AtrousSmem","Atrous","SplitScreen","Validation"])
+    for algo in ("REBLUR",):
+        names=["ClassifyTiles","HitDistReconstruction","PrePass","TemporalAccumulation","HistoryFix","Blur","PostBlur","TemporalStabilization","SplitScreen","Validation"]
         for stage in names:
             signals=(0,) if stage in ("ClassifyTiles","Validation") else (1,2)
             for signal in signals:

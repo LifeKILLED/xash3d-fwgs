@@ -8,7 +8,7 @@ typedef struct {
  float deltaMilliseconds,jitter[2],previousJitter[2];
  unsigned width,height,previousWidth,previousHeight,frame,reset,signal;
 } NrdFrame;
-void NrdPrepareConstants(const NrdFrame *frame,int relax,void *data);
+void NrdPrepareConstants(const NrdFrame *frame,void *data);
 #ifdef __cplusplus
 }
 #endif

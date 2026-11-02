@@ -8,7 +8,7 @@ graphs = json.loads((PORT / "graphs.json").read_text())
 external = {0, 1, 2, 6, 7, 18, 19}
 integer_formats = {2, 6, 10, 15, 20, 25, 28, 31, 34, 37, 41}
 for name, graph in graphs.items():
-    selected = [0, 5, 8, 15, 16, 18, 19] if name.startswith("REBLUR") else [0, 3, 5, 9, 10, 13, 14, 15, 14, 17]
+    selected = [0, 5, 8, 15, 16, 18, 19]
     for parity in (0, 1):
         written = set()
         for index in selected:
@@ -48,4 +48,4 @@ for full in (640, 641, 1080, 1081, 1920, 1921):
         # NRD's Y-to-UV inversion cancels the adapter's clip-Y inversion.
         nrd_y = -(engine_ndc * scale + bias)
         assert abs((-nrd_y * 0.5 + 0.5) - projected_uv) < 1e-12
-print("NRD contracts passed: four schedules, both history banks, typed formats, transient initialization, half-resolution projection.")
+print("NRD contracts passed: two schedules, both history banks, typed formats, transient initialization, half-resolution projection.")

@@ -110,11 +110,6 @@ void main()
         imageStore(packedDepth, ivec2(gl_GlobalInvocationID.xy), vec4(_142));
         imageStore(packedMotion, ivec2(gl_GlobalInvocationID.xy), vec4(texelFetch(previousPosition, ivec2(_94), int(0u)).xyz - _96.xyz, 0.0));
         vec4 _255;
-        if (Frame.dimensions.w == 2u)
-        {
-            _255 = vec4(_163, spvNMin(_151, 65504.0));
-        }
-        else
         {
             bool _229;
             if (!any(isnan(_163)))

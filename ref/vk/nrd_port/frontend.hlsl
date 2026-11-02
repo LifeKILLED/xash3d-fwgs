@@ -18,7 +18,7 @@ float3 Decode(float2 f) {
 }
 [numthreads(8,8,1)] void main(uint2 pixel:SV_DispatchThreadID) {
  if(any(pixel>=dimensions.xy))return;
- bool diffuse=dimensions.z!=0; bool relax=dimensions.w==2;
+ bool diffuse=dimensions.z!=0;
  uint2 source=diffuse?pixel*2:pixel;
  float4 pos=position[source];
  float3 n=Decode(normals[source].zw);
@@ -34,5 +34,5 @@ float3 Decode(float2 f) {
  packedNormal[pixel]=NRD_FrontEnd_PackNormalAndRoughness(n,roughness,0);
  packedDepth[pixel]=z;
  packedMotion[pixel]=float4(previousPosition[source].xyz-pos.xyz,0);
- packedSignal[pixel]=relax?float4(color,min(hit,65504)):REBLUR_FrontEnd_PackRadianceAndNormHitDist(color,normHit,true);
+ packedSignal[pixel]=REBLUR_FrontEnd_PackRadianceAndNormHitDist(color,normHit,true);
 }

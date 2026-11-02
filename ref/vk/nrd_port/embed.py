@@ -34,7 +34,7 @@ def generate(output):
     lines.append("static const NrdKernel kernels[]={" + ",".join(definitions) + "};")
     counts = []
     for index, (name, graph) in enumerate(graphs.items()):
-        sequence = [0, 5, 8, 15, 16, 18, 19] if name.startswith("REBLUR") else [0, 3, 5, 9, 10, 13, 14, 15, 14, 17]
+        sequence = [0, 5, 8, 15, 16, 18, 19]
         counts.append(len(sequence))
         lines.append("static const NrdPass passes%d[]={" % index)
         for selected in sequence:

@@ -1,4 +1,4 @@
-# REBLUR / RELAX test integration
+# REBLUR integration
 
 This is a derivative port of NVIDIA NRD 4.18.0, commit
 `8f12a22fc90e6a3c7f5da4c9c3103633c842963a`, with MathLib v11,
@@ -17,12 +17,12 @@ Vulkan SDK and embeds it into the renderer DLL.
 
 Console switches are independent:
 
-| Cvar | 0 | 1 | 2 |
-| --- | --- | --- | --- |
-| `rt_nrd_bounce` | Existing denoiser | REBLUR diffuse | RELAX diffuse |
-| `rt_nrd_reflection` | Existing denoiser | REBLUR specular | RELAX specular |
+| Cvar | 0 | 1 |
+| --- | --- | --- |
+| `rt_nrd_bounce` | Existing denoiser | REBLUR diffuse |
+| `rt_nrd_reflection` | Existing denoiser | REBLUR specular |
 
-Both default to 0. Switching a signal's method clears its denoiser history.
+Both default to 0. Enabling a signal clears its denoiser history.
 Map/camera discontinuity and resolution changes also restart denoiser history.
 These resets do not reset the path reservoirs or light cache.
 
@@ -34,15 +34,14 @@ rt_nrd_reflection 1
 rt_debug_display_only INDIRECT_DIFF
 ```
 
-Switch the view with `rt_debug_display_only INDIRECT_SPEC`. For RELAX, set
-both mode cvars to 2. Selected results also feed ordinary final composition;
+Switch the view with `rt_debug_display_only INDIRECT_SPEC`. Selected results also feed ordinary final composition;
 the previous filters' indirect outputs are bypassed at composition for that
 signal. Direct illumination and refraction retain their existing filters.
 
 ## Integration boundaries
 
 * `vulkan/VNrdResources.c` owns the temporary native texture pools for the
-  four methods, frontend images, and output images. Bounce has half width
+  two signals, frontend images, and output images. Bounce has half width
   and half height; reflection uses full resolution. Pools are currently
   allocated together when either new denoiser is first enabled.
 * `cpu.cpp` owns the CPU constant preparation. Its shared-field offsets are
@@ -64,8 +63,7 @@ The GPU frontend consumes world position, previous world position, shading
 normal, roughness, raw radiance and first-ray information. It produces
 NRD-encoded normal/roughness, positive linear view depth, world-space motion
 `previousPosition - currentPosition`, and radiance/hit-distance input.
-REBLUR uses YCoCg and normalized first-hit distance; RELAX uses RGB and raw
-first-hit distance. Hit-distance normalization uses A=118.11024 world units
+REBLUR uses YCoCg and normalized first-hit distance. Hit-distance normalization uses A=118.11024 world units
 (3 metres at 1 unit/inch), B=0.1, C=20 in both frontend and CPU constants.
 
 Bounce resolves its primary angular factor as `2 * max(dot(Nshading,D),0)`
@@ -78,10 +76,10 @@ it does not use the old SH reconstruction.
 
 ## Checks
 
-* `python ref/vk/tests/nrd_contract.py` checks the four schedules, descriptor
+* `python ref/vk/tests/nrd_contract.py` checks the two schedules, descriptor
   indices, typed pool formats, transient initialization, history banks and
   half-resolution projection math, without compiling or starting Vulkan.
-* `tests/nrd_vulkan.cpp` is an optional headless check which creates all 47
+* `tests/nrd_vulkan.cpp` is an optional headless check which creates all 23
   native pipelines on available Vulkan devices. It needs the generated
   `build/ref/vk/nrd_kernels.h` include and the Vulkan loader library. It does
   not assess visual quality or run the game.

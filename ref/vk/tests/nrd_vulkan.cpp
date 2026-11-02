@@ -46,5 +46,5 @@ int main() {
   }
   vkDestroyDescriptorSetLayout(device,common,nullptr);vkDestroyDevice(device,nullptr);
  }
- vkDestroyInstance(instance,nullptr);std::puts("All 47 native pipelines created successfully.");return count?0:1;
+ vkDestroyInstance(instance,nullptr);std::puts("All native pipelines created successfully.");return count?0:1;
 }
