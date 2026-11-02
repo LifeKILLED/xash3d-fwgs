@@ -1,7 +1,7 @@
 """Validate the graph migration without compiling shaders or starting Vulkan.
 
 Exercise the real graph serializer using declaration-only shader stand-ins.
-This checks bindings, formats, history dependencies, sizes and dispatch metadata;
+This checks bindings, formats, history dependencies and UBO group limits;
 it deliberately does not claim to validate shader compilation or image quality.
 """
 import ast
@@ -90,7 +90,7 @@ for name, desc in selected.items():
 binary = io.BytesIO()
 environment['writeOutput'](binary, pipelines)
 binary.seek(0)
-assert binary.read(4) == b'MEA2'
+assert binary.read(4) == b'MEAT'
 def u32():
     return struct.unpack('<I', binary.read(4))[0]
 def string():
@@ -101,7 +101,7 @@ for _ in range(u32()):
     name, kind, count = string(), u32(), u32()
     record = dict(name=name, kind=kind)
     if kind == 3:
-        record.update(format=u32(), previous=u32(), divisor=(u32(),u32()))
+        record.update(format=u32(), previous=u32())
     resources.append(record)
 by_name = {r['name']: r for r in resources}
 history = [r for r in resources if r['name'].startswith('prev_temporal_')]
@@ -110,18 +110,27 @@ for resource in history:
     current = resources[resource['previous']-1]
     assert current['name'] == resource['name'].removeprefix('prev_')
     assert resource['format'] == current['format']
-    assert resource['divisor'] == current['divisor']
 
+# Consume the original MEAT shader and compute-pass records to EOF. There
+# must be no added resource sizes or dispatch fields in the binary format.
+shader_count=u32()
+for _ in range(shader_count):
+    string()
+    binary.read(u32())
+assert u32() == 17
+for expected_name in selected:
+    assert u32() == 1  # compute
+    assert string() == expected_name
+    for _ in range(u32()):
+        header,resource_index,stages=u32(),u32(),u32()
+        assert resource_index < len(resources)
+    assert u32() < shader_count
+assert binary.read() == b''
 for record in resources:
-    if record['kind'] != 3:
-        assert record['name'] == 'ubo'
-        continue
-    if 'reblur_bounce' in record['name']:
-        expected = (32,32) if record['name'].endswith('scratch_4') else (2,2)
-        assert record['divisor'] == expected, record
-    elif 'reblur_reflection' in record['name']:
-        expected = (16,16) if record['name'].endswith('scratch_5') else (1,1)
-        assert record['divisor'] == expected, record
+    assert record['kind'] == 3 or record['name'] == 'ubo'
+for desc in selected.values():
+    assert set(desc) == {'comp'}
+assert 'extent_divisor' not in (VK / 'vulkan/VMeatpipe.c').read_text()
 
 # Check that each current-frame input has a preceding producer. History reads
 # are supplied by the normal prev_/out_ resource swapping mechanism.
@@ -134,16 +143,28 @@ for pipeline in pipelines:
             assert name in available or name.startswith('prev_temporal_'), (pipeline.name, name)
     available.update(b.getResource().name for b in pipeline.bindings() if b.write)
 
-# Workgroup geometry is reflected from SPIR-V; tiles classify 16x16 pixels
-# using an 8x4 group, while blur kernels use 8x16 groups.
-assert pipelines.getByName('reblur_bounce_blur').workgroupSize() == (8,16)
-assert pipelines.getByName('reblur_reflection_classifytiles').group_span == [16,16]
-for width,height in [(1152,864),(1921,1081),(3840,2160)]:
-    for pipeline in pipelines:
-        dx,dy = pipeline.dispatch_divisor
-        sx,sy = pipeline.group_span or pipeline.workgroupSize()
-        nx,ny = (width//dx+sx-1)//sx,(height//dy+sy-1)//sy
-        assert nx*sx >= width//dx and ny*sy >= height//dy
+# The unchanged dispatcher launches ceil(screen/8) groups. CPU UBO limits
+# retain exactly the original active groups for each kernel and signal.
+for width,height in [(63,31),(1152,864),(1921,1081),(3840,2160)]:
+    launched=((width+7)//8,(height+7)//8)
+    for path in (VK / 'shaders/reblur').glob('*.comp'):
+        text=path.read_text()
+        logical=(width//2,height//2) if path.name.startswith('bounce_') else (width,height)
+        if path.stem.endswith('prepare'):
+            slot,channels,span=56,'xy',(8,8)
+        elif path.stem.endswith(('prepass','classifytiles')):
+            slot,channels,span=57,'xy',(16,16)
+        else:
+            slot,channels,span=56,'zw',(8,16)
+        limit=tuple((value+step-1)//step for value,step in zip(logical,span))
+        assert all(n<=available for n,available in zip(limit,launched)),path
+        assert all(n*step>=value for n,step,value in zip(limit,span,logical)),path
+        guard=f'if(any(greaterThanEqual(gl_WorkGroupID.xy,reblurData({slot}).{channels}))) return;'
+        main=text[text.index('void main()'):]
+        assert main.index(guard)<main.index('reblurLoadConstants();'),path
+        if 'barrier();' in main:
+            assert main.index(guard)<main.index('barrier();'),path
+        assert 'gl_NumWorkGroups' not in text,path
 
 for path in (VK / 'shaders/reblur').glob('*.comp'):
     text = path.read_text()
@@ -167,4 +188,4 @@ for value in [0,1,255,65535,65536,0x7f800000,0x7fc00000,0x80000000,0xffffffff] +
     low,high = f32(value & 65535), f32(value >> 16)
     assert (int(low) | (int(high)<<16)) == value
 
-print('REBLUR graph checks passed: 17 nodes, 13 history pairs, existing RGBA formats, sizes, producer order, dispatch geometry, exact integer storage.')
+print('REBLUR graph checks passed: 17 nodes, 13 history pairs, original MEAT format, existing RGBA formats, producer order, UBO group guards, exact integer storage.')

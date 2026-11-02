@@ -40,6 +40,7 @@ shared int s_Sum;
 void main()
 {
     if(!reblurEnabled()) return;
+    if(any(greaterThanEqual(gl_WorkGroupID.xy,reblurData(57).xy))) return;
     reblurLoadConstants();
     bool _65 = gl_LocalInvocationIndex == 0u;
     if (_65)

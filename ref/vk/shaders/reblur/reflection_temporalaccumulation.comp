@@ -267,6 +267,7 @@ spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
 void main()
 {
     if(!reblurEnabled()) return;
+    if(any(greaterThanEqual(gl_WorkGroupID.xy,reblurData(56).zw))) return;
     reblurLoadConstants();
     do
     {

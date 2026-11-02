@@ -24,8 +24,6 @@ typedef struct {
 	ray_pass_layout_t layout;
 
 	VkShaderModule shader_module;
-	uint32_t dispatch_divisor[2];
-	uint32_t group_span[2];
 	const VkSpecializationInfo *specialization;
 } ray_pass_create_compute_t;
 

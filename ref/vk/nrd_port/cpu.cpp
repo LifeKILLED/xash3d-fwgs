@@ -415,5 +415,14 @@ extern "C" void NrdPrepareConstants(const NrdFrame *frame,void *data) {
  static NrdConstants controllers[2];
  NrdConstants& c=controllers[frame->signal & 1]; c.Prepare(local);
  { ReblurSettings s; s.hitDistanceParameters.A=118.11024f; c.AddSharedConstants_Reblur(s,aligned); }
+ // The original constant block ends before byte 896. The remaining UBO
+ // space carries workgroup limits for the engine's full-screen 8x8 dispatch.
+ static_assert(sizeof(ReblurConstants)<=896,"REBLUR constants overlap dispatch limits");
+ const uint32_t groups[8]={
+  (local.width+7)/8,(local.height+7)/8,
+  (local.width+7)/8,(local.height+15)/16,
+  (local.width+15)/16,(local.height+15)/16,0,0
+ };
+ memcpy(aligned+896,groups,sizeof(groups));
  memcpy(data,aligned,1024);
 }

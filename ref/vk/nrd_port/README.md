@@ -8,8 +8,8 @@ The NVIDIA license and MathLib notice are preserved in this directory.
 ## Running
 
 Use the existing renderer build workflow. Update `ref_vk.dll` and
-`valve/rt.meat` together: the graph now stores image extent divisors and
-compute dispatch geometry (binary version `MEA2`). The normal shader build
+`valve/rt.meat` together. The graph uses its original `MEAT` binary format
+and the unchanged full-screen dispatch. The normal shader build
 compiles `shaders/reblur/*.comp` and includes them in `rt.meat`.
 There is no embedded SPIR-V header, native NRD dispatcher, or NRD runtime DLL.
 
@@ -53,9 +53,14 @@ preserve the reference sampling footprint, channel ordering and clamp-to-edge
 behavior. Logical sampling extents come from the frame constants, independently
 of the graph image allocation capacity.
 
-## Generic graph metadata
+## Full-screen resources and dispatch
 
-The parser reads the format and name from shader declarations.
+The parser reads image formats and names from shader declarations using the
+existing formats only. Every image is allocated at the engine's full-screen
+allocation size, including bounce buffers and tile maps. The logical used
+region comes from the UBO. No per-image or per-pass size fields are added to
+`sebastian`, `rt.json` or the `MEAT` binary format.
+
 Scalar R8 UNORM signals use the red channel of RGBA8. Scalar half-precision
 signals and packed normals use RGBA16F. Depth uses RGBA32F. Expanded scalar
 writes retain the original missing-channel defaults (0, 0, 1).
@@ -64,18 +69,19 @@ values are stored numerically in RGBA32F. Full 32-bit bitfields are split
 into two numeric 16-bit halves in RGBA32F.x/y and reconstructed on load.
 All integer bits remain exact, without encoding arbitrary bit patterns as
 floating-point NaNs. Original 8/16-bit truncation is preserved on store.
- Optional
-per-pass JSON fields describe the dimensions of created images and launches:
 
-* `image_divisor: [x,y]` divides allocation width/height, rounding up.
-* `dispatch_divisor: [x,y]` divides logical frame width/height, rounding down.
-* `group_span: [x,y]` overrides pixels covered by one workgroup. Otherwise the
-  parser obtains the actual local size from SPIR-V.
+The dispatcher retains `ceil(screenWidth/8) x ceil(screenHeight/8)` groups.
+REBLUR retains each kernel's original local size, shared-memory layout and
+barriers. CPU-prepared UBO values restrict the active workgroups:
 
-All fields default to the existing full-resolution behavior. Bounce uses
-image/dispatch divisors of 2. Tile maps use image divisors of 32 for bounce
-and 16 for reflection. Tile classification covers 16x16 pixels per group;
-its physical local size is 8x4. Regular passes retain their original local sizes.
+* uvec4 slot 56.xy: counts for 8x8 pixel coverage (frontend).
+* uvec4 slot 56.zw: counts for 8x16 pixel coverage (regular filter passes).
+* uvec4 slot 57.xy: counts for 16x16 pixel coverage (prepass and tile classifier).
+
+Bounce counts use half the logical width and height; reflection uses full
+logical resolution. Every surplus workgroup returns uniformly before any
+shared-memory operation or barrier. The CPU checks that these limits do not
+overlap the reference constant block. No active workgroup is split or remapped.
 
 ## CPU constants
 
@@ -95,8 +101,8 @@ B=0.1 and C=20 in both CPU constants and the GPU frontend.
 ## Checks and regeneration
 
 `python ref/vk/tests/reblur_graph.py` exercises the actual graph serializer
-using declaration-only shader stand-ins. It checks formats, dimensions,
-producer order, dispatch geometry and all 13 history pairs without compiling
+using declaration-only shader stand-ins. It checks the original MEAT format,
+producer order, UBO group limits and all 13 history pairs without compiling
 shaders or starting Vulkan. It does not validate shader compilation or image quality.
 
 `python ref/vk/tests/nrd_contract.py` checks the reference schedules and

@@ -484,7 +484,6 @@ class Resources:
 			self.type = node.getType() if node else None
 			self.dependency = dependency
 			self.producer = None
-			self.extent_divisor = None
 
 		def checkSameTypeNode(self, node):
 			if node is None:
@@ -502,8 +501,6 @@ class Resources:
 			self.type.serialize(out)
 			if self.type.is_image:
 				out.writeU32((self.dependency + 1) if self.dependency is not None else 0)
-				for divisor in (self.extent_divisor or (1, 1)):
-					out.writeU32(divisor)
 
 resources = Resources()
 
@@ -749,38 +746,10 @@ class PipelineCompute(Pipeline):
 	def __init__(self, name, desc):
 		super().__init__(name, PIPELINE_COMPUTE)
 		self.comp = self.addShader(desc['comp'], Binding.STAGE_COMPUTE_BIT)
-		self.image_divisor = tuple(desc.get('image_divisor', (1, 1)))
-		self.dispatch_divisor = tuple(desc.get('dispatch_divisor', (1, 1)))
-		self.group_span = desc.get('group_span')
-		for value in (self.image_divisor, self.dispatch_divisor, self.group_span or (1,1)):
-			if len(value) != 2 or any(not isinstance(v,int) or v < 1 for v in value):
-				raise ValueError('Invalid compute extent: ' + name)
-
-	def bindings(self):
-		bindings = super().bindings()
-		for binding in bindings:
-			resource = binding.getResource()
-			if binding.create and resource.type.is_image:
-				if resource.extent_divisor is not None and resource.extent_divisor != self.image_divisor:
-					raise ValueError('Conflicting image dimensions: ' + resource.name)
-				resource.extent_divisor = self.image_divisor
-		return bindings
-
-	def workgroupSize(self):
-		data = struct.unpack('<%dI' % (len(self.comp.getRawData()) // 4), self.comp.getRawData())
-		offset = 5
-		while offset < len(data):
-			words, opcode = data[offset] >> 16, data[offset] & 65535
-			if opcode == spvOp['OpExecutionMode'] and data[offset+2] == spv['ExecutionMode']['LocalSize']:
-				return data[offset+3:offset+5]
-			offset += words
-		raise ValueError('Missing fixed compute workgroup size: ' + self.name)
 
 	def serialize(self, out):
 		super().serialize(out)
 		out.writeU32(shaders.getIndex(self.comp))
-		for value in self.dispatch_divisor + tuple(self.group_span or self.workgroupSize()):
-			out.writeU32(value)
 
 def parsePipeline(pipelines_desc, name, desc):
 	if 'inherit' in desc:
@@ -820,11 +789,9 @@ def loadPipelines():
 	return pipelines
 
 def writeOutput(file, pipelines):
-	MAGIC = bytearray([ord(c) for c in 'MEA2'])
+	MAGIC = bytearray([ord(c) for c in 'MEAT'])
 	out = Serializer(file)
 	out.write(MAGIC)
-	for pipeline in pipelines:
-		pipeline.bindings()
 	resources.serialize(out)
 	shaders.serialize(out)
 	pipelines.serialize(out)

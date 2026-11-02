@@ -167,7 +167,17 @@ def transform(kernel, resource_map, bounce, frontend=False):
     # Extensions must precede declarations in GLSL.
     end = source.index('layout(local_size_')
     source = source[:end] + insertion + source[end:]
-    source = re.sub(r'(void main\(\)\s*\{)', r'\1\n    if(!reblurEnabled()) return;\n    reblurLoadConstants();', source)
+    # The engine always dispatches ceil(screen/8) groups along both axes.
+    # Cull entire surplus groups before any shared-memory access or barrier.
+    if frontend:
+        group_limit = 'reblurData(56).xy'  # 8x8 pixel span
+    elif 'ClassifyTiles' in kernel['source'] or 'PrePass' in kernel['source']:
+        group_limit = 'reblurData(57).xy'  # 16x16 pixel span
+    else:
+        assert reflection['entryPoints'][0]['workgroup_size'][:2] == [8,16]
+        group_limit = 'reblurData(56).zw'  # 8x16 pixel span
+    source = re.sub(r'(void main\(\)\s*\{)',
+                    r'\1\n    if(!reblurEnabled()) return;\n    if(any(greaterThanEqual(gl_WorkGroupID.xy,' + group_limit + r'))) return;\n    reblurLoadConstants();', source)
     assert not re.search(r'\b(texture2D|utexture2D|sampler2D|textureLod|texelFetch|textureGather)\b', source), (kernel['name'], re.findall(r'.*(?:texture2D|sampler2D|textureGather|textureLod|texelFetch).*', source))
     return source
 
@@ -200,7 +210,7 @@ def generate():
         mapping.update({(True,64+i): ('out_'+prefix+'_'+name,fmt) for i,(name,fmt) in enumerate([external[1],external[2],external[0],external[6]])})
         shader_name = signal + '_prepare'
         (OUT / (shader_name+'.comp')).write_text(transform(frontend,mapping,bounce,True))
-        entries[prefix+'_prepare'] = {'comp':'reblur/'+shader_name,'image_divisor':[2,2] if bounce else [1,1], 'dispatch_divisor':[2,2] if bounce else [1,1]}
+        entries[prefix+'_prepare'] = {'comp':'reblur/'+shader_name}
         seen = set()
         for index in SEQUENCE:
             stage = graph['passes'][index]
@@ -212,10 +222,7 @@ def generate():
             stage_name = kernel['source'].removeprefix('REBLUR_').removesuffix('.cs.hlsl').lower()
             shader_name = signal + '_' + stage_name
             (OUT / (shader_name+'.comp')).write_text(transform(kernel,mapping,bounce))
-            desc = {'comp':'reblur/'+shader_name,'image_divisor':[2,2] if bounce else [1,1], 'dispatch_divisor':[2,2] if bounce else [1,1]}
-            if index == 0:
-                desc['image_divisor'] = [32,32] if bounce else [16,16]
-                desc['group_span'] = [16,16]
+            desc = {'comp':'reblur/'+shader_name}
             entries[prefix+'_'+stage_name] = desc
             seen.update(PERMANENT[r['id']-1000] for r in stage['outputs'] if 1000<=r['id']<2000)
     return entries

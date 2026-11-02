@@ -40,7 +40,6 @@ typedef struct {
 typedef struct {
 	ray_pass_t header;
 	VkPipeline pipeline;
-	uint32_t dispatch_divisor[2],group_span[2];
 } ray_pass_compute_impl_t;
 
 static void initPassDescriptors( ray_pass_t *header, const ray_pass_layout_t *layout ) {
@@ -202,10 +201,6 @@ struct ray_pass_s *RayPassCreateCompute( const ray_pass_create_compute_t *create
 		.specialization_info = create->specialization,
 	};
 
-	for(int axis=0;axis<2;axis++) {
-		pass->dispatch_divisor[axis] = create->dispatch_divisor[axis] ? create->dispatch_divisor[axis] : 1;
-		pass->group_span[axis] = create->group_span[axis] ? create->group_span[axis] : 8;
-	}
 	pass->pipeline = VK_PipelineComputeCreate( &pcci );
 	if (pass->pipeline == VK_NULL_HANDLE) {
 		VK_DescriptorsDestroy(&header->desc.riptors);
@@ -254,9 +249,8 @@ static void performTracing( vk_combuf_t* combuf, int set_slot, const ray_pass_tr
 }
 
 static void performCompute( vk_combuf_t *combuf, int set_slot, const ray_pass_compute_impl_t *compute, int width, int height, int scope_id) {
-	const uint32_t WG_W = compute->group_span[0], WG_H = compute->group_span[1];
-	width /= compute->dispatch_divisor[0];
-	height /= compute->dispatch_divisor[1];
+	const uint32_t WG_W = 8;
+	const uint32_t WG_H = 8;
 
 	const VkCommandBuffer cmdbuf = combuf->cmdbuf;
 

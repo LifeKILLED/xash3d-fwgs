@@ -13,7 +13,7 @@
 #define MIN(a,b) ((a)<(b)?(a):(b))
 
 #define CHAR4UINT(a,b,c,d) (((d)<<24)|((c)<<16)|((b)<<8)|(a))
-static const uint32_t k_meatpipe_magic = CHAR4UINT('M', 'E', 'A', '2');
+static const uint32_t k_meatpipe_magic = CHAR4UINT('M', 'E', 'A', 'T');
 
 enum {
 	MEATPIPE_RES_WRITE = (1<<0),
@@ -29,7 +29,6 @@ typedef struct {
 	union {
 		uint32_t image_format;
 	};
-	uint32_t extent_divisor[2];
 
 	// Index+1 of resource image to read data from if this resource is a "previous frame" contents of another one.
 	// Value of zero means that it is a standalone resource. The real index is the value - 1.
@@ -149,16 +148,10 @@ static struct ray_pass_s *pipelineLoadCompute(load_context_t *ctx, int i, const 
 		return NULL;
 	}
 
-	uint32_t divisor[2], span[2];
-	for(int axis=0;axis<2;axis++) divisor[axis] = READ_U32_RETURN(NULL,"Missing dispatch divisor");
-	for(int axis=0;axis<2;axis++) span[axis] = READ_U32_RETURN(NULL,"Missing workgroup span");
-	if(!divisor[0] || !divisor[1] || !span[0] || !span[1]) return NULL;
 	const ray_pass_create_compute_t rpcc = {
 		.debug_name = name,
 		.layout = *layout,
 		.shader_module = ctx->shaders[shader_comp],
-		.dispatch_divisor = {divisor[0],divisor[1]},
-		.group_span = {span[0],span[1]},
 	};
 
 	return RayPassCreateCompute(&rpcc);
@@ -353,8 +346,6 @@ static qboolean readResources(load_context_t *ctx) {
 		if (is_image) {
 			res->image_format = READ_U32("Couldn't read image format for res %d:%s", i, res->name);
 			res->prev_frame_index_plus_1 = READ_U32("Couldn't read resource %d:%s previous frame index", i, res->name);
-			for(int axis=0;axis<2;axis++) res->extent_divisor[axis] = READ_U32("Missing image extent divisor");
-			if(!res->extent_divisor[0] || !res->extent_divisor[1]) goto finalize;
 		}
 
 		DEBUG("Resource %d:%s = %08x is_image=%d image_format=%08x count=%d",
@@ -530,8 +521,6 @@ static rt_resource_t *createStorageImageResource(const vk_meatpipe_resource_t *c
 		return NULL;
 	}
 
-	max_width = (max_width + mr->extent_divisor[0]-1)/mr->extent_divisor[0];
-	max_height = (max_height + mr->extent_divisor[1]-1)/mr->extent_divisor[1];
 	vk_resource_storage_image_t *res = NULL;
 	rt_resource_t *found = R_VkResourceFindByName(mr->name);
 	if (found) {
