@@ -6,37 +6,48 @@
 #include "../shaders/ray_interop.h"
 #undef vec2
 #undef mat4
-#ifdef _MSC_VER
-#include <intrin.h>
-#endif
+extern "C" {
+#include "../vk_math.h"
+}
 #define NRD_VERSION_MAJOR 4
 #define NRD_VERSION_MINOR 18
 #include "vendor/NRD/NRDSettings.h"
-// MathLib remaps SIMD intrinsics; platform headers must precede it.
-#include "vendor/MathLib/ml.h"
-#include "vendor/MathLib/ml.hlsli"
 using namespace nrd;
 
-static float4x4 reblurLoadMatrix(const matrix4x4 source) {
- const float *p=&source[0][0];
- return float4x4(float4(p),float4(p+4),float4(p+8),float4(p+12));
-}
-static void reblurStoreMatrix(matrix4x4 destination,float4x4 value) {
- // Preserve the row-major interpretation used by the ported shader arithmetic.
- value.Transpose();memcpy(destination,value.a,64);
-}
-template<class T,size_t N,class V>
-static void reblurStoreVector(T (&destination)[N],const V& value) {
- static_assert(sizeof(value)<=sizeof(destination),"REBLUR vector exceeds its UBO field");
- memcpy(destination,&value,sizeof(value));
+// UBO inputs are column-major; the ported REBLUR parameters expect row-major.
+static void reblurStoreMatrix(matrix4x4 destination,const matrix4x4 value) {
+ Matrix4x4_Copy(destination,value);
 }
 
-static void halfProjection(float *projection,unsigned width,unsigned height) {
+template<class T,size_t N,class... V>
+static void reblurStoreVector(T (&destination)[N],V... values) {
+ static_assert(sizeof...(values)<=N,"REBLUR vector exceeds its UBO field");
+ const T data[N]={static_cast<T>(values)...};
+ memcpy(destination,data,sizeof(data));
+}
+
+static void reblurFrustum(const matrix4x4 projection,vec4_t frustum) {
+ // Side-plane intercepts for the renderer's perspective projection.
+ const float x0=(projection[3][2]+projection[0][2])/(projection[3][0]+projection[0][0]);
+ const float x1=(projection[3][2]-projection[0][2])/(projection[3][0]-projection[0][0]);
+ const float y0=(projection[3][2]+projection[1][2])/(projection[3][1]+projection[1][1]);
+ const float y1=(projection[3][2]-projection[1][2])/(projection[3][1]-projection[1][1]);
+ Vector4Set(frustum,-x0,-y1,x0-x1,y1-y0);
+}
+
+static void reblurRotator(vec4_t rotator,float phase,unsigned frame,float offset) {
+ const float value=phase+(float)(frame*10368889u)/16777216.0f;
+ float sine,cosine;
+ SinCos((value-floorf(value))*DEG2RAD(90.0f)+offset,&sine,&cosine);
+ Vector4Set(rotator,cosine,sine,-sine,cosine);
+}
+
+static void halfProjection(matrix4x4 projection,unsigned width,unsigned height) {
  float scaleX=(float)width/(2*(width/2)),scaleY=(float)height/(2*(height/2));
  float biasX=scaleX-1.0f+0.5f/(width/2),biasY=scaleY-1.0f+0.5f/(height/2);
  for(unsigned column=0;column<4;column++) {
-  projection[column*4]=projection[column*4]*scaleX+projection[column*4+3]*biasX;
-  projection[column*4+1]=projection[column*4+1]*scaleY+projection[column*4+3]*biasY;
+  projection[0][column]=projection[0][column]*scaleX+projection[3][column]*biasX;
+  projection[1][column]=projection[1][column]*scaleY+projection[3][column]*biasY;
  }
 }
 
@@ -45,83 +56,57 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
  ReblurSettings settings;
  settings.hitDistanceParameters.A=118.11024f;
  unsigned rectW=ubo->res[0],rectH=ubo->res[1],rectWprev=previousWidth,rectHprev=previousHeight;
- float4x4 viewToClip=reblurLoadMatrix(ubo->proj),viewToClipPrev=reblurLoadMatrix(ubo->prev_proj);
+ matrix4x4 viewToClip,viewToClipPrev,worldToView,worldToViewPrev;
+ matrix4x4 viewToWorld,viewToWorldPrev,worldToClip,worldToClipPrev,worldPrevToWorld;
+ Matrix4x4_FromArrayFloatGL(viewToClip,&ubo->proj[0][0]);
+ Matrix4x4_FromArrayFloatGL(viewToClipPrev,&ubo->prev_proj[0][0]);
+ Matrix4x4_FromArrayFloatGL(worldToView,&ubo->view[0][0]);
+ Matrix4x4_FromArrayFloatGL(worldToViewPrev,&ubo->prev_view[0][0]);
  if(signal==0) {
-  halfProjection(viewToClip.a,rectW,rectH);halfProjection(viewToClipPrev.a,rectWprev,rectHprev);
+  halfProjection(viewToClip,rectW,rectH);halfProjection(viewToClipPrev,rectWprev,rectHprev);
   rectW/=2;rectH/=2;rectWprev/=2;rectHprev/=2;
  }
- for(unsigned column=0;column<4;column++) {viewToClip.a[column*4+1]*=-1.0f;viewToClipPrev.a[column*4+1]*=-1.0f;}
- unsigned resourceW=rectW,resourceH=rectH,resourceWprev=rectWprev,resourceHprev=rectHprev;
- float4x4 worldToView=reblurLoadMatrix(ubo->view),worldToViewPrev=reblurLoadMatrix(ubo->prev_view);
- float4x4 viewToWorld,viewToWorldPrev,worldToClip,worldToClipPrev;
- float4x4 worldPrevToWorld=float4x4::Identity();
- float4 frustum=float4::Zero(),frustumPrev=float4::Zero();
- float3 viewDirection,viewDirectionPrev,cameraDelta;
- float projectY,orthoMode;
- float anglePre=Sequence::Weyl1D(1.0f/sqrt(2.0f),ubo->frame_counter);
- float angle=Sequence::Weyl1D(1.0f/sqrt(3.0f),ubo->frame_counter);
- float4 rotatorPre=Geometry::GetRotator(anglePre*radians(90.0f));
- float4 rotator=Geometry::GetRotator(angle*radians(90.0f));
- float4 rotatorPost=Geometry::GetRotator(angle*radians(90.0f)+radians(22.5f));
-    // Convert to LH
-    uint32_t flags = 0;
-    DecomposeProjection(STYLE_D3D, STYLE_D3D, viewToClip, &flags, nullptr, nullptr, frustum.a, nullptr, nullptr);
-
-    if (!(flags & PROJ_LEFT_HANDED)) {
-        viewToClip[2] = -viewToClip[2];
-        viewToClipPrev[2] = -viewToClipPrev[2];
-
-        worldToView.Transpose();
-        worldToView[2] = -worldToView[2];
-        worldToView.Transpose();
-
-        worldToViewPrev.Transpose();
-        worldToViewPrev[2] = -worldToViewPrev[2];
-        worldToViewPrev.Transpose();
-    }
-
-    // Compute other matrices
-    viewToWorld = worldToView;
-    viewToWorld.InvertOrtho();
-
-    viewToWorldPrev = worldToViewPrev;
-    viewToWorldPrev.InvertOrtho();
-
-    const float3& cameraPosition = viewToWorld[3].xyz;
-    const float3& cameraPositionPrev = viewToWorldPrev[3].xyz;
-    float3 translationDelta = cameraPositionPrev - cameraPosition;
-
-    // IMPORTANT: this part is mandatory needed to preserve precision by making matrices camera relative
-    viewToWorld.SetTranslation(float3::Zero());
-    worldToView = viewToWorld;
-    worldToView.InvertOrtho();
-
-    viewToWorldPrev.SetTranslation(translationDelta);
-    worldToViewPrev = viewToWorldPrev;
-    worldToViewPrev.InvertOrtho();
-
-    worldToClip = viewToClip * worldToView;
-    worldToClipPrev = viewToClipPrev * worldToViewPrev;
-
-    float project[3];
-    DecomposeProjection(STYLE_D3D, STYLE_D3D, viewToClip, &flags, nullptr, nullptr, frustum.a, project, nullptr);
-
-    projectY = project[1];
-    orthoMode = (flags & PROJ_ORTHO) ? -1.0f : 0.0f;
-
-    DecomposeProjection(STYLE_D3D, STYLE_D3D, viewToClipPrev, &flags, nullptr, nullptr, frustumPrev.a, nullptr, nullptr);
-
-    viewDirection = -float3(viewToWorld[2]);
-    viewDirectionPrev = -float3(viewToWorldPrev[2]);
-
-    cameraDelta = float3(translationDelta.x, translationDelta.y, translationDelta.z);
+ for(unsigned column=0;column<4;column++) {
+  viewToClip[1][column]*=-1.0f;viewToClipPrev[1][column]*=-1.0f;
+ }
+ const unsigned resourceW=rectW,resourceH=rectH,resourceWprev=rectWprev,resourceHprev=rectHprev;
+ // Xash perspective projections have clip.w = -view.z before LH conversion.
+ if(viewToClip[3][2]<0.0f) {
+  for(unsigned i=0;i<4;i++) {
+   viewToClip[i][2]*=-1.0f;viewToClipPrev[i][2]*=-1.0f;
+   worldToView[2][i]*=-1.0f;worldToViewPrev[2][i]*=-1.0f;
+  }
+ }
+ Matrix4x4_Invert_Simple(viewToWorld,worldToView);
+ Matrix4x4_Invert_Simple(viewToWorldPrev,worldToViewPrev);
+ vec3_t cameraPosition,cameraPositionPrev,cameraDelta,viewDirection,viewDirectionPrev;
+ for(unsigned i=0;i<3;i++) {
+  cameraPosition[i]=viewToWorld[i][3];cameraPositionPrev[i]=viewToWorldPrev[i][3];
+  viewDirection[i]=-viewToWorld[i][2];viewDirectionPrev[i]=-viewToWorldPrev[i][2];
+ }
+ VectorSubtract(cameraPositionPrev,cameraPosition,cameraDelta);
+ for(unsigned i=0;i<3;i++) {
+  viewToWorld[i][3]=0.0f;viewToWorldPrev[i][3]=cameraDelta[i];
+ }
+ Matrix4x4_Invert_Simple(worldToView,viewToWorld);
+ Matrix4x4_Invert_Simple(worldToViewPrev,viewToWorldPrev);
+ Matrix4x4_Concat(worldToClip,viewToClip,worldToView);
+ Matrix4x4_Concat(worldToClipPrev,viewToClipPrev,worldToViewPrev);
+ Matrix4x4_LoadIdentity(worldPrevToWorld);
+ vec4_t frustum,frustumPrev,rotatorPre,rotator,rotatorPost;
+ reblurFrustum(viewToClip,frustum);reblurFrustum(viewToClipPrev,frustumPrev);
+ const float projectY=fabsf(viewToClip[1][1]);
+ const float orthoMode=0.0f;
+ reblurRotator(rotatorPre,1.0f/sqrtf(2.0f),ubo->frame_counter,0.0f);
+ reblurRotator(rotator,1.0f/sqrtf(3.0f),ubo->frame_counter,0.0f);
+ reblurRotator(rotatorPost,1.0f/sqrtf(3.0f),ubo->frame_counter,DEG2RAD(22.5f));
  static float smoothedMilliseconds[2]={16.66f,16.66f};
  float &timeDeltaSmoothed=smoothedMilliseconds[signal];
- float timeDelta=max(deltaMilliseconds,0.1f);
+ float timeDelta=Q_max(deltaMilliseconds,0.1f);
  if(reset) timeDeltaSmoothed=timeDelta;
  else timeDeltaSmoothed+=(timeDelta-timeDeltaSmoothed)/(1.0f+200.0f/timeDeltaSmoothed);
- float frameRateScale=clamp(16.66f/timeDelta,0.25f,4.0f);
- float frameRateScaleSmoothed=clamp(16.66f/timeDeltaSmoothed,0.25f,4.0f);
+ float frameRateScale=bound(0.25f,16.66f/timeDelta,4.0f);
+ float frameRateScaleSmoothed=bound(0.25f,16.66f/timeDeltaSmoothed,4.0f);
  float jitterDelta=0.0f;
  float speed=frameRateScale*15.0f;
  float checkerboardResolveAccumSpeed=speed/(1.0f+speed);
@@ -130,13 +115,13 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
     bool isRectChanged = rectW != rectWprev || rectH != rectHprev;
     bool isHistoryReset = reset != 0;
     float unproject = 1.0f / (0.5f * rectH * projectY);
-    float worstResolutionScale = min(float(rectW) / float(resourceW), float(rectH) / float(resourceH));
+    float worstResolutionScale = Q_min(float(rectW) / float(resourceW), float(rectH) / float(resourceH));
     float maxBlurRadius = settings.maxBlurRadius * worstResolutionScale;
     float diffusePrepassBlurRadius = settings.diffusePrepassBlurRadius * worstResolutionScale;
     float specularPrepassBlurRadius = settings.specularPrepassBlurRadius * worstResolutionScale;
     float disocclusionThresholdBonus = (1.0f + jitterDelta) / float(rectH);
     float stabilizationStrength = settings.maxStabilizedFrameNum / (1.0f + settings.maxStabilizedFrameNum);
-    uint32_t maxAccumulatedFrameNum = min(settings.maxAccumulatedFrameNum, REBLUR_MAX_HISTORY_FRAME_NUM);
+    uint32_t maxAccumulatedFrameNum = Q_min(settings.maxAccumulatedFrameNum, REBLUR_MAX_HISTORY_FRAME_NUM);
 
     uint32_t diffCheckerboard = 2;
     uint32_t specCheckerboard = 2;
@@ -159,34 +144,34 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
     reblurStoreMatrix(ubo->reblur_world_to_view_prev[signal], worldToViewPrev);
     reblurStoreMatrix(ubo->reblur_world_to_clip_prev[signal], worldToClipPrev);
     reblurStoreMatrix(ubo->reblur_world_prev_to_world[signal], worldPrevToWorld);
-    reblurStoreVector(ubo->reblur_rotator_pre[signal], rotatorPre);
-    reblurStoreVector(ubo->reblur_rotator[signal], rotator);
-    reblurStoreVector(ubo->reblur_rotator_post[signal], rotatorPost);
-    reblurStoreVector(ubo->reblur_frustum[signal], frustum);
-    reblurStoreVector(ubo->reblur_frustum_prev[signal], frustumPrev);
-    reblurStoreVector(ubo->reblur_camera_delta[signal], cameraDelta.xmm);
-    reblurStoreVector(ubo->reblur_hit_dist_settings[signal], float4(settings.hitDistanceParameters.A, settings.hitDistanceParameters.B, settings.hitDistanceParameters.C, 0.0f));
-    reblurStoreVector(ubo->reblur_view_vector_world[signal], viewDirection.xmm);
-    reblurStoreVector(ubo->reblur_view_vector_world_prev[signal], viewDirectionPrev.xmm);
-    reblurStoreVector(ubo->reblur_mv_scale[signal], float4(1.0f, 1.0f, 1.0f, true ? 1.0f : 0.0f));
-    reblurStoreVector(ubo->reblur_mv_bias[signal], float4(0.0f, 0.0f, 0.0f, 0.0f));
-    reblurStoreVector(ubo->reblur_convergence_settings[signal], float4(settings.convergenceSettings.s, settings.convergenceSettings.b, settings.convergenceSettings.p, 0.0f));
-    reblurStoreVector(ubo->reblur_antilag_settings[signal], float2(settings.antilagSettings.luminanceSigmaScale, settings.antilagSettings.luminanceSensitivity));
-    reblurStoreVector(ubo->reblur_resource_size[signal], float2(float(resourceW), float(resourceH)));
-    reblurStoreVector(ubo->reblur_resource_size_inv[signal], float2(1.0f / float(resourceW), 1.0f / float(resourceH)));
-    reblurStoreVector(ubo->reblur_resource_size_inv_prev[signal], float2(1.0f / float(resourceWprev), 1.0f / float(resourceHprev)));
-    reblurStoreVector(ubo->reblur_rect_size[signal], float2(float(rectW), float(rectH)));
-    reblurStoreVector(ubo->reblur_rect_size_inv[signal], float2(1.0f / float(rectW), 1.0f / float(rectH)));
-    reblurStoreVector(ubo->reblur_rect_size_prev[signal], float2(float(rectWprev), float(rectHprev)));
-    reblurStoreVector(ubo->reblur_resolution_scale[signal], float2(float(rectW) / float(resourceW), float(rectH) / float(resourceH)));
-    reblurStoreVector(ubo->reblur_resolution_scale_prev[signal], float2(float(rectWprev) / float(resourceWprev), float(rectHprev) / float(resourceHprev)));
-    reblurStoreVector(ubo->reblur_jitter[signal], float2(0.0f, 0.0f));
-    reblurStoreVector(ubo->reblur_printf_at[signal], uint2(9999u, 9999u));
-    reblurStoreVector(ubo->reblur_input_rect_origin[signal], int2(0, 0));
-    reblurStoreVector(ubo->reblur_output_rect_origin[signal], int2(0, 0));
-    reblurStoreVector(ubo->reblur_dispatch_input_rect_origin[signal], int2(0, 0));
-    reblurStoreVector(ubo->reblur_dispatch_output_rect_origin[signal], int2(0, 0));
-    reblurStoreVector(ubo->reblur_rect_size_minus_one[signal], int2(rectW - 1, rectH - 1));
+    memcpy(ubo->reblur_rotator_pre[signal],rotatorPre,sizeof(rotatorPre));
+    memcpy(ubo->reblur_rotator[signal],rotator,sizeof(rotator));
+    memcpy(ubo->reblur_rotator_post[signal],rotatorPost,sizeof(rotatorPost));
+    memcpy(ubo->reblur_frustum[signal],frustum,sizeof(frustum));
+    memcpy(ubo->reblur_frustum_prev[signal],frustumPrev,sizeof(frustumPrev));
+    reblurStoreVector(ubo->reblur_camera_delta[signal], cameraDelta[0], cameraDelta[1], cameraDelta[2], 0.0f);
+    reblurStoreVector(ubo->reblur_hit_dist_settings[signal], settings.hitDistanceParameters.A, settings.hitDistanceParameters.B, settings.hitDistanceParameters.C, 0.0f);
+    reblurStoreVector(ubo->reblur_view_vector_world[signal], viewDirection[0], viewDirection[1], viewDirection[2], 0.0f);
+    reblurStoreVector(ubo->reblur_view_vector_world_prev[signal], viewDirectionPrev[0], viewDirectionPrev[1], viewDirectionPrev[2], 0.0f);
+    reblurStoreVector(ubo->reblur_mv_scale[signal], 1.0f, 1.0f, 1.0f, true ? 1.0f : 0.0f);
+    reblurStoreVector(ubo->reblur_mv_bias[signal], 0.0f, 0.0f, 0.0f, 0.0f);
+    reblurStoreVector(ubo->reblur_convergence_settings[signal], settings.convergenceSettings.s, settings.convergenceSettings.b, settings.convergenceSettings.p, 0.0f);
+    reblurStoreVector(ubo->reblur_antilag_settings[signal], settings.antilagSettings.luminanceSigmaScale, settings.antilagSettings.luminanceSensitivity);
+    reblurStoreVector(ubo->reblur_resource_size[signal], float(resourceW), float(resourceH));
+    reblurStoreVector(ubo->reblur_resource_size_inv[signal], 1.0f / float(resourceW), 1.0f / float(resourceH));
+    reblurStoreVector(ubo->reblur_resource_size_inv_prev[signal], 1.0f / float(resourceWprev), 1.0f / float(resourceHprev));
+    reblurStoreVector(ubo->reblur_rect_size[signal], float(rectW), float(rectH));
+    reblurStoreVector(ubo->reblur_rect_size_inv[signal], 1.0f / float(rectW), 1.0f / float(rectH));
+    reblurStoreVector(ubo->reblur_rect_size_prev[signal], float(rectWprev), float(rectHprev));
+    reblurStoreVector(ubo->reblur_resolution_scale[signal], float(rectW) / float(resourceW), float(rectH) / float(resourceH));
+    reblurStoreVector(ubo->reblur_resolution_scale_prev[signal], float(rectWprev) / float(resourceWprev), float(rectHprev) / float(resourceHprev));
+    reblurStoreVector(ubo->reblur_jitter[signal], 0.0f, 0.0f);
+    reblurStoreVector(ubo->reblur_printf_at[signal], 9999u, 9999u);
+    reblurStoreVector(ubo->reblur_input_rect_origin[signal], 0, 0);
+    reblurStoreVector(ubo->reblur_output_rect_origin[signal], 0, 0);
+    reblurStoreVector(ubo->reblur_dispatch_input_rect_origin[signal], 0, 0);
+    reblurStoreVector(ubo->reblur_dispatch_output_rect_origin[signal], 0, 0);
+    reblurStoreVector(ubo->reblur_rect_size_minus_one[signal], rectW - 1, rectH - 1);
     ubo->reblur_disocclusion_threshold[signal] = 0.01f + disocclusionThresholdBonus;
     ubo->reblur_disocclusion_threshold_alternate[signal] = 0.05f + disocclusionThresholdBonus;
     ubo->reblur_camera_attached_reflection_material_id[signal] = 999.0f;
@@ -200,7 +185,7 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
     ubo->reblur_plane_dist_sensitivity[signal] = settings.planeDistanceSensitivity;
     ubo->reblur_frame_rate_scale[signal] = frameRateScale;
     ubo->reblur_frame_rate_scale_smoothed[signal] = frameRateScaleSmoothed;
-    ubo->reblur_max_blur_radius[signal] = max(maxBlurRadius, settings.minBlurRadius);
+    ubo->reblur_max_blur_radius[signal] = Q_max(maxBlurRadius, settings.minBlurRadius);
     ubo->reblur_min_blur_radius[signal] = settings.minBlurRadius;
     ubo->reblur_diff_prepass_blur_radius[signal] = diffusePrepassBlurRadius;
     ubo->reblur_spec_prepass_blur_radius[signal] = specularPrepassBlurRadius;
@@ -213,8 +198,8 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
     ubo->reblur_history_fix_base_pixel_stride[signal] = (float)settings.historyFixBasePixelStride;
     ubo->reblur_history_fix_alternate_pixel_stride[signal] = (float)settings.historyFixAlternatePixelStride;
     ubo->reblur_history_fix_alternate_pixel_stride_material_id[signal] = 999.0f;
-    ubo->reblur_fast_history_clamping_sigma_scale[signal] = lerp(3.0f, settings.fastHistoryClampingSigmaScale, saturate(max(maxBlurRadius, settings.minBlurRadius) / 2.0f));
-    ubo->reblur_min_rect_dim_mul_unproject[signal] = (float)min(rectW, rectH) * unproject;
+    ubo->reblur_fast_history_clamping_sigma_scale[signal] = 3.0f + (settings.fastHistoryClampingSigmaScale - 3.0f) * bound(0.0f, Q_max(maxBlurRadius, settings.minBlurRadius) / 2.0f, 1.0f);
+    ubo->reblur_min_rect_dim_mul_unproject[signal] = (float)Q_min(rectW, rectH) * unproject;
     ubo->reblur_use_prepass_not_only_for_specular_motion_estimation[signal] = settings.usePrepassOnlyForSpecularMotionEstimation ? 0.0f : 1.0f;
     ubo->reblur_split_screen[signal] = 0.0f;
     ubo->reblur_split_screen_prev[signal] = splitScreenPrev;
@@ -224,7 +209,7 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
     ubo->reblur_min_hit_distance_weight[signal] = settings.minHitDistanceWeight;
     ubo->reblur_diff_min_material[signal] = settings.minMaterialForDiffuse;
     ubo->reblur_spec_min_material[signal] = settings.minMaterialForSpecular;
-    ubo->reblur_responsive_accumulation_inv_roughness_threshold[signal] = 1.0f / max(settings.responsiveAccumulationSettings.roughnessThreshold, 1e-3f);
+    ubo->reblur_responsive_accumulation_inv_roughness_threshold[signal] = 1.0f / Q_max(settings.responsiveAccumulationSettings.roughnessThreshold, 1e-3f);
     ubo->reblur_responsive_accumulation_min_accumulated_frame_num[signal] = settings.responsiveAccumulationSettings.minAccumulatedFrameNum;
     ubo->reblur_has_history_confidence[signal] = false;
     ubo->reblur_has_disocclusion_threshold_mix[signal] = false;

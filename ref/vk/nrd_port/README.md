@@ -3,7 +3,9 @@
 This is a derivative port of NVIDIA NRD 4.18.0, commit
 `8f12a22fc90e6a3c7f5da4c9c3103633c842963a`, with MathLib v11,
 commit `aa432ad9a80691eb8c3ec4d576bbad5ac100fdc8`.
-The NVIDIA license and MathLib notice are preserved in this directory.
+The NVIDIA license and MathLib notice are preserved in this directory for
+the translated shader sources. CPU preparation uses Xash3D math exclusively;
+no MathLib headers are needed by the renderer.
 
 ## Running
 
@@ -94,8 +96,11 @@ Matrix and vector fields have two entries: signal 0 is bounce, signal 1 is
 reflection. Per-signal float/uint scalars are stored as vec2/uvec2 pairs.
 Two-component vectors occupy vec4/ivec4/uvec4 array entries to preserve the
 same array stride in C and std140. Explicit C padding matches GLSL alignment.
-The matrix store helper retains the transposed interpretation expected by
-the ported shader arithmetic.
+Input matrices are converted with Matrix4x4_FromArrayFloatGL. Inversion and
+composition use Matrix4x4_Invert_Simple and Matrix4x4_Concat; row-major
+results retain the interpretation expected by the ported shader arithmetic.
+Rotators use SinCos; perspective frustum parameters come from the projection
+side planes. NRDSettings.h supplies filter defaults, not mathematical types.
 
 The only persistent calculation state is two smoothed frame-time values.
 Camera matrices and filter parameters are calculation locals, written straight
