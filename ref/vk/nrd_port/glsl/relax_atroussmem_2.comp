@@ -1,0 +1,799 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+#if defined(GL_EXT_control_flow_attributes)
+#extension GL_EXT_control_flow_attributes : require
+#define SPIRV_CROSS_FLATTEN [[flatten]]
+#define SPIRV_CROSS_BRANCH [[dont_flatten]]
+#define SPIRV_CROSS_UNROLL [[unroll]]
+#define SPIRV_CROSS_LOOP [[dont_unroll]]
+#else
+#define SPIRV_CROSS_FLATTEN
+#define SPIRV_CROSS_BRANCH
+#define SPIRV_CROSS_UNROLL
+#define SPIRV_CROSS_LOOP
+#endif
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+const float _137[2][2] = float[][](float[](0.25, 0.125), float[](0.125, 0.0625));
+const float _141[2] = float[](0.44198000431060791015625, 0.279009997844696044921875);
+vec4 _173;
+
+layout(set = 1, binding = 0, std140) uniform type_RELAX_AtrousSmemConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gFrustumRight;
+    vec4 gFrustumUp;
+    vec4 gFrustumForward;
+    vec4 gPrevFrustumRight;
+    vec4 gPrevFrustumUp;
+    vec4 gPrevFrustumForward;
+    vec4 gCameraDelta;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec2 gJitter;
+    vec2 gResolutionScale;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResourceSizeInvPrev;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSize;
+    float gSpecMaxAccumulatedFrameNum;
+    float gSpecMaxFastAccumulatedFrameNum;
+    float gDiffMaxAccumulatedFrameNum;
+    float gDiffMaxFastAccumulatedFrameNum;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gRoughnessFraction;
+    float gSpecVarianceBoost;
+    float gSplitScreen;
+    float gDiffBlurRadius;
+    float gSpecBlurRadius;
+    float gDepthThreshold;
+    float gLobeAngleFraction;
+    float gSpecLobeAngleSlack;
+    float gHistoryFixEdgeStoppingNormalPower;
+    float gRoughnessEdgeStoppingRelaxation;
+    float gNormalEdgeStoppingRelaxation;
+    float gFastHistoryClampingSigmaScale;
+    float gHistoryAccelerationAmount;
+    float gHistoryResetTemporalSigmaScale;
+    float gHistoryResetSpatialSigmaScale;
+    float gHistoryResetAmount;
+    float gDenoisingRange;
+    float gSpecPhiLuminance;
+    float gDiffPhiLuminance;
+    float gDiffMaxLuminanceRelativeDifference;
+    float gSpecMaxLuminanceRelativeDifference;
+    float gLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenRelaxationMultiplier;
+    float gConfidenceDrivenLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenNormalEdgeStoppingRelaxation;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gCheckerboardResolveAccumSpeed;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gHistoryThreshold;
+    float gViewZScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    uint gRoughnessEdgeStoppingEnabled;
+    uint gFrameIndex;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gResetHistory;
+    uint gStepSize;
+    int gIsLastPass;
+} RELAX_AtrousSmemConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_HistoryLength;
+layout(set = 0, binding = 2) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 3) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 4) uniform texture2D gIn_Spec_Variance;
+layout(set = 0, binding = 5) uniform texture2D gIn_SpecReprojectionConfidence;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Spec_Variance;
+layout(set = 0, binding = 65) uniform writeonly image2D gOut_NormalRoughness;
+layout(set = 0, binding = 66) uniform writeonly image2D gOut_MaterialID;
+layout(set = 0, binding = 67) uniform writeonly image2D gOut_ViewZ;
+
+shared vec4 s_Spec[12][12];
+shared vec4 s_Normal_Roughness[12][12];
+shared vec4 s_WorldPos_MaterialID[12][12];
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        ivec2 _192 = ivec2((((((uvec2(RELAX_AtrousSmemConstants.gRectSize) + uvec2(7u)) / uvec2(8u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(8u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        vec4 _196 = texelFetch(gIn_Tiles, ivec2(uvec2(_192 >> ivec2(4))), int(0u));
+        float _197 = _196.x;
+        if (_197 == 0.0)
+        {
+            uint _203 = gl_LocalInvocationIndex % 12u;
+            uint _204 = gl_LocalInvocationIndex / 12u;
+            uvec2 _206 = uvec2((_192 - ivec3(gl_LocalInvocationID).xy) - ivec2(2));
+            ivec2 _209 = RELAX_AtrousSmemConstants.gRectSize - ivec2(1);
+            ivec2 _210 = clamp(ivec2(_206 + uvec2(_203, _204)), ivec2(0), _209);
+            uvec2 _211 = uvec2(_210);
+            s_Spec[_204][_203] = texelFetch(gIn_Spec_Variance, ivec2(_211), int(0u));
+            vec4 _216 = texelFetch(gIn_Normal_Roughness, ivec2(_211), int(0u));
+            float _219 = (_216.z * 2.0) - 1.0;
+            float _220 = _216.x;
+            float _221 = _216.y;
+            float _222 = _220 - _221;
+            float _224 = (_220 + _221) - 1.0;
+            vec4 _234 = vec4(_222, _224, float((_219 < 0.0) ? (-1) : 1) * ((1.0 - abs(_222)) - abs(_224)), abs(_219));
+            vec3 _237 = _234.xyz;
+            vec3 _241 = _237 * inversesqrt(spvNMax(dot(_237, _237), 9.999999717180685365747194737196e-10));
+            s_Normal_Roughness[_204][_203] = vec4(_241.x, _241.y, _241.z, _234.w);
+            float _250 = abs(texelFetch(gIn_ViewZ, ivec2(_211), int(0u)).x * RELAX_AtrousSmemConstants.gViewZScale);
+            vec2 _257 = (((vec2(_210) + vec2(0.5)) * RELAX_AtrousSmemConstants.gRectSizeInv) * 2.0) - vec2(1.0);
+            bool _260 = RELAX_AtrousSmemConstants.gOrthoMode == 0.0;
+            vec3 _296;
+            if (_260)
+            {
+                _296 = ((RELAX_AtrousSmemConstants.gFrustumForward.xyz + (RELAX_AtrousSmemConstants.gFrustumRight.xyz * _257.x)) - (RELAX_AtrousSmemConstants.gFrustumUp.xyz * _257.y)) * _250;
+            }
+            else
+            {
+                _296 = ((RELAX_AtrousSmemConstants.gFrustumForward.xyz * _250) + (RELAX_AtrousSmemConstants.gFrustumRight.xyz * _257.x)) - (RELAX_AtrousSmemConstants.gFrustumUp.xyz * _257.y);
+            }
+            s_WorldPos_MaterialID[_204][_203] = vec4(_296, _216.w * 3.0);
+            uint _302 = gl_LocalInvocationIndex + 64u;
+            uint _303 = _302 % 12u;
+            uint _304 = _302 / 12u;
+            if (_302 < 144u)
+            {
+                ivec2 _311 = clamp(ivec2(_206 + uvec2(_303, _304)), ivec2(0), _209);
+                uvec2 _312 = uvec2(_311);
+                s_Spec[_304][_303] = texelFetch(gIn_Spec_Variance, ivec2(_312), int(0u));
+                vec4 _317 = texelFetch(gIn_Normal_Roughness, ivec2(_312), int(0u));
+                float _320 = (_317.z * 2.0) - 1.0;
+                float _321 = _317.x;
+                float _322 = _317.y;
+                float _323 = _321 - _322;
+                float _325 = (_321 + _322) - 1.0;
+                vec4 _335 = vec4(_323, _325, float((_320 < 0.0) ? (-1) : 1) * ((1.0 - abs(_323)) - abs(_325)), abs(_320));
+                vec3 _338 = _335.xyz;
+                vec3 _342 = _338 * inversesqrt(spvNMax(dot(_338, _338), 9.999999717180685365747194737196e-10));
+                s_Normal_Roughness[_304][_303] = vec4(_342.x, _342.y, _342.z, _335.w);
+                float _349 = abs(texelFetch(gIn_ViewZ, ivec2(_312), int(0u)).x * RELAX_AtrousSmemConstants.gViewZScale);
+                vec2 _354 = (((vec2(_311) + vec2(0.5)) * RELAX_AtrousSmemConstants.gRectSizeInv) * 2.0) - vec2(1.0);
+                vec3 _390;
+                if (_260)
+                {
+                    _390 = ((RELAX_AtrousSmemConstants.gFrustumForward.xyz + (RELAX_AtrousSmemConstants.gFrustumRight.xyz * _354.x)) - (RELAX_AtrousSmemConstants.gFrustumUp.xyz * _354.y)) * _349;
+                }
+                else
+                {
+                    _390 = ((RELAX_AtrousSmemConstants.gFrustumForward.xyz * _349) + (RELAX_AtrousSmemConstants.gFrustumRight.xyz * _354.x)) - (RELAX_AtrousSmemConstants.gFrustumUp.xyz * _354.y);
+                }
+                s_WorldPos_MaterialID[_304][_303] = vec4(_390, _317.w * 3.0);
+            }
+            uint _396 = gl_LocalInvocationIndex + 128u;
+            uint _397 = _396 % 12u;
+            uint _398 = _396 / 12u;
+            if (_396 < 144u)
+            {
+                ivec2 _405 = clamp(ivec2(_206 + uvec2(_397, _398)), ivec2(0), _209);
+                uvec2 _406 = uvec2(_405);
+                s_Spec[_398][_397] = texelFetch(gIn_Spec_Variance, ivec2(_406), int(0u));
+                vec4 _411 = texelFetch(gIn_Normal_Roughness, ivec2(_406), int(0u));
+                float _414 = (_411.z * 2.0) - 1.0;
+                float _415 = _411.x;
+                float _416 = _411.y;
+                float _417 = _415 - _416;
+                float _419 = (_415 + _416) - 1.0;
+                vec4 _429 = vec4(_417, _419, float((_414 < 0.0) ? (-1) : 1) * ((1.0 - abs(_417)) - abs(_419)), abs(_414));
+                vec3 _432 = _429.xyz;
+                vec3 _436 = _432 * inversesqrt(spvNMax(dot(_432, _432), 9.999999717180685365747194737196e-10));
+                s_Normal_Roughness[_398][_397] = vec4(_436.x, _436.y, _436.z, _429.w);
+                float _443 = abs(texelFetch(gIn_ViewZ, ivec2(_406), int(0u)).x * RELAX_AtrousSmemConstants.gViewZScale);
+                vec2 _448 = (((vec2(_405) + vec2(0.5)) * RELAX_AtrousSmemConstants.gRectSizeInv) * 2.0) - vec2(1.0);
+                vec3 _484;
+                if (_260)
+                {
+                    _484 = ((RELAX_AtrousSmemConstants.gFrustumForward.xyz + (RELAX_AtrousSmemConstants.gFrustumRight.xyz * _448.x)) - (RELAX_AtrousSmemConstants.gFrustumUp.xyz * _448.y)) * _443;
+                }
+                else
+                {
+                    _484 = ((RELAX_AtrousSmemConstants.gFrustumForward.xyz * _443) + (RELAX_AtrousSmemConstants.gFrustumRight.xyz * _448.x)) - (RELAX_AtrousSmemConstants.gFrustumUp.xyz * _448.y);
+                }
+                s_WorldPos_MaterialID[_398][_397] = vec4(_484, _411.w * 3.0);
+            }
+        }
+        barrier();
+        bool _491 = all(lessThan(_192, RELAX_AtrousSmemConstants.gRectSize));
+        vec4 _496 = texelFetch(gIn_ViewZ, ivec2(uvec2(min(_192, (RELAX_AtrousSmemConstants.gRectSize - ivec2(1))))), int(0u));
+        float _497 = _496.x;
+        ivec2 _498 = ivec3(gl_LocalInvocationID).xy + ivec2(2);
+        float _502 = abs(_497 * RELAX_AtrousSmemConstants.gViewZScale);
+        bool _505 = _502 < RELAX_AtrousSmemConstants.gDenoisingRange;
+        vec4 _514;
+        vec4 _515;
+        if (_505)
+        {
+            int _508 = _498.y;
+            int _509 = _498.x;
+            _514 = s_Normal_Roughness[_508][_509];
+            _515 = s_WorldPos_MaterialID[_508][_509];
+        }
+        else
+        {
+            _514 = vec4(0.0039215688593685626983642578125);
+            _515 = vec4(0.0, 0.0, 0.0, 255.0);
+        }
+        if (_491)
+        {
+            uvec2 _520 = uvec2(_192);
+            imageStore(gOut_ViewZ, ivec2(_520), vec4(_497));
+            vec3 _524 = (_514.xyz * 0.5) + vec3(0.5);
+            vec4 _525 = vec4(_524.x, _524.y, _524.z, _173.w);
+            _525.w = _514.w;
+            imageStore(gOut_NormalRoughness, ivec2(_520), _525);
+            imageStore(gOut_MaterialID, ivec2(_520), vec4(_515.w * 0.0039215688593685626983642578125));
+        }
+        if (_197 != 0.0)
+        {
+            break;
+        }
+        bool _539;
+        if (!(!_505))
+        {
+            _539 = !_491;
+        }
+        else
+        {
+            _539 = true;
+        }
+        if (_539)
+        {
+            break;
+        }
+        uvec2 _544 = uvec2(_192);
+        vec4 _546 = texelFetch(gIn_HistoryLength, ivec2(_544), int(0u));
+        float _547 = _546.x;
+        float _548 = 255.0 * _547;
+        SPIRV_CROSS_BRANCH
+        if (_548 >= RELAX_AtrousSmemConstants.gHistoryThreshold)
+        {
+            ivec2 _1577 = ivec3(gl_LocalInvocationID).xy + ivec2(1);
+            int _1578 = abs(-1);
+            int _1581 = _1577.y;
+            int _1582 = _1577.x;
+            ivec2 _1586 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 2);
+            int _1587 = abs(0);
+            int _1590 = _1586.y;
+            int _1591 = _1586.x;
+            ivec2 _1596 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 3);
+            int _1597 = abs(1);
+            int _1600 = _1596.y;
+            int _1601 = _1596.x;
+            ivec2 _1606 = ivec3(gl_LocalInvocationID).xy + ivec2(2, 1);
+            int _1609 = _1606.y;
+            int _1610 = _1606.x;
+            int _1617 = _498.y;
+            int _1618 = _498.x;
+            ivec2 _1623 = ivec3(gl_LocalInvocationID).xy + ivec2(2, 3);
+            int _1626 = _1623.y;
+            int _1627 = _1623.x;
+            ivec2 _1632 = ivec3(gl_LocalInvocationID).xy + ivec2(3, 1);
+            int _1635 = _1632.y;
+            int _1636 = _1632.x;
+            ivec2 _1641 = ivec3(gl_LocalInvocationID).xy + ivec2(3, 2);
+            int _1644 = _1641.y;
+            int _1645 = _1641.x;
+            ivec2 _1650 = ivec3(gl_LocalInvocationID).xy + ivec2(3);
+            int _1653 = _1650.y;
+            int _1654 = _1650.x;
+            vec4 _1658 = ((((((((s_Spec[_1581][_1582] * _137[_1578][_1578]) + (s_Spec[_1590][_1591] * _137[_1578][_1587])) + (s_Spec[_1600][_1601] * _137[_1578][_1597])) + (s_Spec[_1609][_1610] * _137[_1587][_1578])) + (s_Spec[_1617][_1618] * _137[_1587][_1587])) + (s_Spec[_1626][_1627] * _137[_1587][_1597])) + (s_Spec[_1635][_1636] * _137[_1597][_1578])) + (s_Spec[_1644][_1645] * _137[_1597][_1587])) + (s_Spec[_1653][_1654] * _137[_1597][_1597]);
+            float _1660 = dot(_1658.xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            float _1669 = dot(s_Spec[_1617][_1618].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            float _1675 = 1.0 / spvNMax(9.9999997473787516355514526367188e-05, RELAX_AtrousSmemConstants.gSpecPhiLuminance * sqrt(spvNMax(0.0, _1658.w - (_1660 * _1660))));
+            float _1681 = 1.0 / mix(0.00999999977648258209228515625, 1.0, clamp(_514.w * RELAX_AtrousSmemConstants.gRoughnessFraction, 0.0, 1.0));
+            float _1683 = -(_514.w * _1681);
+            vec4 _1685 = texelFetch(gIn_SpecReprojectionConfidence, ivec2(_544), int(0u));
+            float _1686 = _1685.x;
+            float _1689 = mix(1.0, _1686, RELAX_AtrousSmemConstants.gLuminanceEdgeStoppingRelaxation);
+            float _1690 = clamp(RELAX_AtrousSmemConstants.gLobeAngleFraction, 0.0, 1.0);
+            float _1691 = 1.00000095367431640625 - _1690;
+            float _1695 = 1.0 / spvNMax(atan(_1690 / _1691), 0.0058823530562222003936767578125);
+            float _1703 = clamp(_547 * 51.0, 0.0, 1.0) * mix(1.0, _1686, RELAX_AtrousSmemConstants.gNormalEdgeStoppingRelaxation);
+            float _1705 = 0.89999997615814208984375 + (0.100000001490116119384765625 * _1703);
+            float _1706 = clamp(_514.w, 0.0, 1.0);
+            float _1715 = radians(90.0);
+            float _1716 = spvNMin(_1715, (atan(((_1706 * _1706) * _1690) / _1691) * (10.0 - (9.0 * _1703))) + RELAX_AtrousSmemConstants.gSpecLobeAngleSlack);
+            vec3 _1718 = -normalize(_515.xyz);
+            float _1725 = RELAX_AtrousSmemConstants.gDepthThreshold * ((RELAX_AtrousSmemConstants.gOrthoMode == 0.0) ? _502 : 1.0);
+            ivec2 _1726 = _192 + ivec2(-1);
+            bool _1733;
+            if (all(greaterThanEqual(_1726, ivec2(0))))
+            {
+                _1733 = all(lessThan(_1726, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _1733 = false;
+            }
+            float _1741;
+            if (_1733)
+            {
+                _1741 = _141[_1578] * _141[_1578];
+            }
+            else
+            {
+                _1741 = 0.0;
+            }
+            float _1756 = dot(_514.xyz, s_Normal_Roughness[_1581][_1582].xyz);
+            vec3 _1765 = _515.xyz * RELAX_AtrousSmemConstants.gRoughnessEdgeStoppingRelaxation;
+            float _1773 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1756, 0.0, 1.0)) * sqrt(clamp(1.0 - _1756, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1779 = spvNMin(_1756, dot(_1718, -normalize(s_WorldPos_MaterialID[_1581][_1582].xyz + _1765)));
+            float _1787 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1779, 0.0, 1.0)) * sqrt(clamp(1.0 - _1779, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _1800 = clamp((abs((s_Normal_Roughness[_1581][_1582].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            bool _1820 = RELAX_AtrousSmemConstants.gRoughnessEdgeStoppingEnabled != 0u;
+            float _1825;
+            if (_1820)
+            {
+                _1825 = clamp(1.0 - (((_1787 * _1787) * (3.0 - (_1787 * 2.0))) * _1705), 0.0, 1.0) * ((_1800 * _1800) * (3.0 - (_1800 * 2.0)));
+            }
+            else
+            {
+                _1825 = (_1773 * _1773) * (3.0 - (_1773 * 2.0));
+            }
+            float _1830 = spvNMax(_515.w, RELAX_AtrousSmemConstants.gSpecMinMaterial);
+            float _1833 = (((float(abs(dot(s_WorldPos_MaterialID[_1581][_1582].xyz - _515.xyz, _514.xyz)) < _1725) * _1741) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1581][_1582].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _1825) * float(spvNMax(s_WorldPos_MaterialID[_1581][_1582].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            ivec2 _1835 = _192 + ivec2(0, -1);
+            bool _1842;
+            if (all(greaterThanEqual(_1835, ivec2(0))))
+            {
+                _1842 = all(lessThan(_1835, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _1842 = false;
+            }
+            float _1851;
+            if (_1842)
+            {
+                _1851 = _141[_1587] * _141[_1578];
+            }
+            else
+            {
+                _1851 = 0.0;
+            }
+            float _1866 = dot(_514.xyz, s_Normal_Roughness[_1609][_1610].xyz);
+            float _1880 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1866, 0.0, 1.0)) * sqrt(clamp(1.0 - _1866, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1886 = spvNMin(_1866, dot(_1718, -normalize(s_WorldPos_MaterialID[_1609][_1610].xyz + _1765)));
+            float _1894 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1886, 0.0, 1.0)) * sqrt(clamp(1.0 - _1886, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _1907 = clamp((abs((s_Normal_Roughness[_1609][_1610].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1927;
+            if (_1820)
+            {
+                _1927 = clamp(1.0 - (((_1894 * _1894) * (3.0 - (_1894 * 2.0))) * _1705), 0.0, 1.0) * ((_1907 * _1907) * (3.0 - (_1907 * 2.0)));
+            }
+            else
+            {
+                _1927 = (_1880 * _1880) * (3.0 - (_1880 * 2.0));
+            }
+            float _1932 = (((float(abs(dot(s_WorldPos_MaterialID[_1609][_1610].xyz - _515.xyz, _514.xyz)) < _1725) * _1851) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1609][_1610].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _1927) * float(spvNMax(s_WorldPos_MaterialID[_1609][_1610].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            ivec2 _1936 = _192 + ivec2(1, -1);
+            bool _1943;
+            if (all(greaterThanEqual(_1936, ivec2(0))))
+            {
+                _1943 = all(lessThan(_1936, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _1943 = false;
+            }
+            float _1952;
+            if (_1943)
+            {
+                _1952 = _141[_1597] * _141[_1578];
+            }
+            else
+            {
+                _1952 = 0.0;
+            }
+            float _1967 = dot(_514.xyz, s_Normal_Roughness[_1635][_1636].xyz);
+            float _1981 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1967, 0.0, 1.0)) * sqrt(clamp(1.0 - _1967, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1987 = spvNMin(_1967, dot(_1718, -normalize(s_WorldPos_MaterialID[_1635][_1636].xyz + _1765)));
+            float _1995 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1987, 0.0, 1.0)) * sqrt(clamp(1.0 - _1987, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _2008 = clamp((abs((s_Normal_Roughness[_1635][_1636].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2028;
+            if (_1820)
+            {
+                _2028 = clamp(1.0 - (((_1995 * _1995) * (3.0 - (_1995 * 2.0))) * _1705), 0.0, 1.0) * ((_2008 * _2008) * (3.0 - (_2008 * 2.0)));
+            }
+            else
+            {
+                _2028 = (_1981 * _1981) * (3.0 - (_1981 * 2.0));
+            }
+            float _2033 = (((float(abs(dot(s_WorldPos_MaterialID[_1635][_1636].xyz - _515.xyz, _514.xyz)) < _1725) * _1952) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1635][_1636].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _2028) * float(spvNMax(s_WorldPos_MaterialID[_1635][_1636].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            ivec2 _2037 = _192 + ivec2(-1, 0);
+            bool _2044;
+            if (all(greaterThanEqual(_2037, ivec2(0))))
+            {
+                _2044 = all(lessThan(_2037, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _2044 = false;
+            }
+            float _2053;
+            if (_2044)
+            {
+                _2053 = _141[_1578] * _141[_1587];
+            }
+            else
+            {
+                _2053 = 0.0;
+            }
+            float _2068 = dot(_514.xyz, s_Normal_Roughness[_1590][_1591].xyz);
+            float _2082 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2068, 0.0, 1.0)) * sqrt(clamp(1.0 - _2068, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2088 = spvNMin(_2068, dot(_1718, -normalize(s_WorldPos_MaterialID[_1590][_1591].xyz + _1765)));
+            float _2096 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2088, 0.0, 1.0)) * sqrt(clamp(1.0 - _2088, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _2109 = clamp((abs((s_Normal_Roughness[_1590][_1591].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2129;
+            if (_1820)
+            {
+                _2129 = clamp(1.0 - (((_2096 * _2096) * (3.0 - (_2096 * 2.0))) * _1705), 0.0, 1.0) * ((_2109 * _2109) * (3.0 - (_2109 * 2.0)));
+            }
+            else
+            {
+                _2129 = (_2082 * _2082) * (3.0 - (_2082 * 2.0));
+            }
+            float _2134 = (((float(abs(dot(s_WorldPos_MaterialID[_1590][_1591].xyz - _515.xyz, _514.xyz)) < _1725) * _2053) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1590][_1591].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _2129) * float(spvNMax(s_WorldPos_MaterialID[_1590][_1591].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            float _2148;
+            if (all(greaterThanEqual(_192, ivec2(0))) ? _491 : false)
+            {
+                _2148 = _141[_1587] * _141[_1587];
+            }
+            else
+            {
+                _2148 = 0.0;
+            }
+            ivec2 _2153 = _192 + ivec2(1, 0);
+            bool _2160;
+            if (all(greaterThanEqual(_2153, ivec2(0))))
+            {
+                _2160 = all(lessThan(_2153, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _2160 = false;
+            }
+            float _2169;
+            if (_2160)
+            {
+                _2169 = _141[_1597] * _141[_1587];
+            }
+            else
+            {
+                _2169 = 0.0;
+            }
+            float _2184 = dot(_514.xyz, s_Normal_Roughness[_1644][_1645].xyz);
+            float _2198 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2184, 0.0, 1.0)) * sqrt(clamp(1.0 - _2184, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2204 = spvNMin(_2184, dot(_1718, -normalize(s_WorldPos_MaterialID[_1644][_1645].xyz + _1765)));
+            float _2212 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2204, 0.0, 1.0)) * sqrt(clamp(1.0 - _2204, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _2225 = clamp((abs((s_Normal_Roughness[_1644][_1645].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2245;
+            if (_1820)
+            {
+                _2245 = clamp(1.0 - (((_2212 * _2212) * (3.0 - (_2212 * 2.0))) * _1705), 0.0, 1.0) * ((_2225 * _2225) * (3.0 - (_2225 * 2.0)));
+            }
+            else
+            {
+                _2245 = (_2198 * _2198) * (3.0 - (_2198 * 2.0));
+            }
+            float _2250 = (((float(abs(dot(s_WorldPos_MaterialID[_1644][_1645].xyz - _515.xyz, _514.xyz)) < _1725) * _2169) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1644][_1645].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _2245) * float(spvNMax(s_WorldPos_MaterialID[_1644][_1645].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            ivec2 _2254 = _192 + ivec2(-1, 1);
+            bool _2261;
+            if (all(greaterThanEqual(_2254, ivec2(0))))
+            {
+                _2261 = all(lessThan(_2254, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _2261 = false;
+            }
+            float _2270;
+            if (_2261)
+            {
+                _2270 = _141[_1578] * _141[_1597];
+            }
+            else
+            {
+                _2270 = 0.0;
+            }
+            float _2285 = dot(_514.xyz, s_Normal_Roughness[_1600][_1601].xyz);
+            float _2299 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2285, 0.0, 1.0)) * sqrt(clamp(1.0 - _2285, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2305 = spvNMin(_2285, dot(_1718, -normalize(s_WorldPos_MaterialID[_1600][_1601].xyz + _1765)));
+            float _2313 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2305, 0.0, 1.0)) * sqrt(clamp(1.0 - _2305, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _2326 = clamp((abs((s_Normal_Roughness[_1600][_1601].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2346;
+            if (_1820)
+            {
+                _2346 = clamp(1.0 - (((_2313 * _2313) * (3.0 - (_2313 * 2.0))) * _1705), 0.0, 1.0) * ((_2326 * _2326) * (3.0 - (_2326 * 2.0)));
+            }
+            else
+            {
+                _2346 = (_2299 * _2299) * (3.0 - (_2299 * 2.0));
+            }
+            float _2351 = (((float(abs(dot(s_WorldPos_MaterialID[_1600][_1601].xyz - _515.xyz, _514.xyz)) < _1725) * _2270) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1600][_1601].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _2346) * float(spvNMax(s_WorldPos_MaterialID[_1600][_1601].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            ivec2 _2355 = _192 + ivec2(0, 1);
+            bool _2362;
+            if (all(greaterThanEqual(_2355, ivec2(0))))
+            {
+                _2362 = all(lessThan(_2355, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _2362 = false;
+            }
+            float _2371;
+            if (_2362)
+            {
+                _2371 = _141[_1587] * _141[_1597];
+            }
+            else
+            {
+                _2371 = 0.0;
+            }
+            float _2386 = dot(_514.xyz, s_Normal_Roughness[_1626][_1627].xyz);
+            float _2400 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2386, 0.0, 1.0)) * sqrt(clamp(1.0 - _2386, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2406 = spvNMin(_2386, dot(_1718, -normalize(s_WorldPos_MaterialID[_1626][_1627].xyz + _1765)));
+            float _2414 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2406, 0.0, 1.0)) * sqrt(clamp(1.0 - _2406, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _2427 = clamp((abs((s_Normal_Roughness[_1626][_1627].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2447;
+            if (_1820)
+            {
+                _2447 = clamp(1.0 - (((_2414 * _2414) * (3.0 - (_2414 * 2.0))) * _1705), 0.0, 1.0) * ((_2427 * _2427) * (3.0 - (_2427 * 2.0)));
+            }
+            else
+            {
+                _2447 = (_2400 * _2400) * (3.0 - (_2400 * 2.0));
+            }
+            float _2452 = (((float(abs(dot(s_WorldPos_MaterialID[_1626][_1627].xyz - _515.xyz, _514.xyz)) < _1725) * _2371) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1626][_1627].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _2447) * float(spvNMax(s_WorldPos_MaterialID[_1626][_1627].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            ivec2 _2456 = _192 + ivec2(1);
+            bool _2463;
+            if (all(greaterThanEqual(_2456, ivec2(0))))
+            {
+                _2463 = all(lessThan(_2456, RELAX_AtrousSmemConstants.gRectSize));
+            }
+            else
+            {
+                _2463 = false;
+            }
+            float _2471;
+            if (_2463)
+            {
+                _2471 = _141[_1597] * _141[_1597];
+            }
+            else
+            {
+                _2471 = 0.0;
+            }
+            float _2486 = dot(_514.xyz, s_Normal_Roughness[_1653][_1654].xyz);
+            float _2500 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2486, 0.0, 1.0)) * sqrt(clamp(1.0 - _2486, 0.0, 1.0))) * _1695) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2506 = spvNMin(_2486, dot(_1718, -normalize(s_WorldPos_MaterialID[_1653][_1654].xyz + _1765)));
+            float _2514 = clamp((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_2506, 0.0, 1.0)) * sqrt(clamp(1.0 - _2506, 0.0, 1.0))) / _1716, 0.0, 1.0);
+            float _2527 = clamp((abs((s_Normal_Roughness[_1653][_1654].w * _1681) + _1683) - 1.0) * (-1.0), 0.0, 1.0);
+            float _2547;
+            if (_1820)
+            {
+                _2547 = clamp(1.0 - (((_2514 * _2514) * (3.0 - (_2514 * 2.0))) * _1705), 0.0, 1.0) * ((_2527 * _2527) * (3.0 - (_2527 * 2.0)));
+            }
+            else
+            {
+                _2547 = (_2500 * _2500) * (3.0 - (_2500 * 2.0));
+            }
+            float _2552 = (((float(abs(dot(s_WorldPos_MaterialID[_1653][_1654].xyz - _515.xyz, _514.xyz)) < _1725) * _2471) * exp(-(spvNMin(RELAX_AtrousSmemConstants.gSpecMaxLuminanceRelativeDifference, abs(_1669 - dot(s_Spec[_1653][_1654].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * _1675) * _1689))) * _2547) * float(spvNMax(s_WorldPos_MaterialID[_1653][_1654].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _1830);
+            vec4 _2558 = (((((((((s_Spec[_1581][_1582] * _1833) + (s_Spec[_1609][_1610] * _1932)) + (s_Spec[_1635][_1636] * _2033)) + (s_Spec[_1590][_1591] * _2134)) + (s_Spec[_1617][_1618] * _2148)) + (s_Spec[_1644][_1645] * _2250)) + (s_Spec[_1600][_1601] * _2351)) + (s_Spec[_1626][_1627] * _2452)) + (s_Spec[_1653][_1654] * _2552)) / vec4(spvNMax((((((((_1833 + _1932) + _2033) + _2134) + _2148) + _2250) + _2351) + _2452) + _2552, 9.9999999747524270787835121154785e-07));
+            float _2560 = dot(_2558.xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            imageStore(gOut_Spec_Variance, ivec2(_544), vec4(_2558.xyz, spvNMax(0.0, _2558.w - (_2560 * _2560))));
+        }
+        else
+        {
+            float _557 = clamp(RELAX_AtrousSmemConstants.gLobeAngleFraction, 0.0, 1.0);
+            float _562 = 1.0 / spvNMax(atan(_557 / (1.00000095367431640625 - _557)), 0.0058823530562222003936767578125);
+            float _570 = dot(_514.xyz, s_Normal_Roughness[ivec3(gl_LocalInvocationID).y][ivec3(gl_LocalInvocationID).x].xyz);
+            float _581 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_570, 0.0, 1.0)) * sqrt(clamp(1.0 - _570, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _594 = spvNMax(_515.w, RELAX_AtrousSmemConstants.gSpecMinMaterial);
+            float _597 = ((_581 * _581) * (3.0 - (_581 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[ivec3(gl_LocalInvocationID).y][ivec3(gl_LocalInvocationID).x].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _601 = ivec3(gl_LocalInvocationID).xy + ivec2(0, 1);
+            int _602 = _601.y;
+            int _603 = _601.x;
+            float _609 = dot(_514.xyz, s_Normal_Roughness[_602][_603].xyz);
+            float _620 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_609, 0.0, 1.0)) * sqrt(clamp(1.0 - _609, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _633 = ((_620 * _620) * (3.0 - (_620 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_602][_603].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _641 = ivec3(gl_LocalInvocationID).xy + ivec2(0, 2);
+            int _642 = _641.y;
+            int _643 = _641.x;
+            float _649 = dot(_514.xyz, s_Normal_Roughness[_642][_643].xyz);
+            float _660 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_649, 0.0, 1.0)) * sqrt(clamp(1.0 - _649, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _673 = ((_660 * _660) * (3.0 - (_660 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_642][_643].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _681 = ivec3(gl_LocalInvocationID).xy + ivec2(0, 3);
+            int _682 = _681.y;
+            int _683 = _681.x;
+            float _689 = dot(_514.xyz, s_Normal_Roughness[_682][_683].xyz);
+            float _700 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_689, 0.0, 1.0)) * sqrt(clamp(1.0 - _689, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _713 = ((_700 * _700) * (3.0 - (_700 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_682][_683].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _721 = ivec3(gl_LocalInvocationID).xy + ivec2(0, 4);
+            int _722 = _721.y;
+            int _723 = _721.x;
+            float _729 = dot(_514.xyz, s_Normal_Roughness[_722][_723].xyz);
+            float _740 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_729, 0.0, 1.0)) * sqrt(clamp(1.0 - _729, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _753 = ((_740 * _740) * (3.0 - (_740 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_722][_723].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _761 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 0);
+            int _762 = _761.y;
+            int _763 = _761.x;
+            float _769 = dot(_514.xyz, s_Normal_Roughness[_762][_763].xyz);
+            float _780 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_769, 0.0, 1.0)) * sqrt(clamp(1.0 - _769, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _793 = ((_780 * _780) * (3.0 - (_780 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_762][_763].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _801 = ivec3(gl_LocalInvocationID).xy + ivec2(1);
+            int _802 = _801.y;
+            int _803 = _801.x;
+            float _809 = dot(_514.xyz, s_Normal_Roughness[_802][_803].xyz);
+            float _820 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_809, 0.0, 1.0)) * sqrt(clamp(1.0 - _809, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _833 = ((_820 * _820) * (3.0 - (_820 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_802][_803].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _841 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 2);
+            int _842 = _841.y;
+            int _843 = _841.x;
+            float _849 = dot(_514.xyz, s_Normal_Roughness[_842][_843].xyz);
+            float _860 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_849, 0.0, 1.0)) * sqrt(clamp(1.0 - _849, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _873 = ((_860 * _860) * (3.0 - (_860 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_842][_843].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _881 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 3);
+            int _882 = _881.y;
+            int _883 = _881.x;
+            float _889 = dot(_514.xyz, s_Normal_Roughness[_882][_883].xyz);
+            float _900 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_889, 0.0, 1.0)) * sqrt(clamp(1.0 - _889, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _913 = ((_900 * _900) * (3.0 - (_900 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_882][_883].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            float _918 = ((((((((dot(s_Spec[ivec3(gl_LocalInvocationID).y][ivec3(gl_LocalInvocationID).x].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _597) + (dot(s_Spec[_602][_603].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _633)) + (dot(s_Spec[_642][_643].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _673)) + (dot(s_Spec[_682][_683].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _713)) + (dot(s_Spec[_722][_723].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _753)) + (dot(s_Spec[_762][_763].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _793)) + (dot(s_Spec[_802][_803].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _833)) + (dot(s_Spec[_842][_843].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _873)) + (dot(s_Spec[_882][_883].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _913);
+            ivec2 _921 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 4);
+            int _922 = _921.y;
+            int _923 = _921.x;
+            float _929 = dot(_514.xyz, s_Normal_Roughness[_922][_923].xyz);
+            float _940 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_929, 0.0, 1.0)) * sqrt(clamp(1.0 - _929, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _953 = ((_940 * _940) * (3.0 - (_940 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_922][_923].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            vec3 _956 = (((((((((s_Spec[ivec3(gl_LocalInvocationID).y][ivec3(gl_LocalInvocationID).x].xyz * _597) + (s_Spec[_602][_603].xyz * _633)) + (s_Spec[_642][_643].xyz * _673)) + (s_Spec[_682][_683].xyz * _713)) + (s_Spec[_722][_723].xyz * _753)) + (s_Spec[_762][_763].xyz * _793)) + (s_Spec[_802][_803].xyz * _833)) + (s_Spec[_842][_843].xyz * _873)) + (s_Spec[_882][_883].xyz * _913)) + (s_Spec[_922][_923].xyz * _953);
+            float _960 = (((((((((s_Spec[ivec3(gl_LocalInvocationID).y][ivec3(gl_LocalInvocationID).x].w * _597) + (s_Spec[_602][_603].w * _633)) + (s_Spec[_642][_643].w * _673)) + (s_Spec[_682][_683].w * _713)) + (s_Spec[_722][_723].w * _753)) + (s_Spec[_762][_763].w * _793)) + (s_Spec[_802][_803].w * _833)) + (s_Spec[_842][_843].w * _873)) + (s_Spec[_882][_883].w * _913)) + (s_Spec[_922][_923].w * _953);
+            ivec2 _961 = ivec3(gl_LocalInvocationID).xy + ivec2(2, 0);
+            int _962 = _961.y;
+            int _963 = _961.x;
+            float _969 = dot(_514.xyz, s_Normal_Roughness[_962][_963].xyz);
+            float _980 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_969, 0.0, 1.0)) * sqrt(clamp(1.0 - _969, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _993 = ((_980 * _980) * (3.0 - (_980 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_962][_963].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1001 = ivec3(gl_LocalInvocationID).xy + ivec2(2, 1);
+            int _1002 = _1001.y;
+            int _1003 = _1001.x;
+            float _1009 = dot(_514.xyz, s_Normal_Roughness[_1002][_1003].xyz);
+            float _1020 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1009, 0.0, 1.0)) * sqrt(clamp(1.0 - _1009, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1033 = ((_1020 * _1020) * (3.0 - (_1020 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1002][_1003].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            int _1041 = _498.y;
+            int _1042 = _498.x;
+            float _1048 = dot(_514.xyz, s_Normal_Roughness[_1041][_1042].xyz);
+            float _1059 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1048, 0.0, 1.0)) * sqrt(clamp(1.0 - _1048, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1072 = ((_1059 * _1059) * (3.0 - (_1059 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1041][_1042].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1080 = ivec3(gl_LocalInvocationID).xy + ivec2(2, 3);
+            int _1081 = _1080.y;
+            int _1082 = _1080.x;
+            float _1088 = dot(_514.xyz, s_Normal_Roughness[_1081][_1082].xyz);
+            float _1099 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1088, 0.0, 1.0)) * sqrt(clamp(1.0 - _1088, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1112 = ((_1099 * _1099) * (3.0 - (_1099 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1081][_1082].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1120 = ivec3(gl_LocalInvocationID).xy + ivec2(2, 4);
+            int _1121 = _1120.y;
+            int _1122 = _1120.x;
+            float _1128 = dot(_514.xyz, s_Normal_Roughness[_1121][_1122].xyz);
+            float _1139 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1128, 0.0, 1.0)) * sqrt(clamp(1.0 - _1128, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1152 = ((_1139 * _1139) * (3.0 - (_1139 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1121][_1122].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1160 = ivec3(gl_LocalInvocationID).xy + ivec2(3, 0);
+            int _1161 = _1160.y;
+            int _1162 = _1160.x;
+            float _1168 = dot(_514.xyz, s_Normal_Roughness[_1161][_1162].xyz);
+            float _1179 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1168, 0.0, 1.0)) * sqrt(clamp(1.0 - _1168, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1192 = ((_1179 * _1179) * (3.0 - (_1179 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1161][_1162].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1200 = ivec3(gl_LocalInvocationID).xy + ivec2(3, 1);
+            int _1201 = _1200.y;
+            int _1202 = _1200.x;
+            float _1208 = dot(_514.xyz, s_Normal_Roughness[_1201][_1202].xyz);
+            float _1219 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1208, 0.0, 1.0)) * sqrt(clamp(1.0 - _1208, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1232 = ((_1219 * _1219) * (3.0 - (_1219 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1201][_1202].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1240 = ivec3(gl_LocalInvocationID).xy + ivec2(3, 2);
+            int _1241 = _1240.y;
+            int _1242 = _1240.x;
+            float _1248 = dot(_514.xyz, s_Normal_Roughness[_1241][_1242].xyz);
+            float _1259 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1248, 0.0, 1.0)) * sqrt(clamp(1.0 - _1248, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1272 = ((_1259 * _1259) * (3.0 - (_1259 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1241][_1242].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            float _1277 = ((((((((_918 + (dot(s_Spec[_922][_923].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _953)) + (dot(s_Spec[_962][_963].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _993)) + (dot(s_Spec[_1002][_1003].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1033)) + (dot(s_Spec[_1041][_1042].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1072)) + (dot(s_Spec[_1081][_1082].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1112)) + (dot(s_Spec[_1121][_1122].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1152)) + (dot(s_Spec[_1161][_1162].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1192)) + (dot(s_Spec[_1201][_1202].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1232)) + (dot(s_Spec[_1241][_1242].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1272);
+            ivec2 _1280 = ivec3(gl_LocalInvocationID).xy + ivec2(3);
+            int _1281 = _1280.y;
+            int _1282 = _1280.x;
+            float _1288 = dot(_514.xyz, s_Normal_Roughness[_1281][_1282].xyz);
+            float _1299 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1288, 0.0, 1.0)) * sqrt(clamp(1.0 - _1288, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1312 = ((_1299 * _1299) * (3.0 - (_1299 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1281][_1282].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            vec3 _1315 = ((((((((_956 + (s_Spec[_962][_963].xyz * _993)) + (s_Spec[_1002][_1003].xyz * _1033)) + (s_Spec[_1041][_1042].xyz * _1072)) + (s_Spec[_1081][_1082].xyz * _1112)) + (s_Spec[_1121][_1122].xyz * _1152)) + (s_Spec[_1161][_1162].xyz * _1192)) + (s_Spec[_1201][_1202].xyz * _1232)) + (s_Spec[_1241][_1242].xyz * _1272)) + (s_Spec[_1281][_1282].xyz * _1312);
+            float _1319 = ((((((((_960 + (s_Spec[_962][_963].w * _993)) + (s_Spec[_1002][_1003].w * _1033)) + (s_Spec[_1041][_1042].w * _1072)) + (s_Spec[_1081][_1082].w * _1112)) + (s_Spec[_1121][_1122].w * _1152)) + (s_Spec[_1161][_1162].w * _1192)) + (s_Spec[_1201][_1202].w * _1232)) + (s_Spec[_1241][_1242].w * _1272)) + (s_Spec[_1281][_1282].w * _1312);
+            ivec2 _1320 = ivec3(gl_LocalInvocationID).xy + ivec2(3, 4);
+            int _1321 = _1320.y;
+            int _1322 = _1320.x;
+            float _1328 = dot(_514.xyz, s_Normal_Roughness[_1321][_1322].xyz);
+            float _1339 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1328, 0.0, 1.0)) * sqrt(clamp(1.0 - _1328, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1352 = ((_1339 * _1339) * (3.0 - (_1339 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1321][_1322].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1360 = ivec3(gl_LocalInvocationID).xy + ivec2(4, 0);
+            int _1361 = _1360.y;
+            int _1362 = _1360.x;
+            float _1368 = dot(_514.xyz, s_Normal_Roughness[_1361][_1362].xyz);
+            float _1379 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1368, 0.0, 1.0)) * sqrt(clamp(1.0 - _1368, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1392 = ((_1379 * _1379) * (3.0 - (_1379 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1361][_1362].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1400 = ivec3(gl_LocalInvocationID).xy + ivec2(4, 1);
+            int _1401 = _1400.y;
+            int _1402 = _1400.x;
+            float _1408 = dot(_514.xyz, s_Normal_Roughness[_1401][_1402].xyz);
+            float _1419 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1408, 0.0, 1.0)) * sqrt(clamp(1.0 - _1408, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1432 = ((_1419 * _1419) * (3.0 - (_1419 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1401][_1402].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1440 = ivec3(gl_LocalInvocationID).xy + ivec2(4, 2);
+            int _1441 = _1440.y;
+            int _1442 = _1440.x;
+            float _1448 = dot(_514.xyz, s_Normal_Roughness[_1441][_1442].xyz);
+            float _1459 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1448, 0.0, 1.0)) * sqrt(clamp(1.0 - _1448, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1472 = ((_1459 * _1459) * (3.0 - (_1459 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1441][_1442].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1480 = ivec3(gl_LocalInvocationID).xy + ivec2(4, 3);
+            int _1481 = _1480.y;
+            int _1482 = _1480.x;
+            float _1488 = dot(_514.xyz, s_Normal_Roughness[_1481][_1482].xyz);
+            float _1499 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1488, 0.0, 1.0)) * sqrt(clamp(1.0 - _1488, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1512 = ((_1499 * _1499) * (3.0 - (_1499 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1481][_1482].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            ivec2 _1520 = ivec3(gl_LocalInvocationID).xy + ivec2(4);
+            int _1521 = _1520.y;
+            int _1522 = _1520.x;
+            float _1528 = dot(_514.xyz, s_Normal_Roughness[_1521][_1522].xyz);
+            float _1539 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1528, 0.0, 1.0)) * sqrt(clamp(1.0 - _1528, 0.0, 1.0))) * _562) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1552 = ((_1539 * _1539) * (3.0 - (_1539 * 2.0))) * float(spvNMax(s_WorldPos_MaterialID[_1521][_1522].w, RELAX_AtrousSmemConstants.gSpecMinMaterial) == _594);
+            float _1563 = spvNMax((((((((((((((((((((((((_597 + _633) + _673) + _713) + _753) + _793) + _833) + _873) + _913) + _953) + _993) + _1033) + _1072) + _1112) + _1152) + _1192) + _1232) + _1272) + _1312) + _1352) + _1392) + _1432) + _1472) + _1512) + _1552, 9.9999999747524270787835121154785e-07);
+            float _1566 = (((((((_1277 + (dot(s_Spec[_1281][_1282].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1312)) + (dot(s_Spec[_1321][_1322].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1352)) + (dot(s_Spec[_1361][_1362].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1392)) + (dot(s_Spec[_1401][_1402].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1432)) + (dot(s_Spec[_1441][_1442].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1472)) + (dot(s_Spec[_1481][_1482].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1512)) + (dot(s_Spec[_1521][_1522].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) * _1552)) / _1563;
+            imageStore(gOut_Spec_Variance, ivec2(_544), vec4(((((((_1315 + (s_Spec[_1321][_1322].xyz * _1352)) + (s_Spec[_1361][_1362].xyz * _1392)) + (s_Spec[_1401][_1402].xyz * _1432)) + (s_Spec[_1441][_1442].xyz * _1472)) + (s_Spec[_1481][_1482].xyz * _1512)) + (s_Spec[_1521][_1522].xyz * _1552)) / vec3(_1563), spvNMax(0.0, (((((((_1319 + (s_Spec[_1321][_1322].w * _1352)) + (s_Spec[_1361][_1362].w * _1392)) + (s_Spec[_1401][_1402].w * _1432)) + (s_Spec[_1441][_1442].w * _1472)) + (s_Spec[_1481][_1482].w * _1512)) + (s_Spec[_1521][_1522].w * _1552)) / _1563) - (_1566 * _1566)) * spvNMax(1.0, 4.0 / (_548 + 1.0))));
+        }
+        break;
+    } while(false);
+}
+

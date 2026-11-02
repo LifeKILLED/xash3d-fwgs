@@ -90,6 +90,8 @@
 	// Original compound bounce and reflection passes temporarily disconnected.
 	"lc_reflection": { "comp": "lc_reflection" },
 	"lc_bounce": { "comp": "lc_bounce" },
+	"nrd_resources": { "comp": "nrd_resources" },
+	"nrd_resolve": { "comp": "nrd_resolve" },
 	"refraction_primary_rays": {
 		"comp": "refraction_primary_rays"
 	},

@@ -1,0 +1,4654 @@
+{
+  "REBLUR_DIFF": {
+    "permanent": [
+      {
+        "format": 30,
+        "downsample": 1
+      },
+      {
+        "format": 40,
+        "downsample": 1
+      },
+      {
+        "format": 15,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      }
+    ],
+    "transient": [
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 2,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 16
+      }
+    ],
+    "passes": [
+      {
+        "source": "REBLUR_ClassifyTiles.cs.hlsl",
+        "defines": {},
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          }
+        ],
+        "kernel": 0
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "0"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 1
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "0"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 1
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "1"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 2
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "1"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 2
+      },
+      {
+        "source": "REBLUR_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 5
+      },
+      {
+        "source": "REBLUR_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 5
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 7
+      },
+      {
+        "source": "REBLUR_HistoryFix.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "kernel": 9
+      },
+      {
+        "source": "REBLUR_Blur.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 11
+      },
+      {
+        "source": "REBLUR_PostBlur.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "TEMPORAL_STABILIZATION": "0"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 13
+      },
+      {
+        "source": "REBLUR_PostBlur.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "TEMPORAL_STABILIZATION": "1"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          }
+        ],
+        "kernel": 14
+      },
+      {
+        "source": "REBLUR_TemporalStabilization.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 1006
+          }
+        ],
+        "outputs": [
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 1005
+          }
+        ],
+        "kernel": 17
+      },
+      {
+        "source": "REBLUR_SplitScreen.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 19
+      }
+    ]
+  },
+  "REBLUR_SPEC": {
+    "permanent": [
+      {
+        "format": 30,
+        "downsample": 1
+      },
+      {
+        "format": 40,
+        "downsample": 1
+      },
+      {
+        "format": 15,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      }
+    ],
+    "transient": [
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 28,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 16
+      }
+    ],
+    "passes": [
+      {
+        "source": "REBLUR_ClassifyTiles.cs.hlsl",
+        "defines": {},
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          }
+        ],
+        "kernel": 0
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "0"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 3
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "0"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "kernel": 3
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "1"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 4
+      },
+      {
+        "source": "REBLUR_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "1"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "kernel": 4
+      },
+      {
+        "source": "REBLUR_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 6
+      },
+      {
+        "source": "REBLUR_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 6
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 1008
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 8
+      },
+      {
+        "source": "REBLUR_HistoryFix.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          }
+        ],
+        "kernel": 10
+      },
+      {
+        "source": "REBLUR_Blur.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "kernel": 12
+      },
+      {
+        "source": "REBLUR_PostBlur.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "TEMPORAL_STABILIZATION": "0"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 15
+      },
+      {
+        "source": "REBLUR_PostBlur.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "TEMPORAL_STABILIZATION": "1"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          }
+        ],
+        "kernel": 16
+      },
+      {
+        "source": "REBLUR_TemporalStabilization.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2005,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 1008,
+            "swap": 1007
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 1006
+          }
+        ],
+        "outputs": [
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 1005
+          }
+        ],
+        "kernel": 18
+      },
+      {
+        "source": "REBLUR_SplitScreen.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 20
+      }
+    ]
+  },
+  "RELAX_DIFF": {
+    "permanent": [
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 8,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 30,
+        "downsample": 1
+      }
+    ],
+    "transient": [
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 16
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      }
+    ],
+    "passes": [
+      {
+        "source": "RELAX_ClassifyTiles.cs.hlsl",
+        "defines": {},
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 22
+      },
+      {
+        "source": "RELAX_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "0"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 23
+      },
+      {
+        "source": "RELAX_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "1"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 24
+      },
+      {
+        "source": "RELAX_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 27
+      },
+      {
+        "source": "RELAX_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 27
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 29
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 29
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 29
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 29
+      },
+      {
+        "source": "RELAX_HistoryFix.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 31
+      },
+      {
+        "source": "RELAX_HistoryClamping.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1002,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          }
+        ],
+        "kernel": 33
+      },
+      {
+        "source": "RELAX_Copy.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 1000,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 35
+      },
+      {
+        "source": "RELAX_AntiFirefly.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1000,
+            "swap": 0
+          }
+        ],
+        "kernel": 37
+      },
+      {
+        "source": "RELAX_AtrousSmem.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          }
+        ],
+        "kernel": 39
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_AtrousSmem.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          }
+        ],
+        "kernel": 39
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 3,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 41
+      },
+      {
+        "source": "RELAX_SplitScreen.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_DIFF",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 6,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 18,
+            "swap": 0
+          }
+        ],
+        "kernel": 43
+      }
+    ]
+  },
+  "RELAX_SPEC": {
+    "permanent": [
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 17,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 8,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 30,
+        "downsample": 1
+      }
+    ],
+    "transient": [
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 27,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      },
+      {
+        "format": 0,
+        "downsample": 16
+      },
+      {
+        "format": 0,
+        "downsample": 1
+      }
+    ],
+    "passes": [
+      {
+        "source": "RELAX_ClassifyTiles.cs.hlsl",
+        "defines": {},
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          }
+        ],
+        "kernel": 22
+      },
+      {
+        "source": "RELAX_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "0"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 25
+      },
+      {
+        "source": "RELAX_HitDistReconstruction.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE",
+          "MODE_5X5": "1"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 26
+      },
+      {
+        "source": "RELAX_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 28
+      },
+      {
+        "source": "RELAX_PrePass.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 28
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 1002
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 1003
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 30
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 1002
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 1003
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 30
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 1002
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 1003
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 30
+      },
+      {
+        "source": "RELAX_TemporalAccumulation.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 0,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 5,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 0
+          },
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1003,
+            "swap": 1002
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 1002,
+            "swap": 1003
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          }
+        ],
+        "kernel": 30
+      },
+      {
+        "source": "RELAX_HistoryFix.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 32
+      },
+      {
+        "source": "RELAX_HistoryClamping.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1004,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 1001,
+            "swap": 0
+          }
+        ],
+        "kernel": 34
+      },
+      {
+        "source": "RELAX_Copy.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 1000,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 36
+      },
+      {
+        "source": "RELAX_AntiFirefly.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 1000,
+            "swap": 0
+          }
+        ],
+        "kernel": 38
+      },
+      {
+        "source": "RELAX_AtrousSmem.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 0
+          }
+        ],
+        "kernel": 40
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_AtrousSmem.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 1000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 1005,
+            "swap": 0
+          },
+          {
+            "id": 1006,
+            "swap": 0
+          },
+          {
+            "id": 1007,
+            "swap": 0
+          }
+        ],
+        "kernel": 40
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2001,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 2000,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2000,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_Atrous.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2003,
+            "swap": 0
+          },
+          {
+            "id": 2004,
+            "swap": 0
+          },
+          {
+            "id": 1,
+            "swap": 0
+          },
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 2001,
+            "swap": 0
+          },
+          {
+            "id": 2002,
+            "swap": 0
+          },
+          {
+            "id": 4,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 42
+      },
+      {
+        "source": "RELAX_SplitScreen.cs.hlsl",
+        "defines": {
+          "NRD_SIGNAL": "NRD_SIGNAL_SPEC",
+          "NRD_MODE": "NRD_MODE_RADIANCE"
+        },
+        "inputs": [
+          {
+            "id": 2,
+            "swap": 0
+          },
+          {
+            "id": 7,
+            "swap": 0
+          }
+        ],
+        "outputs": [
+          {
+            "id": 19,
+            "swap": 0
+          }
+        ],
+        "kernel": 44
+      }
+    ]
+  }
+}

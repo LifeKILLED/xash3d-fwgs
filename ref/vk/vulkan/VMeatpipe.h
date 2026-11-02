@@ -15,6 +15,7 @@ typedef struct {
 	int frame_set_slot; // 0 or 1, until we do num_frame_slots
 	int width, height;
 	int is_discontinuous;
+	const struct UniformBuffer *frame_uniform;
 } vk_meatpipe_dispatch_t;
 
 struct r_vk_image_s* R_VkMeatpipeDispatch(struct vk_meatpipe_s *mp, vk_meatpipe_dispatch_t);

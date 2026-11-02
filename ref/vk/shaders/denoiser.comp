@@ -40,6 +40,9 @@ layout(set=0,binding=91,rgba16f) uniform readonly image2D temporal_lc_radiance;
 layout(set=0,binding=93,rgba16f) uniform readonly image2D lc_point;
 layout(set=0,binding=95,rgba16f) uniform readonly image2D lc_polygon;
 
+layout(set=0,binding=96,rgba16f) uniform readonly image2D nrd_diffuse;
+layout(set=0,binding=97,rgba16f) uniform readonly image2D nrd_specular;
+
 // Raw diagnostics deliberately bypass SH, ASVGF and spatial reconstruction.
 
 //#define DEBUG_NOISE
@@ -184,6 +187,8 @@ void main() {
 		direct_specular = vec3(0);
 	}
 	vec3 indirect_specular = asvgf_indirect_specular_sample.rgb;
+	if (ubo.ubo.nrd_bounce != 0u) indirect_diffuse = imageLoad(nrd_diffuse,pix).rgb;
+	if (ubo.ubo.nrd_reflection != 0u) indirect_specular = imageLoad(nrd_specular,pix).rgb;
 	vec3 refraction = asvgf_refraction_sample.rgb;
 
 	vec3 diffuse = direct_diffuse + indirect_diffuse;

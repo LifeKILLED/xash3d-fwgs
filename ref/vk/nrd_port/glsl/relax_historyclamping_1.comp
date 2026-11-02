@@ -1,0 +1,900 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 1, binding = 0, std140) uniform type_RELAX_HistoryClampingConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gFrustumRight;
+    vec4 gFrustumUp;
+    vec4 gFrustumForward;
+    vec4 gPrevFrustumRight;
+    vec4 gPrevFrustumUp;
+    vec4 gPrevFrustumForward;
+    vec4 gCameraDelta;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec2 gJitter;
+    vec2 gResolutionScale;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResourceSizeInvPrev;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSize;
+    float gSpecMaxAccumulatedFrameNum;
+    float gSpecMaxFastAccumulatedFrameNum;
+    float gDiffMaxAccumulatedFrameNum;
+    float gDiffMaxFastAccumulatedFrameNum;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gRoughnessFraction;
+    float gSpecVarianceBoost;
+    float gSplitScreen;
+    float gDiffBlurRadius;
+    float gSpecBlurRadius;
+    float gDepthThreshold;
+    float gLobeAngleFraction;
+    float gSpecLobeAngleSlack;
+    float gHistoryFixEdgeStoppingNormalPower;
+    float gRoughnessEdgeStoppingRelaxation;
+    float gNormalEdgeStoppingRelaxation;
+    float gFastHistoryClampingSigmaScale;
+    float gHistoryAccelerationAmount;
+    float gHistoryResetTemporalSigmaScale;
+    float gHistoryResetSpatialSigmaScale;
+    float gHistoryResetAmount;
+    float gDenoisingRange;
+    float gSpecPhiLuminance;
+    float gDiffPhiLuminance;
+    float gDiffMaxLuminanceRelativeDifference;
+    float gSpecMaxLuminanceRelativeDifference;
+    float gLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenRelaxationMultiplier;
+    float gConfidenceDrivenLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenNormalEdgeStoppingRelaxation;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gCheckerboardResolveAccumSpeed;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gHistoryThreshold;
+    float gViewZScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    uint gRoughnessEdgeStoppingEnabled;
+    uint gFrameIndex;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gResetHistory;
+} RELAX_HistoryClampingConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 2) uniform texture2D gIn_HistoryLength;
+layout(set = 0, binding = 3) uniform texture2D gIn_DiffNoisy;
+layout(set = 0, binding = 4) uniform texture2D gIn_Diff;
+layout(set = 0, binding = 5) uniform texture2D gIn_DiffFast;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_HistoryLength;
+layout(set = 0, binding = 65) uniform writeonly image2D gOut_Diff;
+layout(set = 0, binding = 66) uniform writeonly image2D gOut_DiffFast;
+
+shared vec4 s_DiffResponsiveYCoCg[12][12];
+shared vec4 s_DiffNoisy_IsValid[12][12];
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        vec4 _131 = texelFetch(gIn_Tiles, ivec2(uvec2(ivec3(gl_GlobalInvocationID).xy >> ivec2(4))), int(0u));
+        float _132 = _131.x;
+        if (_132 == 0.0)
+        {
+            uint _138 = gl_LocalInvocationIndex % 12u;
+            uint _139 = gl_LocalInvocationIndex / 12u;
+            uvec2 _141 = uvec2((ivec3(gl_GlobalInvocationID).xy - ivec3(gl_LocalInvocationID).xy) - ivec2(2));
+            ivec2 _146 = RELAX_HistoryClampingConstants.gRectSize - ivec2(1);
+            uvec2 _148 = uvec2(clamp(ivec2(_141 + uvec2(_138, _139)), ivec2(0), _146));
+            vec4 _157 = texelFetch(gIn_DiffFast, ivec2(_148), int(0u));
+            vec3 _158 = _157.xyz;
+            s_DiffResponsiveYCoCg[_139][_138] = vec4(dot(_158, vec3(0.25, 0.5, 0.25)), dot(_158, vec3(0.5, 0.0, -0.5)), dot(_158, vec3(-0.25, 0.5, -0.25)), _157.w);
+            s_DiffNoisy_IsValid[_139][_138] = vec4(texelFetch(gIn_DiffNoisy, ivec2(_148), int(0u)).xyz, float(texelFetch(gIn_ViewZ, ivec2(_148), int(0u)).x < RELAX_HistoryClampingConstants.gDenoisingRange));
+            uint _172 = gl_LocalInvocationIndex + 64u;
+            uint _173 = _172 % 12u;
+            uint _174 = _172 / 12u;
+            if (_172 < 144u)
+            {
+                uvec2 _182 = uvec2(clamp(ivec2(_141 + uvec2(_173, _174)), ivec2(0), _146));
+                vec4 _189 = texelFetch(gIn_DiffFast, ivec2(_182), int(0u));
+                vec3 _190 = _189.xyz;
+                s_DiffResponsiveYCoCg[_174][_173] = vec4(dot(_190, vec3(0.25, 0.5, 0.25)), dot(_190, vec3(0.5, 0.0, -0.5)), dot(_190, vec3(-0.25, 0.5, -0.25)), _189.w);
+                s_DiffNoisy_IsValid[_174][_173] = vec4(texelFetch(gIn_DiffNoisy, ivec2(_182), int(0u)).xyz, float(texelFetch(gIn_ViewZ, ivec2(_182), int(0u)).x < RELAX_HistoryClampingConstants.gDenoisingRange));
+            }
+            uint _204 = gl_LocalInvocationIndex + 128u;
+            uint _205 = _204 % 12u;
+            uint _206 = _204 / 12u;
+            if (_204 < 144u)
+            {
+                uvec2 _214 = uvec2(clamp(ivec2(_141 + uvec2(_205, _206)), ivec2(0), _146));
+                vec4 _221 = texelFetch(gIn_DiffFast, ivec2(_214), int(0u));
+                vec3 _222 = _221.xyz;
+                s_DiffResponsiveYCoCg[_206][_205] = vec4(dot(_222, vec3(0.25, 0.5, 0.25)), dot(_222, vec3(0.5, 0.0, -0.5)), dot(_222, vec3(-0.25, 0.5, -0.25)), _221.w);
+                s_DiffNoisy_IsValid[_206][_205] = vec4(texelFetch(gIn_DiffNoisy, ivec2(_214), int(0u)).xyz, float(texelFetch(gIn_ViewZ, ivec2(_214), int(0u)).x < RELAX_HistoryClampingConstants.gDenoisingRange));
+            }
+        }
+        barrier();
+        bool _244;
+        if (!(_132 != 0.0))
+        {
+            _244 = any(greaterThanEqual(ivec3(gl_GlobalInvocationID).xy, RELAX_HistoryClampingConstants.gRectSize));
+        }
+        else
+        {
+            _244 = true;
+        }
+        if (_244)
+        {
+            break;
+        }
+        uvec2 _248 = uvec2(ivec3(gl_LocalInvocationID).xy + ivec2(2));
+        uint _249 = _248.y;
+        uint _250 = _248.x;
+        if (s_DiffNoisy_IsValid[_249][_250].w == 0.0)
+        {
+            break;
+        }
+        uvec2 _257 = uvec2(ivec3(gl_GlobalInvocationID).xy);
+        vec4 _259 = texelFetch(gIn_HistoryLength, ivec2(_257), int(0u));
+        float _260 = _259.x;
+        uvec2 _262 = _248 + uvec2(4294967294u);
+        uint _263 = _262.y;
+        uint _264 = _262.x;
+        bool _268 = s_DiffNoisy_IsValid[_263][_264].w != 0.0;
+        float _278;
+        vec3 _279;
+        vec3 _280;
+        vec3 _281;
+        if (_268)
+        {
+            float _276 = dot(s_DiffNoisy_IsValid[_263][_264].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _278 = _276 * _276;
+            _279 = s_DiffNoisy_IsValid[_263][_264].xyz;
+            _280 = s_DiffResponsiveYCoCg[_263][_264].xyz * s_DiffResponsiveYCoCg[_263][_264].xyz;
+            _281 = s_DiffResponsiveYCoCg[_263][_264].xyz;
+        }
+        else
+        {
+            _278 = 0.0;
+            _279 = vec3(0.0);
+            _280 = vec3(0.0);
+            _281 = vec3(0.0);
+        }
+        float _282 = _268 ? s_DiffNoisy_IsValid[_263][_264].w : 0.0;
+        uvec2 _283 = _248 + uvec2(4294967294u, 4294967295u);
+        uint _284 = _283.y;
+        uint _285 = _283.x;
+        float _304;
+        float _305;
+        vec3 _306;
+        vec3 _307;
+        vec3 _308;
+        if (s_DiffNoisy_IsValid[_284][_285].w != 0.0)
+        {
+            float _299 = dot(s_DiffNoisy_IsValid[_284][_285].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _304 = _282 + s_DiffNoisy_IsValid[_284][_285].w;
+            _305 = _278 + (_299 * _299);
+            _306 = _279 + s_DiffNoisy_IsValid[_284][_285].xyz;
+            _307 = _280 + (s_DiffResponsiveYCoCg[_284][_285].xyz * s_DiffResponsiveYCoCg[_284][_285].xyz);
+            _308 = _281 + s_DiffResponsiveYCoCg[_284][_285].xyz;
+        }
+        else
+        {
+            _304 = _282;
+            _305 = _278;
+            _306 = _279;
+            _307 = _280;
+            _308 = _281;
+        }
+        uvec2 _309 = _248 + uvec2(4294967294u, 0u);
+        uint _310 = _309.y;
+        uint _311 = _309.x;
+        float _330;
+        float _331;
+        vec3 _332;
+        vec3 _333;
+        vec3 _334;
+        if (s_DiffNoisy_IsValid[_310][_311].w != 0.0)
+        {
+            float _325 = dot(s_DiffNoisy_IsValid[_310][_311].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _330 = _304 + s_DiffNoisy_IsValid[_310][_311].w;
+            _331 = _305 + (_325 * _325);
+            _332 = _306 + s_DiffNoisy_IsValid[_310][_311].xyz;
+            _333 = _307 + (s_DiffResponsiveYCoCg[_310][_311].xyz * s_DiffResponsiveYCoCg[_310][_311].xyz);
+            _334 = _308 + s_DiffResponsiveYCoCg[_310][_311].xyz;
+        }
+        else
+        {
+            _330 = _304;
+            _331 = _305;
+            _332 = _306;
+            _333 = _307;
+            _334 = _308;
+        }
+        uvec2 _335 = _248 + uvec2(4294967294u, 1u);
+        uint _336 = _335.y;
+        uint _337 = _335.x;
+        float _356;
+        float _357;
+        vec3 _358;
+        vec3 _359;
+        vec3 _360;
+        if (s_DiffNoisy_IsValid[_336][_337].w != 0.0)
+        {
+            float _351 = dot(s_DiffNoisy_IsValid[_336][_337].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _356 = _330 + s_DiffNoisy_IsValid[_336][_337].w;
+            _357 = _331 + (_351 * _351);
+            _358 = _332 + s_DiffNoisy_IsValid[_336][_337].xyz;
+            _359 = _333 + (s_DiffResponsiveYCoCg[_336][_337].xyz * s_DiffResponsiveYCoCg[_336][_337].xyz);
+            _360 = _334 + s_DiffResponsiveYCoCg[_336][_337].xyz;
+        }
+        else
+        {
+            _356 = _330;
+            _357 = _331;
+            _358 = _332;
+            _359 = _333;
+            _360 = _334;
+        }
+        uvec2 _361 = _248 + uvec2(4294967294u, 2u);
+        uint _362 = _361.y;
+        uint _363 = _361.x;
+        float _382;
+        float _383;
+        vec3 _384;
+        vec3 _385;
+        vec3 _386;
+        if (s_DiffNoisy_IsValid[_362][_363].w != 0.0)
+        {
+            float _377 = dot(s_DiffNoisy_IsValid[_362][_363].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _382 = _356 + s_DiffNoisy_IsValid[_362][_363].w;
+            _383 = _357 + (_377 * _377);
+            _384 = _358 + s_DiffNoisy_IsValid[_362][_363].xyz;
+            _385 = _359 + (s_DiffResponsiveYCoCg[_362][_363].xyz * s_DiffResponsiveYCoCg[_362][_363].xyz);
+            _386 = _360 + s_DiffResponsiveYCoCg[_362][_363].xyz;
+        }
+        else
+        {
+            _382 = _356;
+            _383 = _357;
+            _384 = _358;
+            _385 = _359;
+            _386 = _360;
+        }
+        uvec2 _387 = _248 + uvec2(4294967295u, 4294967294u);
+        uint _388 = _387.y;
+        uint _389 = _387.x;
+        float _408;
+        float _409;
+        vec3 _410;
+        vec3 _411;
+        vec3 _412;
+        if (s_DiffNoisy_IsValid[_388][_389].w != 0.0)
+        {
+            float _403 = dot(s_DiffNoisy_IsValid[_388][_389].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _408 = _382 + s_DiffNoisy_IsValid[_388][_389].w;
+            _409 = _383 + (_403 * _403);
+            _410 = _384 + s_DiffNoisy_IsValid[_388][_389].xyz;
+            _411 = _385 + (s_DiffResponsiveYCoCg[_388][_389].xyz * s_DiffResponsiveYCoCg[_388][_389].xyz);
+            _412 = _386 + s_DiffResponsiveYCoCg[_388][_389].xyz;
+        }
+        else
+        {
+            _408 = _382;
+            _409 = _383;
+            _410 = _384;
+            _411 = _385;
+            _412 = _386;
+        }
+        uvec2 _413 = _248 + uvec2(4294967295u);
+        uint _414 = _413.y;
+        uint _415 = _413.x;
+        float _434;
+        float _435;
+        vec3 _436;
+        vec3 _437;
+        vec3 _438;
+        if (s_DiffNoisy_IsValid[_414][_415].w != 0.0)
+        {
+            float _429 = dot(s_DiffNoisy_IsValid[_414][_415].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _434 = _408 + s_DiffNoisy_IsValid[_414][_415].w;
+            _435 = _409 + (_429 * _429);
+            _436 = _410 + s_DiffNoisy_IsValid[_414][_415].xyz;
+            _437 = _411 + (s_DiffResponsiveYCoCg[_414][_415].xyz * s_DiffResponsiveYCoCg[_414][_415].xyz);
+            _438 = _412 + s_DiffResponsiveYCoCg[_414][_415].xyz;
+        }
+        else
+        {
+            _434 = _408;
+            _435 = _409;
+            _436 = _410;
+            _437 = _411;
+            _438 = _412;
+        }
+        uvec2 _439 = _248 + uvec2(4294967295u, 0u);
+        uint _440 = _439.y;
+        uint _441 = _439.x;
+        float _460;
+        float _461;
+        vec3 _462;
+        vec3 _463;
+        vec3 _464;
+        if (s_DiffNoisy_IsValid[_440][_441].w != 0.0)
+        {
+            float _455 = dot(s_DiffNoisy_IsValid[_440][_441].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _460 = _434 + s_DiffNoisy_IsValid[_440][_441].w;
+            _461 = _435 + (_455 * _455);
+            _462 = _436 + s_DiffNoisy_IsValid[_440][_441].xyz;
+            _463 = _437 + (s_DiffResponsiveYCoCg[_440][_441].xyz * s_DiffResponsiveYCoCg[_440][_441].xyz);
+            _464 = _438 + s_DiffResponsiveYCoCg[_440][_441].xyz;
+        }
+        else
+        {
+            _460 = _434;
+            _461 = _435;
+            _462 = _436;
+            _463 = _437;
+            _464 = _438;
+        }
+        uvec2 _465 = _248 + uvec2(4294967295u, 1u);
+        uint _466 = _465.y;
+        uint _467 = _465.x;
+        float _486;
+        float _487;
+        vec3 _488;
+        vec3 _489;
+        vec3 _490;
+        if (s_DiffNoisy_IsValid[_466][_467].w != 0.0)
+        {
+            float _481 = dot(s_DiffNoisy_IsValid[_466][_467].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _486 = _460 + s_DiffNoisy_IsValid[_466][_467].w;
+            _487 = _461 + (_481 * _481);
+            _488 = _462 + s_DiffNoisy_IsValid[_466][_467].xyz;
+            _489 = _463 + (s_DiffResponsiveYCoCg[_466][_467].xyz * s_DiffResponsiveYCoCg[_466][_467].xyz);
+            _490 = _464 + s_DiffResponsiveYCoCg[_466][_467].xyz;
+        }
+        else
+        {
+            _486 = _460;
+            _487 = _461;
+            _488 = _462;
+            _489 = _463;
+            _490 = _464;
+        }
+        uvec2 _491 = _248 + uvec2(4294967295u, 2u);
+        uint _492 = _491.y;
+        uint _493 = _491.x;
+        float _512;
+        float _513;
+        vec3 _514;
+        vec3 _515;
+        vec3 _516;
+        if (s_DiffNoisy_IsValid[_492][_493].w != 0.0)
+        {
+            float _507 = dot(s_DiffNoisy_IsValid[_492][_493].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _512 = _486 + s_DiffNoisy_IsValid[_492][_493].w;
+            _513 = _487 + (_507 * _507);
+            _514 = _488 + s_DiffNoisy_IsValid[_492][_493].xyz;
+            _515 = _489 + (s_DiffResponsiveYCoCg[_492][_493].xyz * s_DiffResponsiveYCoCg[_492][_493].xyz);
+            _516 = _490 + s_DiffResponsiveYCoCg[_492][_493].xyz;
+        }
+        else
+        {
+            _512 = _486;
+            _513 = _487;
+            _514 = _488;
+            _515 = _489;
+            _516 = _490;
+        }
+        uvec2 _517 = _248 + uvec2(0u, 4294967294u);
+        uint _518 = _517.y;
+        uint _519 = _517.x;
+        float _538;
+        float _539;
+        vec3 _540;
+        vec3 _541;
+        vec3 _542;
+        if (s_DiffNoisy_IsValid[_518][_519].w != 0.0)
+        {
+            float _533 = dot(s_DiffNoisy_IsValid[_518][_519].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _538 = _512 + s_DiffNoisy_IsValid[_518][_519].w;
+            _539 = _513 + (_533 * _533);
+            _540 = _514 + s_DiffNoisy_IsValid[_518][_519].xyz;
+            _541 = _515 + (s_DiffResponsiveYCoCg[_518][_519].xyz * s_DiffResponsiveYCoCg[_518][_519].xyz);
+            _542 = _516 + s_DiffResponsiveYCoCg[_518][_519].xyz;
+        }
+        else
+        {
+            _538 = _512;
+            _539 = _513;
+            _540 = _514;
+            _541 = _515;
+            _542 = _516;
+        }
+        uvec2 _543 = _248 + uvec2(0u, 4294967295u);
+        uint _544 = _543.y;
+        uint _545 = _543.x;
+        float _564;
+        float _565;
+        vec3 _566;
+        vec3 _567;
+        vec3 _568;
+        if (s_DiffNoisy_IsValid[_544][_545].w != 0.0)
+        {
+            float _559 = dot(s_DiffNoisy_IsValid[_544][_545].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _564 = _538 + s_DiffNoisy_IsValid[_544][_545].w;
+            _565 = _539 + (_559 * _559);
+            _566 = _540 + s_DiffNoisy_IsValid[_544][_545].xyz;
+            _567 = _541 + (s_DiffResponsiveYCoCg[_544][_545].xyz * s_DiffResponsiveYCoCg[_544][_545].xyz);
+            _568 = _542 + s_DiffResponsiveYCoCg[_544][_545].xyz;
+        }
+        else
+        {
+            _564 = _538;
+            _565 = _539;
+            _566 = _540;
+            _567 = _541;
+            _568 = _542;
+        }
+        float _586;
+        float _587;
+        vec3 _588;
+        vec3 _589;
+        vec3 _590;
+        if (s_DiffNoisy_IsValid[_249][_250].w != 0.0)
+        {
+            float _581 = dot(s_DiffNoisy_IsValid[_249][_250].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _586 = _564 + s_DiffNoisy_IsValid[_249][_250].w;
+            _587 = _565 + (_581 * _581);
+            _588 = _566 + s_DiffNoisy_IsValid[_249][_250].xyz;
+            _589 = _567 + (s_DiffResponsiveYCoCg[_249][_250].xyz * s_DiffResponsiveYCoCg[_249][_250].xyz);
+            _590 = _568 + s_DiffResponsiveYCoCg[_249][_250].xyz;
+        }
+        else
+        {
+            _586 = _564;
+            _587 = _565;
+            _588 = _566;
+            _589 = _567;
+            _590 = _568;
+        }
+        uvec2 _591 = _248 + uvec2(0u, 1u);
+        uint _592 = _591.y;
+        uint _593 = _591.x;
+        float _612;
+        float _613;
+        vec3 _614;
+        vec3 _615;
+        vec3 _616;
+        if (s_DiffNoisy_IsValid[_592][_593].w != 0.0)
+        {
+            float _607 = dot(s_DiffNoisy_IsValid[_592][_593].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _612 = _586 + s_DiffNoisy_IsValid[_592][_593].w;
+            _613 = _587 + (_607 * _607);
+            _614 = _588 + s_DiffNoisy_IsValid[_592][_593].xyz;
+            _615 = _589 + (s_DiffResponsiveYCoCg[_592][_593].xyz * s_DiffResponsiveYCoCg[_592][_593].xyz);
+            _616 = _590 + s_DiffResponsiveYCoCg[_592][_593].xyz;
+        }
+        else
+        {
+            _612 = _586;
+            _613 = _587;
+            _614 = _588;
+            _615 = _589;
+            _616 = _590;
+        }
+        uvec2 _617 = _248 + uvec2(0u, 2u);
+        uint _618 = _617.y;
+        uint _619 = _617.x;
+        float _638;
+        float _639;
+        vec3 _640;
+        vec3 _641;
+        vec3 _642;
+        if (s_DiffNoisy_IsValid[_618][_619].w != 0.0)
+        {
+            float _633 = dot(s_DiffNoisy_IsValid[_618][_619].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _638 = _612 + s_DiffNoisy_IsValid[_618][_619].w;
+            _639 = _613 + (_633 * _633);
+            _640 = _614 + s_DiffNoisy_IsValid[_618][_619].xyz;
+            _641 = _615 + (s_DiffResponsiveYCoCg[_618][_619].xyz * s_DiffResponsiveYCoCg[_618][_619].xyz);
+            _642 = _616 + s_DiffResponsiveYCoCg[_618][_619].xyz;
+        }
+        else
+        {
+            _638 = _612;
+            _639 = _613;
+            _640 = _614;
+            _641 = _615;
+            _642 = _616;
+        }
+        uvec2 _643 = _248 + uvec2(1u, 4294967294u);
+        uint _644 = _643.y;
+        uint _645 = _643.x;
+        float _664;
+        float _665;
+        vec3 _666;
+        vec3 _667;
+        vec3 _668;
+        if (s_DiffNoisy_IsValid[_644][_645].w != 0.0)
+        {
+            float _659 = dot(s_DiffNoisy_IsValid[_644][_645].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _664 = _638 + s_DiffNoisy_IsValid[_644][_645].w;
+            _665 = _639 + (_659 * _659);
+            _666 = _640 + s_DiffNoisy_IsValid[_644][_645].xyz;
+            _667 = _641 + (s_DiffResponsiveYCoCg[_644][_645].xyz * s_DiffResponsiveYCoCg[_644][_645].xyz);
+            _668 = _642 + s_DiffResponsiveYCoCg[_644][_645].xyz;
+        }
+        else
+        {
+            _664 = _638;
+            _665 = _639;
+            _666 = _640;
+            _667 = _641;
+            _668 = _642;
+        }
+        uvec2 _669 = _248 + uvec2(1u, 4294967295u);
+        uint _670 = _669.y;
+        uint _671 = _669.x;
+        float _690;
+        float _691;
+        vec3 _692;
+        vec3 _693;
+        vec3 _694;
+        if (s_DiffNoisy_IsValid[_670][_671].w != 0.0)
+        {
+            float _685 = dot(s_DiffNoisy_IsValid[_670][_671].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _690 = _664 + s_DiffNoisy_IsValid[_670][_671].w;
+            _691 = _665 + (_685 * _685);
+            _692 = _666 + s_DiffNoisy_IsValid[_670][_671].xyz;
+            _693 = _667 + (s_DiffResponsiveYCoCg[_670][_671].xyz * s_DiffResponsiveYCoCg[_670][_671].xyz);
+            _694 = _668 + s_DiffResponsiveYCoCg[_670][_671].xyz;
+        }
+        else
+        {
+            _690 = _664;
+            _691 = _665;
+            _692 = _666;
+            _693 = _667;
+            _694 = _668;
+        }
+        uvec2 _695 = _248 + uvec2(1u, 0u);
+        uint _696 = _695.y;
+        uint _697 = _695.x;
+        float _716;
+        float _717;
+        vec3 _718;
+        vec3 _719;
+        vec3 _720;
+        if (s_DiffNoisy_IsValid[_696][_697].w != 0.0)
+        {
+            float _711 = dot(s_DiffNoisy_IsValid[_696][_697].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _716 = _690 + s_DiffNoisy_IsValid[_696][_697].w;
+            _717 = _691 + (_711 * _711);
+            _718 = _692 + s_DiffNoisy_IsValid[_696][_697].xyz;
+            _719 = _693 + (s_DiffResponsiveYCoCg[_696][_697].xyz * s_DiffResponsiveYCoCg[_696][_697].xyz);
+            _720 = _694 + s_DiffResponsiveYCoCg[_696][_697].xyz;
+        }
+        else
+        {
+            _716 = _690;
+            _717 = _691;
+            _718 = _692;
+            _719 = _693;
+            _720 = _694;
+        }
+        uvec2 _721 = _248 + uvec2(1u);
+        uint _722 = _721.y;
+        uint _723 = _721.x;
+        float _742;
+        float _743;
+        vec3 _744;
+        vec3 _745;
+        vec3 _746;
+        if (s_DiffNoisy_IsValid[_722][_723].w != 0.0)
+        {
+            float _737 = dot(s_DiffNoisy_IsValid[_722][_723].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _742 = _716 + s_DiffNoisy_IsValid[_722][_723].w;
+            _743 = _717 + (_737 * _737);
+            _744 = _718 + s_DiffNoisy_IsValid[_722][_723].xyz;
+            _745 = _719 + (s_DiffResponsiveYCoCg[_722][_723].xyz * s_DiffResponsiveYCoCg[_722][_723].xyz);
+            _746 = _720 + s_DiffResponsiveYCoCg[_722][_723].xyz;
+        }
+        else
+        {
+            _742 = _716;
+            _743 = _717;
+            _744 = _718;
+            _745 = _719;
+            _746 = _720;
+        }
+        uvec2 _747 = _248 + uvec2(1u, 2u);
+        uint _748 = _747.y;
+        uint _749 = _747.x;
+        float _768;
+        float _769;
+        vec3 _770;
+        vec3 _771;
+        vec3 _772;
+        if (s_DiffNoisy_IsValid[_748][_749].w != 0.0)
+        {
+            float _763 = dot(s_DiffNoisy_IsValid[_748][_749].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _768 = _742 + s_DiffNoisy_IsValid[_748][_749].w;
+            _769 = _743 + (_763 * _763);
+            _770 = _744 + s_DiffNoisy_IsValid[_748][_749].xyz;
+            _771 = _745 + (s_DiffResponsiveYCoCg[_748][_749].xyz * s_DiffResponsiveYCoCg[_748][_749].xyz);
+            _772 = _746 + s_DiffResponsiveYCoCg[_748][_749].xyz;
+        }
+        else
+        {
+            _768 = _742;
+            _769 = _743;
+            _770 = _744;
+            _771 = _745;
+            _772 = _746;
+        }
+        uvec2 _773 = _248 + uvec2(2u, 4294967294u);
+        uint _774 = _773.y;
+        uint _775 = _773.x;
+        float _794;
+        float _795;
+        vec3 _796;
+        vec3 _797;
+        vec3 _798;
+        if (s_DiffNoisy_IsValid[_774][_775].w != 0.0)
+        {
+            float _789 = dot(s_DiffNoisy_IsValid[_774][_775].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _794 = _768 + s_DiffNoisy_IsValid[_774][_775].w;
+            _795 = _769 + (_789 * _789);
+            _796 = _770 + s_DiffNoisy_IsValid[_774][_775].xyz;
+            _797 = _771 + (s_DiffResponsiveYCoCg[_774][_775].xyz * s_DiffResponsiveYCoCg[_774][_775].xyz);
+            _798 = _772 + s_DiffResponsiveYCoCg[_774][_775].xyz;
+        }
+        else
+        {
+            _794 = _768;
+            _795 = _769;
+            _796 = _770;
+            _797 = _771;
+            _798 = _772;
+        }
+        uvec2 _799 = _248 + uvec2(2u, 4294967295u);
+        uint _800 = _799.y;
+        uint _801 = _799.x;
+        float _820;
+        float _821;
+        vec3 _822;
+        vec3 _823;
+        vec3 _824;
+        if (s_DiffNoisy_IsValid[_800][_801].w != 0.0)
+        {
+            float _815 = dot(s_DiffNoisy_IsValid[_800][_801].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _820 = _794 + s_DiffNoisy_IsValid[_800][_801].w;
+            _821 = _795 + (_815 * _815);
+            _822 = _796 + s_DiffNoisy_IsValid[_800][_801].xyz;
+            _823 = _797 + (s_DiffResponsiveYCoCg[_800][_801].xyz * s_DiffResponsiveYCoCg[_800][_801].xyz);
+            _824 = _798 + s_DiffResponsiveYCoCg[_800][_801].xyz;
+        }
+        else
+        {
+            _820 = _794;
+            _821 = _795;
+            _822 = _796;
+            _823 = _797;
+            _824 = _798;
+        }
+        uvec2 _825 = _248 + uvec2(2u, 0u);
+        uint _826 = _825.y;
+        uint _827 = _825.x;
+        float _846;
+        float _847;
+        vec3 _848;
+        vec3 _849;
+        vec3 _850;
+        if (s_DiffNoisy_IsValid[_826][_827].w != 0.0)
+        {
+            float _841 = dot(s_DiffNoisy_IsValid[_826][_827].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _846 = _820 + s_DiffNoisy_IsValid[_826][_827].w;
+            _847 = _821 + (_841 * _841);
+            _848 = _822 + s_DiffNoisy_IsValid[_826][_827].xyz;
+            _849 = _823 + (s_DiffResponsiveYCoCg[_826][_827].xyz * s_DiffResponsiveYCoCg[_826][_827].xyz);
+            _850 = _824 + s_DiffResponsiveYCoCg[_826][_827].xyz;
+        }
+        else
+        {
+            _846 = _820;
+            _847 = _821;
+            _848 = _822;
+            _849 = _823;
+            _850 = _824;
+        }
+        uvec2 _851 = _248 + uvec2(2u, 1u);
+        uint _852 = _851.y;
+        uint _853 = _851.x;
+        float _872;
+        float _873;
+        vec3 _874;
+        vec3 _875;
+        vec3 _876;
+        if (s_DiffNoisy_IsValid[_852][_853].w != 0.0)
+        {
+            float _867 = dot(s_DiffNoisy_IsValid[_852][_853].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _872 = _846 + s_DiffNoisy_IsValid[_852][_853].w;
+            _873 = _847 + (_867 * _867);
+            _874 = _848 + s_DiffNoisy_IsValid[_852][_853].xyz;
+            _875 = _849 + (s_DiffResponsiveYCoCg[_852][_853].xyz * s_DiffResponsiveYCoCg[_852][_853].xyz);
+            _876 = _850 + s_DiffResponsiveYCoCg[_852][_853].xyz;
+        }
+        else
+        {
+            _872 = _846;
+            _873 = _847;
+            _874 = _848;
+            _875 = _849;
+            _876 = _850;
+        }
+        uvec2 _877 = _248 + uvec2(2u);
+        uint _878 = _877.y;
+        uint _879 = _877.x;
+        float _898;
+        float _899;
+        vec3 _900;
+        vec3 _901;
+        vec3 _902;
+        if (s_DiffNoisy_IsValid[_878][_879].w != 0.0)
+        {
+            float _893 = dot(s_DiffNoisy_IsValid[_878][_879].xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+            _898 = _872 + s_DiffNoisy_IsValid[_878][_879].w;
+            _899 = _873 + (_893 * _893);
+            _900 = _874 + s_DiffNoisy_IsValid[_878][_879].xyz;
+            _901 = _875 + (s_DiffResponsiveYCoCg[_878][_879].xyz * s_DiffResponsiveYCoCg[_878][_879].xyz);
+            _902 = _876 + s_DiffResponsiveYCoCg[_878][_879].xyz;
+        }
+        else
+        {
+            _898 = _872;
+            _899 = _873;
+            _900 = _874;
+            _901 = _875;
+            _902 = _876;
+        }
+        vec3 _903 = vec3(_898);
+        vec3 _904 = _902 / _903;
+        vec3 _906 = _900 / _903;
+        vec3 _911 = sqrt(spvNMax(vec3(0.0), (_901 / _903) - (_904 * _904)));
+        vec3 _914 = _911 * RELAX_HistoryClampingConstants.gFastHistoryClampingSigmaScale;
+        vec4 _923 = texelFetch(gIn_Diff, ivec2(_257), int(0u));
+        vec3 _924 = _923.xyz;
+        float _925 = dot(_924, vec3(0.25, 0.5, 0.25));
+        vec3 _928 = vec3(_925, dot(_924, vec3(0.5, 0.0, -0.5)), dot(_924, vec3(-0.25, 0.5, -0.25)));
+        vec3 _937;
+        if (RELAX_HistoryClampingConstants.gDiffMaxFastAccumulatedFrameNum < RELAX_HistoryClampingConstants.gDiffMaxAccumulatedFrameNum)
+        {
+            _937 = clamp(_928, spvNMin(_904 - _914, s_DiffResponsiveYCoCg[_249][_250].xyz), spvNMax(_904 + _914, s_DiffResponsiveYCoCg[_249][_250].xyz));
+        }
+        else
+        {
+            _937 = _928;
+        }
+        float _940 = _937.x - _937.z;
+        vec4 _946 = vec4(_940 + _937.y, _937.x + _937.z, _940 - _937.y, _923.w);
+        float _949 = s_DiffResponsiveYCoCg[_249][_250].x - s_DiffResponsiveYCoCg[_249][_250].z;
+        float _950 = s_DiffResponsiveYCoCg[_249][_250].x + s_DiffResponsiveYCoCg[_249][_250].z;
+        float _952 = _949 + s_DiffResponsiveYCoCg[_249][_250].y;
+        float _953 = _949 - s_DiffResponsiveYCoCg[_249][_250].y;
+        vec3 _954 = vec3(_952, _950, _953);
+        vec4 _955 = vec4(_952, _950, _953, 0.0);
+        bool _958 = (255.0 * _260) <= RELAX_HistoryClampingConstants.gHistoryFixFrameNum;
+        vec4 _962;
+        if (_958)
+        {
+            _962 = vec4(_955.x, _955.y, _955.z, _946.w);
+        }
+        else
+        {
+            _962 = _946;
+        }
+        float _963 = _937.x - _925;
+        float _971;
+        if (_963 == 0.0)
+        {
+            _971 = 0.0;
+        }
+        else
+        {
+            _971 = clamp(_963 / (s_DiffResponsiveYCoCg[_249][_250].x - _925), 0.0, 1.0);
+        }
+        vec3 _982 = _906 - _954;
+        float _984 = dot(abs(_982), vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+        vec3 _992;
+        if (_984 == 0.0)
+        {
+            _992 = vec3(0.0);
+        }
+        else
+        {
+            _992 = (_982 * (_958 ? 0.0 : (((10.0 * RELAX_HistoryClampingConstants.gHistoryAccelerationAmount) * dot(abs(_954 - _924), vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875))) * (_958 ? 1.0 : _971)))) / vec3(_984);
+        }
+        float _994 = dot(abs(_992), vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+        float _1000;
+        if (_994 == 0.0)
+        {
+            _1000 = 0.0;
+        }
+        else
+        {
+            _1000 = _984 / _994;
+        }
+        vec3 _1005;
+        if (_1000 < 1.0)
+        {
+            _1005 = _992 * _1000;
+        }
+        else
+        {
+            _1005 = _992;
+        }
+        vec3 _1008 = mix(_1005, vec3(0.0), bvec3(_1000 <= 0.0));
+        float _1013 = dot(_924, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+        float _1014 = dot(_906, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+        float _1021 = RELAX_HistoryClampingConstants.gHistoryResetTemporalSigmaScale * sqrt(spvNMax(0.0, (_899 / _898) - (_1014 * _1014)));
+        float _1025 = RELAX_HistoryClampingConstants.gHistoryResetSpatialSigmaScale * _911.x;
+        vec3 _1043 = vec3(clamp((RELAX_HistoryClampingConstants.gHistoryResetAmount * spvNMax(0.0, (abs(_1013 - _1014) - _1025) - _1021)) / (((9.9999999747524270787835121154785e-07 + spvNMax(_1013, _1014)) + _1025) + _1021), 0.0, 1.0));
+        vec3 _1044 = mix((_962.xyz + _1008).xyz, s_DiffNoisy_IsValid[_249][_250].xyz, _1043);
+        vec4 _1045 = vec4(_1044.x, _1044.y, _1044.z, _962.w);
+        vec3 _1047 = mix((_955.xyz + _1008).xyz, s_DiffNoisy_IsValid[_249][_250].xyz, _1043);
+        float _1050 = dot(_1044.xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875));
+        _1045.w = spvNMax(0.0, _962.w + ((_1050 * _1050) - (_1013 * _1013)));
+        imageStore(gOut_Diff, ivec2(_257), _1045);
+        imageStore(gOut_DiffFast, ivec2(_257), vec4(_1047.x, _1047.y, _1047.z, _955.w));
+        imageStore(gOut_HistoryLength, ivec2(_257), vec4(_260));
+        break;
+    } while(false);
+}
+

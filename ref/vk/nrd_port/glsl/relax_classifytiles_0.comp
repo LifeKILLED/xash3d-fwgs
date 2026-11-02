@@ -1,0 +1,201 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+layout(local_size_x = 8, local_size_y = 4, local_size_z = 1) in;
+
+layout(set = 1, binding = 0, std140) uniform type_RELAX_ClassifyTilesConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gFrustumRight;
+    vec4 gFrustumUp;
+    vec4 gFrustumForward;
+    vec4 gPrevFrustumRight;
+    vec4 gPrevFrustumUp;
+    vec4 gPrevFrustumForward;
+    vec4 gCameraDelta;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec2 gJitter;
+    vec2 gResolutionScale;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResourceSizeInvPrev;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSize;
+    float gSpecMaxAccumulatedFrameNum;
+    float gSpecMaxFastAccumulatedFrameNum;
+    float gDiffMaxAccumulatedFrameNum;
+    float gDiffMaxFastAccumulatedFrameNum;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gRoughnessFraction;
+    float gSpecVarianceBoost;
+    float gSplitScreen;
+    float gDiffBlurRadius;
+    float gSpecBlurRadius;
+    float gDepthThreshold;
+    float gLobeAngleFraction;
+    float gSpecLobeAngleSlack;
+    float gHistoryFixEdgeStoppingNormalPower;
+    float gRoughnessEdgeStoppingRelaxation;
+    float gNormalEdgeStoppingRelaxation;
+    float gFastHistoryClampingSigmaScale;
+    float gHistoryAccelerationAmount;
+    float gHistoryResetTemporalSigmaScale;
+    float gHistoryResetSpatialSigmaScale;
+    float gHistoryResetAmount;
+    float gDenoisingRange;
+    float gSpecPhiLuminance;
+    float gDiffPhiLuminance;
+    float gDiffMaxLuminanceRelativeDifference;
+    float gSpecMaxLuminanceRelativeDifference;
+    float gLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenRelaxationMultiplier;
+    float gConfidenceDrivenLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenNormalEdgeStoppingRelaxation;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gCheckerboardResolveAccumSpeed;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gHistoryThreshold;
+    float gViewZScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    uint gRoughnessEdgeStoppingEnabled;
+    uint gFrameIndex;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gResetHistory;
+} RELAX_ClassifyTilesConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Tiles;
+
+shared uint s_isSky;
+
+void main()
+{
+    bool _66 = gl_LocalInvocationIndex == 0u;
+    if (_66)
+    {
+        s_isSky = 0u;
+    }
+    barrier();
+    uvec2 _71 = (gl_WorkGroupID.xy * uvec2(16u)) + (gl_LocalInvocationID.xy * uvec2(2u, 4u));
+    ivec2 _72 = ivec2(_71);
+    ivec2 _75 = RELAX_ClassifyTilesConstants.gRectSize - ivec2(1);
+    bool _94;
+    if (!any(greaterThanEqual(_72, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _94 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_72, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _94 = true;
+    }
+    ivec2 _98 = ivec2(_71 + uvec2(0u, 1u));
+    bool _115;
+    if (!any(greaterThanEqual(_98, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _115 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_98, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _115 = true;
+    }
+    ivec2 _120 = ivec2(_71 + uvec2(0u, 2u));
+    bool _137;
+    if (!any(greaterThanEqual(_120, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _137 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_120, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _137 = true;
+    }
+    ivec2 _142 = ivec2(_71 + uvec2(0u, 3u));
+    bool _159;
+    if (!any(greaterThanEqual(_142, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _159 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_142, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _159 = true;
+    }
+    ivec2 _164 = ivec2(_71 + uvec2(1u, 0u));
+    bool _181;
+    if (!any(greaterThanEqual(_164, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _181 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_164, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _181 = true;
+    }
+    ivec2 _186 = ivec2(_71 + uvec2(1u));
+    bool _203;
+    if (!any(greaterThanEqual(_186, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _203 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_186, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _203 = true;
+    }
+    ivec2 _208 = ivec2(_71 + uvec2(1u, 2u));
+    bool _225;
+    if (!any(greaterThanEqual(_208, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _225 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_208, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _225 = true;
+    }
+    ivec2 _230 = ivec2(_71 + uvec2(1u, 3u));
+    bool _247;
+    if (!any(greaterThanEqual(_230, RELAX_ClassifyTilesConstants.gRectSize)))
+    {
+        _247 = !(abs(texelFetch(gIn_ViewZ, ivec2(uvec2(min(_230, _75))), int(0u)).x * RELAX_ClassifyTilesConstants.gViewZScale) < RELAX_ClassifyTilesConstants.gDenoisingRange);
+    }
+    else
+    {
+        _247 = true;
+    }
+    uint _251 = atomicAdd(s_isSky, ((((((uint(int(_94)) + uint(int(_115))) + uint(int(_137))) + uint(int(_159))) + uint(int(_181))) + uint(int(_203))) + uint(int(_225))) + uint(int(_247)));
+    barrier();
+    if (_66)
+    {
+        imageStore(gOut_Tiles, ivec2(gl_WorkGroupID.xy), vec4(float(s_isSky == 256u)));
+    }
+}
+

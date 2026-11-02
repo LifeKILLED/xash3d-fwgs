@@ -1,0 +1,125 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 1, binding = 0, std140) uniform type_REBLUR_SplitScreenConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gViewToClip;
+    layout(row_major) mat4 gViewToWorld;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gRotator;
+    vec4 gRotatorPost;
+    vec4 gFrustum;
+    vec4 gFrustumPrev;
+    vec4 gCameraDelta;
+    vec4 gHitDistSettings;
+    vec4 gViewVectorWorld;
+    vec4 gViewVectorWorldPrev;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec4 gConvergenceSettings;
+    vec2 gAntilagSettings;
+    vec2 gResourceSize;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSizeInvPrev;
+    vec2 gRectSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResolutionScale;
+    vec2 gResolutionScalePrev;
+    vec2 gJitter;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSizeMinusOne;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gStabilizationStrength;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gDenoisingRange;
+    float gPlaneDistSensitivity;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gMinBlurRadius;
+    float gMaxBlurRadius;
+    float gDiffPrepassBlurRadius;
+    float gSpecPrepassBlurRadius;
+    float gMaxAccumulatedFrameNum;
+    float gMaxFastAccumulatedFrameNum;
+    float gAntiFirefly;
+    float gLobeAngleFraction;
+    float gRoughnessFraction;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gFastHistoryClampingSigmaScale;
+    float gMinRectDimMulUnproject;
+    float gUsePrepassNotOnlyForSpecularMotionEstimation;
+    float gSplitScreen;
+    float gSplitScreenPrev;
+    float gCheckerboardResolveAccumSpeed;
+    float gViewZScale;
+    float gFireflySuppressorMinRelativeScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    float gResponsiveAccumulationInvRoughnessThreshold;
+    uint gResponsiveAccumulationMinAccumulatedFrameNum;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gFrameIndex;
+    uint gIsRectChanged;
+    uint gResetHistory;
+    uint gReturnHistoryLengthInsteadOfOcclusion;
+} REBLUR_SplitScreenConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 1) uniform texture2D gIn_Spec;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Spec;
+
+void main()
+{
+    do
+    {
+        bool _69;
+        if (!(((vec2(ivec3(gl_GlobalInvocationID).xy) + vec2(0.5)) * REBLUR_SplitScreenConstants.gRectSizeInv).x > REBLUR_SplitScreenConstants.gSplitScreen))
+        {
+            _69 = any(greaterThan(ivec3(gl_GlobalInvocationID).xy, REBLUR_SplitScreenConstants.gRectSizeMinusOne));
+        }
+        else
+        {
+            _69 = true;
+        }
+        if (_69)
+        {
+            break;
+        }
+        uvec2 _72 = uvec2(ivec3(gl_GlobalInvocationID).xy);
+        uvec2 _89 = _72;
+        _89.x = uint(ivec3(gl_GlobalInvocationID).x >> ((int(REBLUR_SplitScreenConstants.gSpecCheckerboard != 2u)) & 31));
+        imageStore(gOut_Spec, ivec2(_72), texelFetch(gIn_Spec, ivec2(_89), int(0u)) * float(abs(texelFetch(gIn_ViewZ, ivec2(_72), int(0u)).x * REBLUR_SplitScreenConstants.gViewZScale) < REBLUR_SplitScreenConstants.gDenoisingRange));
+        break;
+    } while(false);
+}
+

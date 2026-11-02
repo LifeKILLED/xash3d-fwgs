@@ -1,0 +1,447 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
+
+vec4 _178;
+vec3 _179;
+float _180;
+vec3 _181;
+
+layout(set = 1, binding = 0, std140) uniform type_REBLUR_TemporalAccumulationConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gViewToClip;
+    layout(row_major) mat4 gViewToWorld;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gRotator;
+    vec4 gRotatorPost;
+    vec4 gFrustum;
+    vec4 gFrustumPrev;
+    vec4 gCameraDelta;
+    vec4 gHitDistSettings;
+    vec4 gViewVectorWorld;
+    vec4 gViewVectorWorldPrev;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec4 gConvergenceSettings;
+    vec2 gAntilagSettings;
+    vec2 gResourceSize;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSizeInvPrev;
+    vec2 gRectSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResolutionScale;
+    vec2 gResolutionScalePrev;
+    vec2 gJitter;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSizeMinusOne;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gStabilizationStrength;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gDenoisingRange;
+    float gPlaneDistSensitivity;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gMinBlurRadius;
+    float gMaxBlurRadius;
+    float gDiffPrepassBlurRadius;
+    float gSpecPrepassBlurRadius;
+    float gMaxAccumulatedFrameNum;
+    float gMaxFastAccumulatedFrameNum;
+    float gAntiFirefly;
+    float gLobeAngleFraction;
+    float gRoughnessFraction;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gFastHistoryClampingSigmaScale;
+    float gMinRectDimMulUnproject;
+    float gUsePrepassNotOnlyForSpecularMotionEstimation;
+    float gSplitScreen;
+    float gSplitScreenPrev;
+    float gCheckerboardResolveAccumSpeed;
+    float gViewZScale;
+    float gFireflySuppressorMinRelativeScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    float gResponsiveAccumulationInvRoughnessThreshold;
+    uint gResponsiveAccumulationMinAccumulatedFrameNum;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gFrameIndex;
+    uint gIsRectChanged;
+    uint gResetHistory;
+    uint gReturnHistoryLengthInsteadOfOcclusion;
+} REBLUR_TemporalAccumulationConstants;
+
+layout(set = 1, binding = 1) uniform sampler gNearestClamp;
+layout(set = 1, binding = 2) uniform sampler gLinearClamp;
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 2) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 3) uniform texture2D gIn_Mv;
+layout(set = 0, binding = 4) uniform texture2D gPrev_ViewZ;
+layout(set = 0, binding = 5) uniform texture2D gPrev_Normal_Roughness;
+layout(set = 0, binding = 6) uniform utexture2D gPrev_InternalData;
+layout(set = 0, binding = 9) uniform texture2D gIn_Diff;
+layout(set = 0, binding = 10) uniform texture2D gHistory_Diff;
+layout(set = 0, binding = 11) uniform texture2D gHistory_DiffFast;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Data1;
+layout(set = 0, binding = 65) uniform writeonly image2D gOut_Diff;
+layout(set = 0, binding = 66) uniform writeonly image2D gOut_DiffFast;
+layout(set = 0, binding = 67) uniform writeonly uimage2D gOut_Data2;
+
+shared vec4 s_Normal_HitDistForTracking[18][10];
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        vec4 _193 = texelFetch(gIn_Tiles, ivec2(uvec2(ivec3(gl_GlobalInvocationID).xy >> ivec2(4))), int(0u));
+        float _194 = _193.x;
+        if (_194 == 0.0)
+        {
+            uint _200 = gl_LocalInvocationIndex % 10u;
+            uint _201 = gl_LocalInvocationIndex / 10u;
+            uvec2 _203 = uvec2((ivec3(gl_GlobalInvocationID).xy - ivec3(gl_LocalInvocationID).xy) - ivec2(1));
+            vec4 _211 = texelFetch(gIn_Normal_Roughness, ivec2(uvec2(clamp(ivec2(_203 + uvec2(_200, _201)), ivec2(0), REBLUR_TemporalAccumulationConstants.gRectSizeMinusOne))), int(0u));
+            float _215 = _211.x;
+            float _216 = _211.y;
+            float _217 = _215 - _216;
+            float _219 = (_215 + _216) - 1.0;
+            vec3 _229 = vec4(_217, _219, float((((_211.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_217)) - abs(_219)), _180).xyz;
+            s_Normal_HitDistForTracking[_201][_200] = vec4(_229 * inversesqrt(spvNMax(dot(_229, _229), 9.999999717180685365747194737196e-10)), 0.0);
+            uint _239 = gl_LocalInvocationIndex + 128u;
+            uint _240 = _239 % 10u;
+            uint _241 = _239 / 10u;
+            if (_239 < 180u)
+            {
+                vec4 _251 = texelFetch(gIn_Normal_Roughness, ivec2(uvec2(clamp(ivec2(_203 + uvec2(_240, _241)), ivec2(0), REBLUR_TemporalAccumulationConstants.gRectSizeMinusOne))), int(0u));
+                float _255 = _251.x;
+                float _256 = _251.y;
+                float _257 = _255 - _256;
+                float _259 = (_255 + _256) - 1.0;
+                vec3 _269 = vec4(_257, _259, float((((_251.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_257)) - abs(_259)), _180).xyz;
+                s_Normal_HitDistForTracking[_241][_240] = vec4(_269 * inversesqrt(spvNMax(dot(_269, _269), 9.999999717180685365747194737196e-10)), 0.0);
+            }
+        }
+        barrier();
+        bool _287;
+        if (!(_194 != 0.0))
+        {
+            _287 = any(greaterThan(ivec3(gl_GlobalInvocationID).xy, REBLUR_TemporalAccumulationConstants.gRectSizeMinusOne));
+        }
+        else
+        {
+            _287 = true;
+        }
+        if (_287)
+        {
+            break;
+        }
+        uvec2 _290 = uvec2(ivec3(gl_GlobalInvocationID).xy);
+        float _297 = abs(texelFetch(gIn_ViewZ, ivec2(_290), int(0u)).x * REBLUR_TemporalAccumulationConstants.gViewZScale);
+        if (!(_297 < REBLUR_TemporalAccumulationConstants.gDenoisingRange))
+        {
+            break;
+        }
+        vec2 _308 = (vec2(ivec3(gl_GlobalInvocationID).xy) + vec2(0.5)) * REBLUR_TemporalAccumulationConstants.gRectSizeInv;
+        bool _317 = REBLUR_TemporalAccumulationConstants.gOrthoMode == 0.0;
+        vec2 _320 = ((_308 * REBLUR_TemporalAccumulationConstants.gFrustum.zw) + REBLUR_TemporalAccumulationConstants.gFrustum.xy).xy * (_317 ? _297 : REBLUR_TemporalAccumulationConstants.gOrthoMode);
+        vec3 _321 = vec3(_320.x, _320.y, _179.z);
+        _321.z = _297;
+        vec3 _332 = _321 * mat3(REBLUR_TemporalAccumulationConstants.gViewToWorld[0].xyz, REBLUR_TemporalAccumulationConstants.gViewToWorld[1].xyz, REBLUR_TemporalAccumulationConstants.gViewToWorld[2].xyz);
+        ivec2 _339 = ivec3(gl_LocalInvocationID).xy + ivec2(1, 0);
+        ivec2 _347 = ivec3(gl_LocalInvocationID).xy + ivec2(0, 1);
+        ivec2 _355 = ivec3(gl_LocalInvocationID).xy + ivec2(1);
+        vec3 _362 = (((s_Normal_HitDistForTracking[ivec3(gl_LocalInvocationID).y][ivec3(gl_LocalInvocationID).x].xyz * 0.25) + (s_Normal_HitDistForTracking[_339.y][_339.x].xyz * 0.25)) + (s_Normal_HitDistForTracking[_347.y][_347.x].xyz * 0.25)) + (s_Normal_HitDistForTracking[_355.y][_355.x].xyz * 0.25);
+        vec4 _364 = texelFetch(gIn_Normal_Roughness, ivec2(_290), int(0u));
+        float _368 = _364.x;
+        float _369 = _364.y;
+        float _370 = _368 - _369;
+        float _372 = (_368 + _369) - 1.0;
+        float _383 = _364.w * 3.0;
+        vec3 _384 = vec4(_370, _372, float((((_364.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_370)) - abs(_372)), _180).xyz;
+        vec3 _389 = (_384 * inversesqrt(spvNMax(dot(_384, _384), 9.999999717180685365747194737196e-10))).xyz;
+        vec3 _400 = (texelFetch(gIn_Mv, ivec2(_290), int(0u)).xyz * REBLUR_TemporalAccumulationConstants.gMvScale.xyz) + REBLUR_TemporalAccumulationConstants.gMvBias.xyz;
+        vec2 _402 = _308 + _400.xy;
+        vec3 _467;
+        vec2 _468;
+        if (REBLUR_TemporalAccumulationConstants.gMvScale.w == 0.0)
+        {
+            vec3 _438;
+            if (REBLUR_TemporalAccumulationConstants.gMvScale.z == 0.0)
+            {
+                vec3 _437;
+                _437.z = (vec4(_332, 1.0) * REBLUR_TemporalAccumulationConstants.gWorldToViewPrev).z - _297;
+                _438 = _437;
+            }
+            else
+            {
+                _438 = _400;
+            }
+            float _440 = _297 + _438.z;
+            vec2 _449 = ((_402 * REBLUR_TemporalAccumulationConstants.gFrustumPrev.zw) + REBLUR_TemporalAccumulationConstants.gFrustumPrev.xy).xy * (_317 ? _440 : REBLUR_TemporalAccumulationConstants.gOrthoMode);
+            vec3 _450 = vec3(_449.x, _449.y, _179.z);
+            _450.z = _440;
+            mat4 _454 = transpose(REBLUR_TemporalAccumulationConstants.gWorldToViewPrev);
+            _467 = (_450 * mat3(_454[0].xyz, _454[1].xyz, _454[2].xyz)) + REBLUR_TemporalAccumulationConstants.gCameraDelta.xyz;
+            _468 = _402;
+        }
+        else
+        {
+            vec3 _409 = _332 + _400;
+            vec4 _416 = vec4(_409, 1.0) * REBLUR_TemporalAccumulationConstants.gWorldToClipPrev;
+            _467 = _409;
+            _468 = ((_416.xy / vec2(_416.w)) * vec2(0.5, -0.5)) + vec2(0.5);
+        }
+        vec2 _472 = (_468 * REBLUR_TemporalAccumulationConstants.gRectSizePrev) - vec2(0.5);
+        vec2 _473 = floor(_472);
+        vec2 _477 = (_473 + vec2(-1.0)) * REBLUR_TemporalAccumulationConstants.gResourceSizeInvPrev;
+        vec3 _496 = abs(textureGatherOffset(sampler2D(gPrev_ViewZ, gNearestClamp), _477, ivec2(1)).zxy * REBLUR_TemporalAccumulationConstants.gViewZScale);
+        vec3 _499 = abs(textureGatherOffset(sampler2D(gPrev_ViewZ, gNearestClamp), _477, ivec2(3, 1)).wxy * REBLUR_TemporalAccumulationConstants.gViewZScale);
+        vec3 _502 = abs(textureGatherOffset(sampler2D(gPrev_ViewZ, gNearestClamp), _477, ivec2(1, 3)).wzy * REBLUR_TemporalAccumulationConstants.gViewZScale);
+        vec3 _505 = abs(textureGatherOffset(sampler2D(gPrev_ViewZ, gNearestClamp), _477, ivec2(3)).wzx * REBLUR_TemporalAccumulationConstants.gViewZScale);
+        vec2 _507 = clamp(_472 - _473, vec2(0.0), vec2(1.0));
+        ivec2 _512 = ivec3(ivec2(_473), 0).xy;
+        vec4 _514 = texelFetch(gPrev_Normal_Roughness, _512, 0);
+        float _518 = _514.x;
+        float _519 = _514.y;
+        float _520 = _518 - _519;
+        float _522 = (_518 + _519) - 1.0;
+        vec3 _532 = vec4(_520, _522, float((((_514.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_520)) - abs(_522)), _180).xyz;
+        vec4 _539 = texelFetchOffset(gPrev_Normal_Roughness, _512, 0, ivec2(1, 0));
+        float _543 = _539.x;
+        float _544 = _539.y;
+        float _545 = _543 - _544;
+        float _547 = (_543 + _544) - 1.0;
+        vec3 _557 = vec4(_545, _547, float((((_539.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_545)) - abs(_547)), _180).xyz;
+        vec4 _564 = texelFetchOffset(gPrev_Normal_Roughness, _512, 0, ivec2(0, 1));
+        float _568 = _564.x;
+        float _569 = _564.y;
+        float _570 = _568 - _569;
+        float _572 = (_568 + _569) - 1.0;
+        vec3 _582 = vec4(_570, _572, float((((_564.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_570)) - abs(_572)), _180).xyz;
+        vec4 _589 = texelFetchOffset(gPrev_Normal_Roughness, _512, 0, ivec2(1));
+        float _593 = _589.x;
+        float _594 = _589.y;
+        float _595 = _593 - _594;
+        float _597 = (_593 + _594) - 1.0;
+        vec3 _607 = vec4(_595, _597, float((((_589.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_595)) - abs(_597)), _180).xyz;
+        bvec2 _622 = bvec2(_317);
+        vec4 _632 = vec4(_467 + REBLUR_TemporalAccumulationConstants.gCameraDelta.xyz, 1.0) * REBLUR_TemporalAccumulationConstants.gWorldToClipPrev;
+        vec4 _650 = vec4(_467 - REBLUR_TemporalAccumulationConstants.gCameraDelta.xyz, 1.0) * REBLUR_TemporalAccumulationConstants.gWorldToClip;
+        float _660 = spvNMax(length(((((_632.xy / vec2(_632.w)) * vec2(0.5, -0.5)) + vec2(0.5)) - mix(_308, _468, _622)) * REBLUR_TemporalAccumulationConstants.gRectSize), length(((((_650.xy / vec2(_650.w)) * vec2(0.5, -0.5)) + vec2(0.5)) - mix(_468, _308, _622)) * REBLUR_TemporalAccumulationConstants.gRectSize));
+        float _664 = mix(_297, 1.0, abs(REBLUR_TemporalAccumulationConstants.gOrthoMode));
+        bool _671 = _383 == REBLUR_TemporalAccumulationConstants.gStrandMaterialID;
+        float _680;
+        if (_671)
+        {
+            _680 = clamp((0.5 * (REBLUR_TemporalAccumulationConstants.gUnproject * _664)) / (REBLUR_TemporalAccumulationConstants.gStrandThickness + 9.9999999747524270787835121154785e-07), 0.0, 1.0);
+        }
+        else
+        {
+            _680 = 0.0;
+        }
+        float _685 = mix(REBLUR_TemporalAccumulationConstants.gDisocclusionThreshold, REBLUR_TemporalAccumulationConstants.gDisocclusionThresholdAlternate, _680);
+        float _694;
+        if (_671)
+        {
+            float _688 = clamp(_660, 0.0, 1.0);
+            _694 = mix(0.25, _685, (_688 * _688) * (3.0 - (_688 * 2.0)));
+        }
+        else
+        {
+            _694 = _685;
+        }
+        float _698 = radians(180.0);
+        vec3 _711;
+        if (_317)
+        {
+            _711 = normalize(-_332);
+        }
+        else
+        {
+            _711 = REBLUR_TemporalAccumulationConstants.gViewVectorWorld.xyz;
+        }
+        float _713 = abs(dot(_389, _711));
+        vec4 _721 = _473.xyxy + vec4(0.0, 0.0, 1.0, 1.0);
+        bvec4 _728 = notEqual((ivec4(greaterThanEqual(_721, vec4(0.0))) & ivec4(lessThan(_721, REBLUR_TemporalAccumulationConstants.gRectSizePrev.xyxy))), ivec4(0));
+        vec4 _741 = ((vec4(greaterThan(vec4(dot((_532 * inversesqrt(spvNMax(dot(_532, _532), 9.999999717180685365747194737196e-10))).xyz, _362), dot((_557 * inversesqrt(spvNMax(dot(_557, _557), 9.999999717180685365747194737196e-10))).xyz, _362), dot((_582 * inversesqrt(spvNMax(dot(_582, _582), 9.999999717180685365747194737196e-10))).xyz, _362), dot((_607 * inversesqrt(spvNMax(dot(_607, _607), 9.999999717180685365747194737196e-10))).xyz, _362)), vec4(cos(_698 * 0.4944444596767425537109375) - (0.25 * clamp((_660 - 0.25) * (-4.0), 0.0, 1.0))))) * vec4(ivec4(_728.xzxz) & ivec4(_728.yyww))) * ((REBLUR_TemporalAccumulationConstants.gMinRectDimMulUnproject * _664) * clamp(_694 / spvNMax(0.0500000007450580596923828125, mix(_713, 1.0, clamp(_660 * 0.0333333350718021392822265625, 0.0, 1.0))), 0.0, 1.0))) - vec4(9.9999999747524270787835121154785e-07);
+        vec3 _750 = vec3((vec4(_467, 1.0) * REBLUR_TemporalAccumulationConstants.gWorldToViewPrev).z);
+        vec3 _762 = vec3(REBLUR_TemporalAccumulationConstants.gDenoisingRange);
+        uvec4 _787 = textureGatherOffset(usampler2D(gPrev_InternalData, gNearestClamp), _477, ivec2(1));
+        uvec4 _791 = textureGatherOffset(usampler2D(gPrev_InternalData, gNearestClamp), _477, ivec2(3, 1));
+        uvec4 _795 = textureGatherOffset(usampler2D(gPrev_InternalData, gNearestClamp), _477, ivec2(1, 3));
+        uvec4 _799 = textureGatherOffset(usampler2D(gPrev_InternalData, gNearestClamp), _477, ivec2(3));
+        vec4 _801 = spvNMax(vec4(63.0, 63.0, 15.0, 0.0), vec4(1.0));
+        vec4 _802 = vec4(1.0) / _801;
+        vec4 _823 = vec4((uvec4(_787.y) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802;
+        vec4 _840 = vec4((uvec4(_791.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802;
+        vec4 _865 = vec4((uvec4(_795.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802;
+        vec4 _882 = vec4((uvec4(_799.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802;
+        float _906 = spvNMin(REBLUR_TemporalAccumulationConstants.gSpecMinMaterial, REBLUR_TemporalAccumulationConstants.gDiffMinMaterial);
+        vec3 _908 = vec3(spvNMax(_383, _906));
+        vec3 _909 = vec3(_906);
+        vec3 _913 = (step(abs(_496 - _750), vec3(_741.x)) * vec3(lessThan(_496, _762))) * vec3(equal(_908, spvNMax(vec3((vec4((uvec4(_787.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0, (vec4((uvec4(_787.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0, _823.z * 15.0), _909)));
+        vec3 _917 = (step(abs(_499 - _750), vec3(_741.y)) * vec3(lessThan(_499, _762))) * vec3(equal(_908, spvNMax(vec3((vec4((uvec4(_791.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0, _840.z * 15.0, (vec4((uvec4(_791.y) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0), _909)));
+        vec3 _921 = (step(abs(_502 - _750), vec3(_741.z)) * vec3(lessThan(_502, _762))) * vec3(equal(_908, spvNMax(vec3((vec4((uvec4(_795.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0, _865.z * 15.0, (vec4((uvec4(_795.y) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0), _909)));
+        vec3 _925 = (step(abs(_505 - _750), vec3(_741.w)) * vec3(lessThan(_505, _762))) * vec3(equal(_908, spvNMax(vec3(_882.z * 15.0, (vec4((uvec4(_799.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0, (vec4((uvec4(_799.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * _802).z * 15.0), _909)));
+        vec2 _931 = clamp(vec2(1.0) - _507, vec2(0.0), vec2(1.0));
+        float _932 = _931.x;
+        float _933 = _931.y;
+        float _935 = _913.z * (_932 * _933);
+        float _936 = _507.x;
+        float _938 = _917.y * (_936 * _933);
+        float _939 = _507.y;
+        float _941 = _921.y * (_932 * _939);
+        float _943 = _925.x * (_936 * _939);
+        vec4 _944 = vec4(_935, _938, _941, _943);
+        bool _950 = (dot(((_913 + _917) + _921) + _925, vec3(1.0)) > 11.5) ? true : false;
+        float _984 = dot(_944, vec4(1.0));
+        bool _985 = _984 < 9.9999997473787516355514526367188e-05;
+        float _990;
+        if (_985)
+        {
+            _990 = 0.0;
+        }
+        else
+        {
+            _990 = 1.0 / _984;
+        }
+        float _991 = ((((roundEven((_823.xy * 63.0).xy).x * _935) + (roundEven((_840.xy * 63.0).xy).x * _938)) + (roundEven((_865.xy * 63.0).xy).x * _941)) + (roundEven((_882.xy * 63.0).xy).x * _943)) * _990;
+        vec3 _1000;
+        if (_317)
+        {
+            _1000 = normalize(REBLUR_TemporalAccumulationConstants.gCameraDelta.xyz - _467);
+        }
+        else
+        {
+            _1000 = REBLUR_TemporalAccumulationConstants.gViewVectorWorldPrev.xyz;
+        }
+        float _1005 = (abs(dot(_389, _1000)) + 0.001000000047497451305389404296875) / (_713 + 0.001000000047497451305389404296875);
+        uint _1020 = packHalf2x16(vec2(0.0));
+        imageStore(gOut_Data2, ivec2(_290), uvec4((uint((((_913.z + (_917.y * 2.0)) + (_921.y * 4.0)) + (_925.x * 8.0)) + 0.5) | uint(_950 ? 16 : 0)) | (_1020 << 16u)));
+        float _1027 = _991 * mix(sqrt(clamp(mix(mix(_913.z, _917.y, _936), mix(_921.y, _925.x, _936), _939), 0.0, 1.0)) * mix(0.100000001490116119384765625, 1.0, clamp(_1005 * _1005, 0.0, 1.0)), 1.0, 1.0 / (1.0 + _991));
+        vec4 _1029 = texelFetch(gIn_Diff, ivec2(_290), int(0u));
+        vec2 _1031 = clamp(_468, vec2(0.0), vec2(1.0)) * REBLUR_TemporalAccumulationConstants.gRectSizePrev;
+        vec2 _1036 = floor(_1031 - vec2(0.5)) + vec2(0.5);
+        vec2 _1038 = clamp(_1031 - _1036, vec2(0.0), vec2(1.0));
+        vec2 _1043 = _1038 * ((_1038 * ((_1038 * (-0.5)) + vec2(1.0))) - vec2(0.5));
+        vec2 _1053 = _1038 * ((_1038 * ((_1038 * (-1.5)) + vec2(2.0))) + vec2(0.5));
+        vec2 _1057 = _1038 * (_1038 * ((_1038 * 0.5) - vec2(0.5)));
+        vec2 _1058 = ((_1038 * (_1038 * ((_1038 * 1.5) - vec2(2.5)))) + vec2(1.0)) + _1053;
+        vec2 _1059 = _1053 / _1058;
+        float _1060 = _1058.x;
+        float _1064 = _1058.y;
+        vec4 _1073 = mix(_944, vec4(_1060 * _1043.y, _1043.x * _1064, _1060 * _1064, _1057.x * _1064), bvec4(_950));
+        float _1074 = _950 ? (_1060 * _1057.y) : 0.0;
+        float _1076 = dot(_1073, vec4(1.0)) + _1074;
+        vec4 _1077 = _1036.xyxy;
+        vec4 _1084;
+        if (_950)
+        {
+            _1084 = vec4(_1059.x, -1.0, -1.0, _1059.y);
+        }
+        else
+        {
+            _1084 = vec4(0.0, 0.0, 1.0, 0.0);
+        }
+        vec4 _1092;
+        if (_950)
+        {
+            _1092 = vec4(_1059, 2.0, _1059.y);
+        }
+        else
+        {
+            _1092 = vec4(0.0, 1.0, 1.0, 1.0);
+        }
+        vec2 _1099;
+        if (_950)
+        {
+            _1099 = vec2(_1059.x, 2.0);
+        }
+        else
+        {
+            _1099 = _1038;
+        }
+        vec4 _1102 = (_1077 + _1084) * REBLUR_TemporalAccumulationConstants.gResourceSizeInvPrev.xyxy;
+        vec4 _1103 = (_1077 + _1092) * REBLUR_TemporalAccumulationConstants.gResourceSizeInvPrev.xyxy;
+        vec4 _1147;
+        if (_1076 < 9.9999997473787516355514526367188e-05)
+        {
+            _1147 = vec4(0.0);
+        }
+        else
+        {
+            _1147 = (((((textureLod(sampler2D(gHistory_Diff, gLinearClamp), _1102.xy, 0.0) * _1073.x) + (textureLod(sampler2D(gHistory_Diff, gLinearClamp), _1102.zw, 0.0) * _1073.y)) + (textureLod(sampler2D(gHistory_Diff, gLinearClamp), _1103.xy, 0.0) * _1073.z)) + (textureLod(sampler2D(gHistory_Diff, gLinearClamp), _1103.zw, 0.0) * _1073.w)) + (textureLod(sampler2D(gHistory_Diff, gLinearClamp), (_1036 + _1099) * REBLUR_TemporalAccumulationConstants.gResourceSizeInvPrev, 0.0) * _1074)) / vec4(_1076);
+        }
+        ivec2 _1148 = ivec3(ivec2(_1036), 0).xy;
+        float _1168;
+        if (_985)
+        {
+            _1168 = 0.0;
+        }
+        else
+        {
+            _1168 = ((((texelFetch(gHistory_DiffFast, _1148, 0).x * _935) + (texelFetchOffset(gHistory_DiffFast, _1148, 0, ivec2(1, 0)).x * _938)) + (texelFetchOffset(gHistory_DiffFast, _1148, 0, ivec2(0, 1)).x * _941)) + (texelFetchOffset(gHistory_DiffFast, _1148, 0, ivec2(1)).x * _943)) / _984;
+        }
+        float _1171 = _1147.x - _1147.z;
+        vec3 _1178 = spvNMax(vec3(_1171 + _1147.y, _1147.x + _1147.z, _1171 - _1147.y), vec3(0.0)).xyz;
+        float _1179 = dot(_1178, vec3(0.25, 0.5, 0.25));
+        float _1184 = clamp(_1147.w, 0.0, 1.0);
+        float _1187 = 1.0 / (1.0 + _1027);
+        vec3 _1191 = mix(vec3(_1179, dot(_1178, vec3(0.5, 0.0, -0.5)), dot(_1178, vec3(-0.25, 0.5, -0.25))).xyz, _1029.xyz, vec3(_1187));
+        float _1199 = mix(_1184, _1029.w, spvNMax(_1187, 1.0 / (1.0 + (0.5 * REBLUR_TemporalAccumulationConstants.gMaxAccumulatedFrameNum))));
+        float _1202 = _1027 + 1.0;
+        float _1208 = (_1027 * REBLUR_TemporalAccumulationConstants.gMaxBlurRadius) * 0.100000001490116119384765625;
+        float _1210 = _1208 / (1.0 + _1208);
+        float _1211 = _1191.x;
+        float _1212 = _1179 * (REBLUR_TemporalAccumulationConstants.gFireflySuppressorMinRelativeScale + (38.0 / _1202));
+        vec3 _1218 = _1191.xyz * (mix(_1211, spvNMin(_1211, _1212), _1210) / spvNMax(_1211, 9.9999999747524270787835121154785e-07));
+        vec4 _1219 = vec4(_1218.x, _1218.y, _1218.z, _178.w);
+        _1219.w = mix(_1199, spvNMin(_1199, _1184 * (1.2000000476837158203125 + (1.0 / _1202))), _1210);
+        imageStore(gOut_Diff, ivec2(_290), _1219);
+        float _1233 = mix(spvNMax(_1168, 0.0), _1029.x, 1.0 / (1.0 + spvNMin(_1027, REBLUR_TemporalAccumulationConstants.gMaxFastAccumulatedFrameNum)));
+        imageStore(gOut_DiffFast, ivec2(_290), vec4(mix(_1233, spvNMin(_1233, _1212 * 4.0), _1210)));
+        float _1241 = roundEven(0.0);
+        imageStore(gOut_Data1, ivec2(_290), vec2(clamp(roundEven(_1027) * 0.01587301678955554962158203125, 0.0, 1.0), clamp(_1241 * 0.01587301678955554962158203125, 0.0, 1.0)).xyyy);
+        break;
+    } while(false);
+}
+

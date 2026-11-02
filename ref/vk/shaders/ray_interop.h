@@ -382,7 +382,8 @@ struct UniformBuffer {
 	STRUCT AsvgfParams asvgf;
 
 	uint bounce_count; // rt_bounces; independent GI keeps the entire path in one pixel.
-	PAD(3)
+	uint nrd_bounce, nrd_reflection;
+	PAD(1)
 };
 
 #undef PAD

@@ -1,0 +1,274 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+#if defined(GL_EXT_control_flow_attributes)
+#extension GL_EXT_control_flow_attributes : require
+#define SPIRV_CROSS_FLATTEN [[flatten]]
+#define SPIRV_CROSS_BRANCH [[dont_flatten]]
+#define SPIRV_CROSS_UNROLL [[unroll]]
+#define SPIRV_CROSS_LOOP [[dont_unroll]]
+#else
+#define SPIRV_CROSS_FLATTEN
+#define SPIRV_CROSS_BRANCH
+#define SPIRV_CROSS_UNROLL
+#define SPIRV_CROSS_LOOP
+#endif
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+float _84;
+
+layout(set = 1, binding = 0, std140) uniform type_RELAX_HistoryFixConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gFrustumRight;
+    vec4 gFrustumUp;
+    vec4 gFrustumForward;
+    vec4 gPrevFrustumRight;
+    vec4 gPrevFrustumUp;
+    vec4 gPrevFrustumForward;
+    vec4 gCameraDelta;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec2 gJitter;
+    vec2 gResolutionScale;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResourceSizeInvPrev;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSize;
+    float gSpecMaxAccumulatedFrameNum;
+    float gSpecMaxFastAccumulatedFrameNum;
+    float gDiffMaxAccumulatedFrameNum;
+    float gDiffMaxFastAccumulatedFrameNum;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gRoughnessFraction;
+    float gSpecVarianceBoost;
+    float gSplitScreen;
+    float gDiffBlurRadius;
+    float gSpecBlurRadius;
+    float gDepthThreshold;
+    float gLobeAngleFraction;
+    float gSpecLobeAngleSlack;
+    float gHistoryFixEdgeStoppingNormalPower;
+    float gRoughnessEdgeStoppingRelaxation;
+    float gNormalEdgeStoppingRelaxation;
+    float gFastHistoryClampingSigmaScale;
+    float gHistoryAccelerationAmount;
+    float gHistoryResetTemporalSigmaScale;
+    float gHistoryResetSpatialSigmaScale;
+    float gHistoryResetAmount;
+    float gDenoisingRange;
+    float gSpecPhiLuminance;
+    float gDiffPhiLuminance;
+    float gDiffMaxLuminanceRelativeDifference;
+    float gSpecMaxLuminanceRelativeDifference;
+    float gLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenRelaxationMultiplier;
+    float gConfidenceDrivenLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenNormalEdgeStoppingRelaxation;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gCheckerboardResolveAccumSpeed;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gHistoryThreshold;
+    float gViewZScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    uint gRoughnessEdgeStoppingEnabled;
+    uint gFrameIndex;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gResetHistory;
+} RELAX_HistoryFixConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_HistoryLength;
+layout(set = 0, binding = 2) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 3) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 4) uniform texture2D gIn_Diff;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Diff;
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        ivec2 _102 = ivec2((((((uvec2(RELAX_HistoryFixConstants.gRectSize) + uvec2(7u)) / uvec2(8u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(8u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        bool _114;
+        if (!(texelFetch(gIn_Tiles, ivec2(uvec2(_102 >> ivec2(4))), int(0u)).x != 0.0))
+        {
+            _114 = any(greaterThanEqual(_102, RELAX_HistoryFixConstants.gRectSize));
+        }
+        else
+        {
+            _114 = true;
+        }
+        if (_114)
+        {
+            break;
+        }
+        uvec2 _117 = uvec2(_102);
+        float _124 = abs(texelFetch(gIn_ViewZ, ivec2(_117), int(0u)).x * RELAX_HistoryFixConstants.gViewZScale);
+        float _128 = 255.0 * texelFetch(gIn_HistoryLength, ivec2(_117), int(0u)).x;
+        bool _144;
+        if (!(!(_124 < RELAX_HistoryFixConstants.gDenoisingRange)))
+        {
+            bool _143;
+            if (!(_128 > RELAX_HistoryFixConstants.gHistoryFixFrameNum))
+            {
+                _143 = RELAX_HistoryFixConstants.gHistoryFixFrameNum == 1.0;
+            }
+            else
+            {
+                _143 = true;
+            }
+            _144 = _143;
+        }
+        else
+        {
+            _144 = true;
+        }
+        if (_144)
+        {
+            break;
+        }
+        vec4 _148 = texelFetch(gIn_Normal_Roughness, ivec2(_117), int(0u));
+        float _152 = _148.x;
+        float _153 = _148.y;
+        float _154 = _152 - _153;
+        float _156 = (_152 + _153) - 1.0;
+        float _167 = _148.w * 3.0;
+        vec3 _168 = vec4(_154, _156, float((((_148.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_154)) - abs(_156)), _84).xyz;
+        vec3 _173 = (_168 * inversesqrt(spvNMax(dot(_168, _168), 9.999999717180685365747194737196e-10))).xyz;
+        vec2 _180 = (((vec2(_102) + vec2(0.5)) * RELAX_HistoryFixConstants.gRectSizeInv) * 2.0) - vec2(1.0);
+        bool _183 = RELAX_HistoryFixConstants.gOrthoMode == 0.0;
+        vec3 _219;
+        if (_183)
+        {
+            _219 = ((RELAX_HistoryFixConstants.gFrustumForward.xyz + (RELAX_HistoryFixConstants.gFrustumRight.xyz * _180.x)) - (RELAX_HistoryFixConstants.gFrustumUp.xyz * _180.y)) * _124;
+        }
+        else
+        {
+            _219 = ((RELAX_HistoryFixConstants.gFrustumForward.xyz * _124) + (RELAX_HistoryFixConstants.gFrustumRight.xyz * _180.x)) - (RELAX_HistoryFixConstants.gFrustumUp.xyz * _180.y);
+        }
+        float _223 = RELAX_HistoryFixConstants.gDepthThreshold * (_183 ? _124 : 1.0);
+        float _236;
+        if (_167 == RELAX_HistoryFixConstants.gHistoryFixAlternatePixelStrideMaterialID)
+        {
+            _236 = RELAX_HistoryFixConstants.gHistoryFixAlternatePixelStride;
+        }
+        else
+        {
+            _236 = RELAX_HistoryFixConstants.gHistoryFixBasePixelStride;
+        }
+        int _240 = int(roundEven(_236 / (1.0 + _128)));
+        float _242;
+        vec4 _245;
+        _242 = 1.0;
+        _245 = texelFetch(gIn_Diff, ivec2(_117), int(0u));
+        float _243;
+        vec4 _246;
+        SPIRV_CROSS_UNROLL
+        for (int _247 = -2; _247 <= 2; _242 = _243, _245 = _246, _247++)
+        {
+            _243 = _242;
+            _246 = _245;
+            float _253;
+            vec4 _255;
+            SPIRV_CROSS_UNROLL
+            for (int _256 = -2; _256 <= 2; _243 = _253, _246 = _255, _256++)
+            {
+                bool _265;
+                if (_256 == 0)
+                {
+                    _265 = _247 == 0;
+                }
+                else
+                {
+                    _265 = false;
+                }
+                if (_265)
+                {
+                    _253 = _243;
+                    _255 = _246;
+                    continue;
+                }
+                ivec2 _284 = ivec2(spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(((vec2(_102 + (ivec2(_256, _247) * ivec2(_240))) + vec2(0.5)) * RELAX_HistoryFixConstants.gRectSizeInv) * 0.5) * 2.0)), vec2(0.999989986419677734375)) * vec2(RELAX_HistoryFixConstants.gRectSize));
+                uvec2 _285 = uvec2(_284);
+                vec4 _287 = texelFetch(gIn_Normal_Roughness, ivec2(_285), int(0u));
+                float _291 = _287.x;
+                float _292 = _287.y;
+                float _293 = _291 - _292;
+                float _295 = (_291 + _292) - 1.0;
+                vec3 _307 = vec4(_293, _295, float((((_287.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_293)) - abs(_295)), _84).xyz;
+                float _317 = abs(texelFetch(gIn_ViewZ, ivec2(_285), int(0u)).x * RELAX_HistoryFixConstants.gViewZScale);
+                vec2 _322 = (((vec2(_284) + vec2(0.5)) * RELAX_HistoryFixConstants.gRectSizeInv) * 2.0) - vec2(1.0);
+                vec3 _358;
+                if (_183)
+                {
+                    _358 = ((RELAX_HistoryFixConstants.gFrustumForward.xyz + (RELAX_HistoryFixConstants.gFrustumRight.xyz * _322.x)) - (RELAX_HistoryFixConstants.gFrustumUp.xyz * _322.y)) * _317;
+                }
+                else
+                {
+                    _358 = ((RELAX_HistoryFixConstants.gFrustumForward.xyz * _317) + (RELAX_HistoryFixConstants.gFrustumRight.xyz * _322.x)) - (RELAX_HistoryFixConstants.gFrustumUp.xyz * _322.y);
+                }
+                float _379 = (((_317 < RELAX_HistoryFixConstants.gDenoisingRange) ? float(abs(dot(_358 - _219, _173)) < _223) : 0.0) * pow(spvNMax(0.00999999977648258209228515625, dot(_173, (_307 * inversesqrt(spvNMax(dot(_307, _307), 9.999999717180685365747194737196e-10))).xyz)), spvNMax(RELAX_HistoryFixConstants.gHistoryFixEdgeStoppingNormalPower, 0.00999999977648258209228515625))) * float(spvNMax(_287.w * 3.0, RELAX_HistoryFixConstants.gDiffMinMaterial) == spvNMax(_167, RELAX_HistoryFixConstants.gDiffMinMaterial));
+                float _388;
+                vec4 _389;
+                if (_379 > 9.9999997473787516355514526367188e-05)
+                {
+                    _388 = _243 + _379;
+                    _389 = _246 + (texelFetch(gIn_Diff, ivec2(_285), int(0u)) * _379);
+                }
+                else
+                {
+                    _388 = _243;
+                    _389 = _246;
+                }
+                _253 = _388;
+                _255 = _389;
+            }
+        }
+        imageStore(gOut_Diff, ivec2(_117), _245 / vec4(_242));
+        break;
+    } while(false);
+}
+

@@ -12,6 +12,7 @@
 #include "vk_light.h"
 #include "vk_math.h"
 #include "vulkan/VMeatpipe.h"
+#include "vulkan/VNrd.h"
 #include "vk_ray_internal.h"
 #include "r_textures.h"
 #include "vulkan/VCombuf.h"
@@ -659,6 +660,8 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 		g_rtx.discontinuity = true;
 	}
 	// Clamp only to the storage range, independently of the old four-lane atlas.
+	ret.nrd_bounce = (uint32_t)bound(0, rt_nrd_bounce->value, 2);
+	ret.nrd_reflection = (uint32_t)bound(0, rt_nrd_reflection->value, 2);
 	ret.bounce_count = rt_bounces->value > 0.0f
 		? (uint32_t)Q_min((double)rt_bounces->value, (double)UINT32_MAX) : 0u;
 	ret.renderer_flags = SET_RENDERER_FLAG(RENDERER_FLAG_ONLY_DIFFUSE_GI) |
@@ -716,6 +719,7 @@ static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_
 
 	g_rtx.uniform.current = prepareUniformBuffer(args->render_args, args->fov_angle_y, args->frame_width, args->frame_height, args->frame_counter);
 
+
 	ASSERT(g_rtx.meatpipe);
 	r_vk_image_t *const ret = R_VkMeatpipeDispatch(g_rtx.meatpipe, (vk_meatpipe_dispatch_t){
 		.combuf = combuf,
@@ -724,6 +728,7 @@ static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_
 		.width = args->frame_width,
 		.height = args->frame_height,
 		.is_discontinuous = g_rtx.discontinuity,
+		.frame_uniform = &g_rtx.uniform.current,
 	});
 
 	if (g_rtx.discontinuity) {
@@ -750,6 +755,7 @@ static qboolean reloadMeatpipe(void) {
 	if (!R_VkMeatpipeAcquireResources(newpipe, g_rtx.max_frame_width, g_rtx.max_frame_height))
 		goto fail;
 
+	R_VkNrdShutdown();
 	destroyMeatpipe();
 
 	g_rtx.meatpipe = newpipe;
@@ -937,6 +943,7 @@ qboolean VK_RayInit( void )
 void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
+	R_VkNrdShutdown();
 	destroyMeatpipe();
 
 	RT_LightCacheShutdown();

@@ -1,0 +1,367 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
+
+vec3 _118;
+float _122;
+
+layout(set = 1, binding = 0, std140) uniform type_REBLUR_PostBlurConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gViewToClip;
+    layout(row_major) mat4 gViewToWorld;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gRotator;
+    vec4 gRotatorPost;
+    vec4 gFrustum;
+    vec4 gFrustumPrev;
+    vec4 gCameraDelta;
+    vec4 gHitDistSettings;
+    vec4 gViewVectorWorld;
+    vec4 gViewVectorWorldPrev;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec4 gConvergenceSettings;
+    vec2 gAntilagSettings;
+    vec2 gResourceSize;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSizeInvPrev;
+    vec2 gRectSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResolutionScale;
+    vec2 gResolutionScalePrev;
+    vec2 gJitter;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSizeMinusOne;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gStabilizationStrength;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gDenoisingRange;
+    float gPlaneDistSensitivity;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gMinBlurRadius;
+    float gMaxBlurRadius;
+    float gDiffPrepassBlurRadius;
+    float gSpecPrepassBlurRadius;
+    float gMaxAccumulatedFrameNum;
+    float gMaxFastAccumulatedFrameNum;
+    float gAntiFirefly;
+    float gLobeAngleFraction;
+    float gRoughnessFraction;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gFastHistoryClampingSigmaScale;
+    float gMinRectDimMulUnproject;
+    float gUsePrepassNotOnlyForSpecularMotionEstimation;
+    float gSplitScreen;
+    float gSplitScreenPrev;
+    float gCheckerboardResolveAccumSpeed;
+    float gViewZScale;
+    float gFireflySuppressorMinRelativeScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    float gResponsiveAccumulationInvRoughnessThreshold;
+    uint gResponsiveAccumulationMinAccumulatedFrameNum;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gFrameIndex;
+    uint gIsRectChanged;
+    uint gResetHistory;
+    uint gReturnHistoryLengthInsteadOfOcclusion;
+} REBLUR_PostBlurConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 2) uniform texture2D gIn_Data1;
+layout(set = 0, binding = 3) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 4) uniform texture2D gIn_Diff;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Normal_Roughness;
+layout(set = 0, binding = 65) uniform writeonly image2D gOut_Diff;
+layout(set = 0, binding = 66) uniform writeonly uimage2D gOut_InternalData;
+layout(set = 0, binding = 67) uniform writeonly image2D gOut_DiffCopy;
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        ivec2 _141 = ivec2((((((uvec2(REBLUR_PostBlurConstants.gRectSize) + uvec2(7u, 15u)) / uvec2(8u, 16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(8u, 16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        if (texelFetch(gIn_Tiles, ivec2(uvec2(_141 >> ivec2(4))), int(0u)).x != 0.0)
+        {
+            break;
+        }
+        uvec2 _153 = uvec2(min(_141, REBLUR_PostBlurConstants.gRectSizeMinusOne));
+        vec2 _158 = roundEven(texelFetch(gIn_Data1, ivec2(_153), int(0u)).xy * 63.0);
+        float _159 = _158.x;
+        float _185 = abs(texelFetch(gIn_ViewZ, ivec2(_153), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        bool _189 = !(_185 < REBLUR_PostBlurConstants.gDenoisingRange);
+        vec2 _191 = mix(vec2(1.0 / (1.0 + ((REBLUR_PostBlurConstants.gConvergenceSettings.x * mix(REBLUR_PostBlurConstants.gConvergenceSettings.y, 1.0, clamp(_159 / (1.0 + (REBLUR_PostBlurConstants.gMaxAccumulatedFrameNum * REBLUR_PostBlurConstants.gConvergenceSettings.z)), 0.0, 1.0))) * _159)), _122), vec2(0.0), bvec2(_189));
+        bool _197;
+        if (!_189)
+        {
+            _197 = any(greaterThan(_141, REBLUR_PostBlurConstants.gRectSizeMinusOne));
+        }
+        else
+        {
+            _197 = true;
+        }
+        if (_197)
+        {
+            break;
+        }
+        uvec2 _200 = uvec2(_141);
+        vec4 _202 = texelFetch(gIn_Normal_Roughness, ivec2(_200), int(0u));
+        float _206 = _202.x;
+        float _207 = _202.y;
+        float _208 = _206 - _207;
+        float _210 = (_206 + _207) - 1.0;
+        float _220 = _202.w;
+        vec3 _222 = vec4(_208, _210, float((((_202.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_208)) - abs(_210)), _122).xyz;
+        vec3 _227 = (_222 * inversesqrt(spvNMax(dot(_222, _222), 9.999999717180685365747194737196e-10))).xyz;
+        mat4 _230 = transpose(REBLUR_PostBlurConstants.gViewToWorld);
+        vec3 _238 = _227 * mat3(_230[0].xyz, _230[1].xyz, _230[2].xyz);
+        vec2 _243 = (vec2(_141) + vec2(0.5)) * REBLUR_PostBlurConstants.gRectSizeInv;
+        bool _252 = REBLUR_PostBlurConstants.gOrthoMode == 0.0;
+        vec2 _255 = ((_243 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _185 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _256 = vec3(_255.x, _255.y, _118.z);
+        _256.z = _185;
+        vec3 _263;
+        if (_252)
+        {
+            _263 = normalize(-_256);
+        }
+        else
+        {
+            _263 = vec3(0.0, 0.0, -1.0);
+        }
+        float _270 = REBLUR_PostBlurConstants.gMinRectDimMulUnproject * mix(_185, 1.0, abs(REBLUR_PostBlurConstants.gOrthoMode));
+        imageStore(gOut_Normal_Roughness, ivec2(_200), _202);
+        uvec4 _288 = uvec4((clamp(vec3(roundEven(spvNMin(_159 + 1.0, REBLUR_PostBlurConstants.gMaxAccumulatedFrameNum)) * 0.01587301678955554962158203125, roundEven(spvNMin(_158.y + 1.0, REBLUR_PostBlurConstants.gMaxAccumulatedFrameNum)) * 0.01587301678955554962158203125, _220 * 0.2000000178813934326171875).xyzz, vec4(0.0), vec4(1.0)) * vec4(63.0, 63.0, 15.0, 0.0)) + vec4(0.5));
+        uvec3 _290 = _288.yzw << uvec3(6u, 12u, 16u);
+        uvec2 _294 = uvec4(_288.x, _290.x, _290.y, _290.z).xy | _290.yz;
+        imageStore(gOut_InternalData, ivec2(_200), uvec4(_294.x | _294.y));
+        vec4 _300 = texelFetch(gIn_Diff, ivec2(_200), int(0u));
+        float _308 = _300.w;
+        float _312 = _191.x;
+        float _327 = 1.0 / (REBLUR_PostBlurConstants.gPlaneDistSensitivity * _270);
+        float _330 = -(dot(_238, _256) * _327);
+        float _336 = clamp(0.75 * mix(clamp(REBLUR_PostBlurConstants.gLobeAngleFraction, 0.0, 1.0), 1.0, _312), 0.0, 1.0);
+        float _342 = 2.0 / spvNMax(atan(sqrt(_336 / (1.00000095367431640625 - _336))), 0.00294117652811110019683837890625);
+        float _343 = 1.0 / _312;
+        float _345 = -(_308 * _343);
+        float _349 = (REBLUR_PostBlurConstants.gMinHitDistanceWeight * 0.5) * _312;
+        vec2 _354 = mix(vec2(1.0) - abs(_238.xy), vec2(1.0), vec2(abs(dot(_238, _263))));
+        vec2 _361 = (_354 / vec2(spvNMax(_354.x, _354.y))) * (REBLUR_PostBlurConstants.gRectSizeInv * spvNMax(clamp(2.0 * sqrt(clamp(clamp((_308 * (REBLUR_PostBlurConstants.gHitDistSettings.x + (abs(_185) * REBLUR_PostBlurConstants.gHitDistSettings.y))) / _270, 0.0, 1.0) * _312, 0.0, 1.0)), 0.0, 1.0) * REBLUR_PostBlurConstants.gMaxBlurRadius, REBLUR_PostBlurConstants.gMinBlurRadius));
+        vec4 _372 = vec4(REBLUR_PostBlurConstants.gRotatorPost.xz * _361.x, REBLUR_PostBlurConstants.gRotatorPost.yw * _361.y);
+        vec2 _373 = _372.xz;
+        vec2 _375 = _243 + (_373 * (-1.0));
+        vec2 _382 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_375 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _388 = uvec2(ivec2(_382 * REBLUR_PostBlurConstants.gRectSize));
+        float _393 = abs(texelFetch(gIn_ViewZ, ivec2(_388), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _398 = ((_382 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _393 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _399 = vec3(_398.x, _398.y, _118.z);
+        _399.z = _393;
+        vec4 _402 = texelFetch(gIn_Normal_Roughness, ivec2(_388), int(0u));
+        float _406 = _402.x;
+        float _407 = _402.y;
+        float _408 = _406 - _407;
+        float _410 = (_406 + _407) - 1.0;
+        vec3 _422 = vec4(_408, _410, float((((_402.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_408)) - abs(_410)), _122).xyz;
+        float _428 = dot(_227, (_422 * inversesqrt(spvNMax(dot(_422, _422), 9.999999717180685365747194737196e-10))).xyz);
+        float _438 = spvNMax(_220 * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial);
+        float _447 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_428, 0.0, 1.0)) * sqrt(clamp(1.0 - _428, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _458 = clamp((abs((dot(_238, _399) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _466 = (!(_393 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_375, _382)) ? 1.0 : 0.51685130596160888671875) * float(_438 == spvNMax(_402.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_447 * _447) * (3.0 - (_447 * 2.0)))) * ((_458 * _458) * (3.0 - (_458 * 2.0))));
+        vec4 _471 = mix(texelFetch(gIn_Diff, ivec2(_388), int(0u)), vec4(0.0), bvec4(_466 == 0.0));
+        float _476 = (-3.0) * abs((_471.w * _343) + _345);
+        float _482 = _466 * (_349 + (1.0 / (((_476 * _476) - _476) + 1.0)));
+        vec2 _486 = _372.yw;
+        vec2 _488 = _243 + (_486 * 1.0);
+        vec2 _495 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_488 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _501 = uvec2(ivec2(_495 * REBLUR_PostBlurConstants.gRectSize));
+        float _506 = abs(texelFetch(gIn_ViewZ, ivec2(_501), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _511 = ((_495 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _506 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _512 = vec3(_511.x, _511.y, _399.z);
+        _512.z = _506;
+        vec4 _515 = texelFetch(gIn_Normal_Roughness, ivec2(_501), int(0u));
+        float _519 = _515.x;
+        float _520 = _515.y;
+        float _521 = _519 - _520;
+        float _523 = (_519 + _520) - 1.0;
+        vec3 _535 = vec4(_521, _523, float((((_515.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_521)) - abs(_523)), _122).xyz;
+        float _541 = dot(_227, (_535 * inversesqrt(spvNMax(dot(_535, _535), 9.999999717180685365747194737196e-10))).xyz);
+        float _557 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_541, 0.0, 1.0)) * sqrt(clamp(1.0 - _541, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _568 = clamp((abs((dot(_238, _512) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _576 = (!(_506 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_488, _495)) ? 1.0 : 0.51685130596160888671875) * float(_438 == spvNMax(_515.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_557 * _557) * (3.0 - (_557 * 2.0)))) * ((_568 * _568) * (3.0 - (_568 * 2.0))));
+        vec4 _581 = mix(texelFetch(gIn_Diff, ivec2(_501), int(0u)), vec4(0.0), bvec4(_576 == 0.0));
+        float _586 = (-3.0) * abs((_581.w * _343) + _345);
+        float _592 = _576 * (_349 + (1.0 / (((_586 * _586) - _586) + 1.0)));
+        vec2 _597 = _243 + (_373 * 1.0);
+        vec2 _604 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_597 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _610 = uvec2(ivec2(_604 * REBLUR_PostBlurConstants.gRectSize));
+        float _615 = abs(texelFetch(gIn_ViewZ, ivec2(_610), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _620 = ((_604 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _615 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _621 = vec3(_620.x, _620.y, _512.z);
+        _621.z = _615;
+        vec4 _624 = texelFetch(gIn_Normal_Roughness, ivec2(_610), int(0u));
+        float _628 = _624.x;
+        float _629 = _624.y;
+        float _630 = _628 - _629;
+        float _632 = (_628 + _629) - 1.0;
+        vec3 _644 = vec4(_630, _632, float((((_624.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_630)) - abs(_632)), _122).xyz;
+        float _650 = dot(_227, (_644 * inversesqrt(spvNMax(dot(_644, _644), 9.999999717180685365747194737196e-10))).xyz);
+        float _666 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_650, 0.0, 1.0)) * sqrt(clamp(1.0 - _650, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _677 = clamp((abs((dot(_238, _621) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _685 = (!(_615 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_597, _604)) ? 1.0 : 0.51685130596160888671875) * float(_438 == spvNMax(_624.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_666 * _666) * (3.0 - (_666 * 2.0)))) * ((_677 * _677) * (3.0 - (_677 * 2.0))));
+        vec4 _690 = mix(texelFetch(gIn_Diff, ivec2(_610), int(0u)), vec4(0.0), bvec4(_685 == 0.0));
+        float _695 = (-3.0) * abs((_690.w * _343) + _345);
+        float _701 = _685 * (_349 + (1.0 / (((_695 * _695) - _695) + 1.0)));
+        vec2 _706 = _243 + (_486 * (-1.0));
+        vec2 _713 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_706 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _719 = uvec2(ivec2(_713 * REBLUR_PostBlurConstants.gRectSize));
+        float _724 = abs(texelFetch(gIn_ViewZ, ivec2(_719), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _729 = ((_713 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _724 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _730 = vec3(_729.x, _729.y, _621.z);
+        _730.z = _724;
+        vec4 _733 = texelFetch(gIn_Normal_Roughness, ivec2(_719), int(0u));
+        float _737 = _733.x;
+        float _738 = _733.y;
+        float _739 = _737 - _738;
+        float _741 = (_737 + _738) - 1.0;
+        vec3 _753 = vec4(_739, _741, float((((_733.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_739)) - abs(_741)), _122).xyz;
+        float _759 = dot(_227, (_753 * inversesqrt(spvNMax(dot(_753, _753), 9.999999717180685365747194737196e-10))).xyz);
+        float _775 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_759, 0.0, 1.0)) * sqrt(clamp(1.0 - _759, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _786 = clamp((abs((dot(_238, _730) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _794 = (!(_724 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_706, _713)) ? 1.0 : 0.51685130596160888671875) * float(_438 == spvNMax(_733.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_775 * _775) * (3.0 - (_775 * 2.0)))) * ((_786 * _786) * (3.0 - (_786 * 2.0))));
+        vec4 _799 = mix(texelFetch(gIn_Diff, ivec2(_719), int(0u)), vec4(0.0), bvec4(_794 == 0.0));
+        float _804 = (-3.0) * abs((_799.w * _343) + _345);
+        float _810 = _794 * (_349 + (1.0 / (((_804 * _804) - _804) + 1.0)));
+        vec2 _814 = _373 * (-0.3535533845424652099609375);
+        vec2 _815 = _486 * 0.3535533845424652099609375;
+        vec2 _817 = _243 + (_814 + _815);
+        vec2 _824 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_817 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _830 = uvec2(ivec2(_824 * REBLUR_PostBlurConstants.gRectSize));
+        float _835 = abs(texelFetch(gIn_ViewZ, ivec2(_830), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _840 = ((_824 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _835 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _841 = vec3(_840.x, _840.y, _730.z);
+        _841.z = _835;
+        vec4 _844 = texelFetch(gIn_Normal_Roughness, ivec2(_830), int(0u));
+        float _848 = _844.x;
+        float _849 = _844.y;
+        float _850 = _848 - _849;
+        float _852 = (_848 + _849) - 1.0;
+        vec3 _864 = vec4(_850, _852, float((((_844.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_850)) - abs(_852)), _122).xyz;
+        float _870 = dot(_227, (_864 * inversesqrt(spvNMax(dot(_864, _864), 9.999999717180685365747194737196e-10))).xyz);
+        float _886 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_870, 0.0, 1.0)) * sqrt(clamp(1.0 - _870, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _897 = clamp((abs((dot(_238, _841) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _905 = (!(_835 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_817, _824)) ? 1.0 : 0.84789371490478515625) * float(_438 == spvNMax(_844.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_886 * _886) * (3.0 - (_886 * 2.0)))) * ((_897 * _897) * (3.0 - (_897 * 2.0))));
+        vec4 _910 = mix(texelFetch(gIn_Diff, ivec2(_830), int(0u)), vec4(0.0), bvec4(_905 == 0.0));
+        float _915 = (-3.0) * abs((_910.w * _343) + _345);
+        float _921 = _905 * (_349 + (1.0 / (((_915 * _915) - _915) + 1.0)));
+        vec2 _925 = _373 * 0.3535533845424652099609375;
+        vec2 _927 = _243 + (_925 + _815);
+        vec2 _934 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_927 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _940 = uvec2(ivec2(_934 * REBLUR_PostBlurConstants.gRectSize));
+        float _945 = abs(texelFetch(gIn_ViewZ, ivec2(_940), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _950 = ((_934 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _945 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _951 = vec3(_950.x, _950.y, _841.z);
+        _951.z = _945;
+        vec4 _954 = texelFetch(gIn_Normal_Roughness, ivec2(_940), int(0u));
+        float _958 = _954.x;
+        float _959 = _954.y;
+        float _960 = _958 - _959;
+        float _962 = (_958 + _959) - 1.0;
+        vec3 _974 = vec4(_960, _962, float((((_954.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_960)) - abs(_962)), _122).xyz;
+        float _980 = dot(_227, (_974 * inversesqrt(spvNMax(dot(_974, _974), 9.999999717180685365747194737196e-10))).xyz);
+        float _996 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_980, 0.0, 1.0)) * sqrt(clamp(1.0 - _980, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _1007 = clamp((abs((dot(_238, _951) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _1015 = (!(_945 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_927, _934)) ? 1.0 : 0.84789371490478515625) * float(_438 == spvNMax(_954.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_996 * _996) * (3.0 - (_996 * 2.0)))) * ((_1007 * _1007) * (3.0 - (_1007 * 2.0))));
+        vec4 _1020 = mix(texelFetch(gIn_Diff, ivec2(_940), int(0u)), vec4(0.0), bvec4(_1015 == 0.0));
+        float _1025 = (-3.0) * abs((_1020.w * _343) + _345);
+        float _1031 = _1015 * (_349 + (1.0 / (((_1025 * _1025) - _1025) + 1.0)));
+        vec2 _1035 = _486 * (-0.3535533845424652099609375);
+        vec2 _1037 = _243 + (_925 + _1035);
+        vec2 _1044 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1037 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _1050 = uvec2(ivec2(_1044 * REBLUR_PostBlurConstants.gRectSize));
+        float _1055 = abs(texelFetch(gIn_ViewZ, ivec2(_1050), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _1060 = ((_1044 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _1055 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _1061 = vec3(_1060.x, _1060.y, _951.z);
+        _1061.z = _1055;
+        vec4 _1064 = texelFetch(gIn_Normal_Roughness, ivec2(_1050), int(0u));
+        float _1068 = _1064.x;
+        float _1069 = _1064.y;
+        float _1070 = _1068 - _1069;
+        float _1072 = (_1068 + _1069) - 1.0;
+        vec3 _1084 = vec4(_1070, _1072, float((((_1064.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_1070)) - abs(_1072)), _122).xyz;
+        float _1090 = dot(_227, (_1084 * inversesqrt(spvNMax(dot(_1084, _1084), 9.999999717180685365747194737196e-10))).xyz);
+        float _1106 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1090, 0.0, 1.0)) * sqrt(clamp(1.0 - _1090, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _1117 = clamp((abs((dot(_238, _1061) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _1125 = (!(_1055 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_1037, _1044)) ? 1.0 : 0.84789371490478515625) * float(_438 == spvNMax(_1064.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_1106 * _1106) * (3.0 - (_1106 * 2.0)))) * ((_1117 * _1117) * (3.0 - (_1117 * 2.0))));
+        vec4 _1130 = mix(texelFetch(gIn_Diff, ivec2(_1050), int(0u)), vec4(0.0), bvec4(_1125 == 0.0));
+        float _1135 = (-3.0) * abs((_1130.w * _343) + _345);
+        float _1141 = _1125 * (_349 + (1.0 / (((_1135 * _1135) - _1135) + 1.0)));
+        vec2 _1146 = _243 + (_814 + _1035);
+        vec2 _1153 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1146 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+        uvec2 _1159 = uvec2(ivec2(_1153 * REBLUR_PostBlurConstants.gRectSize));
+        float _1164 = abs(texelFetch(gIn_ViewZ, ivec2(_1159), int(0u)).x * REBLUR_PostBlurConstants.gViewZScale);
+        vec2 _1169 = ((_1153 * REBLUR_PostBlurConstants.gFrustum.zw) + REBLUR_PostBlurConstants.gFrustum.xy).xy * (_252 ? _1164 : REBLUR_PostBlurConstants.gOrthoMode);
+        vec3 _1170 = vec3(_1169.x, _1169.y, _1061.z);
+        _1170.z = _1164;
+        vec4 _1173 = texelFetch(gIn_Normal_Roughness, ivec2(_1159), int(0u));
+        float _1177 = _1173.x;
+        float _1178 = _1173.y;
+        float _1179 = _1177 - _1178;
+        float _1181 = (_1177 + _1178) - 1.0;
+        vec3 _1193 = vec4(_1179, _1181, float((((_1173.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_1179)) - abs(_1181)), _122).xyz;
+        float _1199 = dot(_227, (_1193 * inversesqrt(spvNMax(dot(_1193, _1193), 9.999999717180685365747194737196e-10))).xyz);
+        float _1215 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1199, 0.0, 1.0)) * sqrt(clamp(1.0 - _1199, 0.0, 1.0))) * _342) - 1.0) * (-1.0), 0.0, 1.0);
+        float _1226 = clamp((abs((dot(_238, _1170) * _327) + _330) - 1.0) * (-1.0), 0.0, 1.0);
+        float _1234 = (!(_1164 < REBLUR_PostBlurConstants.gDenoisingRange)) ? 0.0 : ((((any(notEqual(_1146, _1153)) ? 1.0 : 0.84789371490478515625) * float(_438 == spvNMax(_1173.w * 3.0, REBLUR_PostBlurConstants.gDiffMinMaterial))) * ((_1215 * _1215) * (3.0 - (_1215 * 2.0)))) * ((_1226 * _1226) * (3.0 - (_1226 * 2.0))));
+        vec4 _1239 = mix(texelFetch(gIn_Diff, ivec2(_1159), int(0u)), vec4(0.0), bvec4(_1234 == 0.0));
+        float _1244 = (-3.0) * abs((_1239.w * _343) + _345);
+        float _1250 = _1234 * (_349 + (1.0 / (((_1244 * _1244) - _1244) + 1.0)));
+        vec4 _1256 = ((((((((_300 + (_471 * _482)) + (_581 * _592)) + (_690 * _701)) + (_799 * _810)) + (_910 * _921)) + (_1020 * _1031)) + (_1130 * _1141)) + (_1239 * _1250)) * (1.0 / spvNMax((((((((1.0 + _482) + _592) + _701) + _810) + _921) + _1031) + _1141) + _1250, 1.0000000036274937255387218471014e-15));
+        _1256.w = _308;
+        imageStore(gOut_Diff, ivec2(_200), _1256);
+        _1256.w = (REBLUR_PostBlurConstants.gReturnHistoryLengthInsteadOfOcclusion != 0u) ? _159 : _308;
+        imageStore(gOut_DiffCopy, ivec2(_200), _1256);
+        break;
+    } while(false);
+}
+

@@ -1,0 +1,13 @@
+#version 460
+#define GLSL
+#include "ray_interop.h"
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set=0,binding=1,rgba16f) uniform readonly image2D nrd_diff_filtered;
+layout(set=0,binding=2,rgba16f) uniform readonly image2D nrd_spec_filtered;
+layout(set=0,binding=3,rgba16f) uniform writeonly image2D out_nrd_diffuse;
+layout(set=0,binding=4,rgba16f) uniform writeonly image2D out_nrd_specular;
+vec3 decode(vec3 c,uint mode){if(mode!=1u)return max(c,vec3(0));float t=c.x-c.z;return max(vec3(t+c.y,c.x+c.z,t-c.y),vec3(0));}
+void main(){ivec2 p=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(p,ubo.ubo.res)))return;
+imageStore(out_nrd_diffuse,p,vec4(decode(imageLoad(nrd_diff_filtered,min(p/2,ubo.ubo.res/2-1)).rgb,ubo.ubo.nrd_bounce),0));
+imageStore(out_nrd_specular,p,vec4(decode(imageLoad(nrd_spec_filtered,p).rgb,ubo.ubo.nrd_reflection),0));}

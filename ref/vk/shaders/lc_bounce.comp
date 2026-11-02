@@ -68,9 +68,10 @@ vec3 cachedIrradiance(vec4 uv) {
 }
 // A seed identifies every random dimension of the complete variable-length path.
 // It never depends on the replay frame or receiving pixel.
-vec3 tracePath(uint seed,vec3 P,vec3 G,out vec3 first_direction) {
+vec3 tracePath(uint seed,vec3 P,vec3 G,out vec3 first_direction,out float first_distance) {
     vec3 color=vec3(0), throughput=vec3(1);
     first_direction=vec3(0);
+    first_distance=0.0;
     for (uint bounce=0u;bounce<ubo.ubo.bounce_count;++bounce) {
         vec3 random=rand3_f01(uvec3(seed,bounce,0x1cb0u));
         float z=2.0*random.x-1.0;
@@ -81,6 +82,7 @@ vec3 tracePath(uint seed,vec3 P,vec3 G,out vec3 first_direction) {
         if (bounce==0u) first_direction=direction;
         RayPayloadPrimary payload; RayPrimarySurface surface; vec4 uv;
         if (!traceBounce(P+G*0.01,direction,payload,surface,uv)) break;
+        if (bounce==0u) first_distance=payload.hit_t.w;
         throughput*=surface.base_color_a.rgb*(1.0-surface.material_rmxx.g);
         color+=throughput*cachedIrradiance(uv);
         if (max(throughput.r,max(throughput.g,throughput.b))<=1e-3) break;
@@ -117,7 +119,8 @@ void main() {
     vec3 G=normalDecode(imageLoad(normals_gs,primary_pix).xy);
     uint selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x66726573u)) & 8388607u;
     vec3 first_direction;
-    vec3 selected=tracePath(selected_seed,position.xyz,G,first_direction);
+    float first_distance;
+    vec3 selected=tracePath(selected_seed,position.xyz,G,first_direction,first_distance);
     float history_cap=BOUNCE_PATH_MAX_EFFECTIVE_SAMPLES;
     float replay_ratio=1.0;
     LCReservoir reservoir=LCReservoir(0,0,0);
@@ -165,7 +168,8 @@ void main() {
             metadata.z==float(ubo.ubo.bounce_count) && lcPathHistoryValid(previous)) {
             uint seed=uint(metadata.x);
             vec3 history_direction;
-            vec3 history=tracePath(seed,position.xyz,G,history_direction);
+            float history_distance;
+            vec3 history=tracePath(seed,position.xyz,G,history_direction,history_distance);
             float target=lcPathTarget(history);
             float old_luminance=max(previous.x,1e-6);
             replay_ratio=target/old_luminance;
@@ -179,12 +183,15 @@ void main() {
             // Replaying it does not add a sample to M.
             reservoir=LCReservoir(max(0.0,previous.y-previous.x)+target,previous.z,target);
             vec3 fresh=selected; vec3 fresh_direction=first_direction;
+            float fresh_distance=first_distance;
             selected=history; selected_seed=seed; first_direction=history_direction;
+            first_distance=history_distance;
             float choose=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x7073656cu)));
             if (lcOffer(reservoir,lcPathTarget(fresh),1.0,choose)) {
                 selected=fresh;
                 selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x66726573u)) & 8388607u;
                 first_direction=fresh_direction;
+                first_distance=fresh_distance;
             }
         }
     }
@@ -192,7 +199,7 @@ void main() {
     float W=lcNormalization(reservoir);
     float weight=W;
     imageStore(out_indirect_diffuse,pix,vec4(clamp(selected*weight,vec3(0),vec3(65504)),0));
-    imageStore(out_first_bounce_direction,pix,vec4(first_direction,0));
+    imageStore(out_first_bounce_direction,pix,vec4(first_direction,first_distance));
     imageStore(out_temporal_lc_bounce_path,pix,vec4(float(selected_seed),0.0,
         float(ubo.ubo.bounce_count),float((ubo.ubo.frame_counter & 65535u)+1u)));
     imageStore(out_temporal_lc_bounce_reservoir,pix,lcEncodePath(reservoir,history_cap));

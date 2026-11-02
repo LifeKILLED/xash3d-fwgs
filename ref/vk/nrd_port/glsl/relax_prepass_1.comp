@@ -1,0 +1,400 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+float _113;
+
+layout(set = 1, binding = 0, std140) uniform type_RELAX_PrePassConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gFrustumRight;
+    vec4 gFrustumUp;
+    vec4 gFrustumForward;
+    vec4 gPrevFrustumRight;
+    vec4 gPrevFrustumUp;
+    vec4 gPrevFrustumForward;
+    vec4 gCameraDelta;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec2 gJitter;
+    vec2 gResolutionScale;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResourceSizeInvPrev;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSize;
+    float gSpecMaxAccumulatedFrameNum;
+    float gSpecMaxFastAccumulatedFrameNum;
+    float gDiffMaxAccumulatedFrameNum;
+    float gDiffMaxFastAccumulatedFrameNum;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gRoughnessFraction;
+    float gSpecVarianceBoost;
+    float gSplitScreen;
+    float gDiffBlurRadius;
+    float gSpecBlurRadius;
+    float gDepthThreshold;
+    float gLobeAngleFraction;
+    float gSpecLobeAngleSlack;
+    float gHistoryFixEdgeStoppingNormalPower;
+    float gRoughnessEdgeStoppingRelaxation;
+    float gNormalEdgeStoppingRelaxation;
+    float gFastHistoryClampingSigmaScale;
+    float gHistoryAccelerationAmount;
+    float gHistoryResetTemporalSigmaScale;
+    float gHistoryResetSpatialSigmaScale;
+    float gHistoryResetAmount;
+    float gDenoisingRange;
+    float gSpecPhiLuminance;
+    float gDiffPhiLuminance;
+    float gDiffMaxLuminanceRelativeDifference;
+    float gSpecMaxLuminanceRelativeDifference;
+    float gLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenRelaxationMultiplier;
+    float gConfidenceDrivenLuminanceEdgeStoppingRelaxation;
+    float gConfidenceDrivenNormalEdgeStoppingRelaxation;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gCheckerboardResolveAccumSpeed;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gHistoryThreshold;
+    float gViewZScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    uint gRoughnessEdgeStoppingEnabled;
+    uint gFrameIndex;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gResetHistory;
+} RELAX_PrePassConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 2) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 3) uniform texture2D gIn_Diff;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Diff;
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        ivec2 _132 = ivec2((((((uvec2(RELAX_PrePassConstants.gRectSize) + uvec2(15u)) / uvec2(16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        bool _144;
+        if (!(texelFetch(gIn_Tiles, ivec2(uvec2(_132 >> ivec2(4))), int(0u)).x != 0.0))
+        {
+            _144 = any(greaterThanEqual(_132, RELAX_PrePassConstants.gRectSize));
+        }
+        else
+        {
+            _144 = true;
+        }
+        if (_144)
+        {
+            break;
+        }
+        uvec2 _147 = uvec2(_132);
+        float _154 = abs(texelFetch(gIn_ViewZ, ivec2(_147), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+        if (!(_154 < RELAX_PrePassConstants.gDenoisingRange))
+        {
+            break;
+        }
+        vec4 _162 = texelFetch(gIn_Normal_Roughness, ivec2(_147), int(0u));
+        float _166 = _162.x;
+        float _167 = _162.y;
+        float _168 = _166 - _167;
+        float _170 = (_166 + _167) - 1.0;
+        vec3 _182 = vec4(_168, _170, float((((_162.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_168)) - abs(_170)), _113).xyz;
+        vec3 _187 = (_182 * inversesqrt(spvNMax(dot(_182, _182), 9.999999717180685365747194737196e-10))).xyz;
+        vec2 _192 = (vec2(_132) + vec2(0.5)) * RELAX_PrePassConstants.gRectSizeInv;
+        vec2 _194 = (_192 * 2.0) - vec2(1.0);
+        bool _197 = RELAX_PrePassConstants.gOrthoMode == 0.0;
+        vec3 _233;
+        if (_197)
+        {
+            _233 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _194.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _194.y)) * _154;
+        }
+        else
+        {
+            _233 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _154) + (RELAX_PrePassConstants.gFrustumRight.xyz * _194.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _194.y);
+        }
+        vec4 _237 = texelFetch(gIn_Diff, ivec2(_147), int(0u));
+        vec4 _1400;
+        if (RELAX_PrePassConstants.gDiffBlurRadius > 0.0)
+        {
+            float _255 = _237.w;
+            bool _256 = _255 == 0.0;
+            float _260 = RELAX_PrePassConstants.gDiffBlurRadius * clamp((_256 ? 1.0 : _255) / ((float(min(RELAX_PrePassConstants.gRectSize.x, RELAX_PrePassConstants.gRectSize.y)) * RELAX_PrePassConstants.gUnproject) * mix(_154, 1.0, abs(RELAX_PrePassConstants.gOrthoMode))), 0.0, 1.0);
+            float _264;
+            if (_256)
+            {
+                _264 = spvNMax(_260, 1.0);
+            }
+            else
+            {
+                _264 = _260;
+            }
+            float _268 = clamp(0.25 * RELAX_PrePassConstants.gLobeAngleFraction, 0.0, 1.0);
+            float _273 = 1.0 / spvNMax(atan(_268 / (1.00000095367431640625 - _268)), 0.0058823530562222003936767578125);
+            float _274 = _255 * (-9.0);
+            vec2 _284 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * (-0.4706068933010101318359375)) + (RELAX_PrePassConstants.gRotatorPre.yw * (-0.4427112042903900146484375))) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _291 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_284 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            vec2 _295 = vec2(RELAX_PrePassConstants.gRectSize);
+            uvec2 _298 = uvec2(ivec2(_291 * _295));
+            vec4 _300 = texelFetch(gIn_Normal_Roughness, ivec2(_298), int(0u));
+            float _304 = _300.x;
+            float _305 = _300.y;
+            float _306 = _304 - _305;
+            float _308 = (_304 + _305) - 1.0;
+            vec3 _320 = vec4(_306, _308, float((((_300.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_306)) - abs(_308)), _113).xyz;
+            float _330 = abs(texelFetch(gIn_ViewZ, ivec2(_298), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _332 = (_291 * 2.0) - vec2(1.0);
+            vec3 _368;
+            if (_197)
+            {
+                _368 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _332.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _332.y)) * _330;
+            }
+            else
+            {
+                _368 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _330) + (RELAX_PrePassConstants.gFrustumRight.xyz * _332.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _332.y);
+            }
+            float _374 = spvNMax(_162.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial);
+            float _379 = _197 ? _154 : 1.0;
+            float _389 = dot(_187, (_320 * inversesqrt(spvNMax(dot(_320, _320), 9.999999717180685365747194737196e-10))).xyz);
+            float _400 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_389, 0.0, 1.0)) * sqrt(clamp(1.0 - _389, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _405 = ((((any(notEqual(_284, _291)) ? 1.0 : 0.759172499179840087890625) * float(_330 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_300.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_368 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_400 * _400) * (3.0 - (_400 * 2.0)));
+            vec4 _410 = mix(texelFetch(gIn_Diff, ivec2(_298), int(0u)), vec4(0.0), bvec4(_405 == 0.0));
+            float _415 = (-3.0) * abs((_410.w * 9.0) + _274);
+            float _421 = _405 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_415 * _415) - _415) + 1.0));
+            vec2 _430 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * (-0.90573751926422119140625)) + (RELAX_PrePassConstants.gRotatorPre.yw * 0.3003470897674560546875)) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _437 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_430 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _443 = uvec2(ivec2(_437 * _295));
+            vec4 _445 = texelFetch(gIn_Normal_Roughness, ivec2(_443), int(0u));
+            float _449 = _445.x;
+            float _450 = _445.y;
+            float _451 = _449 - _450;
+            float _453 = (_449 + _450) - 1.0;
+            vec3 _465 = vec4(_451, _453, float((((_445.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_451)) - abs(_453)), _113).xyz;
+            float _475 = abs(texelFetch(gIn_ViewZ, ivec2(_443), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _477 = (_437 * 2.0) - vec2(1.0);
+            vec3 _513;
+            if (_197)
+            {
+                _513 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _477.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _477.y)) * _475;
+            }
+            else
+            {
+                _513 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _475) + (RELAX_PrePassConstants.gFrustumRight.xyz * _477.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _477.y);
+            }
+            float _528 = dot(_187, (_465 * inversesqrt(spvNMax(dot(_465, _465), 9.999999717180685365747194737196e-10))).xyz);
+            float _539 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_528, 0.0, 1.0)) * sqrt(clamp(1.0 - _528, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _544 = ((((any(notEqual(_430, _437)) ? 1.0 : 0.548276603221893310546875) * float(_475 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_445.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_513 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_539 * _539) * (3.0 - (_539 * 2.0)));
+            vec4 _549 = mix(texelFetch(gIn_Diff, ivec2(_443), int(0u)), vec4(0.0), bvec4(_544 == 0.0));
+            float _554 = (-3.0) * abs((_549.w * 9.0) + _274);
+            float _560 = _544 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_554 * _554) - _554) + 1.0));
+            vec2 _569 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * (-0.34873878955841064453125)) + (RELAX_PrePassConstants.gRotatorPre.yw * 0.4037880003452301025390625)) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _576 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_569 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _582 = uvec2(ivec2(_576 * _295));
+            vec4 _584 = texelFetch(gIn_Normal_Roughness, ivec2(_582), int(0u));
+            float _588 = _584.x;
+            float _589 = _584.y;
+            float _590 = _588 - _589;
+            float _592 = (_588 + _589) - 1.0;
+            vec3 _604 = vec4(_590, _592, float((((_584.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_590)) - abs(_592)), _113).xyz;
+            float _614 = abs(texelFetch(gIn_ViewZ, ivec2(_582), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _616 = (_576 * 2.0) - vec2(1.0);
+            vec3 _652;
+            if (_197)
+            {
+                _652 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _616.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _616.y)) * _614;
+            }
+            else
+            {
+                _652 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _614) + (RELAX_PrePassConstants.gFrustumRight.xyz * _616.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _616.y);
+            }
+            float _667 = dot(_187, (_604 * inversesqrt(spvNMax(dot(_604, _604), 9.999999717180685365747194737196e-10))).xyz);
+            float _678 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_667, 0.0, 1.0)) * sqrt(clamp(1.0 - _667, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _683 = ((((any(notEqual(_569, _576)) ? 1.0 : 0.82871592044830322265625) * float(_614 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_584.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_652 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_678 * _678) * (3.0 - (_678 * 2.0)));
+            vec4 _688 = mix(texelFetch(gIn_Diff, ivec2(_582), int(0u)), vec4(0.0), bvec4(_683 == 0.0));
+            float _693 = (-3.0) * abs((_688.w * 9.0) + _274);
+            float _699 = _683 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_693 * _693) - _693) + 1.0));
+            vec2 _708 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * 0.102304197847843170166015625) + (RELAX_PrePassConstants.gRotatorPre.yw * 0.643937289714813232421875)) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _715 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_708 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _721 = uvec2(ivec2(_715 * _295));
+            vec4 _723 = texelFetch(gIn_Normal_Roughness, ivec2(_721), int(0u));
+            float _727 = _723.x;
+            float _728 = _723.y;
+            float _729 = _727 - _728;
+            float _731 = (_727 + _728) - 1.0;
+            vec3 _743 = vec4(_729, _731, float((((_723.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_729)) - abs(_731)), _113).xyz;
+            float _753 = abs(texelFetch(gIn_ViewZ, ivec2(_721), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _755 = (_715 * 2.0) - vec2(1.0);
+            vec3 _791;
+            if (_197)
+            {
+                _791 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _755.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _755.y)) * _753;
+            }
+            else
+            {
+                _791 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _753) + (RELAX_PrePassConstants.gFrustumRight.xyz * _755.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _755.y);
+            }
+            float _806 = dot(_187, (_743 * inversesqrt(spvNMax(dot(_743, _743), 9.999999717180685365747194737196e-10))).xyz);
+            float _817 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_806, 0.0, 1.0)) * sqrt(clamp(1.0 - _806, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _822 = ((((any(notEqual(_708, _715)) ? 1.0 : 0.75534534454345703125) * float(_753 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_723.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_791 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_817 * _817) * (3.0 - (_817 * 2.0)));
+            vec4 _827 = mix(texelFetch(gIn_Diff, ivec2(_721), int(0u)), vec4(0.0), bvec4(_822 == 0.0));
+            float _832 = (-3.0) * abs((_827.w * 9.0) + _274);
+            float _838 = _822 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_832 * _832) - _832) + 1.0));
+            vec2 _847 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * 0.569927692413330078125) + (RELAX_PrePassConstants.gRotatorPre.yw * 0.3513750135898590087890625)) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _854 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_847 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _860 = uvec2(ivec2(_854 * _295));
+            vec4 _862 = texelFetch(gIn_Normal_Roughness, ivec2(_860), int(0u));
+            float _866 = _862.x;
+            float _867 = _862.y;
+            float _868 = _866 - _867;
+            float _870 = (_866 + _867) - 1.0;
+            vec3 _882 = vec4(_868, _870, float((((_862.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_868)) - abs(_870)), _113).xyz;
+            float _892 = abs(texelFetch(gIn_ViewZ, ivec2(_860), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _894 = (_854 * 2.0) - vec2(1.0);
+            vec3 _930;
+            if (_197)
+            {
+                _930 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _894.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _894.y)) * _892;
+            }
+            else
+            {
+                _930 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _892) + (RELAX_PrePassConstants.gFrustumRight.xyz * _894.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _894.y);
+            }
+            float _945 = dot(_187, (_882 * inversesqrt(spvNMax(dot(_882, _882), 9.999999717180685365747194737196e-10))).xyz);
+            float _956 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_945, 0.0, 1.0)) * sqrt(clamp(1.0 - _945, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _961 = ((((any(notEqual(_847, _854)) ? 1.0 : 0.743887007236480712890625) * float(_892 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_862.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_930 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_956 * _956) * (3.0 - (_956 * 2.0)));
+            vec4 _966 = mix(texelFetch(gIn_Diff, ivec2(_860), int(0u)), vec4(0.0), bvec4(_961 == 0.0));
+            float _971 = (-3.0) * abs((_966.w * 9.0) + _274);
+            float _977 = _961 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_971 * _971) - _971) + 1.0));
+            vec2 _986 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * 0.2939127981662750244140625) + (RELAX_PrePassConstants.gRotatorPre.yw * (-0.11312259733676910400390625))) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _993 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_986 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _999 = uvec2(ivec2(_993 * _295));
+            vec4 _1001 = texelFetch(gIn_Normal_Roughness, ivec2(_999), int(0u));
+            float _1005 = _1001.x;
+            float _1006 = _1001.y;
+            float _1007 = _1005 - _1006;
+            float _1009 = (_1005 + _1006) - 1.0;
+            vec3 _1021 = vec4(_1007, _1009, float((((_1001.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_1007)) - abs(_1009)), _113).xyz;
+            float _1031 = abs(texelFetch(gIn_ViewZ, ivec2(_999), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _1033 = (_993 * 2.0) - vec2(1.0);
+            vec3 _1069;
+            if (_197)
+            {
+                _1069 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _1033.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _1033.y)) * _1031;
+            }
+            else
+            {
+                _1069 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _1031) + (RELAX_PrePassConstants.gFrustumRight.xyz * _1033.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _1033.y);
+            }
+            float _1084 = dot(_187, (_1021 * inversesqrt(spvNMax(dot(_1021, _1021), 9.999999717180685365747194737196e-10))).xyz);
+            float _1095 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1084, 0.0, 1.0)) * sqrt(clamp(1.0 - _1084, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1100 = ((((any(notEqual(_986, _993)) ? 1.0 : 0.936636745929718017578125) * float(_1031 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_1001.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_1069 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_1095 * _1095) * (3.0 - (_1095 * 2.0)));
+            vec4 _1105 = mix(texelFetch(gIn_Diff, ivec2(_999), int(0u)), vec4(0.0), bvec4(_1100 == 0.0));
+            float _1110 = (-3.0) * abs((_1105.w * 9.0) + _274);
+            float _1116 = _1100 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_1110 * _1110) - _1110) + 1.0));
+            vec2 _1125 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * 0.78366577625274658203125) + (RELAX_PrePassConstants.gRotatorPre.yw * (-0.42087841033935546875))) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _1132 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1125 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _1138 = uvec2(ivec2(_1132 * _295));
+            vec4 _1140 = texelFetch(gIn_Normal_Roughness, ivec2(_1138), int(0u));
+            float _1144 = _1140.x;
+            float _1145 = _1140.y;
+            float _1146 = _1144 - _1145;
+            float _1148 = (_1144 + _1145) - 1.0;
+            vec3 _1160 = vec4(_1146, _1148, float((((_1140.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_1146)) - abs(_1148)), _113).xyz;
+            float _1170 = abs(texelFetch(gIn_ViewZ, ivec2(_1138), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _1172 = (_1132 * 2.0) - vec2(1.0);
+            vec3 _1208;
+            if (_197)
+            {
+                _1208 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _1172.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _1172.y)) * _1170;
+            }
+            else
+            {
+                _1208 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _1170) + (RELAX_PrePassConstants.gFrustumRight.xyz * _1172.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _1172.y);
+            }
+            float _1223 = dot(_187, (_1160 * inversesqrt(spvNMax(dot(_1160, _1160), 9.999999717180685365747194737196e-10))).xyz);
+            float _1234 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1223, 0.0, 1.0)) * sqrt(clamp(1.0 - _1223, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1239 = ((((any(notEqual(_1125, _1132)) ? 1.0 : 0.5931911468505859375) * float(_1170 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_1140.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_1208 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_1234 * _1234) * (3.0 - (_1234 * 2.0)));
+            vec4 _1244 = mix(texelFetch(gIn_Diff, ivec2(_1138), int(0u)), vec4(0.0), bvec4(_1239 == 0.0));
+            float _1249 = (-3.0) * abs((_1244.w * 9.0) + _274);
+            float _1255 = _1239 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_1249 * _1249) - _1249) + 1.0));
+            vec2 _1264 = _192 + ((((RELAX_PrePassConstants.gRotatorPre.xz * 0.15641200542449951171875) + (RELAX_PrePassConstants.gRotatorPre.yw * (-0.819899022579193115234375))) * _264) * RELAX_PrePassConstants.gRectSizeInv);
+            vec2 _1271 = spvNMin(vec2(1.0) - abs(vec2(1.0) - (fract(_1264 * 0.5) * 2.0)), vec2(0.999989986419677734375));
+            uvec2 _1277 = uvec2(ivec2(_1271 * _295));
+            vec4 _1279 = texelFetch(gIn_Normal_Roughness, ivec2(_1277), int(0u));
+            float _1283 = _1279.x;
+            float _1284 = _1279.y;
+            float _1285 = _1283 - _1284;
+            float _1287 = (_1283 + _1284) - 1.0;
+            vec3 _1299 = vec4(_1285, _1287, float((((_1279.z * 2.0) - 1.0) < 0.0) ? (-1) : 1) * ((1.0 - abs(_1285)) - abs(_1287)), _113).xyz;
+            float _1309 = abs(texelFetch(gIn_ViewZ, ivec2(_1277), int(0u)).x * RELAX_PrePassConstants.gViewZScale);
+            vec2 _1311 = (_1271 * 2.0) - vec2(1.0);
+            vec3 _1347;
+            if (_197)
+            {
+                _1347 = ((RELAX_PrePassConstants.gFrustumForward.xyz + (RELAX_PrePassConstants.gFrustumRight.xyz * _1311.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _1311.y)) * _1309;
+            }
+            else
+            {
+                _1347 = ((RELAX_PrePassConstants.gFrustumForward.xyz * _1309) + (RELAX_PrePassConstants.gFrustumRight.xyz * _1311.x)) - (RELAX_PrePassConstants.gFrustumUp.xyz * _1311.y);
+            }
+            float _1362 = dot(_187, (_1299 * inversesqrt(spvNMax(dot(_1299, _1299), 9.999999717180685365747194737196e-10))).xyz);
+            float _1373 = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_1362, 0.0, 1.0)) * sqrt(clamp(1.0 - _1362, 0.0, 1.0))) * _273) - 1.0) * (-1.0), 0.0, 1.0);
+            float _1378 = ((((any(notEqual(_1264, _1271)) ? 1.0 : 0.63139641284942626953125) * float(_1309 < RELAX_PrePassConstants.gDenoisingRange)) * float(_374 == spvNMax(_1279.w * 3.0, RELAX_PrePassConstants.gDiffMinMaterial))) * (((abs(dot(_1347 - _233, _187)) / _379) > RELAX_PrePassConstants.gDepthThreshold) ? 0.0 : 1.0)) * ((_1373 * _1373) * (3.0 - (_1373 * 2.0)));
+            vec4 _1383 = mix(texelFetch(gIn_Diff, ivec2(_1277), int(0u)), vec4(0.0), bvec4(_1378 == 0.0));
+            float _1388 = (-3.0) * abs((_1383.w * 9.0) + _274);
+            float _1394 = _1378 * mix(RELAX_PrePassConstants.gMinHitDistanceWeight, 1.0, 1.0 / (((_1388 * _1388) - _1388) + 1.0));
+            _1400 = ((((((((_237 + (_410 * _421)) + (_549 * _560)) + (_688 * _699)) + (_827 * _838)) + (_966 * _977)) + (_1105 * _1116)) + (_1244 * _1255)) + (_1383 * _1394)) / vec4((((((((1.0 + _421) + _560) + _699) + _838) + _977) + _1116) + _1255) + _1394);
+        }
+        else
+        {
+            _1400 = _237;
+        }
+        imageStore(gOut_Diff, ivec2(_147), clamp(_1400, vec4(0.0), vec4(65504.0)));
+        break;
+    } while(false);
+}
+

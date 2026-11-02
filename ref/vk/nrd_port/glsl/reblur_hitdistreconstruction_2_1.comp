@@ -1,0 +1,277 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+#if defined(GL_EXT_control_flow_attributes)
+#extension GL_EXT_control_flow_attributes : require
+#define SPIRV_CROSS_FLATTEN [[flatten]]
+#define SPIRV_CROSS_BRANCH [[dont_flatten]]
+#define SPIRV_CROSS_UNROLL [[unroll]]
+#define SPIRV_CROSS_LOOP [[dont_unroll]]
+#else
+#define SPIRV_CROSS_FLATTEN
+#define SPIRV_CROSS_BRANCH
+#define SPIRV_CROSS_UNROLL
+#define SPIRV_CROSS_LOOP
+#endif
+layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
+
+vec3 _96;
+vec3 _98;
+vec2 _99;
+
+layout(set = 1, binding = 0, std140) uniform type_REBLUR_HitDistReconstructionConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gViewToClip;
+    layout(row_major) mat4 gViewToWorld;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gRotator;
+    vec4 gRotatorPost;
+    vec4 gFrustum;
+    vec4 gFrustumPrev;
+    vec4 gCameraDelta;
+    vec4 gHitDistSettings;
+    vec4 gViewVectorWorld;
+    vec4 gViewVectorWorldPrev;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec4 gConvergenceSettings;
+    vec2 gAntilagSettings;
+    vec2 gResourceSize;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSizeInvPrev;
+    vec2 gRectSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResolutionScale;
+    vec2 gResolutionScalePrev;
+    vec2 gJitter;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSizeMinusOne;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gStabilizationStrength;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gDenoisingRange;
+    float gPlaneDistSensitivity;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gMinBlurRadius;
+    float gMaxBlurRadius;
+    float gDiffPrepassBlurRadius;
+    float gSpecPrepassBlurRadius;
+    float gMaxAccumulatedFrameNum;
+    float gMaxFastAccumulatedFrameNum;
+    float gAntiFirefly;
+    float gLobeAngleFraction;
+    float gRoughnessFraction;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gFastHistoryClampingSigmaScale;
+    float gMinRectDimMulUnproject;
+    float gUsePrepassNotOnlyForSpecularMotionEstimation;
+    float gSplitScreen;
+    float gSplitScreenPrev;
+    float gCheckerboardResolveAccumSpeed;
+    float gViewZScale;
+    float gFireflySuppressorMinRelativeScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    float gResponsiveAccumulationInvRoughnessThreshold;
+    uint gResponsiveAccumulationMinAccumulatedFrameNum;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gFrameIndex;
+    uint gIsRectChanged;
+    uint gResetHistory;
+    uint gReturnHistoryLengthInsteadOfOcclusion;
+} REBLUR_HitDistReconstructionConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Tiles;
+layout(set = 0, binding = 1) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 2) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 3) uniform texture2D gIn_Spec;
+layout(set = 0, binding = 64) uniform writeonly image2D gOut_Spec;
+
+shared vec4 s_Normal_Roughness[20][12];
+shared vec3 s_HitDist_ViewZ[20][12];
+
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        vec4 _111 = texelFetch(gIn_Tiles, ivec2(uvec2(ivec3(gl_GlobalInvocationID).xy >> ivec2(4))), int(0u));
+        float _112 = _111.x;
+        if (_112 == 0.0)
+        {
+            uint _118 = gl_LocalInvocationIndex % 12u;
+            uint _119 = gl_LocalInvocationIndex / 12u;
+            uvec2 _121 = uvec2((ivec3(gl_GlobalInvocationID).xy - ivec3(gl_LocalInvocationID).xy) - ivec2(2));
+            uvec2 _127 = uvec2(clamp(ivec2(_121 + uvec2(_118, _119)), ivec2(0), REBLUR_HitDistReconstructionConstants.gRectSizeMinusOne));
+            float _134 = abs(texelFetch(gIn_ViewZ, ivec2(_127), int(0u)).x * REBLUR_HitDistReconstructionConstants.gViewZScale);
+            vec4 _136 = texelFetch(gIn_Normal_Roughness, ivec2(_127), int(0u));
+            float _139 = (_136.z * 2.0) - 1.0;
+            float _140 = _136.x;
+            float _141 = _136.y;
+            float _142 = _140 - _141;
+            float _144 = (_140 + _141) - 1.0;
+            vec4 _154 = vec4(_142, _144, float((_139 < 0.0) ? (-1) : 1) * ((1.0 - abs(_142)) - abs(_144)), abs(_139));
+            vec3 _155 = _154.xyz;
+            vec3 _159 = _155 * inversesqrt(spvNMax(dot(_155, _155), 9.999999717180685365747194737196e-10));
+            s_Normal_Roughness[_119][_118] = vec4(_159.x, _159.y, _159.z, _154.w);
+            vec2 _165 = vec2(0.0);
+            _165.y = texelFetch(gIn_Spec, ivec2(_127), int(0u)).w;
+            s_HitDist_ViewZ[_119][_118] = vec3(mix(_165, vec2(0.0), bvec2(!(_134 < REBLUR_HitDistReconstructionConstants.gDenoisingRange))), _134);
+            uint _176 = gl_LocalInvocationIndex + 128u;
+            uint _177 = _176 % 12u;
+            uint _178 = _176 / 12u;
+            if (_176 < 240u)
+            {
+                uvec2 _186 = uvec2(clamp(ivec2(_121 + uvec2(_177, _178)), ivec2(0), REBLUR_HitDistReconstructionConstants.gRectSizeMinusOne));
+                float _191 = abs(texelFetch(gIn_ViewZ, ivec2(_186), int(0u)).x * REBLUR_HitDistReconstructionConstants.gViewZScale);
+                vec4 _193 = texelFetch(gIn_Normal_Roughness, ivec2(_186), int(0u));
+                float _196 = (_193.z * 2.0) - 1.0;
+                float _197 = _193.x;
+                float _198 = _193.y;
+                float _199 = _197 - _198;
+                float _201 = (_197 + _198) - 1.0;
+                vec4 _211 = vec4(_199, _201, float((_196 < 0.0) ? (-1) : 1) * ((1.0 - abs(_199)) - abs(_201)), abs(_196));
+                vec3 _212 = _211.xyz;
+                vec3 _216 = _212 * inversesqrt(spvNMax(dot(_212, _212), 9.999999717180685365747194737196e-10));
+                s_Normal_Roughness[_178][_177] = vec4(_216.x, _216.y, _216.z, _211.w);
+                vec2 _222 = vec2(0.0);
+                _222.y = texelFetch(gIn_Spec, ivec2(_186), int(0u)).w;
+                s_HitDist_ViewZ[_178][_177] = vec3(mix(_222, vec2(0.0), bvec2(!(_191 < REBLUR_HitDistReconstructionConstants.gDenoisingRange))), _191);
+            }
+        }
+        barrier();
+        bool _239;
+        if (!(_112 != 0.0))
+        {
+            _239 = any(greaterThan(ivec3(gl_GlobalInvocationID).xy, REBLUR_HitDistReconstructionConstants.gRectSizeMinusOne));
+        }
+        else
+        {
+            _239 = true;
+        }
+        if (_239)
+        {
+            break;
+        }
+        ivec2 _242 = ivec3(gl_LocalInvocationID).xy + ivec2(2);
+        int _243 = _242.y;
+        int _244 = _242.x;
+        if (!(s_HitDist_ViewZ[_243][_244].z < REBLUR_HitDistReconstructionConstants.gDenoisingRange))
+        {
+            break;
+        }
+        vec2 _262 = (vec2(ivec3(gl_GlobalInvocationID).xy) + vec2(0.5)) * REBLUR_HitDistReconstructionConstants.gRectSizeInv;
+        bool _271 = REBLUR_HitDistReconstructionConstants.gOrthoMode == 0.0;
+        vec2 _274 = ((_262 * REBLUR_HitDistReconstructionConstants.gFrustum.zw) + REBLUR_HitDistReconstructionConstants.gFrustum.xy).xy * (_271 ? s_HitDist_ViewZ[_243][_244].z : REBLUR_HitDistReconstructionConstants.gOrthoMode);
+        vec3 _275 = vec3(_274.x, _274.y, _96.z);
+        _275.z = s_HitDist_ViewZ[_243][_244].z;
+        mat4 _279 = transpose(REBLUR_HitDistReconstructionConstants.gViewToWorld);
+        vec3 _287 = s_Normal_Roughness[_243][_244].xyz * mat3(_279[0].xyz, _279[1].xyz, _279[2].xyz);
+        float _296 = 1.0 / (REBLUR_HitDistReconstructionConstants.gPlaneDistSensitivity * (REBLUR_HitDistReconstructionConstants.gMinRectDimMulUnproject * mix(s_HitDist_ViewZ[_243][_244].z, 1.0, abs(REBLUR_HitDistReconstructionConstants.gOrthoMode))));
+        float _299 = -(dot(_287, _275) * _296);
+        float _300 = s_Normal_Roughness[_243][_244].w * s_Normal_Roughness[_243][_244].w;
+        float _302 = 1.0 / mix(0.00999999977648258209228515625, 1.0, _300);
+        float _304 = -(_300 * _302);
+        float _309 = 1.0 / spvNMax(atan(clamp(s_Normal_Roughness[_243][_244].w, 0.0, 1.0) * 1.7320473194122314453125), 0.00294117652811110019683837890625);
+        vec2 _313 = vec2(notEqual(s_HitDist_ViewZ[_243][_244].xy, vec2(0.0))) * 1000.0;
+        vec2 _314 = s_HitDist_ViewZ[_243][_244].xy * _313;
+        vec3 _317;
+        vec2 _320;
+        _317 = vec3(_314.x, _314.y, s_HitDist_ViewZ[_243][_244].z);
+        _320 = _313;
+        vec3 _318;
+        vec2 _321;
+        SPIRV_CROSS_UNROLL
+        for (int _322 = 0; _322 <= 4; _317 = _318, _320 = _321, _322++)
+        {
+            _318 = _317;
+            _321 = _320;
+            vec3 _328;
+            vec2 _330;
+            SPIRV_CROSS_UNROLL
+            for (int _331 = 0; _331 <= 4; _318 = _328, _321 = _330, _331++)
+            {
+                vec2 _339 = vec2(float(_331), float(_322)) - vec2(2.0);
+                bool _346;
+                if (_339.x == 0.0)
+                {
+                    _346 = _339.y == 0.0;
+                }
+                else
+                {
+                    _346 = false;
+                }
+                if (_346)
+                {
+                    _328 = _318;
+                    _330 = _321;
+                    continue;
+                }
+                ivec2 _350 = ivec3(gl_LocalInvocationID).xy + ivec2(_331, _322);
+                int _351 = _350.y;
+                int _352 = _350.x;
+                vec2 _356 = _262 + (_339 * REBLUR_HitDistReconstructionConstants.gRectSizeInv);
+                bool _363;
+                if (all(greaterThan(_356, vec2(0.0))))
+                {
+                    _363 = all(lessThan(_356, vec2(1.0)));
+                }
+                else
+                {
+                    _363 = false;
+                }
+                float _365 = length(_339);
+                vec2 _376 = ((_356 * REBLUR_HitDistReconstructionConstants.gFrustum.zw) + REBLUR_HitDistReconstructionConstants.gFrustum.xy).xy * (_271 ? s_HitDist_ViewZ[_351][_352].z : REBLUR_HitDistReconstructionConstants.gOrthoMode);
+                vec3 _377 = vec3(_376.x, _376.y, _98.z);
+                _377.z = s_HitDist_ViewZ[_351][_352].z;
+                float _385 = clamp((abs((dot(_287, _377) * _296) + _299) - 1.0) * (-1.0), 0.0, 1.0);
+                float _394 = dot(s_Normal_Roughness[_243][_244].xyz, s_Normal_Roughness[_351][_352].xyz);
+                float _403 = (-3.0) * abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(_394, 0.0, 1.0)) * sqrt(clamp(1.0 - _394, 0.0, 1.0))) * _309);
+                float _414 = (-3.0) * abs(((s_Normal_Roughness[_351][_352].w * s_Normal_Roughness[_351][_352].w) * _302) + _304);
+                vec2 _423;
+                _423.y = (s_HitDist_ViewZ[_351][_352].y == 0.0) ? 0.0 : ((((float(_363) * exp((_365 * (-0.3300000131130218505859375)) * (_365 * 0.5))) * ((_385 * _385) * (3.0 - (_385 * 2.0)))) * (1.0 / (((_403 * _403) - _403) + 1.0))) * (1.0 / (((_414 * _414) - _414) + 1.0)));
+                vec2 _427 = _318.xy + (s_HitDist_ViewZ[_351][_352].xy * _423);
+                _328 = vec3(_427.x, _427.y, _318.z);
+                _330 = _321 + _423;
+            }
+        }
+        uvec2 _433 = uvec2(ivec3(gl_GlobalInvocationID).xy);
+        imageStore(gOut_Spec, ivec2(_433), vec4(texelFetch(gIn_Spec, ivec2(_433), int(0u)).xyz, (_317.xy / spvNMax(_320, vec2(9.9999999747524270787835121154785e-07))).y));
+        break;
+    } while(false);
+}
+

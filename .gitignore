@@ -381,3 +381,7 @@ GEMINI.md
 .continue/
 .codeium/
 .github/copilot-instructions.md
+
+# Optional upstream checkouts used only to regenerate the NRD translation.
+/ref/vk/nrd_upstream/
+/ref/vk/nrd_mathlib/

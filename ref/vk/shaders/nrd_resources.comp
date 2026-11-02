@@ -1,0 +1,8 @@
+#version 460
+#define GLSL
+#include "ray_interop.h"
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
+layout(set=0,binding=1,rgba16f) uniform writeonly image2D out_nrd_diff_filtered;
+layout(set=0,binding=2,rgba16f) uniform writeonly image2D out_nrd_spec_filtered;
+void main(){ivec2 p=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(p,ubo.ubo.res)))return;imageStore(out_nrd_diff_filtered,p,vec4(0));imageStore(out_nrd_spec_filtered,p,vec4(0));}

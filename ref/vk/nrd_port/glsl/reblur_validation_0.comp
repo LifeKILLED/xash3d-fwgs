@@ -1,0 +1,1954 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_spirv_intrinsics : require
+#if defined(GL_EXT_control_flow_attributes)
+#extension GL_EXT_control_flow_attributes : require
+#define SPIRV_CROSS_FLATTEN [[flatten]]
+#define SPIRV_CROSS_BRANCH [[dont_flatten]]
+#define SPIRV_CROSS_UNROLL [[unroll]]
+#define SPIRV_CROSS_LOOP [[dont_unroll]]
+#else
+#define SPIRV_CROSS_FLATTEN
+#define SPIRV_CROSS_BRANCH
+#define SPIRV_CROSS_UNROLL
+#define SPIRV_CROSS_LOOP
+#endif
+#extension GL_EXT_shader_image_load_formatted : require
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+const uint _195[40] = uint[](488162862u, 554189584u, 1041301007u, 520649231u, 554204721u, 520649775u, 521731134u, 554189326u, 488177198u, 520650286u, 31744u, 134217728u, 0u, 747966788u, 589284956u, 521715247u, 1007715390u, 521717295u, 1041284159u, 34651199u, 1025279038u, 588840497u, 474091662u, 488129040u, 588553521u, 1041269793u, 588830577u, 589092465u, 488162862u, 35112495u, 748340782u, 580372015u, 520632382u, 138547359u, 488162865u, 145278513u, 368760369u, 588583249u, 138553681u, 1041305887u);
+vec3 _227;
+uvec4 _228;
+uvec4 _238;
+
+layout(set = 1, binding = 0, std140) uniform type_REBLUR_ValidationConstants
+{
+    layout(row_major) mat4 gWorldToClip;
+    layout(row_major) mat4 gViewToClip;
+    layout(row_major) mat4 gViewToWorld;
+    layout(row_major) mat4 gWorldToViewPrev;
+    layout(row_major) mat4 gWorldToClipPrev;
+    layout(row_major) mat4 gWorldPrevToWorld;
+    vec4 gRotatorPre;
+    vec4 gRotator;
+    vec4 gRotatorPost;
+    vec4 gFrustum;
+    vec4 gFrustumPrev;
+    vec4 gCameraDelta;
+    vec4 gHitDistSettings;
+    vec4 gViewVectorWorld;
+    vec4 gViewVectorWorldPrev;
+    vec4 gMvScale;
+    vec4 gMvBias;
+    vec4 gConvergenceSettings;
+    vec2 gAntilagSettings;
+    vec2 gResourceSize;
+    vec2 gResourceSizeInv;
+    vec2 gResourceSizeInvPrev;
+    vec2 gRectSize;
+    vec2 gRectSizeInv;
+    vec2 gRectSizePrev;
+    vec2 gResolutionScale;
+    vec2 gResolutionScalePrev;
+    vec2 gJitter;
+    uvec2 gPrintfAt;
+    ivec2 gInputRectOrigin;
+    ivec2 gOutputRectOrigin;
+    ivec2 gDispatchInputRectOrigin;
+    ivec2 gDispatchOutputRectOrigin;
+    ivec2 gRectSizeMinusOne;
+    float gDisocclusionThreshold;
+    float gDisocclusionThresholdAlternate;
+    float gCameraAttachedReflectionMaterialID;
+    float gStrandMaterialID;
+    float gStrandThickness;
+    float gStabilizationStrength;
+    float gDebug;
+    float gOrthoMode;
+    float gUnproject;
+    float gDenoisingRange;
+    float gPlaneDistSensitivity;
+    float gFrameRateScale;
+    float gFrameRateScaleSmoothed;
+    float gMinBlurRadius;
+    float gMaxBlurRadius;
+    float gDiffPrepassBlurRadius;
+    float gSpecPrepassBlurRadius;
+    float gMaxAccumulatedFrameNum;
+    float gMaxFastAccumulatedFrameNum;
+    float gAntiFirefly;
+    float gLobeAngleFraction;
+    float gRoughnessFraction;
+    float gHistoryFixFrameNum;
+    float gHistoryFixBasePixelStride;
+    float gHistoryFixAlternatePixelStride;
+    float gHistoryFixAlternatePixelStrideMaterialID;
+    float gFastHistoryClampingSigmaScale;
+    float gMinRectDimMulUnproject;
+    float gUsePrepassNotOnlyForSpecularMotionEstimation;
+    float gSplitScreen;
+    float gSplitScreenPrev;
+    float gCheckerboardResolveAccumSpeed;
+    float gViewZScale;
+    float gFireflySuppressorMinRelativeScale;
+    float gMinHitDistanceWeight;
+    float gDiffMinMaterial;
+    float gSpecMinMaterial;
+    float gResponsiveAccumulationInvRoughnessThreshold;
+    uint gResponsiveAccumulationMinAccumulatedFrameNum;
+    uint gHasHistoryConfidence;
+    uint gHasDisocclusionThresholdMix;
+    uint gDiffCheckerboard;
+    uint gSpecCheckerboard;
+    uint gFrameIndex;
+    uint gIsRectChanged;
+    uint gResetHistory;
+    uint gReturnHistoryLengthInsteadOfOcclusion;
+    uint gHasDiffuse;
+    uint gHasSpecular;
+} REBLUR_ValidationConstants;
+
+layout(set = 0, binding = 0) uniform texture2D gIn_Normal_Roughness;
+layout(set = 0, binding = 1) uniform texture2D gIn_ViewZ;
+layout(set = 0, binding = 2) uniform texture2D gIn_Mv;
+layout(set = 0, binding = 3) uniform texture2D gIn_Data1;
+layout(set = 0, binding = 4) uniform utexture2D gIn_Data2;
+layout(set = 0, binding = 5) uniform texture2D gIn_Diff;
+layout(set = 0, binding = 6) uniform texture2D gIn_Spec;
+layout(set = 0, binding = 64) uniform image2D gOut_Validation;
+
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    do
+    {
+        if (any(greaterThan(ivec3(gl_GlobalInvocationID).xy, REBLUR_ValidationConstants.gRectSizeMinusOne)))
+        {
+            break;
+        }
+        if (REBLUR_ValidationConstants.gResetHistory != 0u)
+        {
+            imageStore(gOut_Validation, ivec2(uvec2(ivec3(gl_GlobalInvocationID).xy)), vec4(0.0));
+            break;
+        }
+        vec2 _262 = (vec2(ivec3(gl_GlobalInvocationID).xy) + vec2(0.5)) / REBLUR_ValidationConstants.gRectSize;
+        vec2 _263 = _262 * vec2(4.0);
+        vec2 _264 = fract(_263);
+        vec2 _265 = floor(_263);
+        float _269 = (_265.y * 4.0) + _265.x;
+        vec2 _272 = _264 * REBLUR_ValidationConstants.gResolutionScale;
+        ivec2 _276 = ivec2(_272 * REBLUR_ValidationConstants.gResourceSize);
+        uvec2 _293 = uvec2(_276);
+        vec4 _295 = texelFetch(gIn_Normal_Roughness, ivec2(_293), int(0u));
+        float _298 = (_295.z * 2.0) - 1.0;
+        float _299 = _295.x;
+        float _300 = _295.y;
+        float _301 = _299 - _300;
+        float _303 = (_299 + _300) - 1.0;
+        float _312 = abs(_298);
+        vec3 _314 = vec4(_301, _303, float((_298 < 0.0) ? (-1) : 1) * ((1.0 - abs(_301)) - abs(_303)), _312).xyz;
+        float _325 = abs(texelFetch(gIn_ViewZ, ivec2(_293), int(0u)).x * REBLUR_ValidationConstants.gViewZScale);
+        vec3 _336 = (texelFetch(gIn_Mv, ivec2(_293), int(0u)).xyz * REBLUR_ValidationConstants.gMvScale.xyz) + REBLUR_ValidationConstants.gMvBias.xyz;
+        vec4 _339 = texelFetch(gIn_Diff, ivec2(uvec2(ivec2((_272 * vec2((REBLUR_ValidationConstants.gDiffCheckerboard != 2u) ? 0.5 : 1.0, 1.0)) * REBLUR_ValidationConstants.gResourceSize))), int(0u));
+        vec4 _342 = texelFetch(gIn_Spec, ivec2(uvec2(ivec2((_272 * vec2((REBLUR_ValidationConstants.gSpecCheckerboard != 2u) ? 0.5 : 1.0, 1.0)) * REBLUR_ValidationConstants.gResourceSize))), int(0u));
+        vec4 _344 = texelFetch(gIn_Data1, ivec2(_293), int(0u));
+        vec2 _345 = _344.xy;
+        vec2 _353;
+        if (REBLUR_ValidationConstants.gHasDiffuse == 0u)
+        {
+            vec2 _352 = _345;
+            _352.y = _344.x;
+            _353 = _352;
+        }
+        else
+        {
+            _353 = _345;
+        }
+        vec2 _354 = _353 * 63.0;
+        vec2 _369 = (vec2(_276) + vec2(0.5)) * REBLUR_ValidationConstants.gRectSizeInv;
+        float _372 = abs(_325);
+        vec2 _382 = ((_369 * REBLUR_ValidationConstants.gFrustum.zw) + REBLUR_ValidationConstants.gFrustum.xy).xy * ((REBLUR_ValidationConstants.gOrthoMode == 0.0) ? _372 : REBLUR_ValidationConstants.gOrthoMode);
+        vec3 _383 = vec3(_382.x, _382.y, _227.z);
+        _383.z = _372;
+        vec3 _394 = _383 * mat3(REBLUR_ValidationConstants.gViewToWorld[0].xyz, REBLUR_ValidationConstants.gViewToWorld[1].xyz, REBLUR_ValidationConstants.gViewToWorld[2].xyz);
+        bool _398 = !(_372 < REBLUR_ValidationConstants.gDenoisingRange);
+        uvec2 _400 = uvec2(ivec3(gl_GlobalInvocationID).xy >> ivec2(2));
+        bool _405 = ((_400.x ^ _400.y) & 1u) != 0u;
+        uvec2 _406 = uvec2(ivec3(gl_GlobalInvocationID).xy);
+        uvec2 _411 = _406 - uvec2(((_265 * REBLUR_ValidationConstants.gRectSize) * 0.25) + vec2(5.0));
+        uvec4 _412 = uvec4(_411.x, _411.y, _228.z, _228.w);
+        _412.z = 1u;
+        _412.w = 0u;
+        vec4 _416 = imageLoad(gOut_Validation, ivec2(_406));
+        vec4 _3279;
+        uvec4 _3280;
+        if (_269 == 4.0)
+        {
+            uvec4 _3050;
+            if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+            {
+                uvec4 _3049 = _412;
+                _3049.w = ((_195[27u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                _3050 = _3049;
+            }
+            else
+            {
+                _3050 = _412;
+            }
+            uvec4 _3055 = _3050;
+            _3055.x = _3050.x - (6u * _3050.z);
+            uvec2 _3057 = uvec2(_3050.z);
+            uvec4 _3076;
+            if (all(lessThan(_3055.xy, (uvec2(5u, 6u) * _3057))))
+            {
+                uvec2 _3063 = _3055.xy / _3057;
+                uvec4 _3075 = _3055;
+                _3075.w = ((_195[28u] & (1u << (((_3063.y * 5u) + _3063.x) & 31u))) != 0u) ? 2u : 1u;
+                _3076 = _3075;
+            }
+            else
+            {
+                _3076 = _3055;
+            }
+            uvec4 _3081 = _3076;
+            _3081.x = _3076.x - (6u * _3076.z);
+            uvec2 _3083 = uvec2(_3076.z);
+            uvec4 _3102;
+            if (all(lessThan(_3081.xy, (uvec2(5u, 6u) * _3083))))
+            {
+                uvec2 _3089 = _3081.xy / _3083;
+                uvec4 _3101 = _3081;
+                _3101.w = ((_195[31u] & (1u << (((_3089.y * 5u) + _3089.x) & 31u))) != 0u) ? 2u : 1u;
+                _3102 = _3101;
+            }
+            else
+            {
+                _3102 = _3081;
+            }
+            uvec4 _3107 = _3102;
+            _3107.x = _3102.x - (6u * _3102.z);
+            uvec2 _3109 = uvec2(_3102.z);
+            uvec4 _3128;
+            if (all(lessThan(_3107.xy, (uvec2(5u, 6u) * _3109))))
+            {
+                uvec2 _3115 = _3107.xy / _3109;
+                uvec4 _3127 = _3107;
+                _3127.w = ((_195[26u] & (1u << (((_3115.y * 5u) + _3115.x) & 31u))) != 0u) ? 2u : 1u;
+                _3128 = _3127;
+            }
+            else
+            {
+                _3128 = _3107;
+            }
+            uvec4 _3133 = _3128;
+            _3133.x = _3128.x - (6u * _3128.z);
+            uvec2 _3135 = uvec2(_3128.z);
+            uvec4 _3154;
+            if (all(lessThan(_3133.xy, (uvec2(5u, 6u) * _3135))))
+            {
+                uvec2 _3141 = _3133.xy / _3135;
+                uvec4 _3153 = _3133;
+                _3153.w = ((_195[14u] & (1u << (((_3141.y * 5u) + _3141.x) & 31u))) != 0u) ? 2u : 1u;
+                _3154 = _3153;
+            }
+            else
+            {
+                _3154 = _3133;
+            }
+            uvec4 _3159 = _3154;
+            _3159.x = _3154.x - (6u * _3154.z);
+            uvec2 _3161 = uvec2(_3154.z);
+            uvec4 _3180;
+            if (all(lessThan(_3159.xy, (uvec2(5u, 6u) * _3161))))
+            {
+                uvec2 _3167 = _3159.xy / _3161;
+                uvec4 _3179 = _3159;
+                _3179.w = ((_195[25u] & (1u << (((_3167.y * 5u) + _3167.x) & 31u))) != 0u) ? 2u : 1u;
+                _3180 = _3179;
+            }
+            else
+            {
+                _3180 = _3159;
+            }
+            uvec4 _3185 = _3180;
+            _3185.x = _3180.x - (6u * _3180.z);
+            uvec2 _3187 = uvec2(_3180.z);
+            uvec4 _3206;
+            if (all(lessThan(_3185.xy, (uvec2(5u, 6u) * _3187))))
+            {
+                uvec2 _3193 = _3185.xy / _3187;
+                uvec4 _3205 = _3185;
+                _3205.w = ((_195[32u] & (1u << (((_3193.y * 5u) + _3193.x) & 31u))) != 0u) ? 2u : 1u;
+                _3206 = _3205;
+            }
+            else
+            {
+                _3206 = _3185;
+            }
+            uvec4 _3211 = _3206;
+            _3211.x = _3206.x - (6u * _3206.z);
+            uvec2 _3213 = uvec2(_3206.z);
+            uvec4 _3232;
+            if (all(lessThan(_3211.xy, (uvec2(5u, 6u) * _3213))))
+            {
+                uvec2 _3219 = _3211.xy / _3213;
+                uvec4 _3231 = _3211;
+                _3231.w = ((_195[10u] & (1u << (((_3219.y * 5u) + _3219.x) & 31u))) != 0u) ? 2u : 1u;
+                _3232 = _3231;
+            }
+            else
+            {
+                _3232 = _3211;
+            }
+            uint _3234 = 6u * _3232.z;
+            uvec4 _3238 = _3232;
+            _3238.x = (_3232.x - _3234) - _3234;
+            uvec4 _3240;
+            _3240 = _3238;
+            uint _3244;
+            uvec4 _3241;
+            SPIRV_CROSS_UNROLL
+            for (uint _3243 = 2u; _3243 != 0u; _3240 = _3241, _3243 = _3244)
+            {
+                _3244 = _3243 / 10u;
+                uvec4 _3254 = _3240;
+                _3254.x = _3240.x + (6u * _3240.z);
+                uvec2 _3256 = uvec2(_3240.z);
+                if (all(lessThan(_3254.xy, (uvec2(5u, 6u) * _3256))))
+                {
+                    uvec2 _3262 = _3254.xy / _3256;
+                    uvec4 _3274 = _3254;
+                    _3274.w = ((_195[_3243 - (_3244 * 10u)] & (1u << (((_3262.y * 5u) + _3262.x) & 31u))) != 0u) ? 2u : 1u;
+                    _3241 = _3274;
+                }
+                else
+                {
+                    _3241 = _3254;
+                }
+            }
+            vec3 _3276 = ((_314 * inversesqrt(spvNMax(dot(_314, _314), 9.999999717180685365747194737196e-10))).xyz * 0.5) + vec3(0.5);
+            vec4 _3277 = vec4(_3276.x, _3276.y, _3276.z, _416.w);
+            _3277.w = 1.0;
+            _3279 = _3277;
+            _3280 = _3240;
+        }
+        else
+        {
+            vec4 _3031;
+            uvec4 _3032;
+            if (_269 == 1.0)
+            {
+                uvec4 _2751;
+                if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                {
+                    uvec4 _2750 = _412;
+                    _2750.w = ((_195[31u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2751 = _2750;
+                }
+                else
+                {
+                    _2751 = _412;
+                }
+                uvec4 _2756 = _2751;
+                _2756.x = _2751.x - (6u * _2751.z);
+                uvec2 _2758 = uvec2(_2751.z);
+                uvec4 _2777;
+                if (all(lessThan(_2756.xy, (uvec2(5u, 6u) * _2758))))
+                {
+                    uvec2 _2764 = _2756.xy / _2758;
+                    uvec4 _2776 = _2756;
+                    _2776.w = ((_195[28u] & (1u << (((_2764.y * 5u) + _2764.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2777 = _2776;
+                }
+                else
+                {
+                    _2777 = _2756;
+                }
+                uvec4 _2782 = _2777;
+                _2782.x = _2777.x - (6u * _2777.z);
+                uvec2 _2784 = uvec2(_2777.z);
+                uvec4 _2803;
+                if (all(lessThan(_2782.xy, (uvec2(5u, 6u) * _2784))))
+                {
+                    uvec2 _2790 = _2782.xy / _2784;
+                    uvec4 _2802 = _2782;
+                    _2802.w = ((_195[34u] & (1u << (((_2790.y * 5u) + _2790.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2803 = _2802;
+                }
+                else
+                {
+                    _2803 = _2782;
+                }
+                uvec4 _2808 = _2803;
+                _2808.x = _2803.x - (6u * _2803.z);
+                uvec2 _2810 = uvec2(_2803.z);
+                uvec4 _2829;
+                if (all(lessThan(_2808.xy, (uvec2(5u, 6u) * _2810))))
+                {
+                    uvec2 _2816 = _2808.xy / _2810;
+                    uvec4 _2828 = _2808;
+                    _2828.w = ((_195[20u] & (1u << (((_2816.y * 5u) + _2816.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2829 = _2828;
+                }
+                else
+                {
+                    _2829 = _2808;
+                }
+                uvec4 _2834 = _2829;
+                _2834.x = _2829.x - (6u * _2829.z);
+                uvec2 _2836 = uvec2(_2829.z);
+                uvec4 _2855;
+                if (all(lessThan(_2834.xy, (uvec2(5u, 6u) * _2836))))
+                {
+                    uvec2 _2842 = _2834.xy / _2836;
+                    uvec4 _2854 = _2834;
+                    _2854.w = ((_195[21u] & (1u << (((_2842.y * 5u) + _2842.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2855 = _2854;
+                }
+                else
+                {
+                    _2855 = _2834;
+                }
+                uvec4 _2860 = _2855;
+                _2860.x = _2855.x - (6u * _2855.z);
+                uvec2 _2862 = uvec2(_2855.z);
+                uvec4 _2881;
+                if (all(lessThan(_2860.xy, (uvec2(5u, 6u) * _2862))))
+                {
+                    uvec2 _2868 = _2860.xy / _2862;
+                    uvec4 _2880 = _2860;
+                    _2880.w = ((_195[27u] & (1u << (((_2868.y * 5u) + _2868.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2881 = _2880;
+                }
+                else
+                {
+                    _2881 = _2860;
+                }
+                uvec4 _2886 = _2881;
+                _2886.x = _2881.x - (6u * _2881.z);
+                uvec2 _2888 = uvec2(_2881.z);
+                uvec4 _2907;
+                if (all(lessThan(_2886.xy, (uvec2(5u, 6u) * _2888))))
+                {
+                    uvec2 _2894 = _2886.xy / _2888;
+                    uvec4 _2906 = _2886;
+                    _2906.w = ((_195[18u] & (1u << (((_2894.y * 5u) + _2894.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2907 = _2906;
+                }
+                else
+                {
+                    _2907 = _2886;
+                }
+                uvec4 _2912 = _2907;
+                _2912.x = _2907.x - (6u * _2907.z);
+                uvec2 _2914 = uvec2(_2907.z);
+                uvec4 _2933;
+                if (all(lessThan(_2912.xy, (uvec2(5u, 6u) * _2914))))
+                {
+                    uvec2 _2920 = _2912.xy / _2914;
+                    uvec4 _2932 = _2912;
+                    _2932.w = ((_195[32u] & (1u << (((_2920.y * 5u) + _2920.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2933 = _2932;
+                }
+                else
+                {
+                    _2933 = _2912;
+                }
+                uvec4 _2938 = _2933;
+                _2938.x = _2933.x - (6u * _2933.z);
+                uvec2 _2940 = uvec2(_2933.z);
+                uvec4 _2959;
+                if (all(lessThan(_2938.xy, (uvec2(5u, 6u) * _2940))))
+                {
+                    uvec2 _2946 = _2938.xy / _2940;
+                    uvec4 _2958 = _2938;
+                    _2958.w = ((_195[32u] & (1u << (((_2946.y * 5u) + _2946.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2959 = _2958;
+                }
+                else
+                {
+                    _2959 = _2938;
+                }
+                uvec4 _2964 = _2959;
+                _2964.x = _2959.x - (6u * _2959.z);
+                uvec2 _2966 = uvec2(_2959.z);
+                uvec4 _2985;
+                if (all(lessThan(_2964.xy, (uvec2(5u, 6u) * _2966))))
+                {
+                    uvec2 _2972 = _2964.xy / _2966;
+                    uvec4 _2984 = _2964;
+                    _2984.w = ((_195[10u] & (1u << (((_2972.y * 5u) + _2972.x) & 31u))) != 0u) ? 2u : 1u;
+                    _2985 = _2984;
+                }
+                else
+                {
+                    _2985 = _2964;
+                }
+                uint _2987 = 6u * _2985.z;
+                uvec4 _2991 = _2985;
+                _2991.x = (_2985.x - _2987) - _2987;
+                uvec4 _2993;
+                _2993 = _2991;
+                uint _2997;
+                uvec4 _2994;
+                SPIRV_CROSS_UNROLL
+                for (uint _2996 = 1u; _2996 != 0u; _2993 = _2994, _2996 = _2997)
+                {
+                    _2997 = _2996 / 10u;
+                    uvec4 _3007 = _2993;
+                    _3007.x = _2993.x + (6u * _2993.z);
+                    uvec2 _3009 = uvec2(_2993.z);
+                    if (all(lessThan(_3007.xy, (uvec2(5u, 6u) * _3009))))
+                    {
+                        uvec2 _3015 = _3007.xy / _3009;
+                        uvec4 _3027 = _3007;
+                        _3027.w = ((_195[_2996 - (_2997 * 10u)] & (1u << (((_3015.y * 5u) + _3015.x) & 31u))) != 0u) ? 2u : 1u;
+                        _2994 = _3027;
+                    }
+                    else
+                    {
+                        _2994 = _3007;
+                    }
+                }
+                vec3 _3028 = vec3(_312);
+                vec4 _3029 = vec4(_3028.x, _3028.y, _3028.z, _416.w);
+                _3029.w = 1.0;
+                _3031 = _3029;
+                _3032 = _2993;
+            }
+            else
+            {
+                vec4 _2732;
+                uvec4 _2733;
+                if (_269 == 2.0)
+                {
+                    uvec4 _2689;
+                    if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                    {
+                        uvec4 _2688 = _412;
+                        _2688.w = ((_195[39u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                        _2689 = _2688;
+                    }
+                    else
+                    {
+                        _2689 = _412;
+                    }
+                    uvec4 _2694 = _2689;
+                    _2694.x = _2689.x - (6u * _2689.z);
+                    bool _2695 = _325 < 0.0;
+                    uvec4 _2719;
+                    if (_2695)
+                    {
+                        uvec2 _2699 = uvec2(_2689.z);
+                        uvec4 _2718;
+                        if (all(lessThan(_2694.xy, (uvec2(5u, 6u) * _2699))))
+                        {
+                            uvec2 _2705 = _2694.xy / _2699;
+                            uvec4 _2717;
+                            _2717.w = ((_195[10u] & (1u << (((_2705.y * 5u) + _2705.x) & 31u))) != 0u) ? 2u : 1u;
+                            _2718 = _2717;
+                        }
+                        else
+                        {
+                            _2718 = _2694;
+                        }
+                        _2719 = _2718;
+                    }
+                    else
+                    {
+                        _2719 = _2694;
+                    }
+                    float _2720 = 0.100000001490116119384765625 * _372;
+                    vec3 _2729;
+                    if (_398)
+                    {
+                        _2729 = vec3(1.0, 0.0, 0.0);
+                    }
+                    else
+                    {
+                        _2729 = mix(vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0), bvec3(_2695)) * (_2720 / (1.0 + _2720));
+                    }
+                    vec4 _2730 = vec4(_2729.x, _2729.y, _2729.z, _416.w);
+                    _2730.w = 1.0;
+                    _2732 = _2730;
+                    _2733 = _2719;
+                }
+                else
+                {
+                    vec4 _2670;
+                    uvec4 _2671;
+                    if (_269 == 3.0)
+                    {
+                        uvec4 _2563;
+                        if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                        {
+                            uvec4 _2562 = _412;
+                            _2562.w = ((_195[26u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                            _2563 = _2562;
+                        }
+                        else
+                        {
+                            _2563 = _412;
+                        }
+                        uvec4 _2568 = _2563;
+                        _2568.x = _2563.x - (6u * _2563.z);
+                        uvec2 _2570 = uvec2(_2563.z);
+                        uvec4 _2589;
+                        if (all(lessThan(_2568.xy, (uvec2(5u, 6u) * _2570))))
+                        {
+                            uvec2 _2576 = _2568.xy / _2570;
+                            uvec4 _2588;
+                            _2588.w = ((_195[35u] & (1u << (((_2576.y * 5u) + _2576.x) & 31u))) != 0u) ? 2u : 1u;
+                            _2589 = _2588;
+                        }
+                        else
+                        {
+                            _2589 = _2568;
+                        }
+                        vec4 _2596 = vec4(_394, 1.0) * REBLUR_ValidationConstants.gWorldToClipPrev;
+                        vec2 _2622;
+                        if (REBLUR_ValidationConstants.gMvScale.w != 0.0)
+                        {
+                            vec4 _2615 = vec4(_394 + _336, 1.0) * REBLUR_ValidationConstants.gWorldToClipPrev;
+                            _2622 = ((_2615.xy / vec2(_2615.w)) * vec2(0.5, -0.5)) + vec2(0.5);
+                        }
+                        else
+                        {
+                            _2622 = _369 + _336.xy;
+                        }
+                        vec2 _2624 = (_2622 - (((_2596.xy / vec2(_2596.w)) * vec2(0.5, -0.5)) + vec2(0.5))) * REBLUR_ValidationConstants.gRectSize;
+                        bool _2632;
+                        if (REBLUR_ValidationConstants.gMvScale.w == 0.0)
+                        {
+                            _2632 = length(REBLUR_ValidationConstants.gJitter) > 0.00999999977648258209228515625;
+                        }
+                        else
+                        {
+                            _2632 = false;
+                        }
+                        bool _2645;
+                        if (_2632)
+                        {
+                            float _2638 = length(_2624 - REBLUR_ValidationConstants.gJitter);
+                            bool _2644;
+                            if (_2638 < length(_2624))
+                            {
+                                _2644 = _2638 < 0.100000001490116119384765625;
+                            }
+                            else
+                            {
+                                _2644 = false;
+                            }
+                            _2645 = _2644;
+                        }
+                        else
+                        {
+                            _2645 = false;
+                        }
+                        vec3 _2653;
+                        if (_2645)
+                        {
+                            _2653 = vec3(1.0, 0.0, 1.0);
+                        }
+                        else
+                        {
+                            _2653 = vec3(abs(_2624), 0.0);
+                        }
+                        bool _2660;
+                        if (all(greaterThan(_2622, vec2(0.0))))
+                        {
+                            _2660 = all(lessThan(_2622, vec2(1.0)));
+                        }
+                        else
+                        {
+                            _2660 = false;
+                        }
+                        vec3 _2667;
+                        if (float(_2660) != 0.0)
+                        {
+                            _2667 = _2653.xyz;
+                        }
+                        else
+                        {
+                            _2667 = vec3(0.0, 0.0, 1.0);
+                        }
+                        vec4 _2668 = vec4(_2667.x, _2667.y, _2667.z, _416.w);
+                        _2668.w = 1.0;
+                        _2670 = _2668;
+                        _2671 = _2589;
+                    }
+                    else
+                    {
+                        vec4 _2544;
+                        uvec4 _2545;
+                        if (_269 == 0.0)
+                        {
+                            uvec4 _2028;
+                            if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                            {
+                                uvec4 _2027 = _412;
+                                _2027.w = ((_195[34u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                                _2028 = _2027;
+                            }
+                            else
+                            {
+                                _2028 = _412;
+                            }
+                            uvec4 _2033 = _2028;
+                            _2033.x = _2028.x - (6u * _2028.z);
+                            uvec2 _2035 = uvec2(_2028.z);
+                            uvec4 _2054;
+                            if (all(lessThan(_2033.xy, (uvec2(5u, 6u) * _2035))))
+                            {
+                                uvec2 _2041 = _2033.xy / _2035;
+                                uvec4 _2053 = _2033;
+                                _2053.w = ((_195[27u] & (1u << (((_2041.y * 5u) + _2041.x) & 31u))) != 0u) ? 2u : 1u;
+                                _2054 = _2053;
+                            }
+                            else
+                            {
+                                _2054 = _2033;
+                            }
+                            uvec4 _2059 = _2054;
+                            _2059.x = _2054.x - (6u * _2054.z);
+                            uvec2 _2061 = uvec2(_2054.z);
+                            uvec4 _2080;
+                            if (all(lessThan(_2059.xy, (uvec2(5u, 6u) * _2061))))
+                            {
+                                uvec2 _2067 = _2059.xy / _2061;
+                                uvec4 _2079 = _2059;
+                                _2079.w = ((_195[22u] & (1u << (((_2067.y * 5u) + _2067.x) & 31u))) != 0u) ? 2u : 1u;
+                                _2080 = _2079;
+                            }
+                            else
+                            {
+                                _2080 = _2059;
+                            }
+                            uvec4 _2085 = _2080;
+                            _2085.x = _2080.x - (6u * _2080.z);
+                            uvec2 _2087 = uvec2(_2080.z);
+                            uvec4 _2106;
+                            if (all(lessThan(_2085.xy, (uvec2(5u, 6u) * _2087))))
+                            {
+                                uvec2 _2093 = _2085.xy / _2087;
+                                uvec4 _2105 = _2085;
+                                _2105.w = ((_195[33u] & (1u << (((_2093.y * 5u) + _2093.x) & 31u))) != 0u) ? 2u : 1u;
+                                _2106 = _2105;
+                            }
+                            else
+                            {
+                                _2106 = _2085;
+                            }
+                            uvec4 _2111 = _2106;
+                            _2111.x = _2106.x - (6u * _2106.z);
+                            uvec2 _2113 = uvec2(_2106.z);
+                            uvec4 _2132;
+                            if (all(lessThan(_2111.xy, (uvec2(5u, 6u) * _2113))))
+                            {
+                                uvec2 _2119 = _2111.xy / _2113;
+                                uvec4 _2131;
+                                _2131.w = ((_195[32u] & (1u << (((_2119.y * 5u) + _2119.x) & 31u))) != 0u) ? 2u : 1u;
+                                _2132 = _2131;
+                            }
+                            else
+                            {
+                                _2132 = _2111;
+                            }
+                            vec2 _2140 = (vec2(REBLUR_ValidationConstants.gResourceSize.y / REBLUR_ValidationConstants.gResourceSize.x, 1.0) * REBLUR_ValidationConstants.gResourceSize) * vec2(0.066666670143604278564453125);
+                            vec2 _2141 = _2140 / REBLUR_ValidationConstants.gRectSize;
+                            vec2 _2143 = _262 - (vec2(0.0, 16.0) / REBLUR_ValidationConstants.gRectSize);
+                            vec2 _2144 = _2143 / _2141;
+                            vec2 _2148 = (_2143 - vec2(_2141.x, 0.0)) / _2141;
+                            uint _2156 = (REBLUR_ValidationConstants.gFrameIndex >> 2u) % uint(REBLUR_ValidationConstants.gMaxAccumulatedFrameNum + 1.0);
+                            bool _2163;
+                            if (all(greaterThan(_2144, vec2(0.0))))
+                            {
+                                _2163 = all(lessThan(_2144, vec2(1.0)));
+                            }
+                            else
+                            {
+                                _2163 = false;
+                            }
+                            vec4 _2542;
+                            if (_2163)
+                            {
+                                vec2 _2493 = REBLUR_ValidationConstants.gJitter + vec2(0.5);
+                                vec2 _2494 = clamp(_2493, vec2(0.0), vec2(1.0));
+                                bool _2496 = all(equal(_2494, _2493));
+                                vec3 _2514 = mix(vec3(0.660000026226043701171875), vec3(1.0, 0.0, 0.0), bvec3(length((((-REBLUR_ValidationConstants.gFrustum.xy) / REBLUR_ValidationConstants.gFrustum.zw) - ((-REBLUR_ValidationConstants.gFrustumPrev.xy) / REBLUR_ValidationConstants.gFrustumPrev.zw)) * REBLUR_ValidationConstants.gRectSize) > 0.001000000047497451305389404296875));
+                                ivec2 _2516 = abs(ivec2(_2494 * _2140) - ivec2(_2144 * _2140));
+                                vec4 _2523;
+                                if (all(lessThanEqual(_2516, ivec2(1))) ? _2496 : false)
+                                {
+                                    _2523 = vec4(_2514.x, _2514.y, _2514.z, _416.w);
+                                }
+                                else
+                                {
+                                    _2523 = _416;
+                                }
+                                bool _2529;
+                                if (all(lessThanEqual(_2516, ivec2(3))))
+                                {
+                                    _2529 = !_2496;
+                                }
+                                else
+                                {
+                                    _2529 = false;
+                                }
+                                vec4 _2533;
+                                if (_2529)
+                                {
+                                    _2533 = vec4(vec3(1.0, 0.0, 0.0).x, vec3(1.0, 0.0, 0.0).y, vec3(1.0, 0.0, 0.0).z, _2523.w);
+                                }
+                                else
+                                {
+                                    _2533 = _2523;
+                                }
+                                vec3 _2540;
+                                if (_2156 == 0u)
+                                {
+                                    _2540 = vec3(0.0);
+                                }
+                                else
+                                {
+                                    _2540 = clamp(_2533.xyz, vec3(0.0), vec3(1.0));
+                                }
+                                _2542 = vec4(_2540.x, _2540.y, _2540.z, _2533.w);
+                            }
+                            else
+                            {
+                                bool _2173;
+                                if (all(greaterThan(_2148, vec2(0.0))))
+                                {
+                                    _2173 = all(lessThan(_2148, vec2(1.0)));
+                                }
+                                else
+                                {
+                                    _2173 = false;
+                                }
+                                vec4 _2490;
+                                if (_2173)
+                                {
+                                    ivec2 _2186 = ivec2(_2148 * _2140);
+                                    float _2187 = float(_2156);
+                                    float _2205 = 0.25 * sqrt(clamp(1.0 / (1.0 + ((REBLUR_ValidationConstants.gConvergenceSettings.x * mix(REBLUR_ValidationConstants.gConvergenceSettings.y, 1.0, clamp(_2187 / (1.0 + (REBLUR_ValidationConstants.gMaxAccumulatedFrameNum * REBLUR_ValidationConstants.gConvergenceSettings.z)), 0.0, 1.0))) * _2187)), 0.0, 1.0));
+                                    vec2 _2206 = vec2(-1.0, 0.0) * _2205;
+                                    vec2 _2209 = _2206 * 1.0;
+                                    vec2 _2230 = _2206 * 2.0;
+                                    vec2 _2249 = vec2(0.0, 1.0) * _2205;
+                                    vec2 _2250 = _2249 * 1.0;
+                                    vec2 _2266 = _2249 * 2.0;
+                                    vec2 _2282 = vec2(1.0, 0.0) * _2205;
+                                    vec2 _2283 = _2282 * 1.0;
+                                    vec2 _2299 = _2282 * 2.0;
+                                    vec2 _2315 = vec2(0.0, -1.0) * _2205;
+                                    vec2 _2316 = _2315 * 1.0;
+                                    vec2 _2332 = _2315 * 2.0;
+                                    vec2 _2348 = vec2(-0.3535533845424652099609375, 0.3535533845424652099609375) * _2205;
+                                    vec2 _2349 = _2348 * 1.0;
+                                    float _2364 = ((((_416.x + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2209.x) + (REBLUR_ValidationConstants.gRotator.yw * _2209.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2250.x) + (REBLUR_ValidationConstants.gRotator.yw * _2250.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2283.x) + (REBLUR_ValidationConstants.gRotator.yw * _2283.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2316.x) + (REBLUR_ValidationConstants.gRotator.yw * _2316.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2349.x) + (REBLUR_ValidationConstants.gRotator.yw * _2349.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))));
+                                    vec2 _2365 = _2348 * 2.0;
+                                    float _2380 = ((((_416.y + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2230.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2230.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2266.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2266.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2299.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2299.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2332.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2332.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2365.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2365.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))));
+                                    vec2 _2381 = vec2(0.3535533845424652099609375) * _2205;
+                                    vec2 _2382 = _2381 * 1.0;
+                                    vec2 _2398 = _2381 * 2.0;
+                                    vec2 _2414 = vec2(0.3535533845424652099609375, -0.3535533845424652099609375) * _2205;
+                                    vec2 _2415 = _2414 * 1.0;
+                                    vec2 _2431 = _2414 * 2.0;
+                                    vec2 _2447 = vec2(-0.3535533845424652099609375) * _2205;
+                                    vec2 _2448 = _2447 * 1.0;
+                                    vec4 _2464 = _416;
+                                    _2464.x = ((_2364 + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2382.x) + (REBLUR_ValidationConstants.gRotator.yw * _2382.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2415.x) + (REBLUR_ValidationConstants.gRotator.yw * _2415.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotator.xz * _2448.x) + (REBLUR_ValidationConstants.gRotator.yw * _2448.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))));
+                                    vec2 _2465 = _2447 * 2.0;
+                                    _2464.y = ((_2380 + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2398.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2398.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2431.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2431.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))))) + float(all(lessThanEqual(abs(ivec2(clamp(vec2(0.5) + ((REBLUR_ValidationConstants.gRotatorPost.xz * _2465.x) + (REBLUR_ValidationConstants.gRotatorPost.yw * _2465.y)), vec2(0.0), vec2(1.0)) * _2140) - _2186), ivec2(1))));
+                                    vec3 _2488;
+                                    if (_2156 == 0u)
+                                    {
+                                        _2488 = vec3(0.0);
+                                    }
+                                    else
+                                    {
+                                        _2488 = clamp(_2464.xyz, vec3(0.0), vec3(1.0));
+                                    }
+                                    _2490 = vec4(_2488.x, _2488.y, _2488.z, _2464.w);
+                                }
+                                else
+                                {
+                                    vec3 _2183 = fract(_394 + vec3(_372 * 0.001000000047497451305389404296875)) * float(!_398);
+                                    _2490 = vec4(_2183.x, _2183.y, _2183.z, _416.w);
+                                }
+                                _2542 = _2490;
+                            }
+                            vec4 _2543 = _2542;
+                            _2543.w = 1.0;
+                            _2544 = _2543;
+                            _2545 = _2132;
+                        }
+                        else
+                        {
+                            bool _443;
+                            if (_269 == 7.0)
+                            {
+                                _443 = REBLUR_ValidationConstants.gHasSpecular != 0u;
+                            }
+                            else
+                            {
+                                _443 = false;
+                            }
+                            vec4 _2009;
+                            uvec4 _2010;
+                            if (_443)
+                            {
+                                uvec4 _1638;
+                                if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                                {
+                                    uvec4 _1637 = _412;
+                                    _1637.w = ((_195[35u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1638 = _1637;
+                                }
+                                else
+                                {
+                                    _1638 = _412;
+                                }
+                                uvec4 _1643 = _1638;
+                                _1643.x = _1638.x - (6u * _1638.z);
+                                uvec2 _1645 = uvec2(_1638.z);
+                                uvec4 _1664;
+                                if (all(lessThan(_1643.xy, (uvec2(5u, 6u) * _1645))))
+                                {
+                                    uvec2 _1651 = _1643.xy / _1645;
+                                    uvec4 _1663 = _1643;
+                                    _1663.w = ((_195[22u] & (1u << (((_1651.y * 5u) + _1651.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1664 = _1663;
+                                }
+                                else
+                                {
+                                    _1664 = _1643;
+                                }
+                                uvec4 _1669 = _1664;
+                                _1669.x = _1664.x - (6u * _1664.z);
+                                uvec2 _1671 = uvec2(_1664.z);
+                                uvec4 _1690;
+                                if (all(lessThan(_1669.xy, (uvec2(5u, 6u) * _1671))))
+                                {
+                                    uvec2 _1677 = _1669.xy / _1671;
+                                    uvec4 _1689 = _1669;
+                                    _1689.w = ((_195[31u] & (1u << (((_1677.y * 5u) + _1677.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1690 = _1689;
+                                }
+                                else
+                                {
+                                    _1690 = _1669;
+                                }
+                                uvec4 _1695 = _1690;
+                                _1695.x = _1690.x - (6u * _1690.z);
+                                uvec2 _1697 = uvec2(_1690.z);
+                                uvec4 _1716;
+                                if (all(lessThan(_1695.xy, (uvec2(5u, 6u) * _1697))))
+                                {
+                                    uvec2 _1703 = _1695.xy / _1697;
+                                    uvec4 _1715 = _1695;
+                                    _1715.w = ((_195[33u] & (1u << (((_1703.y * 5u) + _1703.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1716 = _1715;
+                                }
+                                else
+                                {
+                                    _1716 = _1695;
+                                }
+                                uvec4 _1721 = _1716;
+                                _1721.x = _1716.x - (6u * _1716.z);
+                                uvec2 _1723 = uvec2(_1716.z);
+                                uvec4 _1742;
+                                if (all(lessThan(_1721.xy, (uvec2(5u, 6u) * _1723))))
+                                {
+                                    uvec2 _1729 = _1721.xy / _1723;
+                                    uvec4 _1741 = _1721;
+                                    _1741.w = ((_195[34u] & (1u << (((_1729.y * 5u) + _1729.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1742 = _1741;
+                                }
+                                else
+                                {
+                                    _1742 = _1721;
+                                }
+                                uvec4 _1747 = _1742;
+                                _1747.x = _1742.x - (6u * _1742.z);
+                                uvec2 _1749 = uvec2(_1742.z);
+                                uvec4 _1768;
+                                if (all(lessThan(_1747.xy, (uvec2(5u, 6u) * _1749))))
+                                {
+                                    uvec2 _1755 = _1747.xy / _1749;
+                                    uvec4 _1767 = _1747;
+                                    _1767.w = ((_195[14u] & (1u << (((_1755.y * 5u) + _1755.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1768 = _1767;
+                                }
+                                else
+                                {
+                                    _1768 = _1747;
+                                }
+                                uvec4 _1773 = _1768;
+                                _1773.x = _1768.x - (6u * _1768.z);
+                                uvec2 _1775 = uvec2(_1768.z);
+                                uvec4 _1794;
+                                if (all(lessThan(_1773.xy, (uvec2(5u, 6u) * _1775))))
+                                {
+                                    uvec2 _1781 = _1773.xy / _1775;
+                                    uvec4 _1793 = _1773;
+                                    _1793.w = ((_195[25u] & (1u << (((_1781.y * 5u) + _1781.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1794 = _1793;
+                                }
+                                else
+                                {
+                                    _1794 = _1773;
+                                }
+                                uvec4 _1799 = _1794;
+                                _1799.x = _1794.x - (6u * _1794.z);
+                                uvec2 _1801 = uvec2(_1794.z);
+                                uvec4 _1820;
+                                if (all(lessThan(_1799.xy, (uvec2(5u, 6u) * _1801))))
+                                {
+                                    uvec2 _1807 = _1799.xy / _1801;
+                                    uvec4 _1819 = _1799;
+                                    _1819.w = ((_195[12u] & (1u << (((_1807.y * 5u) + _1807.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1820 = _1819;
+                                }
+                                else
+                                {
+                                    _1820 = _1799;
+                                }
+                                uvec4 _1825 = _1820;
+                                _1825.x = _1820.x - (6u * _1820.z);
+                                uvec2 _1827 = uvec2(_1820.z);
+                                uvec4 _1846;
+                                if (all(lessThan(_1825.xy, (uvec2(5u, 6u) * _1827))))
+                                {
+                                    uvec2 _1833 = _1825.xy / _1827;
+                                    uvec4 _1845 = _1825;
+                                    _1845.w = ((_195[21u] & (1u << (((_1833.y * 5u) + _1833.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1846 = _1845;
+                                }
+                                else
+                                {
+                                    _1846 = _1825;
+                                }
+                                uvec4 _1851 = _1846;
+                                _1851.x = _1846.x - (6u * _1846.z);
+                                uvec2 _1853 = uvec2(_1846.z);
+                                uvec4 _1872;
+                                if (all(lessThan(_1851.xy, (uvec2(5u, 6u) * _1853))))
+                                {
+                                    uvec2 _1859 = _1851.xy / _1853;
+                                    uvec4 _1871 = _1851;
+                                    _1871.w = ((_195[22u] & (1u << (((_1859.y * 5u) + _1859.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1872 = _1871;
+                                }
+                                else
+                                {
+                                    _1872 = _1851;
+                                }
+                                uvec4 _1877 = _1872;
+                                _1877.x = _1872.x - (6u * _1872.z);
+                                uvec2 _1879 = uvec2(_1872.z);
+                                uvec4 _1898;
+                                if (all(lessThan(_1877.xy, (uvec2(5u, 6u) * _1879))))
+                                {
+                                    uvec2 _1885 = _1877.xy / _1879;
+                                    uvec4 _1897 = _1877;
+                                    _1897.w = ((_195[32u] & (1u << (((_1885.y * 5u) + _1885.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1898 = _1897;
+                                }
+                                else
+                                {
+                                    _1898 = _1877;
+                                }
+                                uvec4 _1903 = _1898;
+                                _1903.x = _1898.x - (6u * _1898.z);
+                                uvec2 _1905 = uvec2(_1898.z);
+                                uvec4 _1924;
+                                if (all(lessThan(_1903.xy, (uvec2(5u, 6u) * _1905))))
+                                {
+                                    uvec2 _1911 = _1903.xy / _1905;
+                                    uvec4 _1923 = _1903;
+                                    _1923.w = ((_195[33u] & (1u << (((_1911.y * 5u) + _1911.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1924 = _1923;
+                                }
+                                else
+                                {
+                                    _1924 = _1903;
+                                }
+                                uvec4 _1929 = _1924;
+                                _1929.x = _1924.x - (6u * _1924.z);
+                                uvec2 _1931 = uvec2(_1924.z);
+                                uvec4 _1950;
+                                if (all(lessThan(_1929.xy, (uvec2(5u, 6u) * _1931))))
+                                {
+                                    uvec2 _1937 = _1929.xy / _1931;
+                                    uvec4 _1949 = _1929;
+                                    _1949.w = ((_195[28u] & (1u << (((_1937.y * 5u) + _1937.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1950 = _1949;
+                                }
+                                else
+                                {
+                                    _1950 = _1929;
+                                }
+                                uvec4 _1955 = _1950;
+                                _1955.x = _1950.x - (6u * _1950.z);
+                                uvec2 _1957 = uvec2(_1950.z);
+                                uvec4 _1976;
+                                if (all(lessThan(_1955.xy, (uvec2(5u, 6u) * _1957))))
+                                {
+                                    uvec2 _1963 = _1955.xy / _1957;
+                                    uvec4 _1975 = _1955;
+                                    _1975.w = ((_195[31u] & (1u << (((_1963.y * 5u) + _1963.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _1976 = _1975;
+                                }
+                                else
+                                {
+                                    _1976 = _1955;
+                                }
+                                uvec4 _1981 = _1976;
+                                _1981.x = _1976.x - (6u * _1976.z);
+                                uvec2 _1983 = uvec2(_1976.z);
+                                uvec4 _2002;
+                                if (all(lessThan(_1981.xy, (uvec2(5u, 6u) * _1983))))
+                                {
+                                    uvec2 _1989 = _1981.xy / _1983;
+                                    uvec4 _2001;
+                                    _2001.w = ((_195[38u] & (1u << (((_1989.y * 5u) + _1989.x) & 31u))) != 0u) ? 2u : 1u;
+                                    _2002 = _2001;
+                                }
+                                else
+                                {
+                                    _2002 = _1981;
+                                }
+                                vec3 _2006 = vec3((float((texelFetch(gIn_Data2, ivec2(uvec2(_264 * REBLUR_ValidationConstants.gRectSize)), int(0u)).x >> 8u) & 127u) * 0.0078740157186985015869140625) * float(!_398));
+                                vec4 _2007 = vec4(_2006.x, _2006.y, _2006.z, _416.w);
+                                _2007.w = 1.0;
+                                _2009 = _2007;
+                                _2010 = _2002;
+                            }
+                            else
+                            {
+                                bool _451;
+                                if (_269 == 8.0)
+                                {
+                                    _451 = REBLUR_ValidationConstants.gHasDiffuse != 0u;
+                                }
+                                else
+                                {
+                                    _451 = false;
+                                }
+                                vec4 _1619;
+                                uvec4 _1620;
+                                if (_451)
+                                {
+                                    uvec4 _1318;
+                                    if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                                    {
+                                        uvec4 _1317 = _412;
+                                        _1317.w = ((_195[17u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1318 = _1317;
+                                    }
+                                    else
+                                    {
+                                        _1318 = _412;
+                                    }
+                                    uvec4 _1323 = _1318;
+                                    _1323.x = _1318.x - (6u * _1318.z);
+                                    uvec2 _1325 = uvec2(_1318.z);
+                                    uvec4 _1344;
+                                    if (all(lessThan(_1323.xy, (uvec2(5u, 6u) * _1325))))
+                                    {
+                                        uvec2 _1331 = _1323.xy / _1325;
+                                        uvec4 _1343 = _1323;
+                                        _1343.w = ((_195[22u] & (1u << (((_1331.y * 5u) + _1331.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1344 = _1343;
+                                    }
+                                    else
+                                    {
+                                        _1344 = _1323;
+                                    }
+                                    uvec4 _1349 = _1344;
+                                    _1349.x = _1344.x - (6u * _1344.z);
+                                    uvec2 _1351 = uvec2(_1344.z);
+                                    uvec4 _1370;
+                                    if (all(lessThan(_1349.xy, (uvec2(5u, 6u) * _1351))))
+                                    {
+                                        uvec2 _1357 = _1349.xy / _1351;
+                                        uvec4 _1369 = _1349;
+                                        _1369.w = ((_195[19u] & (1u << (((_1357.y * 5u) + _1357.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1370 = _1369;
+                                    }
+                                    else
+                                    {
+                                        _1370 = _1349;
+                                    }
+                                    uvec4 _1375 = _1370;
+                                    _1375.x = _1370.x - (6u * _1370.z);
+                                    uvec2 _1377 = uvec2(_1370.z);
+                                    uvec4 _1396;
+                                    if (all(lessThan(_1375.xy, (uvec2(5u, 6u) * _1377))))
+                                    {
+                                        uvec2 _1383 = _1375.xy / _1377;
+                                        uvec4 _1395 = _1375;
+                                        _1395.w = ((_195[19u] & (1u << (((_1383.y * 5u) + _1383.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1396 = _1395;
+                                    }
+                                    else
+                                    {
+                                        _1396 = _1375;
+                                    }
+                                    uvec4 _1401 = _1396;
+                                    _1401.x = _1396.x - (6u * _1396.z);
+                                    uvec2 _1403 = uvec2(_1396.z);
+                                    uvec4 _1422;
+                                    if (all(lessThan(_1401.xy, (uvec2(5u, 6u) * _1403))))
+                                    {
+                                        uvec2 _1409 = _1401.xy / _1403;
+                                        uvec4 _1421 = _1401;
+                                        _1421.w = ((_195[12u] & (1u << (((_1409.y * 5u) + _1409.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1422 = _1421;
+                                    }
+                                    else
+                                    {
+                                        _1422 = _1401;
+                                    }
+                                    uvec4 _1427 = _1422;
+                                    _1427.x = _1422.x - (6u * _1422.z);
+                                    uvec2 _1429 = uvec2(_1422.z);
+                                    uvec4 _1448;
+                                    if (all(lessThan(_1427.xy, (uvec2(5u, 6u) * _1429))))
+                                    {
+                                        uvec2 _1435 = _1427.xy / _1429;
+                                        uvec4 _1447 = _1427;
+                                        _1447.w = ((_195[19u] & (1u << (((_1435.y * 5u) + _1435.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1448 = _1447;
+                                    }
+                                    else
+                                    {
+                                        _1448 = _1427;
+                                    }
+                                    uvec4 _1453 = _1448;
+                                    _1453.x = _1448.x - (6u * _1448.z);
+                                    uvec2 _1455 = uvec2(_1448.z);
+                                    uvec4 _1474;
+                                    if (all(lessThan(_1453.xy, (uvec2(5u, 6u) * _1455))))
+                                    {
+                                        uvec2 _1461 = _1453.xy / _1455;
+                                        uvec4 _1473 = _1453;
+                                        _1473.w = ((_195[31u] & (1u << (((_1461.y * 5u) + _1461.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1474 = _1473;
+                                    }
+                                    else
+                                    {
+                                        _1474 = _1453;
+                                    }
+                                    uvec4 _1479 = _1474;
+                                    _1479.x = _1474.x - (6u * _1474.z);
+                                    uvec2 _1481 = uvec2(_1474.z);
+                                    uvec4 _1500;
+                                    if (all(lessThan(_1479.xy, (uvec2(5u, 6u) * _1481))))
+                                    {
+                                        uvec2 _1487 = _1479.xy / _1481;
+                                        uvec4 _1499 = _1479;
+                                        _1499.w = ((_195[14u] & (1u << (((_1487.y * 5u) + _1487.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1500 = _1499;
+                                    }
+                                    else
+                                    {
+                                        _1500 = _1479;
+                                    }
+                                    uvec4 _1505 = _1500;
+                                    _1505.x = _1500.x - (6u * _1500.z);
+                                    uvec2 _1507 = uvec2(_1500.z);
+                                    uvec4 _1526;
+                                    if (all(lessThan(_1505.xy, (uvec2(5u, 6u) * _1507))))
+                                    {
+                                        uvec2 _1513 = _1505.xy / _1507;
+                                        uvec4 _1525 = _1505;
+                                        _1525.w = ((_195[26u] & (1u << (((_1513.y * 5u) + _1513.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1526 = _1525;
+                                    }
+                                    else
+                                    {
+                                        _1526 = _1505;
+                                    }
+                                    uvec4 _1531 = _1526;
+                                    _1531.x = _1526.x - (6u * _1526.z);
+                                    uvec2 _1533 = uvec2(_1526.z);
+                                    uvec4 _1552;
+                                    if (all(lessThan(_1531.xy, (uvec2(5u, 6u) * _1533))))
+                                    {
+                                        uvec2 _1539 = _1531.xy / _1533;
+                                        uvec4 _1551 = _1531;
+                                        _1551.w = ((_195[18u] & (1u << (((_1539.y * 5u) + _1539.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1552 = _1551;
+                                    }
+                                    else
+                                    {
+                                        _1552 = _1531;
+                                    }
+                                    uvec4 _1557 = _1552;
+                                    _1557.x = _1552.x - (6u * _1552.z);
+                                    uvec2 _1559 = uvec2(_1552.z);
+                                    uvec4 _1578;
+                                    if (all(lessThan(_1557.xy, (uvec2(5u, 6u) * _1559))))
+                                    {
+                                        uvec2 _1565 = _1557.xy / _1559;
+                                        uvec4 _1577;
+                                        _1577.w = ((_195[32u] & (1u << (((_1565.y * 5u) + _1565.x) & 31u))) != 0u) ? 2u : 1u;
+                                        _1578 = _1577;
+                                    }
+                                    else
+                                    {
+                                        _1578 = _1557;
+                                    }
+                                    float _1579 = _354.x;
+                                    bool _1589;
+                                    if (_405)
+                                    {
+                                        _1589 = _1579 < 1.0;
+                                    }
+                                    else
+                                    {
+                                        _1589 = false;
+                                    }
+                                    float _1601;
+                                    if (_264.y > 0.949999988079071044921875)
+                                    {
+                                        _1601 = 1.0 - _264.x;
+                                    }
+                                    else
+                                    {
+                                        _1601 = (_1589 ? 0.75 : (1.0 - clamp(_1579 / spvNMax(REBLUR_ValidationConstants.gMaxAccumulatedFrameNum, 1.0), 0.0, 1.0))) * float(!_398);
+                                    }
+                                    vec3 _1604 = vec3(clamp(_1601, 0.0, 1.0) * 0.85000002384185791015625);
+                                    vec3 _1606 = vec3(3.5458509922027587890625, 2.9322526454925537109375, 2.4159393310546875) * (_1604 - vec3(0.69549071788787841796875, 0.4922833740711212158203125, 0.2769987881183624267578125));
+                                    vec3 _1611 = vec3(3.90307140350341796875, 3.211829662322998046875, 3.965871334075927734375) * (_1604 - vec3(0.1174862682819366455078125, 0.867550432682037353515625, 0.660778582096099853515625));
+                                    vec3 _1616 = clamp(clamp(vec3(0.9768736362457275390625, 0.847749173641204833984375, 0.47392046451568603515625) - (_1606 * _1606), vec3(0.0), vec3(1.0)) + clamp(vec3(0.151028692722320556640625, 0.11554718017578125, 0.260505497455596923828125) - (_1611 * _1611), vec3(0.0), vec3(1.0)), vec3(0.0), vec3(1.0));
+                                    vec4 _1617 = vec4(_1616.x, _1616.y, _1616.z, _416.w);
+                                    _1617.w = 1.0;
+                                    _1619 = _1617;
+                                    _1620 = _1578;
+                                }
+                                else
+                                {
+                                    bool _461;
+                                    if (_269 == 11.0)
+                                    {
+                                        _461 = REBLUR_ValidationConstants.gHasSpecular != 0u;
+                                    }
+                                    else
+                                    {
+                                        _461 = false;
+                                    }
+                                    vec4 _1299;
+                                    uvec4 _1300;
+                                    if (_461)
+                                    {
+                                        uvec4 _998;
+                                        if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                                        {
+                                            uvec4 _997 = _412;
+                                            _997.w = ((_195[32u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _998 = _997;
+                                        }
+                                        else
+                                        {
+                                            _998 = _412;
+                                        }
+                                        uvec4 _1003 = _998;
+                                        _1003.x = _998.x - (6u * _998.z);
+                                        uvec2 _1005 = uvec2(_998.z);
+                                        uvec4 _1024;
+                                        if (all(lessThan(_1003.xy, (uvec2(5u, 6u) * _1005))))
+                                        {
+                                            uvec2 _1011 = _1003.xy / _1005;
+                                            uvec4 _1023 = _1003;
+                                            _1023.w = ((_195[29u] & (1u << (((_1011.y * 5u) + _1011.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1024 = _1023;
+                                        }
+                                        else
+                                        {
+                                            _1024 = _1003;
+                                        }
+                                        uvec4 _1029 = _1024;
+                                        _1029.x = _1024.x - (6u * _1024.z);
+                                        uvec2 _1031 = uvec2(_1024.z);
+                                        uvec4 _1050;
+                                        if (all(lessThan(_1029.xy, (uvec2(5u, 6u) * _1031))))
+                                        {
+                                            uvec2 _1037 = _1029.xy / _1031;
+                                            uvec4 _1049 = _1029;
+                                            _1049.w = ((_195[18u] & (1u << (((_1037.y * 5u) + _1037.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1050 = _1049;
+                                        }
+                                        else
+                                        {
+                                            _1050 = _1029;
+                                        }
+                                        uvec4 _1055 = _1050;
+                                        _1055.x = _1050.x - (6u * _1050.z);
+                                        uvec2 _1057 = uvec2(_1050.z);
+                                        uvec4 _1076;
+                                        if (all(lessThan(_1055.xy, (uvec2(5u, 6u) * _1057))))
+                                        {
+                                            uvec2 _1063 = _1055.xy / _1057;
+                                            uvec4 _1075 = _1055;
+                                            _1075.w = ((_195[16u] & (1u << (((_1063.y * 5u) + _1063.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1076 = _1075;
+                                        }
+                                        else
+                                        {
+                                            _1076 = _1055;
+                                        }
+                                        uvec4 _1081 = _1076;
+                                        _1081.x = _1076.x - (6u * _1076.z);
+                                        uvec2 _1083 = uvec2(_1076.z);
+                                        uvec4 _1102;
+                                        if (all(lessThan(_1081.xy, (uvec2(5u, 6u) * _1083))))
+                                        {
+                                            uvec2 _1089 = _1081.xy / _1083;
+                                            uvec4 _1101 = _1081;
+                                            _1101.w = ((_195[12u] & (1u << (((_1089.y * 5u) + _1089.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1102 = _1101;
+                                        }
+                                        else
+                                        {
+                                            _1102 = _1081;
+                                        }
+                                        uvec4 _1107 = _1102;
+                                        _1107.x = _1102.x - (6u * _1102.z);
+                                        uvec2 _1109 = uvec2(_1102.z);
+                                        uvec4 _1128;
+                                        if (all(lessThan(_1107.xy, (uvec2(5u, 6u) * _1109))))
+                                        {
+                                            uvec2 _1115 = _1107.xy / _1109;
+                                            uvec4 _1127 = _1107;
+                                            _1127.w = ((_195[19u] & (1u << (((_1115.y * 5u) + _1115.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1128 = _1127;
+                                        }
+                                        else
+                                        {
+                                            _1128 = _1107;
+                                        }
+                                        uvec4 _1133 = _1128;
+                                        _1133.x = _1128.x - (6u * _1128.z);
+                                        uvec2 _1135 = uvec2(_1128.z);
+                                        uvec4 _1154;
+                                        if (all(lessThan(_1133.xy, (uvec2(5u, 6u) * _1135))))
+                                        {
+                                            uvec2 _1141 = _1133.xy / _1135;
+                                            uvec4 _1153 = _1133;
+                                            _1153.w = ((_195[31u] & (1u << (((_1141.y * 5u) + _1141.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1154 = _1153;
+                                        }
+                                        else
+                                        {
+                                            _1154 = _1133;
+                                        }
+                                        uvec4 _1159 = _1154;
+                                        _1159.x = _1154.x - (6u * _1154.z);
+                                        uvec2 _1161 = uvec2(_1154.z);
+                                        uvec4 _1180;
+                                        if (all(lessThan(_1159.xy, (uvec2(5u, 6u) * _1161))))
+                                        {
+                                            uvec2 _1167 = _1159.xy / _1161;
+                                            uvec4 _1179 = _1159;
+                                            _1179.w = ((_195[14u] & (1u << (((_1167.y * 5u) + _1167.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1180 = _1179;
+                                        }
+                                        else
+                                        {
+                                            _1180 = _1159;
+                                        }
+                                        uvec4 _1185 = _1180;
+                                        _1185.x = _1180.x - (6u * _1180.z);
+                                        uvec2 _1187 = uvec2(_1180.z);
+                                        uvec4 _1206;
+                                        if (all(lessThan(_1185.xy, (uvec2(5u, 6u) * _1187))))
+                                        {
+                                            uvec2 _1193 = _1185.xy / _1187;
+                                            uvec4 _1205 = _1185;
+                                            _1205.w = ((_195[26u] & (1u << (((_1193.y * 5u) + _1193.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1206 = _1205;
+                                        }
+                                        else
+                                        {
+                                            _1206 = _1185;
+                                        }
+                                        uvec4 _1211 = _1206;
+                                        _1211.x = _1206.x - (6u * _1206.z);
+                                        uvec2 _1213 = uvec2(_1206.z);
+                                        uvec4 _1232;
+                                        if (all(lessThan(_1211.xy, (uvec2(5u, 6u) * _1213))))
+                                        {
+                                            uvec2 _1219 = _1211.xy / _1213;
+                                            uvec4 _1231 = _1211;
+                                            _1231.w = ((_195[18u] & (1u << (((_1219.y * 5u) + _1219.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1232 = _1231;
+                                        }
+                                        else
+                                        {
+                                            _1232 = _1211;
+                                        }
+                                        uvec4 _1237 = _1232;
+                                        _1237.x = _1232.x - (6u * _1232.z);
+                                        uvec2 _1239 = uvec2(_1232.z);
+                                        uvec4 _1258;
+                                        if (all(lessThan(_1237.xy, (uvec2(5u, 6u) * _1239))))
+                                        {
+                                            uvec2 _1245 = _1237.xy / _1239;
+                                            uvec4 _1257;
+                                            _1257.w = ((_195[32u] & (1u << (((_1245.y * 5u) + _1245.x) & 31u))) != 0u) ? 2u : 1u;
+                                            _1258 = _1257;
+                                        }
+                                        else
+                                        {
+                                            _1258 = _1237;
+                                        }
+                                        float _1259 = _354.y;
+                                        bool _1269;
+                                        if (_405)
+                                        {
+                                            _1269 = _1259 < 1.0;
+                                        }
+                                        else
+                                        {
+                                            _1269 = false;
+                                        }
+                                        float _1281;
+                                        if (_264.y > 0.949999988079071044921875)
+                                        {
+                                            _1281 = 1.0 - _264.x;
+                                        }
+                                        else
+                                        {
+                                            _1281 = (_1269 ? 0.75 : (1.0 - clamp(_1259 / spvNMax(REBLUR_ValidationConstants.gMaxAccumulatedFrameNum, 1.0), 0.0, 1.0))) * float(!_398);
+                                        }
+                                        vec3 _1284 = vec3(clamp(_1281, 0.0, 1.0) * 0.85000002384185791015625);
+                                        vec3 _1286 = vec3(3.5458509922027587890625, 2.9322526454925537109375, 2.4159393310546875) * (_1284 - vec3(0.69549071788787841796875, 0.4922833740711212158203125, 0.2769987881183624267578125));
+                                        vec3 _1291 = vec3(3.90307140350341796875, 3.211829662322998046875, 3.965871334075927734375) * (_1284 - vec3(0.1174862682819366455078125, 0.867550432682037353515625, 0.660778582096099853515625));
+                                        vec3 _1296 = clamp(clamp(vec3(0.9768736362457275390625, 0.847749173641204833984375, 0.47392046451568603515625) - (_1286 * _1286), vec3(0.0), vec3(1.0)) + clamp(vec3(0.151028692722320556640625, 0.11554718017578125, 0.260505497455596923828125) - (_1291 * _1291), vec3(0.0), vec3(1.0)), vec3(0.0), vec3(1.0));
+                                        vec4 _1297 = vec4(_1296.x, _1296.y, _1296.z, _416.w);
+                                        _1297.w = 1.0;
+                                        _1299 = _1297;
+                                        _1300 = _1258;
+                                    }
+                                    else
+                                    {
+                                        bool _469;
+                                        if (_269 == 12.0)
+                                        {
+                                            _469 = REBLUR_ValidationConstants.gHasDiffuse != 0u;
+                                        }
+                                        else
+                                        {
+                                            _469 = false;
+                                        }
+                                        vec4 _979;
+                                        uvec4 _980;
+                                        if (_469)
+                                        {
+                                            uvec4 _749;
+                                            if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                                            {
+                                                uvec4 _748 = _412;
+                                                _748.w = ((_195[17u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _749 = _748;
+                                            }
+                                            else
+                                            {
+                                                _749 = _412;
+                                            }
+                                            uvec4 _754 = _749;
+                                            _754.x = _749.x - (6u * _749.z);
+                                            uvec2 _756 = uvec2(_749.z);
+                                            uvec4 _775;
+                                            if (all(lessThan(_754.xy, (uvec2(5u, 6u) * _756))))
+                                            {
+                                                uvec2 _762 = _754.xy / _756;
+                                                uvec4 _774 = _754;
+                                                _774.w = ((_195[22u] & (1u << (((_762.y * 5u) + _762.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _775 = _774;
+                                            }
+                                            else
+                                            {
+                                                _775 = _754;
+                                            }
+                                            uvec4 _780 = _775;
+                                            _780.x = _775.x - (6u * _775.z);
+                                            uvec2 _782 = uvec2(_775.z);
+                                            uvec4 _801;
+                                            if (all(lessThan(_780.xy, (uvec2(5u, 6u) * _782))))
+                                            {
+                                                uvec2 _788 = _780.xy / _782;
+                                                uvec4 _800 = _780;
+                                                _800.w = ((_195[19u] & (1u << (((_788.y * 5u) + _788.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _801 = _800;
+                                            }
+                                            else
+                                            {
+                                                _801 = _780;
+                                            }
+                                            uvec4 _806 = _801;
+                                            _806.x = _801.x - (6u * _801.z);
+                                            uvec2 _808 = uvec2(_801.z);
+                                            uvec4 _827;
+                                            if (all(lessThan(_806.xy, (uvec2(5u, 6u) * _808))))
+                                            {
+                                                uvec2 _814 = _806.xy / _808;
+                                                uvec4 _826 = _806;
+                                                _826.w = ((_195[19u] & (1u << (((_814.y * 5u) + _814.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _827 = _826;
+                                            }
+                                            else
+                                            {
+                                                _827 = _806;
+                                            }
+                                            uvec4 _832 = _827;
+                                            _832.x = _827.x - (6u * _827.z);
+                                            uvec2 _834 = uvec2(_827.z);
+                                            uvec4 _853;
+                                            if (all(lessThan(_832.xy, (uvec2(5u, 6u) * _834))))
+                                            {
+                                                uvec2 _840 = _832.xy / _834;
+                                                uvec4 _852 = _832;
+                                                _852.w = ((_195[12u] & (1u << (((_840.y * 5u) + _840.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _853 = _852;
+                                            }
+                                            else
+                                            {
+                                                _853 = _832;
+                                            }
+                                            uvec4 _858 = _853;
+                                            _858.x = _853.x - (6u * _853.z);
+                                            uvec2 _860 = uvec2(_853.z);
+                                            uvec4 _879;
+                                            if (all(lessThan(_858.xy, (uvec2(5u, 6u) * _860))))
+                                            {
+                                                uvec2 _866 = _858.xy / _860;
+                                                uvec4 _878 = _858;
+                                                _878.w = ((_195[21u] & (1u << (((_866.y * 5u) + _866.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _879 = _878;
+                                            }
+                                            else
+                                            {
+                                                _879 = _858;
+                                            }
+                                            uvec4 _884 = _879;
+                                            _884.x = _879.x - (6u * _879.z);
+                                            uvec2 _886 = uvec2(_879.z);
+                                            uvec4 _905;
+                                            if (all(lessThan(_884.xy, (uvec2(5u, 6u) * _886))))
+                                            {
+                                                uvec2 _892 = _884.xy / _886;
+                                                uvec4 _904 = _884;
+                                                _904.w = ((_195[22u] & (1u << (((_892.y * 5u) + _892.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _905 = _904;
+                                            }
+                                            else
+                                            {
+                                                _905 = _884;
+                                            }
+                                            uvec4 _910 = _905;
+                                            _910.x = _905.x - (6u * _905.z);
+                                            uvec2 _912 = uvec2(_905.z);
+                                            uvec4 _931;
+                                            if (all(lessThan(_910.xy, (uvec2(5u, 6u) * _912))))
+                                            {
+                                                uvec2 _918 = _910.xy / _912;
+                                                uvec4 _930 = _910;
+                                                _930.w = ((_195[33u] & (1u << (((_918.y * 5u) + _918.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _931 = _930;
+                                            }
+                                            else
+                                            {
+                                                _931 = _910;
+                                            }
+                                            uvec4 _936 = _931;
+                                            _936.x = _931.x - (6u * _931.z);
+                                            uvec2 _938 = uvec2(_931.z);
+                                            uvec4 _957;
+                                            if (all(lessThan(_936.xy, (uvec2(5u, 6u) * _938))))
+                                            {
+                                                uvec2 _944 = _936.xy / _938;
+                                                uvec4 _956;
+                                                _956.w = ((_195[33u] & (1u << (((_944.y * 5u) + _944.x) & 31u))) != 0u) ? 2u : 1u;
+                                                _957 = _956;
+                                            }
+                                            else
+                                            {
+                                                _957 = _936;
+                                            }
+                                            float _958 = _339.w;
+                                            vec4 _972;
+                                            if (_958 == 0.0)
+                                            {
+                                                _972 = vec4(vec3(1.0, 0.0, 0.0).x, vec3(1.0, 0.0, 0.0).y, vec3(1.0, 0.0, 0.0).z, _416.w);
+                                            }
+                                            else
+                                            {
+                                                vec3 _969;
+                                                if (_958 != clamp(_958, 0.0, 1.0))
+                                                {
+                                                    _969 = vec3(1.0, 0.0, 1.0);
+                                                }
+                                                else
+                                                {
+                                                    _969 = vec3(_958);
+                                                }
+                                                _972 = vec4(_969.x, _969.y, _969.z, _416.w);
+                                            }
+                                            vec3 _976 = _972.xyz * float(!_398);
+                                            vec4 _977 = vec4(_976.x, _976.y, _976.z, _972.w);
+                                            _977.w = 1.0;
+                                            _979 = _977;
+                                            _980 = _957;
+                                        }
+                                        else
+                                        {
+                                            bool _479;
+                                            if (_269 == 15.0)
+                                            {
+                                                _479 = REBLUR_ValidationConstants.gHasSpecular != 0u;
+                                            }
+                                            else
+                                            {
+                                                _479 = false;
+                                            }
+                                            vec4 _730;
+                                            uvec4 _731;
+                                            if (_479)
+                                            {
+                                                uvec4 _500;
+                                                if (all(lessThan(_412.xy, uvec2(5u, 6u))))
+                                                {
+                                                    uvec4 _499 = _412;
+                                                    _499.w = ((_195[32u] & (1u << (((_411.y * 5u) + _411.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _500 = _499;
+                                                }
+                                                else
+                                                {
+                                                    _500 = _412;
+                                                }
+                                                uvec4 _505 = _500;
+                                                _505.x = _500.x - (6u * _500.z);
+                                                uvec2 _507 = uvec2(_500.z);
+                                                uvec4 _526;
+                                                if (all(lessThan(_505.xy, (uvec2(5u, 6u) * _507))))
+                                                {
+                                                    uvec2 _513 = _505.xy / _507;
+                                                    uvec4 _525 = _505;
+                                                    _525.w = ((_195[29u] & (1u << (((_513.y * 5u) + _513.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _526 = _525;
+                                                }
+                                                else
+                                                {
+                                                    _526 = _505;
+                                                }
+                                                uvec4 _531 = _526;
+                                                _531.x = _526.x - (6u * _526.z);
+                                                uvec2 _533 = uvec2(_526.z);
+                                                uvec4 _552;
+                                                if (all(lessThan(_531.xy, (uvec2(5u, 6u) * _533))))
+                                                {
+                                                    uvec2 _539 = _531.xy / _533;
+                                                    uvec4 _551 = _531;
+                                                    _551.w = ((_195[18u] & (1u << (((_539.y * 5u) + _539.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _552 = _551;
+                                                }
+                                                else
+                                                {
+                                                    _552 = _531;
+                                                }
+                                                uvec4 _557 = _552;
+                                                _557.x = _552.x - (6u * _552.z);
+                                                uvec2 _559 = uvec2(_552.z);
+                                                uvec4 _578;
+                                                if (all(lessThan(_557.xy, (uvec2(5u, 6u) * _559))))
+                                                {
+                                                    uvec2 _565 = _557.xy / _559;
+                                                    uvec4 _577 = _557;
+                                                    _577.w = ((_195[16u] & (1u << (((_565.y * 5u) + _565.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _578 = _577;
+                                                }
+                                                else
+                                                {
+                                                    _578 = _557;
+                                                }
+                                                uvec4 _583 = _578;
+                                                _583.x = _578.x - (6u * _578.z);
+                                                uvec2 _585 = uvec2(_578.z);
+                                                uvec4 _604;
+                                                if (all(lessThan(_583.xy, (uvec2(5u, 6u) * _585))))
+                                                {
+                                                    uvec2 _591 = _583.xy / _585;
+                                                    uvec4 _603 = _583;
+                                                    _603.w = ((_195[12u] & (1u << (((_591.y * 5u) + _591.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _604 = _603;
+                                                }
+                                                else
+                                                {
+                                                    _604 = _583;
+                                                }
+                                                uvec4 _609 = _604;
+                                                _609.x = _604.x - (6u * _604.z);
+                                                uvec2 _611 = uvec2(_604.z);
+                                                uvec4 _630;
+                                                if (all(lessThan(_609.xy, (uvec2(5u, 6u) * _611))))
+                                                {
+                                                    uvec2 _617 = _609.xy / _611;
+                                                    uvec4 _629 = _609;
+                                                    _629.w = ((_195[21u] & (1u << (((_617.y * 5u) + _617.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _630 = _629;
+                                                }
+                                                else
+                                                {
+                                                    _630 = _609;
+                                                }
+                                                uvec4 _635 = _630;
+                                                _635.x = _630.x - (6u * _630.z);
+                                                uvec2 _637 = uvec2(_630.z);
+                                                uvec4 _656;
+                                                if (all(lessThan(_635.xy, (uvec2(5u, 6u) * _637))))
+                                                {
+                                                    uvec2 _643 = _635.xy / _637;
+                                                    uvec4 _655 = _635;
+                                                    _655.w = ((_195[22u] & (1u << (((_643.y * 5u) + _643.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _656 = _655;
+                                                }
+                                                else
+                                                {
+                                                    _656 = _635;
+                                                }
+                                                uvec4 _661 = _656;
+                                                _661.x = _656.x - (6u * _656.z);
+                                                uvec2 _663 = uvec2(_656.z);
+                                                uvec4 _682;
+                                                if (all(lessThan(_661.xy, (uvec2(5u, 6u) * _663))))
+                                                {
+                                                    uvec2 _669 = _661.xy / _663;
+                                                    uvec4 _681 = _661;
+                                                    _681.w = ((_195[33u] & (1u << (((_669.y * 5u) + _669.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _682 = _681;
+                                                }
+                                                else
+                                                {
+                                                    _682 = _661;
+                                                }
+                                                uvec4 _687 = _682;
+                                                _687.x = _682.x - (6u * _682.z);
+                                                uvec2 _689 = uvec2(_682.z);
+                                                uvec4 _708;
+                                                if (all(lessThan(_687.xy, (uvec2(5u, 6u) * _689))))
+                                                {
+                                                    uvec2 _695 = _687.xy / _689;
+                                                    uvec4 _707;
+                                                    _707.w = ((_195[33u] & (1u << (((_695.y * 5u) + _695.x) & 31u))) != 0u) ? 2u : 1u;
+                                                    _708 = _707;
+                                                }
+                                                else
+                                                {
+                                                    _708 = _687;
+                                                }
+                                                float _709 = _342.w;
+                                                vec4 _723;
+                                                if (_709 == 0.0)
+                                                {
+                                                    _723 = vec4(vec3(1.0, 0.0, 0.0).x, vec3(1.0, 0.0, 0.0).y, vec3(1.0, 0.0, 0.0).z, _416.w);
+                                                }
+                                                else
+                                                {
+                                                    vec3 _720;
+                                                    if (_709 != clamp(_709, 0.0, 1.0))
+                                                    {
+                                                        _720 = vec3(1.0, 0.0, 1.0);
+                                                    }
+                                                    else
+                                                    {
+                                                        _720 = vec3(_709);
+                                                    }
+                                                    _723 = vec4(_720.x, _720.y, _720.z, _416.w);
+                                                }
+                                                vec3 _727 = _723.xyz * float(!_398);
+                                                vec4 _728 = vec4(_727.x, _727.y, _727.z, _723.w);
+                                                _728.w = 1.0;
+                                                _730 = _728;
+                                                _731 = _708;
+                                            }
+                                            else
+                                            {
+                                                _730 = vec4(0.0);
+                                                _731 = _412;
+                                            }
+                                            _979 = _730;
+                                            _980 = _731;
+                                        }
+                                        _1299 = _979;
+                                        _1300 = _980;
+                                    }
+                                    _1619 = _1299;
+                                    _1620 = _1300;
+                                }
+                                _2009 = _1619;
+                                _2010 = _1620;
+                            }
+                            _2544 = _2009;
+                            _2545 = _2010;
+                        }
+                        _2670 = _2544;
+                        _2671 = _2545;
+                    }
+                    _2732 = _2670;
+                    _2733 = _2671;
+                }
+                _3031 = _2732;
+                _3032 = _2733;
+            }
+            _3279 = _3031;
+            _3280 = _3032;
+        }
+        vec4 _3305;
+        if (_3280.w == 2u)
+        {
+            vec3 _3293 = mix(vec3(0.0), vec3(1.0) - _3279.xyz, vec3(clamp(abs(dot(_3279.xyz, vec3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)) - 0.5) * 4.0, 0.0, 1.0)));
+            bool _3300;
+            if (!(_269 == 12.0))
+            {
+                _3300 = _269 == 15.0;
+            }
+            else
+            {
+                _3300 = true;
+            }
+            vec4 _3304;
+            if (_3300)
+            {
+                _3304 = vec4(vec3(0.5).x, vec3(0.5).y, vec3(0.5).z, _3279.w);
+            }
+            else
+            {
+                _3304 = vec4(_3293.x, _3293.y, _3293.z, _3279.w);
+            }
+            _3305 = _3304;
+        }
+        else
+        {
+            _3305 = _3279;
+        }
+        imageStore(gOut_Validation, ivec2(_406), _3305);
+        break;
+    } while(false);
+}
+

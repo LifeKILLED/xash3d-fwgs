@@ -4,6 +4,7 @@
 
 from waflib import Logs
 import os
+import sys
 
 top = '.'
 
@@ -98,7 +99,11 @@ def build(bld):
 	defines = []
 	libpath = []
 
-	source = bld.path.ant_glob(['*.c', 'std/*.c', 'vulkan/*.c'])
+	def embed_nrd(task):
+		return task.exec_command([sys.executable, task.inputs[0].abspath(), '--output', task.outputs[0].abspath()])
+	bld(rule=embed_nrd, source=[bld.path.find_node('nrd_port/embed.py')] + bld.path.ant_glob(['nrd_port/glsl/*.comp', 'nrd_port/*.json']), target='nrd_kernels.h')
+
+	source = bld.path.ant_glob(['*.c', 'std/*.c', 'vulkan/*.c', 'nrd_port/cpu.cpp'])
 	glsl_source = bld.path.ant_glob(['shaders/*.vert', 'shaders/*.frag'])
 	rtx_glsl_source = bld.path.ant_glob(['shaders/*.rgen', 'shaders/*.rchit', 'shaders/*.rmiss', 'shaders/*.rahit', 'shaders/*.comp'])
 
@@ -134,7 +139,8 @@ def build(bld):
 	bld.shlib(
 		source   = source,
 		target   = 'ref_vk',
-		features = 'c',
+		features = 'c cxx',
+		cxxflags = ['/std:c++17'] if bld.env.COMPILER_CC == 'msvc' else ['-std=c++17'],
 		includes = includes,
 		use      = libs,
 		defines  = defines,
