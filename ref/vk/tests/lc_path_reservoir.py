@@ -97,6 +97,17 @@ int main() {
             assert(dRatio*G1<=1.0001f);
         }
     }
+    // XOR permutation is bijective and self-inverse, including partial edge blocks.
+    for (int extent=1;extent<=65;++extent) for (uint shift=0;shift<4;++shift) {
+        bool seen[65]={};
+        for (int pixel=0;pixel<extent;++pixel) {
+            int donor=temporalPathPermutedCoordinate(pixel,extent,shift);
+            assert(donor>=0 && donor<extent && !seen[donor]);
+            assert(temporalPathPermutedCoordinate(donor,extent,shift)==pixel);
+            assert(std::abs(donor-pixel)<=3);
+            seen[donor]=true;
+        }
+    }
     // History replacement is centered on the reprojected texel. Every valid
     // 3x3 neighbor appears exactly once; edges never clamp a choice to center.
     for (int width=1;width<=7;++width) for (int height=1;height<=7;++height)
@@ -123,6 +134,8 @@ harness = harness.replace("#include <cstdint>", "#include <cstdint>\n#include <i
 harness = harness.replace("__CONFIG__", "\n".join(re.findall(r"^#define LC_PATH_(?:FIREFLY|RELIGHT)_.*$", source, re.M)))
 harness = harness.replace("__HELPERS__", "\n".join(function(name) for name in (
     "lcOffer", "lcNormalization", "lcEncodePath", "lcMirrorPath", "lcReflectionProposalAlpha2")) + "\n" +
+    function("temporalPathPermutedCoordinate",
+             (ROOT / "ref/vk/shaders/temporal_reservoir_rotation.glsl").read_text()) + "\n" +
     function("temporalHistoryNeighbor3x3Index",
              (ROOT / "ref/vk/shaders/temporal_reservoir_rotation.glsl").read_text()))
 out = ROOT / "build/shader-test"

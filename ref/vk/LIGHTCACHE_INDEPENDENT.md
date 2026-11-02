@@ -63,7 +63,7 @@ roughness и view; сохраняется корректный PDF отраже�
 История проецируется из geometry_prev_position. Проверяются границы, stamp,
 валидность состояния и предыдущая плоскость с допуском 0.1 мировых единиц.
 Для bounce также должно совпадать количество отскоков.
-Случайный restart — 1/200. MAG сравнивает центр и четыре осевых соседа:
+Случайный restart — 1/200. MAG (временно отключён) сравнивает центр и четыре осевых соседа:
 при совпадении адресов reset с вероятностью 0.25; для выживших независимо
 с вероятностью 0.25 выбирается сосед 3x3 вокруг history source без центра.
 Radiance confidence линейный: 1 при отношении яркостей 1, 0 при <=1/1.5
@@ -93,3 +93,37 @@ SH в cache не используется.
 lc_reflection/lc_bounce, затем идут spatial reconstruction и SH denoising.
 Проверки: python waf build; python ref/vk/tests/lc_path_reservoir.py;
 spirv-val --target-env vulkan1.2 для SPIR-V новых проходов.
+
+## Эксперимент: permutation sampling
+
+LC_PATH_PERMUTATION_SAMPLING=1 и LC_PATH_MAG_DEDUPLICATION=0
+в bounce_path_config.glsl управляют обоими новыми проходами.
+После обычной репроекции (и parallax у reflection) адрес истории переставляется
+по формуле ((pixel + offset) XOR 3) - offset отдельно по X/Y.
+Offset 0..3 общий для всех текселей прохода, меняется по frame counter и UBO
+random seed; bounce и reflection используют разные соли. Bounce переставляет
+адреса внутри своей четверти, reflection — в полном разрешении.
+На границе пара, выходящая за изображение, остаётся на месте: нет clamp
+и повторного использования одного граничного адреса разными парами.
+Проверки плоскости, radiance, длины reflection и restart остаются и читают
+данные окончательного донора. Путь повторяется из seed на текущей поверхности;
+готовые соседние цвета не смешиваются. История экранного денойзера не
+переставляется. Эксперимент проверяется в игре пользователем.
+
+Для reflection при roughness > 0.5 пределы confidence плавно расширяются
+через smoothstep: radiance ratio 1.5 -> 3.0, length ratio 1.1 -> 2.0
+к roughness=0.6; выше 0.6 остаётся полное смягчение. При roughness <=0.5 поведение прежнее. Переход hit/miss
+по-прежнему обнуляет length confidence; первичная plane-проверка не ослаблена.
+Макросы REFLECTION_PATH_RELAX_ROUGHNESS_START/END,
+REFLECTION_PATH_ROUGH_RADIANCE_RATIO, REFLECTION_PATH_ROUGH_LENGTH_RATIO
+заданы в reflection_path_config.glsl. Replay после перестановки восстанавливает
+мировой D из seed и меняет его угол по GGX, без tangent frame.
+
+Reflection permutation дополнительно ограничена зеркальным направлением.
+При roughness=0 перестановка запрещена; на (0,0.5] требуется dot текущего
+reflect(-V,N) и зеркального направления донора предыдущего кадра не меньше
+линейного порога 1 -> 0.95. При roughness>0.5 эта проверка отключена.
+Используются shading normals и view из соответствующих кадров. Порог 0.95
+задан REFLECTION_PATH_PERMUTATION_HALF_ROUGHNESS_DOT. При отказе сохраняется
+исходный ordinary/parallax source; резервуар из-за этого gate не сбрасывается.
+Остальные проверки финального донора продолжают работать.

@@ -127,6 +127,12 @@ void main() {
     ivec2 source;
     bool projected=bounceHistoryPixel(pix,source);
     if (projected) {
+#if LC_PATH_PERMUTATION_SAMPLING
+        // The same offset for every pixel makes this a permutation, not jitter.
+        uint permutation=xxhash32(uvec4(ubo.ubo.random_seed,ubo.ubo.frame_counter,0x62706572u,0u));
+        source=temporalPathPermutedPixel(source,res/2,permutation);
+#endif
+#if LC_PATH_MAG_DEDUPLICATION
         const ivec2 offsets[4]=ivec2[4](ivec2(-1,0),ivec2(1,0),ivec2(0,-1),ivec2(0,1));
         bool duplicate=false;
         for (int i=0;i<4;++i) {
@@ -141,6 +147,7 @@ void main() {
                 xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x626e6233u)));
             source=ivec2(index%(res.x/2),index/(res.x/2));
         }
+#endif
     }
     if (projected && restart>=BOUNCE_PATH_RESTART_PROBABILITY) {
         // Validate the actual half-resolution donor against its previous plane.

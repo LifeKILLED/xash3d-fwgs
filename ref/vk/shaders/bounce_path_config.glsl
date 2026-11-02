@@ -30,6 +30,15 @@
 #endif
 
 
+// Shared by the independent bounce and reflection path passes.
+#ifndef LC_PATH_PERMUTATION_SAMPLING
+#define LC_PATH_PERMUTATION_SAMPLING 1
+#endif
+// Temporarily disabled while testing permutation sampling.
+#ifndef LC_PATH_MAG_DEDUPLICATION
+#define LC_PATH_MAG_DEDUPLICATION 0
+#endif
+
 #ifndef BOUNCE_PATH_MAG_RESET_PROBABILITY
 #define BOUNCE_PATH_MAG_RESET_PROBABILITY 0.25
 #endif
