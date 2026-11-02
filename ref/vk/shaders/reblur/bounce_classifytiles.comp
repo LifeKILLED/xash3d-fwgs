@@ -40,8 +40,7 @@ shared int s_Sum;
 void main()
 {
     if(!reblurEnabled()) return;
-    if(any(greaterThanEqual(gl_WorkGroupID.xy,reblurData(57).xy))) return;
-    reblurLoadConstants();
+    if(any(greaterThanEqual(gl_WorkGroupID.xy,ubo.ubo.reblur_groups_16x16[REBLUR_SIGNAL].xy))) return;
     bool _65 = gl_LocalInvocationIndex == 0u;
     if (_65)
     {
@@ -51,9 +50,9 @@ void main()
     uvec2 _70 = (gl_WorkGroupID.xy * uvec2(16u)) + (gl_LocalInvocationID.xy * uvec2(2u, 4u));
     ivec2 _71 = ivec2(_70);
     bool _92;
-    if (!any(greaterThan(_71, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_71, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _92 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_71, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _92 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_71, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -61,9 +60,9 @@ void main()
     }
     ivec2 _96 = ivec2(_70 + uvec2(0u, 1u));
     bool _113;
-    if (!any(greaterThan(_96, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_96, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _113 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_96, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _113 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_96, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -71,9 +70,9 @@ void main()
     }
     ivec2 _118 = ivec2(_70 + uvec2(0u, 2u));
     bool _135;
-    if (!any(greaterThan(_118, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_118, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _135 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_118, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _135 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_118, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -81,9 +80,9 @@ void main()
     }
     ivec2 _140 = ivec2(_70 + uvec2(0u, 3u));
     bool _157;
-    if (!any(greaterThan(_140, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_140, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _157 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_140, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _157 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_140, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -91,9 +90,9 @@ void main()
     }
     ivec2 _162 = ivec2(_70 + uvec2(1u, 0u));
     bool _179;
-    if (!any(greaterThan(_162, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_162, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _179 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_162, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _179 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_162, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -101,9 +100,9 @@ void main()
     }
     ivec2 _184 = ivec2(_70 + uvec2(1u));
     bool _201;
-    if (!any(greaterThan(_184, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_184, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _201 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_184, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _201 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_184, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -111,9 +110,9 @@ void main()
     }
     ivec2 _206 = ivec2(_70 + uvec2(1u, 2u));
     bool _223;
-    if (!any(greaterThan(_206, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_206, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _223 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_206, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _223 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_206, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {
@@ -121,9 +120,9 @@ void main()
     }
     ivec2 _228 = ivec2(_70 + uvec2(1u, 3u));
     bool _245;
-    if (!any(greaterThan(_228, nrd.gRectSizeMinusOne)))
+    if (!any(greaterThan(_228, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))
     {
-        _245 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_228, nrd.gRectSizeMinusOne)))).x * nrd.gViewZScale) < nrd.gDenoisingRange);
+        _245 = !(abs(reblurFetch_reblur_bounce_viewz(ivec2(uvec2(min(_228, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy)))).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]) < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
     }
     else
     {

@@ -706,20 +706,14 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	static double nrd_previous_time;
 	static unsigned nrd_previous_width, nrd_previous_height, nrd_previous_enabled[2];
 	double nrd_now = gEngine.pfnTime();
-	NrdFrame nrd_frame = {0};
-	memcpy(nrd_frame.projection,ret.proj,64);memcpy(nrd_frame.previousProjection,ret.prev_proj,64);
-	memcpy(nrd_frame.view,ret.view,64);memcpy(nrd_frame.previousView,ret.prev_view,64);
-	nrd_frame.width = frame_width; nrd_frame.height = frame_height;
-	nrd_frame.previousWidth = nrd_previous_width ? nrd_previous_width : frame_width;
-	nrd_frame.previousHeight = nrd_previous_height ? nrd_previous_height : frame_height;
-	nrd_frame.deltaMilliseconds = nrd_previous_time ? (float)((nrd_now-nrd_previous_time)*1000.0) : 16.6667f;
-	nrd_frame.frame = frame_counter;
+	unsigned nrd_previous_frame_width=nrd_previous_width ? nrd_previous_width : frame_width;
+	unsigned nrd_previous_frame_height=nrd_previous_height ? nrd_previous_height : frame_height;
+	float nrd_delta_ms=nrd_previous_time ? (float)((nrd_now-nrd_previous_time)*1000.0) : 16.6667f;
 	for(unsigned signal=0;signal<2;signal++) {
 		unsigned enabled = signal ? ret.nrd_reflection : ret.nrd_bounce;
-		nrd_frame.signal = signal;
-		nrd_frame.reset = g_rtx.discontinuity || !nrd_previous_enabled[signal]
+		int reset = g_rtx.discontinuity || !nrd_previous_enabled[signal]
 			|| nrd_previous_width != (unsigned)frame_width || nrd_previous_height != (unsigned)frame_height;
-		if(enabled) NrdPrepareConstants(&nrd_frame,signal ? (void*)ret.nrd_reflection_constants : (void*)ret.nrd_bounce_constants);
+		if(enabled) R_VkReblurPrepare(&ret,signal,nrd_previous_frame_width,nrd_previous_frame_height,nrd_delta_ms,reset);
 		nrd_previous_enabled[signal] = enabled;
 	}
 	nrd_previous_width=frame_width;nrd_previous_height=frame_height;nrd_previous_time=nrd_now;

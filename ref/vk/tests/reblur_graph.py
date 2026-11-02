@@ -151,17 +151,17 @@ for width,height in [(63,31),(1152,864),(1921,1081),(3840,2160)]:
         text=path.read_text()
         logical=(width//2,height//2) if path.name.startswith('bounce_') else (width,height)
         if path.stem.endswith('prepare'):
-            slot,channels,span=56,'xy',(8,8)
+            field,channels,span='reblur_groups_8x8_8x16','xy',(8,8)
         elif path.stem.endswith(('prepass','classifytiles')):
-            slot,channels,span=57,'xy',(16,16)
+            field,channels,span='reblur_groups_16x16','xy',(16,16)
         else:
-            slot,channels,span=56,'zw',(8,16)
+            field,channels,span='reblur_groups_8x8_8x16','zw',(8,16)
         limit=tuple((value+step-1)//step for value,step in zip(logical,span))
         assert all(n<=available for n,available in zip(limit,launched)),path
         assert all(n*step>=value for n,step,value in zip(limit,span,logical)),path
-        guard=f'if(any(greaterThanEqual(gl_WorkGroupID.xy,reblurData({slot}).{channels}))) return;'
+        guard=f'if(any(greaterThanEqual(gl_WorkGroupID.xy,ubo.ubo.{field}[REBLUR_SIGNAL].{channels}))) return;'
         main=text[text.index('void main()'):]
-        assert main.index(guard)<main.index('reblurLoadConstants();'),path
+        assert main.split('{',1)[1].strip().startswith('if(!reblurEnabled()) return;\n    '+guard),path
         if 'barrier();' in main:
             assert main.index(guard)<main.index('barrier();'),path
         assert 'gl_NumWorkGroups' not in text,path
@@ -173,6 +173,36 @@ for path in (VK / 'shaders/reblur').glob('*.comp'):
     assert 'uimage2D' not in text
     for fmt in re.findall(r'layout\(set=0,binding=\d+,(\w+)\)', text):
         assert fmt in formats, (path, fmt)
+
+# Every filter parameter is a named field of the existing shared UBO, read
+# directly by GLSL and filled directly by the CPU helper (no packed packet).
+ubo_header=(VK / 'shaders/ray_interop.h').read_text()
+ubo_fields={name:(typ,int(count) if count else None) for typ,name,count in re.findall(
+    r'\b(mat4|vec4|vec2|ivec4|uvec4|uvec2)\s+(reblur_\w+)(?:\[(\d+)\])?;',ubo_header)}
+cpp=(VK / 'nrd_port/cpu.cpp').read_text()
+assert len(ubo_fields)==83,len(ubo_fields)
+for name in ubo_fields:
+    assert 'ubo->'+name+'[signal]' in cpp,name
+for path in (VK / 'shaders/reblur').glob('*'):
+    text=path.read_text()
+    for field in re.findall(r'ubo\.ubo\.(reblur_\w+)\[REBLUR_SIGNAL\]',text):
+        assert field in ubo_fields,(path,field)
+    assert not re.search(r'\b(?:ReblurConstants|NrdConstants|reblurData|reblurLoadConstants)\b',text),path
+assert 'nrd_bounce_constants' not in ubo_header and 'nrd_reflection_constants' not in ubo_header
+assert not re.search(r'\b(?:ReblurConstants|NrdConstants|SharedConstants|NrdFrame)\b',cpp)
+# Shared C/std140 layout: matrix/vector arrays have 16-byte-aligned strides;
+# per-signal scalar pairs occupy vec2/uvec2, with explicit padding before groups.
+offset=0
+for typ,name,count in [(t,n,int(c) if c else None) for t,n,c in re.findall(
+        r'\b(mat4|vec4|vec2|ivec4|uvec4|uvec2)\s+(reblur_\w+)(?:\[(\d+)\])?;',ubo_header)]:
+    if name=='reblur_groups_8x8_8x16':
+        assert offset%16==8
+        offset+=8 # PAD(2) in C, implicit std140 array alignment in GLSL
+    size=64 if typ=='mat4' else (8 if typ in ('vec2','uvec2') else 16)
+    alignment=16 if count or size>=16 else 8
+    assert offset%alignment==0,(name,offset)
+    offset+=size*(count or 1)
+assert offset%16==0
 
 # Expanded scalar resources keep the original bit widths. Numeric float
 # storage avoids NaN payloads and exactly preserves every integer component.
@@ -188,4 +218,4 @@ for value in [0,1,255,65535,65536,0x7f800000,0x7fc00000,0x80000000,0xffffffff] +
     low,high = f32(value & 65535), f32(value >> 16)
     assert (int(low) | (int(high)<<16)) == value
 
-print('REBLUR graph checks passed: 17 nodes, 13 history pairs, original MEAT format, existing RGBA formats, producer order, UBO group guards, exact integer storage.')
+print('REBLUR graph checks passed: 17 nodes, 13 history pairs, original MEAT format, existing RGBA formats, producer order, named UBO fields and layout, group guards, exact integer storage.')

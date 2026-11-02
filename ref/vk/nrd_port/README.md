@@ -74,22 +74,32 @@ The dispatcher retains `ceil(screenWidth/8) x ceil(screenHeight/8)` groups.
 REBLUR retains each kernel's original local size, shared-memory layout and
 barriers. CPU-prepared UBO values restrict the active workgroups:
 
-* uvec4 slot 56.xy: counts for 8x8 pixel coverage (frontend).
-* uvec4 slot 56.zw: counts for 8x16 pixel coverage (regular filter passes).
-* uvec4 slot 57.xy: counts for 16x16 pixel coverage (prepass and tile classifier).
+* `reblur_groups_8x8_8x16[signal].xy`: counts for 8x8 pixel coverage (frontend).
+* `reblur_groups_8x8_8x16[signal].zw`: counts for 8x16 pixel coverage (regular filter passes).
+* `reblur_groups_16x16[signal].xy`: counts for 16x16 pixel coverage (prepass and tile classifier).
 
 Bounce counts use half the logical width and height; reflection uses full
 logical resolution. Every surplus workgroup returns uniformly before any
-shared-memory operation or barrier. The CPU checks that these limits do not
-overlap the reference constant block. No active workgroup is split or remapped.
+shared-memory operation or barrier. The limits are named fields of the existing engine UBO. No active workgroup
+is split or remapped.
 
 ## CPU constants
 
-`cpu.cpp` only prepares numeric frame constants. The existing `vk_rtx.c`
-frame preparation stores them in the existing engine UBO, as two arrays of
-64 uvec4 values. Integer bits are preserved. `shaders/reblur/common.glsl`
-decodes fields using the exported offsets, including the original row-major
-matrix interpretation. No separate GPU constant buffers are created.
+`cpu.cpp` provides `R_VkReblurPrepare`, which fills the existing engine
+`UniformBuffer` directly. It creates no constant packet, GPU buffer or local
+shader constant object. The shaders read named `ubo.ubo.reblur_*` fields
+without decoding or copying an opaque array.
+
+Matrix and vector fields have two entries: signal 0 is bounce, signal 1 is
+reflection. Per-signal float/uint scalars are stored as vec2/uvec2 pairs.
+Two-component vectors occupy vec4/ivec4/uvec4 array entries to preserve the
+same array stride in C and std140. Explicit C padding matches GLSL alignment.
+The matrix store helper retains the transposed interpretation expected by
+the ported shader arithmetic.
+
+The only persistent calculation state is two smoothed frame-time values.
+Camera matrices and filter parameters are calculation locals, written straight
+to the UBO rather than accumulated in a separate constants structure.
 
 Projection preparation retains handedness conversion, camera-relative
 coordinates, clip-Y conversion and the exact half-resolution sample position

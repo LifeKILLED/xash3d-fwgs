@@ -45,30 +45,29 @@ def calls(source, function, replace):
     return source
 
 
+def field_name(name):
+    value = re.sub('([A-Z]+)([A-Z][a-z])', r'\1_\2', name[1:])
+    return 'reblur_' + re.sub('([a-z0-9])([A-Z])', r'\1_\2', value).lower()
+
+
+def constant_members(kernels):
+    reflection = next(k['reflection'] for k in kernels if k['name'] == 'reblur_prepass_1')
+    return reflection['types'][reflection['ubos'][0]['type']]['members']
+
+
+def uniform_expression(member):
+    value = 'ubo.ubo.' + field_name(member['name']) + '[REBLUR_SIGNAL]'
+    return value + ('.xy' if member['type'] in ('vec2','ivec2','uvec2') else '')
+
+
 def common(kernels):
-    reflection = next(k["reflection"] for k in kernels if k["name"] == "reblur_prepass_1")
-    members = reflection["types"][reflection["ubos"][0]["type"]]["members"]
-    lines = ['// NVIDIA NRD-derived constants. See ../../nrd_port/LICENSE.NVIDIA.txt.', '#define GLSL', '#include "../ray_interop.h"',
-             'layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;', 'struct ReblurConstants {']
-    lines += [f'    {m["type"]} {m["name"]};' for m in members]
-    lines += ['};', 'ReblurConstants nrd;', 'uvec4 reblurData(int i) {', '#if NRD_BOUNCE',
-              'return ubo.ubo.nrd_bounce_constants[i];', '#else', 'return ubo.ubo.nrd_reflection_constants[i];', '#endif', '}',
-              'bool reblurEnabled() {', '#if NRD_BOUNCE', 'return ubo.ubo.nrd_bounce != 0u;', '#else',
-              'return ubo.ubo.nrd_reflection != 0u;', '#endif', '}', 'void reblurLoadConstants() {']
-    for member in members:
-        offset, typ, name = member['offset'], member['type'], member['name']
-        index, component = offset // 16, offset % 16 // 4
-        if typ == 'mat4':
-            value = 'transpose(mat4(' + ','.join(f'uintBitsToFloat(reblurData({index + i}))' for i in range(4)) + '))'
-        else:
-            width = int(typ[-1]) if typ[-1].isdigit() else 1
-            value = f'reblurData({index}).' + 'xyzw'[component:component + width]
-            if typ.startswith('vec') or typ == 'float':
-                value = f'uintBitsToFloat({value})'
-            elif typ.startswith('ivec') or typ == 'int':
-                value = f'{typ}({value})'
-        lines.append(f'    nrd.{name} = {value};')
-    lines += ['}', 'ivec2 reblurExtent() { return ivec2(nrd.gResourceSize); }']
+    lines = ['// NVIDIA NRD-derived helpers. See ../../nrd_port/LICENSE.NVIDIA.txt.',
+             '#define GLSL', '#include "../ray_interop.h"',
+             '#define REBLUR_SIGNAL (1 - NRD_BOUNCE)',
+             'layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;',
+             'bool reblurEnabled() {', '#if NRD_BOUNCE', 'return ubo.ubo.nrd_bounce != 0u;', '#else',
+             'return ubo.ubo.nrd_reflection != 0u;', '#endif', '}',
+             'ivec2 reblurExtent() { return ivec2(ubo.ubo.reblur_resource_size[REBLUR_SIGNAL].xy); }']
     (OUT / 'common.glsl').write_text('\n'.join(lines) + '\n')
 
 
@@ -170,14 +169,17 @@ def transform(kernel, resource_map, bounce, frontend=False):
     # The engine always dispatches ceil(screen/8) groups along both axes.
     # Cull entire surplus groups before any shared-memory access or barrier.
     if frontend:
-        group_limit = 'reblurData(56).xy'  # 8x8 pixel span
+        group_limit = 'ubo.ubo.reblur_groups_8x8_8x16[REBLUR_SIGNAL].xy'  # 8x8 pixel span
     elif 'ClassifyTiles' in kernel['source'] or 'PrePass' in kernel['source']:
-        group_limit = 'reblurData(57).xy'  # 16x16 pixel span
+        group_limit = 'ubo.ubo.reblur_groups_16x16[REBLUR_SIGNAL].xy'  # 16x16 pixel span
     else:
         assert reflection['entryPoints'][0]['workgroup_size'][:2] == [8,16]
-        group_limit = 'reblurData(56).zw'  # 8x16 pixel span
+        group_limit = 'ubo.ubo.reblur_groups_8x8_8x16[REBLUR_SIGNAL].zw'  # 8x16 pixel span
     source = re.sub(r'(void main\(\)\s*\{)',
-                    r'\1\n    if(!reblurEnabled()) return;\n    if(any(greaterThanEqual(gl_WorkGroupID.xy,' + group_limit + r'))) return;\n    reblurLoadConstants();', source)
+                    r'\1\n    if(!reblurEnabled()) return;\n    if(any(greaterThanEqual(gl_WorkGroupID.xy,' + group_limit + r'))) return;', source)
+    # Read the existing frame UBO directly; no decoded constant object.
+    members = {m['name']: m for m in constant_members(json.loads((PORT / 'kernels.json').read_text())['kernels'])}
+    source = re.sub(r'\bnrd\.(g\w+)', lambda match: uniform_expression(members[match[1]]), source)
     assert not re.search(r'\b(texture2D|utexture2D|sampler2D|textureLod|texelFetch|textureGather)\b', source), (kernel['name'], re.findall(r'.*(?:texture2D|sampler2D|textureGather|textureLod|texelFetch).*', source))
     return source
 

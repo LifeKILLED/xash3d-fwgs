@@ -25,6 +25,9 @@
 #define mat4 matrix4x4
 typedef int ivec3[3];
 typedef int ivec2[2];
+typedef int ivec4[4];
+typedef uint32_t uvec2[2];
+typedef uint32_t uvec4[4];
 #define TOKENPASTE(x, y) x ## y
 #define TOKENPASTE2(x, y) TOKENPASTE(x, y)
 #define PAD(x) float TOKENPASTE2(pad_, __LINE__)[x];
@@ -384,13 +387,91 @@ struct UniformBuffer {
 	uint bounce_count; // rt_bounces; independent GI keeps the entire path in one pixel.
 	uint nrd_bounce, nrd_reflection;
 	PAD(1)
-#ifdef GLSL
-	uvec4 nrd_bounce_constants[64];
-	uvec4 nrd_reflection_constants[64];
-#else
-	uint32_t nrd_bounce_constants[64][4];
-	uint32_t nrd_reflection_constants[64][4];
-#endif
+	// REBLUR fields: signal 0 = bounce, signal 1 = reflection.
+	mat4 reblur_world_to_clip[2];
+	mat4 reblur_view_to_clip[2];
+	mat4 reblur_view_to_world[2];
+	mat4 reblur_world_to_view_prev[2];
+	mat4 reblur_world_to_clip_prev[2];
+	mat4 reblur_world_prev_to_world[2];
+	vec4 reblur_rotator_pre[2];
+	vec4 reblur_rotator[2];
+	vec4 reblur_rotator_post[2];
+	vec4 reblur_frustum[2];
+	vec4 reblur_frustum_prev[2];
+	vec4 reblur_camera_delta[2];
+	vec4 reblur_hit_dist_settings[2];
+	vec4 reblur_view_vector_world[2];
+	vec4 reblur_view_vector_world_prev[2];
+	vec4 reblur_mv_scale[2];
+	vec4 reblur_mv_bias[2];
+	vec4 reblur_convergence_settings[2];
+	vec4 reblur_antilag_settings[2];
+	vec4 reblur_resource_size[2];
+	vec4 reblur_resource_size_inv[2];
+	vec4 reblur_resource_size_inv_prev[2];
+	vec4 reblur_rect_size[2];
+	vec4 reblur_rect_size_inv[2];
+	vec4 reblur_rect_size_prev[2];
+	vec4 reblur_resolution_scale[2];
+	vec4 reblur_resolution_scale_prev[2];
+	vec4 reblur_jitter[2];
+	uvec4 reblur_printf_at[2];
+	ivec4 reblur_input_rect_origin[2];
+	ivec4 reblur_output_rect_origin[2];
+	ivec4 reblur_dispatch_input_rect_origin[2];
+	ivec4 reblur_dispatch_output_rect_origin[2];
+	ivec4 reblur_rect_size_minus_one[2];
+	vec2 reblur_disocclusion_threshold;
+	vec2 reblur_disocclusion_threshold_alternate;
+	vec2 reblur_camera_attached_reflection_material_id;
+	vec2 reblur_strand_material_id;
+	vec2 reblur_strand_thickness;
+	vec2 reblur_stabilization_strength;
+	vec2 reblur_debug;
+	vec2 reblur_ortho_mode;
+	vec2 reblur_unproject;
+	vec2 reblur_denoising_range;
+	vec2 reblur_plane_dist_sensitivity;
+	vec2 reblur_frame_rate_scale;
+	vec2 reblur_frame_rate_scale_smoothed;
+	vec2 reblur_min_blur_radius;
+	vec2 reblur_max_blur_radius;
+	vec2 reblur_diff_prepass_blur_radius;
+	vec2 reblur_spec_prepass_blur_radius;
+	vec2 reblur_max_accumulated_frame_num;
+	vec2 reblur_max_fast_accumulated_frame_num;
+	vec2 reblur_anti_firefly;
+	vec2 reblur_lobe_angle_fraction;
+	vec2 reblur_roughness_fraction;
+	vec2 reblur_history_fix_frame_num;
+	vec2 reblur_history_fix_base_pixel_stride;
+	vec2 reblur_history_fix_alternate_pixel_stride;
+	vec2 reblur_history_fix_alternate_pixel_stride_material_id;
+	vec2 reblur_fast_history_clamping_sigma_scale;
+	vec2 reblur_min_rect_dim_mul_unproject;
+	vec2 reblur_use_prepass_not_only_for_specular_motion_estimation;
+	vec2 reblur_split_screen;
+	vec2 reblur_split_screen_prev;
+	vec2 reblur_checkerboard_resolve_accum_speed;
+	vec2 reblur_view_z_scale;
+	vec2 reblur_firefly_suppressor_min_relative_scale;
+	vec2 reblur_min_hit_distance_weight;
+	vec2 reblur_diff_min_material;
+	vec2 reblur_spec_min_material;
+	vec2 reblur_responsive_accumulation_inv_roughness_threshold;
+	uvec2 reblur_responsive_accumulation_min_accumulated_frame_num;
+	uvec2 reblur_has_history_confidence;
+	uvec2 reblur_has_disocclusion_threshold_mix;
+	uvec2 reblur_diff_checkerboard;
+	uvec2 reblur_spec_checkerboard;
+	uvec2 reblur_frame_index;
+	uvec2 reblur_is_rect_changed;
+	uvec2 reblur_reset_history;
+	uvec2 reblur_return_history_length_instead_of_occlusion;
+	PAD(2)
+	uvec4 reblur_groups_8x8_8x16[2];
+	uvec4 reblur_groups_16x16[2];
 };
 
 #undef PAD
@@ -398,6 +479,7 @@ struct UniformBuffer {
 
 #ifndef GLSL
 #undef uint
+STATIC_ASSERT((sizeof(struct UniformBuffer) % 16) == 0, "UniformBuffer size must be aligned to vec4");
 #undef vec3
 #undef vec4
 #undef TOKENPASTE
