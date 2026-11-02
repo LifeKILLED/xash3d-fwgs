@@ -179,9 +179,11 @@ for path in (VK / 'shaders/reblur').glob('*.comp'):
         assert 'for (int sampleY = 0; sampleY < 4; ++sampleY)' in text,path
     assert not re.search(r'\b(?:tapValue|sharedValue)\d+\b',text),path
     helper_calls=set(re.findall(r'\b(reblur\w+)\s*\(',text))
-    helper_definitions=set(re.findall(r'\b(?:void|vec4|uvec4)\s+(reblur\w+)\s*\(',text))
+    helper_source=(VK / 'shaders/reblur/filter_math.glsl').read_text() if '#include "filter_math.glsl"' in text else ''
+    helper_definitions=set(re.findall(r'\b(?:void|float|uint|vec3|vec4|uvec4)\s+(reblur\w+)\s*\(',text+helper_source))
     assert helper_calls <= helper_definitions | {'reblurEnabled','reblurExtent'},(path,helper_calls-helper_definitions)
     numeric_ids=set(re.findall(r'\b_\d+\b',text))
+    assert not numeric_ids,(path,numeric_ids)
     declared_ids=set(re.findall(r'\b(?:float|bool|u?int|[biu]?vec[234]|mat[234])\s+(_\d+)\b',text))
     assert numeric_ids<=declared_ids,(path,numeric_ids-declared_ids)
     assert not re.search(r'\b(?:texture2D|utexture2D|sampler2D|textureLod|textureGather\w*|texelFetch\w*)\b',text), path

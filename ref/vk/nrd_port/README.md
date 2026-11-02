@@ -134,4 +134,17 @@ cooperative shared-memory preload loops. Repeated tap/preload bodies must
 match after variable substitution before they can be folded. Tap order,
 Gaussian constants, accumulation order, tracking RNG and workgroup barriers
 are retained. Surface values and filter weights receive semantic names;
-unresolved compiler temporaries keep their original SSA identifiers.
+Remaining compiler temporaries are mapped explicitly in `semantic_names.json`.
+The mapping covers all runtime kernels, including loop-carried sums, surface
+and virtual reprojection, Catmull-Rom reconstruction and history stabilization.
+Generation checks that every remaining SSA identifier is covered, names do not
+collide, and reversing the substitution reproduces the input source exactly.
+This table is an offline development aid; builds use the checked-in GLSL.
+
+The follow-up cleanup shares octahedral normal decoding, safe normalization,
+normal-angle approximation and RNG hashing in `shaders/reblur/filter_math.glsl`.
+Temporal accumulation restores the 2x2 normal average, 3x3 tracking-distance
+minimum and four-tap previous-normal footprint. Names distinguish view-space
+normals, world-space view directions, camera-relative world positions and the
+neighbor edge used to estimate curvature; dot products that sum weights are
+not treated as geometric direction comparisons.

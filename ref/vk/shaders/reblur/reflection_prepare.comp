@@ -51,7 +51,7 @@ void reblurStore_out_reblur_reflection_motion(ivec2 p,vec4 v) { imageStore(out_r
 void reblurStore_out_reblur_reflection_signal(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_signal,p,v); }
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-vec4 _70;
+vec4 unusedPackingPadding;
 
 spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
 spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
@@ -136,7 +136,7 @@ void main()
             signedRoughness = clampedRoughness;
         }
         vec3 encodedNormalRoughness = vec3(packedNormalX + packedNormalY, packedNormalY - packedNormalX, (signedRoughness * 0.5) + 0.5);
-        vec4 packedNormalRoughness = vec4(encodedNormalRoughness.x, encodedNormalRoughness.y, encodedNormalRoughness.z, _70.w);
+        vec4 packedNormalRoughness = vec4(encodedNormalRoughness.x, encodedNormalRoughness.y, encodedNormalRoughness.z, unusedPackingPadding.w);
         packedNormalRoughness.w = 0.0;
         reblurStore_out_reblur_reflection_normal(ivec2(gl_GlobalInvocationID.xy),packedNormalRoughness);
         reblurStore_out_reblur_reflection_viewz(ivec2(gl_GlobalInvocationID.xy),vec4(viewDepth));

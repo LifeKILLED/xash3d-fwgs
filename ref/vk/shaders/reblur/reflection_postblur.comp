@@ -47,8 +47,8 @@ void reblurStore_out_temporal_reblur_reflection_normal(ivec2 p,vec4 v) { imageSt
 void reblurStore_out_temporal_reblur_reflection_history(ivec2 p,vec4 v) { imageStore(out_temporal_reblur_reflection_history,p,v); }
 layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
 
-vec3 _112;
-float _115;
+vec3 unusedPositionPadding;
+float unusedAccumulationPadding;
 
 spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
 spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
@@ -58,6 +58,8 @@ spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
 spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
 spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
 spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+#include "filter_math.glsl"
 
 void main()
 {
@@ -71,42 +73,38 @@ void main()
             break;
         }
         uvec2 clampedPixel = uvec2(min(pixelPos, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
-        vec4 _148 = reblurFetch_reblur_reflection_scratch_0(ivec2(clampedPixel));
-        vec2 _149 = _148.xy;
-        _149.y = _148.x;
-        vec2 _153 = roundEven(_149 * 63.0);
-        float _164 = _153.y;
+        vec4 packedAccumulationData = reblurFetch_reblur_reflection_scratch_0(ivec2(clampedPixel));
+        vec2 accumulationChannels = packedAccumulationData.xy;
+        accumulationChannels.y = packedAccumulationData.x;
+        vec2 accumulatedFrames = roundEven(accumulationChannels * 63.0);
+        float specularFrameCount = accumulatedFrames.y;
         float viewDepth = abs(reblurFetch_temporal_reblur_reflection_depth(ivec2(clampedPixel)).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        bool _183 = !(viewDepth < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
-        vec2 _185 = mix(vec2(_115, 1.0 / (1.0 + ((ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].x * mix(ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].y, 1.0, clamp(_164 / (1.0 + (ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL] * ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].z)), 0.0, 1.0))) * _164))), vec2(0.0), bvec2(_183));
-        bool _191;
-        if (!_183)
+        bool outsideDenoisingRange = !(viewDepth < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
+        vec2 nonLinearAccumulationSpeed = mix(vec2(unusedAccumulationPadding, 1.0 / (1.0 + ((ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].x * mix(ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].y, 1.0, clamp(specularFrameCount / (1.0 + (ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL] * ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].z)), 0.0, 1.0))) * specularFrameCount))), vec2(0.0), bvec2(outsideDenoisingRange));
+        bool skipPixel;
+        if (!outsideDenoisingRange)
         {
-            _191 = any(greaterThan(pixelPos, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
+            skipPixel = any(greaterThan(pixelPos, ubo.ubo.reblur_rect_size_minus_one[REBLUR_SIGNAL].xy));
         }
         else
         {
-            _191 = true;
+            skipPixel = true;
         }
-        if (_191)
+        if (skipPixel)
         {
             break;
         }
-        uvec2 _194 = uvec2(pixelPos);
-        vec4 packedNormalRoughness = reblurFetch_reblur_reflection_normal(ivec2(_194));
-        float _199 = (packedNormalRoughness.z * 2.0) - 1.0;
-        float encodedNormalX2 = packedNormalRoughness.x;
-        float encodedNormalY2 = packedNormalRoughness.y;
-        float _202 = encodedNormalX2 - encodedNormalY2;
-        float _204 = (encodedNormalX2 + encodedNormalY2) - 1.0;
-        float _213 = abs(_199);
-        vec3 _217 = vec4(_202, _204, float((_199 < 0.0) ? (-1) : 1) * ((1.0 - abs(_202)) - abs(_204)), _213).xyz;
-        vec3 normalWorld = (_217 * inversesqrt(spvNMax(dot(_217, _217), 9.999999717180685365747194737196e-10))).xyz;
+        uvec2 outputPixel = uvec2(pixelPos);
+        vec4 packedNormalRoughness = reblurFetch_reblur_reflection_normal(ivec2(outputPixel));
+        float centerSignedRoughness = (packedNormalRoughness.z * 2.0) - 1.0;
+        float roughness = abs(centerSignedRoughness);
+        vec3 decodedNormal = reblurDecodeNormalUnnormalized(packedNormalRoughness);
+        vec3 normalWorld = (reblurSafeNormalize(decodedNormal)).xyz;
         mat4 viewToWorld = transpose(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL]);
         vec3 normalView = normalWorld * mat3(viewToWorld[0].xyz, viewToWorld[1].xyz, viewToWorld[2].xyz);
         bool isPerspective = ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0;
         vec2 positionViewXY = ((((vec2(pixelPos) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy) * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-        vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, _112.z);
+        vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, unusedPositionPadding.z);
         positionView.z = viewDepth;
         vec3 viewDirection;
         if (isPerspective)
@@ -117,108 +115,108 @@ void main()
         {
             viewDirection = vec3(0.0, 0.0, -1.0);
         }
-        float _262 = mix(viewDepth, 1.0, abs(ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]));
-        float frustumSize = ubo.ubo.reblur_min_rect_dim_mul_unproject[REBLUR_SIGNAL] * _262;
-        reblurStore_out_temporal_reblur_reflection_normal(ivec2(_194),packedNormalRoughness);
-        vec4 centerRadiance = reblurFetch_reblur_reflection_scratch_3(ivec2(_194));
-        float _271 = clamp(_213, 0.0, 1.0);
-        float _275 = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * _271));
-        float _282 = clamp((pow(clamp(1.0 - abs(dot(normalView, viewDirection)), 0.0, 1.0), 10.86489963531494140625) * (1.0 - _275)) + _275, 0.0, 1.0);
-        vec3 _292 = vec4(normalize(mix(normalView, reflect(-viewDirection, normalView), vec3(_282))), _282).xyz;
-        float _300 = (1.0 - exp2(((-200.0) * _213) * _213)) * pow(_271, 0.5);
+        float projectionDepthScale = mix(viewDepth, 1.0, abs(ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]));
+        float frustumSize = ubo.ubo.reblur_min_rect_dim_mul_unproject[REBLUR_SIGNAL] * projectionDepthScale;
+        reblurStore_out_temporal_reblur_reflection_normal(ivec2(outputPixel),packedNormalRoughness);
+        vec4 centerRadiance = reblurFetch_reblur_reflection_scratch_3(ivec2(outputPixel));
+        float clampedRoughness = clamp(roughness, 0.0, 1.0);
+        float dominantDirectionFit = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * clampedRoughness));
+        float dominantDirectionFactor = clamp((pow(clamp(1.0 - abs(dot(normalView, viewDirection)), 0.0, 1.0), 10.86489963531494140625) * (1.0 - dominantDirectionFit)) + dominantDirectionFit, 0.0, 1.0);
+        vec3 dominantDirectionView = vec4(normalize(mix(normalView, reflect(-viewDirection, normalView), vec3(dominantDirectionFactor))), dominantDirectionFactor).xyz;
+        float hitDistanceRoughnessFactor = (1.0 - exp2(((-200.0) * roughness) * roughness)) * pow(clampedRoughness, 0.5);
         float centerHitDistance = centerRadiance.w;
-        float _314 = clamp((centerHitDistance * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(viewDepth) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, _300))) / frustumSize, 0.0, 1.0);
-        float _315 = _185.y;
+        float normalizedHitDistanceToFrustum = clamp((centerHitDistance * ((ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(viewDepth) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, hitDistanceRoughnessFactor))) / frustumSize, 0.0, 1.0);
+        float specularAccumulationSpeed = nonLinearAccumulationSpeed.y;
         float planeWeightScale = 1.0 / (ubo.ubo.reblur_plane_dist_sensitivity[REBLUR_SIGNAL] * frustumSize);
         float planeWeightBias = -(dot(normalView, positionView) * planeWeightScale);
-        float _341 = clamp(0.75 * mix(clamp(ubo.ubo.reblur_lobe_angle_fraction[REBLUR_SIGNAL], 0.0, 1.0), 1.0, _315), 0.0, 1.0);
-        float normalWeightScale = 2.0 / spvNMax(atan(_271 * sqrt(_341 / (1.00000095367431640625 - _341))), 0.00294117652811110019683837890625);
-        float _355 = 1.0 / mix(0.00999999977648258209228515625, 1.0, clamp(_213 * (ubo.ubo.reblur_roughness_fraction[REBLUR_SIGNAL] * 0.5), 0.0, 1.0));
-        float _357 = -(_213 * _355);
-        float _358 = 1.0 / _315;
-        float _360 = -(centerHitDistance * _358);
-        float _365 = ((ubo.ubo.reblur_min_hit_distance_weight[REBLUR_SIGNAL] * 0.5) * _300) * _315;
-        float _366 = sqrt(_314);
-        float _371 = mix(1.0, mix(mix(0.25 + (0.75 * _213), 1.0, abs(dot(normalView, _292))), 1.0, _315), _366);
-        vec3 _374 = normalize(mix(normalView, _292, vec3(_366)));
-        float _378 = (spvNMax((clamp(2.0 * sqrt(clamp(_314 * _315, 0.0, 1.0)), 0.0, 1.0) * ubo.ubo.reblur_max_blur_radius[REBLUR_SIGNAL]) * _300, ubo.ubo.reblur_min_blur_radius[REBLUR_SIGNAL] * _300) * ubo.ubo.reblur_unproject[REBLUR_SIGNAL]) * _262;
-        float _379 = normalView.z;
-        float _382 = (step(0.0, _379) * 2.0) - 1.0;
-        float _384 = 1.0 / (_382 + _379);
-        float _385 = normalView.y;
-        float _386 = _385 * _384;
-        float _387 = normalView.x;
-        float _388 = _387 * _386;
-        float _389 = _387 * _382;
-        vec3 _408;
-        vec3 _409;
-        if (abs(dot(_374, normalView)) < 0.999000012874603271484375)
+        float lobeWeightFraction = clamp(0.75 * mix(clamp(ubo.ubo.reblur_lobe_angle_fraction[REBLUR_SIGNAL], 0.0, 1.0), 1.0, specularAccumulationSpeed), 0.0, 1.0);
+        float normalWeightScale = 2.0 / spvNMax(atan(clampedRoughness * sqrt(lobeWeightFraction / (1.00000095367431640625 - lobeWeightFraction))), 0.00294117652811110019683837890625);
+        float roughnessWeightScale = 1.0 / mix(0.00999999977648258209228515625, 1.0, clamp(roughness * (ubo.ubo.reblur_roughness_fraction[REBLUR_SIGNAL] * 0.5), 0.0, 1.0));
+        float roughnessWeightBias = -(roughness * roughnessWeightScale);
+        float hitDistanceWeightScale = 1.0 / specularAccumulationSpeed;
+        float hitDistanceWeightBias = -(centerHitDistance * hitDistanceWeightScale);
+        float minHitDistanceWeight = ((ubo.ubo.reblur_min_hit_distance_weight[REBLUR_SIGNAL] * 0.5) * hitDistanceRoughnessFactor) * specularAccumulationSpeed;
+        float hitDistanceBlend = sqrt(normalizedHitDistanceToFrustum);
+        float kernelSkewFactor = mix(1.0, mix(mix(0.25 + (0.75 * roughness), 1.0, abs(dot(normalView, dominantDirectionView))), 1.0, specularAccumulationSpeed), hitDistanceBlend);
+        vec3 kernelNormal = normalize(mix(normalView, dominantDirectionView, vec3(hitDistanceBlend)));
+        float worldBlurRadius = (spvNMax((clamp(2.0 * sqrt(clamp(normalizedHitDistanceToFrustum * specularAccumulationSpeed, 0.0, 1.0)), 0.0, 1.0) * ubo.ubo.reblur_max_blur_radius[REBLUR_SIGNAL]) * hitDistanceRoughnessFactor, ubo.ubo.reblur_min_blur_radius[REBLUR_SIGNAL] * hitDistanceRoughnessFactor) * ubo.ubo.reblur_unproject[REBLUR_SIGNAL]) * projectionDepthScale;
+        float normalZ = normalView.z;
+        float normalZSign = (step(0.0, normalZ) * 2.0) - 1.0;
+        float inverseBasisDenominator = 1.0 / (normalZSign + normalZ);
+        float normalY = normalView.y;
+        float scaledNormalY = normalY * inverseBasisDenominator;
+        float normalX = normalView.x;
+        float normalCrossTerm = normalX * scaledNormalY;
+        float signedNormalX = normalX * normalZSign;
+        vec3 kernelBitangent;
+        vec3 kernelTangent;
+        if (abs(dot(kernelNormal, normalView)) < 0.999000012874603271484375)
         {
-            vec3 _404 = reflect(-_374, normalView);
-            vec3 _406 = normalize(cross(normalView, _404));
-            _408 = cross(_404, _406);
-            _409 = _406;
+            vec3 reflectedKernelNormal = reflect(-kernelNormal, normalView);
+            vec3 kernelCrossAxis = normalize(cross(normalView, reflectedKernelNormal));
+            kernelBitangent = cross(reflectedKernelNormal, kernelCrossAxis);
+            kernelTangent = kernelCrossAxis;
         }
         else
         {
-            _408 = vec3(_388, (_385 * _386) - _382, _385);
-            _409 = vec3(((_389 * _387) * _384) - 1.0, _382 * _388, _389);
+            kernelBitangent = vec3(normalCrossTerm, (normalY * scaledNormalY) - normalZSign, normalY);
+            kernelTangent = vec3(((signedNormalX * normalX) * inverseBasisDenominator) - 1.0, normalZSign * normalCrossTerm, signedNormalX);
         }
-        vec3 _411 = _409 * (_378 * _371);
-        vec3 _413 = _408 * (_378 / _371);
-        vec2 _417 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * (-1.0);
-        vec4 _428 = vec4((positionView + (_411 * _417.x)) + (_413 * _417.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _432 = _428.xy / vec2(_428.w);
-        vec3 _433 = vec3(_432.x, _432.y, _428.w);
-        _433.y = -_432.y;
+        vec3 scaledKernelTangent = kernelTangent * (worldBlurRadius * kernelSkewFactor);
+        vec3 scaledKernelBitangent = kernelBitangent * (worldBlurRadius / kernelSkewFactor);
+        vec2 rotatedOffsetLeft = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * (-1.0);
+        vec4 kernelClipLeft = vec4((positionView + (scaledKernelTangent * rotatedOffsetLeft.x)) + (scaledKernelBitangent * rotatedOffsetLeft.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcLeft = kernelClipLeft.xy / vec2(kernelClipLeft.w);
+        vec3 kernelScreenLeft = vec3(kernelNdcLeft.x, kernelNdcLeft.y, kernelClipLeft.w);
+        kernelScreenLeft.y = -kernelNdcLeft.y;
         float centerMaterial = spvNMax(packedNormalRoughness.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]);
-        vec2 kernelUv0 = (_433.xy * 0.5) + vec2(0.5);
-        vec2 _563 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * 1.0;
-        vec4 _574 = vec4((positionView + (_411 * _563.x)) + (_413 * _563.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _578 = _574.xy / vec2(_574.w);
-        vec3 _579 = vec3(_578.x, _578.y, _574.w);
-        _579.y = -_578.y;
-        vec2 kernelUv1 = (_579.xy * 0.5) + vec2(0.5);
-        vec2 _705 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * 1.0;
-        vec4 _716 = vec4((positionView + (_411 * _705.x)) + (_413 * _705.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _720 = _716.xy / vec2(_716.w);
-        vec3 _721 = vec3(_720.x, _720.y, _716.w);
-        _721.y = -_720.y;
-        vec2 kernelUv2 = (_721.xy * 0.5) + vec2(0.5);
-        vec2 _847 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * (-1.0);
-        vec4 _858 = vec4((positionView + (_411 * _847.x)) + (_413 * _847.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _862 = _858.xy / vec2(_858.w);
-        vec3 _863 = vec3(_862.x, _862.y, _858.w);
-        _863.y = -_862.y;
-        vec2 kernelUv3 = (_863.xy * 0.5) + vec2(0.5);
-        vec2 _989 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * (-0.3535533845424652099609375);
-        vec2 _990 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * 0.3535533845424652099609375;
-        vec2 _991 = _989 + _990;
-        vec4 _1002 = vec4((positionView + (_411 * _991.x)) + (_413 * _991.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _1006 = _1002.xy / vec2(_1002.w);
-        vec3 _1007 = vec3(_1006.x, _1006.y, _1002.w);
-        _1007.y = -_1006.y;
-        vec2 kernelUv4 = (_1007.xy * 0.5) + vec2(0.5);
-        vec2 _1133 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * 0.3535533845424652099609375;
-        vec2 _1134 = _1133 + _990;
-        vec4 _1145 = vec4((positionView + (_411 * _1134.x)) + (_413 * _1134.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _1149 = _1145.xy / vec2(_1145.w);
-        vec3 _1150 = vec3(_1149.x, _1149.y, _1145.w);
-        _1150.y = -_1149.y;
-        vec2 kernelUv5 = (_1150.xy * 0.5) + vec2(0.5);
-        vec2 _1276 = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * (-0.3535533845424652099609375);
-        vec2 _1277 = _1133 + _1276;
-        vec4 _1288 = vec4((positionView + (_411 * _1277.x)) + (_413 * _1277.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _1292 = _1288.xy / vec2(_1288.w);
-        vec3 _1293 = vec3(_1292.x, _1292.y, _1288.w);
-        _1293.y = -_1292.y;
-        vec2 kernelUv6 = (_1293.xy * 0.5) + vec2(0.5);
-        vec2 _1419 = _989 + _1276;
-        vec4 _1430 = vec4((positionView + (_411 * _1419.x)) + (_413 * _1419.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
-        vec2 _1434 = _1430.xy / vec2(_1430.w);
-        vec3 _1435 = vec3(_1434.x, _1434.y, _1430.w);
-        _1435.y = -_1434.y;
-        vec2 kernelUv7 = (_1435.xy * 0.5) + vec2(0.5);
+        vec2 kernelUv0 = (kernelScreenLeft.xy * 0.5) + vec2(0.5);
+        vec2 rotatedOffsetTop = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * 1.0;
+        vec4 kernelClipTop = vec4((positionView + (scaledKernelTangent * rotatedOffsetTop.x)) + (scaledKernelBitangent * rotatedOffsetTop.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcTop = kernelClipTop.xy / vec2(kernelClipTop.w);
+        vec3 kernelScreenTop = vec3(kernelNdcTop.x, kernelNdcTop.y, kernelClipTop.w);
+        kernelScreenTop.y = -kernelNdcTop.y;
+        vec2 kernelUv1 = (kernelScreenTop.xy * 0.5) + vec2(0.5);
+        vec2 rotatedOffsetRight = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * 1.0;
+        vec4 kernelClipRight = vec4((positionView + (scaledKernelTangent * rotatedOffsetRight.x)) + (scaledKernelBitangent * rotatedOffsetRight.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcRight = kernelClipRight.xy / vec2(kernelClipRight.w);
+        vec3 kernelScreenRight = vec3(kernelNdcRight.x, kernelNdcRight.y, kernelClipRight.w);
+        kernelScreenRight.y = -kernelNdcRight.y;
+        vec2 kernelUv2 = (kernelScreenRight.xy * 0.5) + vec2(0.5);
+        vec2 rotatedOffsetBottom = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * (-1.0);
+        vec4 kernelClipBottom = vec4((positionView + (scaledKernelTangent * rotatedOffsetBottom.x)) + (scaledKernelBitangent * rotatedOffsetBottom.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcBottom = kernelClipBottom.xy / vec2(kernelClipBottom.w);
+        vec3 kernelScreenBottom = vec3(kernelNdcBottom.x, kernelNdcBottom.y, kernelClipBottom.w);
+        kernelScreenBottom.y = -kernelNdcBottom.y;
+        vec2 kernelUv3 = (kernelScreenBottom.xy * 0.5) + vec2(0.5);
+        vec2 diagonalNegativeX = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * (-0.3535533845424652099609375);
+        vec2 diagonalPositiveY = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * 0.3535533845424652099609375;
+        vec2 rotatedOffsetTopLeft = diagonalNegativeX + diagonalPositiveY;
+        vec4 kernelClipTopLeft = vec4((positionView + (scaledKernelTangent * rotatedOffsetTopLeft.x)) + (scaledKernelBitangent * rotatedOffsetTopLeft.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcTopLeft = kernelClipTopLeft.xy / vec2(kernelClipTopLeft.w);
+        vec3 kernelScreenTopLeft = vec3(kernelNdcTopLeft.x, kernelNdcTopLeft.y, kernelClipTopLeft.w);
+        kernelScreenTopLeft.y = -kernelNdcTopLeft.y;
+        vec2 kernelUv4 = (kernelScreenTopLeft.xy * 0.5) + vec2(0.5);
+        vec2 diagonalPositiveX = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].xz * 0.3535533845424652099609375;
+        vec2 rotatedOffsetTopRight = diagonalPositiveX + diagonalPositiveY;
+        vec4 kernelClipTopRight = vec4((positionView + (scaledKernelTangent * rotatedOffsetTopRight.x)) + (scaledKernelBitangent * rotatedOffsetTopRight.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcTopRight = kernelClipTopRight.xy / vec2(kernelClipTopRight.w);
+        vec3 kernelScreenTopRight = vec3(kernelNdcTopRight.x, kernelNdcTopRight.y, kernelClipTopRight.w);
+        kernelScreenTopRight.y = -kernelNdcTopRight.y;
+        vec2 kernelUv5 = (kernelScreenTopRight.xy * 0.5) + vec2(0.5);
+        vec2 diagonalNegativeY = ubo.ubo.reblur_rotator_post[REBLUR_SIGNAL].yw * (-0.3535533845424652099609375);
+        vec2 rotatedOffsetBottomRight = diagonalPositiveX + diagonalNegativeY;
+        vec4 kernelClipBottomRight = vec4((positionView + (scaledKernelTangent * rotatedOffsetBottomRight.x)) + (scaledKernelBitangent * rotatedOffsetBottomRight.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcBottomRight = kernelClipBottomRight.xy / vec2(kernelClipBottomRight.w);
+        vec3 kernelScreenBottomRight = vec3(kernelNdcBottomRight.x, kernelNdcBottomRight.y, kernelClipBottomRight.w);
+        kernelScreenBottomRight.y = -kernelNdcBottomRight.y;
+        vec2 kernelUv6 = (kernelScreenBottomRight.xy * 0.5) + vec2(0.5);
+        vec2 rotatedOffsetBottomLeft = diagonalNegativeX + diagonalNegativeY;
+        vec4 kernelClipBottomLeft = vec4((positionView + (scaledKernelTangent * rotatedOffsetBottomLeft.x)) + (scaledKernelBitangent * rotatedOffsetBottomLeft.y), 1.0) * ubo.ubo.reblur_view_to_clip[REBLUR_SIGNAL];
+        vec2 kernelNdcBottomLeft = kernelClipBottomLeft.xy / vec2(kernelClipBottomLeft.w);
+        vec3 kernelScreenBottomLeft = vec3(kernelNdcBottomLeft.x, kernelNdcBottomLeft.y, kernelClipBottomLeft.w);
+        kernelScreenBottomLeft.y = -kernelNdcBottomLeft.y;
+        vec2 kernelUv7 = (kernelScreenBottomLeft.xy * 0.5) + vec2(0.5);
         const float sampleGaussianWeights[8] = float[8](
             0.51685130596160888671875, 0.51685130596160888671875, 0.51685130596160888671875, 0.51685130596160888671875, 0.84789371490478515625, 0.84789371490478515625, 0.84789371490478515625, 0.84789371490478515625);
         vec2 sampleUvs[8] = vec2[8](kernelUv0, kernelUv1, kernelUv2, kernelUv3, kernelUv4, kernelUv5, kernelUv6, kernelUv7);
@@ -236,26 +234,22 @@ void main()
             sampleViewPosition.z = sampleViewDepth;
             vec4 sampleNormalRoughness = reblurFetch_reblur_reflection_normal(ivec2(samplePixel));
             float signedRoughness = (sampleNormalRoughness.z * 2.0) - 1.0;
-            float encodedNormalX = sampleNormalRoughness.x;
-            float encodedNormalY = sampleNormalRoughness.y;
-            float octNormalX = encodedNormalX - encodedNormalY;
-            float octNormalY = (encodedNormalX + encodedNormalY) - 1.0;
             float sampleRoughness = abs(signedRoughness);
-            vec3 sampleNormalUnnormalized = vec4(octNormalX, octNormalY, float((signedRoughness < 0.0) ? (-1) : 1) * ((1.0 - abs(octNormalX)) - abs(octNormalY)), sampleRoughness).xyz;
-            float normalDot = dot(normalWorld, (sampleNormalUnnormalized * inversesqrt(spvNMax(dot(sampleNormalUnnormalized, sampleNormalUnnormalized), 9.999999717180685365747194737196e-10))).xyz);
-            float normalAngleWeight = clamp((abs((mix(1.5675890445709228515625, 1.39933097362518310546875, clamp(normalDot, 0.0, 1.0)) * sqrt(clamp(1.0 - normalDot, 0.0, 1.0))) * normalWeightScale) - 1.0) * (-1.0), 0.0, 1.0);
-            float roughnessWeight = clamp((abs((sampleRoughness * _355) + _357) - 1.0) * (-1.0), 0.0, 1.0);
+            vec3 sampleNormalUnnormalized = reblurDecodeNormalUnnormalized(sampleNormalRoughness);
+            float normalDot = dot(normalWorld, (reblurSafeNormalize(sampleNormalUnnormalized)).xyz);
+            float normalAngleWeight = clamp((abs((reblurNormalAngle(normalDot)) * normalWeightScale) - 1.0) * (-1.0), 0.0, 1.0);
+            float roughnessWeight = clamp((abs((sampleRoughness * roughnessWeightScale) + roughnessWeightBias) - 1.0) * (-1.0), 0.0, 1.0);
             float planeWeight = clamp((abs((dot(normalView, sampleViewPosition) * planeWeightScale) + planeWeightBias) - 1.0) * (-1.0), 0.0, 1.0);
             float geometryWeight = (!(sampleViewDepth < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : (((((any(notEqual(sampleUv, mirroredUv)) ? 1.0 : sampleGaussianWeight) * float(centerMaterial == spvNMax(sampleNormalRoughness.w * 3.0, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))) * ((normalAngleWeight * normalAngleWeight) * (3.0 - (normalAngleWeight * 2.0)))) * ((roughnessWeight * roughnessWeight) * (3.0 - (roughnessWeight * 2.0)))) * ((planeWeight * planeWeight) * (3.0 - (planeWeight * 2.0))));
             vec4 sampleRadiance = mix(reblurFetch_reblur_reflection_scratch_3(ivec2(samplePixel)), vec4(0.0), bvec4(geometryWeight == 0.0));
-            float hitDistanceDelta = (-3.0) * abs((sampleRadiance.w * _358) + _360);
-            float sampleWeight = geometryWeight * (_365 + (1.0 / (((hitDistanceDelta * hitDistanceDelta) - hitDistanceDelta) + 1.0)));
+            float hitDistanceDelta = (-3.0) * abs((sampleRadiance.w * hitDistanceWeightScale) + hitDistanceWeightBias);
+            float sampleWeight = geometryWeight * (minHitDistanceWeight + (1.0 / (((hitDistanceDelta * hitDistanceDelta) - hitDistanceDelta) + 1.0)));
             radianceSum += sampleRadiance * sampleWeight;
             weightSum += sampleWeight;
         }
         vec4 filteredRadiance = radianceSum * (1.0 / spvNMax(weightSum, 1.0000000036274937255387218471014e-15));
         filteredRadiance.w = centerHitDistance;
-        reblurStore_out_temporal_reblur_reflection_history(ivec2(_194),filteredRadiance);
+        reblurStore_out_temporal_reblur_reflection_history(ivec2(outputPixel),filteredRadiance);
         break;
     } while(false);
 }
