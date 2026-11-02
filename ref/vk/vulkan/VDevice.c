@@ -468,9 +468,6 @@ static qboolean createDevice(const VDeviceInfo* info) {
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
 		.pNext = head,
 		.features.samplerAnisotropy = info->features.features.samplerAnisotropy,
-		.features.shaderStorageImageExtendedFormats = info->features.features.shaderStorageImageExtendedFormats,
-		.features.shaderStorageImageWriteWithoutFormat = info->features.features.shaderStorageImageWriteWithoutFormat,
-		.features.shaderStorageImageReadWithoutFormat = info->features.features.shaderStorageImageReadWithoutFormat,
 		.features.shaderInt16 = true, // TODO verfiy support first
 	};
 	head = &features;

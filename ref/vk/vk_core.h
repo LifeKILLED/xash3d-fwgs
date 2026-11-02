@@ -226,7 +226,6 @@ do { \
 	X(vkDestroySampler) \
 	X(vkCreateDescriptorPool) \
 	X(vkDestroyDescriptorPool) \
-	X(vkResetDescriptorPool) \
 	X(vkCreateDescriptorSetLayout) \
 	X(vkAllocateDescriptorSets) \
 	X(vkUpdateDescriptorSets) \

@@ -12,7 +12,7 @@
 #include "vk_light.h"
 #include "vk_math.h"
 #include "vulkan/VMeatpipe.h"
-#include "vulkan/VNrd.h"
+#include "nrd_port/cpu.h"
 #include "vk_ray_internal.h"
 #include "r_textures.h"
 #include "vulkan/VCombuf.h"
@@ -701,6 +701,28 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 		makeDefaultAsvgfParams(&ret.asvgf);
 	}
 
+
+	// REBLUR owns no GPU resources here: both signals share the existing UBO.
+	static double nrd_previous_time;
+	static unsigned nrd_previous_width, nrd_previous_height, nrd_previous_enabled[2];
+	double nrd_now = gEngine.pfnTime();
+	NrdFrame nrd_frame = {0};
+	memcpy(nrd_frame.projection,ret.proj,64);memcpy(nrd_frame.previousProjection,ret.prev_proj,64);
+	memcpy(nrd_frame.view,ret.view,64);memcpy(nrd_frame.previousView,ret.prev_view,64);
+	nrd_frame.width = frame_width; nrd_frame.height = frame_height;
+	nrd_frame.previousWidth = nrd_previous_width ? nrd_previous_width : frame_width;
+	nrd_frame.previousHeight = nrd_previous_height ? nrd_previous_height : frame_height;
+	nrd_frame.deltaMilliseconds = nrd_previous_time ? (float)((nrd_now-nrd_previous_time)*1000.0) : 16.6667f;
+	nrd_frame.frame = frame_counter;
+	for(unsigned signal=0;signal<2;signal++) {
+		unsigned enabled = signal ? ret.nrd_reflection : ret.nrd_bounce;
+		nrd_frame.signal = signal;
+		nrd_frame.reset = g_rtx.discontinuity || !nrd_previous_enabled[signal]
+			|| nrd_previous_width != (unsigned)frame_width || nrd_previous_height != (unsigned)frame_height;
+		if(enabled) NrdPrepareConstants(&nrd_frame,signal ? (void*)ret.nrd_reflection_constants : (void*)ret.nrd_bounce_constants);
+		nrd_previous_enabled[signal] = enabled;
+	}
+	nrd_previous_width=frame_width;nrd_previous_height=frame_height;nrd_previous_time=nrd_now;
 	return ret;
 }
 
@@ -728,7 +750,6 @@ static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_
 		.width = args->frame_width,
 		.height = args->frame_height,
 		.is_discontinuous = g_rtx.discontinuity,
-		.frame_uniform = &g_rtx.uniform.current,
 	});
 
 	if (g_rtx.discontinuity) {
@@ -755,7 +776,6 @@ static qboolean reloadMeatpipe(void) {
 	if (!R_VkMeatpipeAcquireResources(newpipe, g_rtx.max_frame_width, g_rtx.max_frame_height))
 		goto fail;
 
-	R_VkNrdShutdown();
 	destroyMeatpipe();
 
 	g_rtx.meatpipe = newpipe;
@@ -943,7 +963,6 @@ qboolean VK_RayInit( void )
 void VK_RayShutdown( void ) {
 	ASSERT(vk_core.rtx);
 
-	R_VkNrdShutdown();
 	destroyMeatpipe();
 
 	RT_LightCacheShutdown();

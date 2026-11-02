@@ -1,0 +1,530 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_spirv_intrinsics : require
+#if defined(GL_EXT_control_flow_attributes)
+#extension GL_EXT_control_flow_attributes : require
+#define SPIRV_CROSS_FLATTEN [[flatten]]
+#define SPIRV_CROSS_BRANCH [[dont_flatten]]
+#define SPIRV_CROSS_UNROLL [[unroll]]
+#define SPIRV_CROSS_LOOP [[dont_unroll]]
+#else
+#define SPIRV_CROSS_FLATTEN
+#define SPIRV_CROSS_BRANCH
+#define SPIRV_CROSS_UNROLL
+#define SPIRV_CROSS_LOOP
+#endif
+
+#define NRD_BOUNCE 0
+#include "common.glsl"
+layout(set=0,binding=1,rgba8) uniform readonly image2D reblur_reflection_scratch_5;
+layout(set=0,binding=2,rgba16f) uniform readonly image2D reblur_reflection_normal;
+layout(set=0,binding=3,rgba32f) uniform readonly image2D temporal_reblur_reflection_depth;
+layout(set=0,binding=4,rgba8) uniform readonly image2D reblur_reflection_scratch_0;
+layout(set=0,binding=5,rgba32f) uniform readonly image2D reblur_reflection_scratch_1;
+layout(set=0,binding=6,rgba16f) uniform readonly image2D temporal_reblur_reflection_tracking;
+layout(set=0,binding=7,rgba16f) uniform readonly image2D temporal_reblur_reflection_history;
+layout(set=0,binding=8,rgba16f) uniform readonly image2D prev_temporal_reblur_reflection_stabilized;
+layout(set=0,binding=9,rgba16f) uniform image2D out_reblur_reflection_motion;
+layout(set=0,binding=10,rgba32f) uniform image2D out_temporal_reblur_reflection_internal;
+layout(set=0,binding=11,rgba16f) uniform image2D out_reblur_reflection_work;
+layout(set=0,binding=12,rgba16f) uniform image2D out_temporal_reblur_reflection_stabilized;
+
+vec4 reblurFetch_reblur_reflection_scratch_5(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(reblur_reflection_scratch_5,p);
+}
+vec4 reblurNearest_reblur_reflection_scratch_5(vec2 uv) { return imageLoad(reblur_reflection_scratch_5,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_reblur_reflection_scratch_5(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(reblur_reflection_scratch_5,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_reblur_reflection_scratch_5(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(reblur_reflection_scratch_5,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_scratch_5,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+
+vec4 reblurFetch_reblur_reflection_normal(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(reblur_reflection_normal,p);
+}
+vec4 reblurNearest_reblur_reflection_normal(vec2 uv) { return imageLoad(reblur_reflection_normal,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_reblur_reflection_normal(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(reblur_reflection_normal,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(reblur_reflection_normal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_reblur_reflection_normal(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(reblur_reflection_normal,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(reblur_reflection_normal,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_normal,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+
+vec4 reblurFetch_temporal_reblur_reflection_depth(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(temporal_reblur_reflection_depth,p);
+}
+vec4 reblurNearest_temporal_reblur_reflection_depth(vec2 uv) { return imageLoad(temporal_reblur_reflection_depth,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_temporal_reblur_reflection_depth(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(temporal_reblur_reflection_depth,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_reflection_depth,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(temporal_reblur_reflection_depth,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_reflection_depth,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_temporal_reblur_reflection_depth(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(temporal_reblur_reflection_depth,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_reflection_depth,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(temporal_reblur_reflection_depth,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_reflection_depth,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+
+vec4 reblurFetch_reblur_reflection_scratch_0(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(reblur_reflection_scratch_0,p);
+}
+vec4 reblurNearest_reblur_reflection_scratch_0(vec2 uv) { return imageLoad(reblur_reflection_scratch_0,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_reblur_reflection_scratch_0(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(reblur_reflection_scratch_0,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_scratch_0,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(reblur_reflection_scratch_0,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(reblur_reflection_scratch_0,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_reblur_reflection_scratch_0(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(reblur_reflection_scratch_0,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_scratch_0,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(reblur_reflection_scratch_0,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(reblur_reflection_scratch_0,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+uvec4 reblurUintLoad_reblur_reflection_scratch_1(ivec2 p) {
+ vec4 v=imageLoad(reblur_reflection_scratch_1,p); return uvec4(uint(v.x) | (uint(v.y) << 16u),0u,0u,1u);
+}
+uvec4 reblurFetch_reblur_reflection_scratch_1(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return uvec4(0);
+ return reblurUintLoad_reblur_reflection_scratch_1(p);
+}
+uvec4 reblurNearest_reblur_reflection_scratch_1(vec2 uv) { return reblurUintLoad_reblur_reflection_scratch_1(clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+uvec4 reblurGather_reblur_reflection_scratch_1(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return uvec4(reblurUintLoad_reblur_reflection_scratch_1(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,reblurUintLoad_reblur_reflection_scratch_1(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ reblurUintLoad_reblur_reflection_scratch_1(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,reblurUintLoad_reblur_reflection_scratch_1(clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+
+vec4 reblurFetch_temporal_reblur_reflection_tracking(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(temporal_reblur_reflection_tracking,p);
+}
+vec4 reblurNearest_temporal_reblur_reflection_tracking(vec2 uv) { return imageLoad(temporal_reblur_reflection_tracking,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_temporal_reblur_reflection_tracking(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(temporal_reblur_reflection_tracking,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_reflection_tracking,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(temporal_reblur_reflection_tracking,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_reflection_tracking,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_temporal_reblur_reflection_tracking(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(temporal_reblur_reflection_tracking,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_reflection_tracking,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(temporal_reblur_reflection_tracking,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_reflection_tracking,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+
+vec4 reblurFetch_temporal_reblur_reflection_history(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(temporal_reblur_reflection_history,p);
+}
+vec4 reblurNearest_temporal_reblur_reflection_history(vec2 uv) { return imageLoad(temporal_reblur_reflection_history,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_temporal_reblur_reflection_history(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(temporal_reblur_reflection_history,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_reflection_history,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(temporal_reblur_reflection_history,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(temporal_reblur_reflection_history,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_temporal_reblur_reflection_history(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(temporal_reblur_reflection_history,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_reflection_history,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(temporal_reblur_reflection_history,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(temporal_reblur_reflection_history,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+
+vec4 reblurFetch_prev_temporal_reblur_reflection_stabilized(ivec2 p) {
+ if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+ return imageLoad(prev_temporal_reblur_reflection_stabilized,p);
+}
+vec4 reblurNearest_prev_temporal_reblur_reflection_stabilized(vec2 uv) { return imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurLinear_prev_temporal_reblur_reflection_stabilized(vec2 uv) {
+ vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
+ return mix(mix(imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+ mix(imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+}
+vec4 reblurGather_prev_temporal_reblur_reflection_stabilized(vec2 uv, ivec2 offset) {
+ ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
+ return vec4(imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+ imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(prev_temporal_reblur_reflection_stabilized,clamp(b,ivec2(0),reblurExtent()-1)).x);
+}
+void reblurStore_out_reblur_reflection_motion(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_motion,p,v); }
+uvec4 reblurUintLoad_out_temporal_reblur_reflection_internal(ivec2 p) {
+ vec4 v=imageLoad(out_temporal_reblur_reflection_internal,p); return uvec4(uint(v.x),0u,0u,1u);
+}
+void reblurStore_out_temporal_reblur_reflection_internal(ivec2 p,uvec4 v) { imageStore(out_temporal_reblur_reflection_internal,p,vec4(float(v.x & 65535u),0.0,0.0,1.0)); }
+void reblurStore_out_reblur_reflection_work(ivec2 p,vec4 v) { imageStore(out_reblur_reflection_work,p,v); }
+void reblurStore_out_temporal_reblur_reflection_stabilized(ivec2 p,vec4 v) { imageStore(out_temporal_reblur_reflection_stabilized,p,vec4(v.x,0.0,0.0,1.0)); }
+layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
+
+vec3 _173;
+vec3 _175;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+shared float s_SpecLuma[18][10];
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main()
+{
+    if(!reblurEnabled()) return;
+    reblurLoadConstants();
+    do
+    {
+        ivec2 _194 = ivec2((((((uvec2(nrd.gRectSize) + uvec2(7u, 15u)) / uvec2(8u, 16u)) - uvec2(1u)) - gl_WorkGroupID.xy) * uvec2(8u, 16u)) + uvec2(ivec3(gl_LocalInvocationID).xy));
+        vec4 _198 = reblurFetch_reblur_reflection_scratch_5(ivec2(uvec2(_194 >> ivec2(4))));
+        float _199 = _198.x;
+        if (_199 == 0.0)
+        {
+            uint _205 = gl_LocalInvocationIndex % 10u;
+            uint _206 = gl_LocalInvocationIndex / 10u;
+            uvec2 _208 = uvec2((_194 - ivec3(gl_LocalInvocationID).xy) - ivec2(1));
+            uvec2 _214 = uvec2(clamp(ivec2(_208 + uvec2(_205, _206)), ivec2(0), nrd.gRectSizeMinusOne));
+            s_SpecLuma[_206][_205] = (!(abs(reblurFetch_temporal_reblur_reflection_depth(ivec2(_214)).x * nrd.gViewZScale) < nrd.gDenoisingRange)) ? (-32768.0) : reblurFetch_temporal_reblur_reflection_history(ivec2(_214)).x;
+            uint _231 = gl_LocalInvocationIndex + 128u;
+            uint _232 = _231 % 10u;
+            uint _233 = _231 / 10u;
+            if (_231 < 180u)
+            {
+                uvec2 _241 = uvec2(clamp(ivec2(_208 + uvec2(_232, _233)), ivec2(0), nrd.gRectSizeMinusOne));
+                s_SpecLuma[_233][_232] = (!(abs(reblurFetch_temporal_reblur_reflection_depth(ivec2(_241)).x * nrd.gViewZScale) < nrd.gDenoisingRange)) ? (-32768.0) : reblurFetch_temporal_reblur_reflection_history(ivec2(_241)).x;
+            }
+        }
+        barrier();
+        bool _262;
+        if (!(_199 != 0.0))
+        {
+            _262 = any(greaterThan(_194, nrd.gRectSizeMinusOne));
+        }
+        else
+        {
+            _262 = true;
+        }
+        if (_262)
+        {
+            break;
+        }
+        uvec2 _265 = uvec2(_194);
+        float _272 = abs(reblurFetch_temporal_reblur_reflection_depth(ivec2(_265)).x * nrd.gViewZScale);
+        if (!(_272 < nrd.gDenoisingRange))
+        {
+            break;
+        }
+        vec2 _283 = (vec2(_194) + vec2(0.5)) * nrd.gRectSizeInv;
+        bool _292 = nrd.gOrthoMode == 0.0;
+        vec2 _295 = ((_283 * nrd.gFrustum.zw) + nrd.gFrustum.xy).xy * (_292 ? _272 : nrd.gOrthoMode);
+        vec3 _296 = vec3(_295.x, _295.y, _173.z);
+        _296.z = _272;
+        vec3 _307 = _296 * mat3(nrd.gViewToWorld[0].xyz, nrd.gViewToWorld[1].xyz, nrd.gViewToWorld[2].xyz);
+        vec3 _318 = (imageLoad(out_reblur_reflection_motion,ivec2(_265)).xyz * nrd.gMvScale.xyz) + nrd.gMvBias.xyz;
+        vec2 _320 = _283 + _318.xy;
+        vec2 _385;
+        vec3 _386;
+        if (nrd.gMvScale.w == 0.0)
+        {
+            vec3 _356;
+            if (nrd.gMvScale.z == 0.0)
+            {
+                vec3 _355;
+                _355.z = (vec4(_307, 1.0) * nrd.gWorldToViewPrev).z - _272;
+                _356 = _355;
+            }
+            else
+            {
+                _356 = _318;
+            }
+            float _358 = _272 + _356.z;
+            vec2 _367 = ((_320 * nrd.gFrustumPrev.zw) + nrd.gFrustumPrev.xy).xy * (_292 ? _358 : nrd.gOrthoMode);
+            vec3 _368 = vec3(_367.x, _367.y, _173.z);
+            _368.z = _358;
+            mat4 _372 = transpose(nrd.gWorldToViewPrev);
+            _385 = _320;
+            _386 = (_368 * mat3(_372[0].xyz, _372[1].xyz, _372[2].xyz)) + nrd.gCameraDelta.xyz;
+        }
+        else
+        {
+            vec3 _327 = _307 + _318;
+            vec4 _334 = vec4(_327, 1.0) * nrd.gWorldToClipPrev;
+            _385 = ((_334.xy / vec2(_334.w)) * vec2(0.5, -0.5)) + vec2(0.5);
+            _386 = _327;
+        }
+        vec4 _388 = reblurFetch_reblur_reflection_normal(ivec2(_265));
+        float _391 = (_388.z * 2.0) - 1.0;
+        float _392 = _388.x;
+        float _393 = _388.y;
+        float _394 = _392 - _393;
+        float _396 = (_392 + _393) - 1.0;
+        float _405 = abs(_391);
+        float _407 = _388.w;
+        float _408 = _407 * 3.0;
+        vec3 _409 = vec4(_394, _396, float((_391 < 0.0) ? (-1) : 1) * ((1.0 - abs(_394)) - abs(_396)), _405).xyz;
+        vec3 _413 = _409 * inversesqrt(spvNMax(dot(_409, _409), 9.999999717180685365747194737196e-10));
+        vec3 _414 = _413.xyz;
+        vec4 _416 = reblurFetch_reblur_reflection_scratch_0(ivec2(_265));
+        vec2 _417 = _416.xy;
+        _417.y = _416.x;
+        vec2 _421 = roundEven(_417 * 63.0);
+        uvec4 _423 = reblurFetch_reblur_reflection_scratch_1(ivec2(_265));
+        uint _424 = _423.x;
+        bool _427 = (_424 & 32768u) != 0u;
+        float _431 = float((_424 >> 8u) & 127u) * 0.0078740157186985015869140625;
+        vec2 _433 = unpackHalf2x16(_424 >> 16u);
+        float _434 = _433.x;
+        vec2 _438 = (_385 * nrd.gRectSizePrev) - vec2(0.5);
+        vec2 _441 = clamp(_438 - floor(_438), vec2(0.0), vec2(1.0));
+        uvec4 _442 = uvec4(_424 & 255u);
+        vec4 _445 = vec4(notEqual((_442 & uvec4(1u, 2u, 4u, 8u)), uvec4(0u)));
+        vec2 _447 = clamp(vec2(1.0) - _441, vec2(0.0), vec2(1.0));
+        float _448 = _447.x;
+        float _449 = _447.y;
+        float _451 = _445.x;
+        float _453 = _441.x;
+        float _455 = _445.y;
+        float _457 = _441.y;
+        float _459 = _445.z;
+        float _462 = _445.w;
+        ivec2 _470 = ivec3(gl_LocalInvocationID).xy + ivec2(1);
+        int _471 = _470.y;
+        int _472 = _470.x;
+        float _477;
+        float _480;
+        _477 = s_SpecLuma[_471][_472] * s_SpecLuma[_471][_472];
+        _480 = s_SpecLuma[_471][_472];
+        float _478;
+        float _481;
+        SPIRV_CROSS_UNROLL
+        for (int _482 = 0; _482 <= 2; _477 = _478, _480 = _481, _482++)
+        {
+            _478 = _477;
+            _481 = _480;
+            float _488;
+            float _490;
+            SPIRV_CROSS_UNROLL
+            for (int _491 = 0; _491 <= 2; _478 = _488, _481 = _490, _491++)
+            {
+                bool _500;
+                if (_491 == 1)
+                {
+                    _500 = _482 == 1;
+                }
+                else
+                {
+                    _500 = false;
+                }
+                if (_500)
+                {
+                    _488 = _478;
+                    _490 = _481;
+                    continue;
+                }
+                ivec2 _504 = ivec3(gl_LocalInvocationID).xy + ivec2(_491, _482);
+                int _505 = _504.y;
+                int _506 = _504.x;
+                float _510 = (s_SpecLuma[_505][_506] == (-32768.0)) ? s_SpecLuma[_471][_472] : s_SpecLuma[_505][_506];
+                _488 = _478 + (_510 * _510);
+                _490 = _481 + _510;
+            }
+        }
+        float _514 = _480 * 0.111111111938953399658203125;
+        float _519 = sqrt(abs((_477 * 0.111111111938953399658203125) - (_514 * _514)));
+        float _520 = _421.y;
+        float _531;
+        if (_520 < nrd.gHistoryFixFrameNum)
+        {
+            _531 = spvNMin(s_SpecLuma[_471][_472], _514 * (1.2000000476837158203125 + (1.0 / (1.0 + _520))));
+        }
+        else
+        {
+            _531 = s_SpecLuma[_471][_472];
+        }
+        vec4 _533 = reblurFetch_temporal_reblur_reflection_tracking(ivec2(_265));
+        float _534 = _533.x;
+        vec3 _543;
+        if (_292)
+        {
+            _543 = normalize(-_307);
+        }
+        else
+        {
+            _543 = nrd.gViewVectorWorld.xyz;
+        }
+        float _546 = clamp(_405, 0.0, 1.0);
+        float _550 = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * _546));
+        float _552 = clamp(1.0 - abs(dot(_414, _543)), 0.0, 1.0);
+        float _557 = clamp((pow(_552, 10.86489963531494140625) * (1.0 - _550)) + _550, 0.0, 1.0);
+        float _569 = _413.z;
+        float _572 = (step(0.0, _569) * 2.0) - 1.0;
+        float _574 = 1.0 / (_572 + _569);
+        float _575 = _413.y;
+        float _576 = _575 * _574;
+        float _577 = _413.x;
+        float _578 = _577 * _576;
+        float _579 = _577 * _572;
+        vec3 _589 = (vec4(normalize(mix(_414, reflect(-_543, _414), vec3(_557))), _557).xyz * _534) * mat3(vec3(((_579 * _577) * _574) - 1.0, _572 * _578, _579), vec3(_578, (_575 * _576) - _572, _575), _414);
+        float _591 = -_589.z;
+        vec3 _592 = _589;
+        _592.z = _591;
+        float _603 = (1.0 / (((2.0 * _434) * _591) - 1.0)) * (1.0 / (1.0 + ((length(_307) * _552) * spvNMax(_434, 0.0))));
+        float _606 = _557 * length(_592 * _603);
+        vec4 _624 = vec4(mix(_386, _307, vec3(clamp(_606 / (_534 + 9.9999999747524270787835121154785e-07), 0.0, 1.0))) + ((_543 * _606) * ((step(0.0, _603) * 2.0) - 1.0)), 1.0) * nrd.gWorldToClipPrev;
+        vec2 _635 = mix(((_624.xy / vec2(_624.w)) * vec2(0.5, -0.5)) + vec2(0.5), _385, bvec2(_408 == nrd.gCameraAttachedReflectionMaterialID));
+        vec2 _637 = (_635 * nrd.gRectSizePrev) - vec2(0.5);
+        vec2 _640 = clamp(_637 - floor(_637), vec2(0.0), vec2(1.0));
+        vec4 _643 = vec4(notEqual((_442 & uvec4(16u, 32u, 64u, 128u)), uvec4(0u)));
+        vec2 _645 = clamp(vec2(1.0) - _640, vec2(0.0), vec2(1.0));
+        float _646 = _645.x;
+        float _647 = _645.y;
+        float _649 = _643.x;
+        float _651 = _640.x;
+        float _653 = _643.y;
+        float _655 = _640.y;
+        float _657 = _643.z;
+        float _660 = _643.w;
+        bool _677 = (_431 < 0.5) ? _427 : (((dot(_643, vec4(1.0)) > 3.5) ? true : false) ? _427 : false);
+        vec2 _679 = clamp(mix(_385, _635, vec2(_431)), vec2(0.0), vec2(1.0)) * nrd.gRectSizePrev;
+        vec2 _685 = floor(_679 - vec2(0.5)) + vec2(0.5);
+        vec2 _687 = clamp(_679 - _685, vec2(0.0), vec2(1.0));
+        vec2 _692 = _687 * ((_687 * ((_687 * (-0.5)) + vec2(1.0))) - vec2(0.5));
+        vec2 _702 = _687 * ((_687 * ((_687 * (-1.5)) + vec2(2.0))) + vec2(0.5));
+        vec2 _706 = _687 * (_687 * ((_687 * 0.5) - vec2(0.5)));
+        vec2 _707 = ((_687 * (_687 * ((_687 * 1.5) - vec2(2.5)))) + vec2(1.0)) + _702;
+        vec2 _708 = _702 / _707;
+        float _709 = _707.x;
+        float _713 = _707.y;
+        vec4 _722 = mix(mix(vec4(_451 * (_448 * _449), _455 * (_453 * _449), _459 * (_448 * _457), _462 * (_453 * _457)), vec4(_649 * (_646 * _647), _653 * (_651 * _647), _657 * (_646 * _655), _660 * (_651 * _655)), vec4(_431)), vec4(_709 * _692.y, _692.x * _713, _709 * _713, _706.x * _713), bvec4(_677));
+        float _723 = _677 ? (_709 * _706.y) : 0.0;
+        float _725 = dot(_722, vec4(1.0)) + _723;
+        vec4 _726 = _685.xyxy;
+        vec4 _733;
+        if (_677)
+        {
+            _733 = vec4(_708.x, -1.0, -1.0, _708.y);
+        }
+        else
+        {
+            _733 = vec4(0.0, 0.0, 1.0, 0.0);
+        }
+        vec4 _741;
+        if (_677)
+        {
+            _741 = vec4(_708, 2.0, _708.y);
+        }
+        else
+        {
+            _741 = vec4(0.0, 1.0, 1.0, 1.0);
+        }
+        vec2 _748;
+        if (_677)
+        {
+            _748 = vec2(_708.x, 2.0);
+        }
+        else
+        {
+            _748 = _687;
+        }
+        vec4 _751 = (_726 + _733) * nrd.gResourceSizeInvPrev.xyxy;
+        vec4 _752 = (_726 + _741) * nrd.gResourceSizeInvPrev.xyxy;
+        float _796;
+        if (_725 < 9.9999997473787516355514526367188e-05)
+        {
+            _796 = 0.0;
+        }
+        else
+        {
+            _796 = (((((reblurLinear_prev_temporal_reblur_reflection_stabilized(_751.xy).x * _722.x) + (reblurLinear_prev_temporal_reblur_reflection_stabilized(_751.zw).x * _722.y)) + (reblurLinear_prev_temporal_reblur_reflection_stabilized(_752.xy).x * _722.z)) + (reblurLinear_prev_temporal_reblur_reflection_stabilized(_752.zw).x * _722.w)) + (reblurLinear_prev_temporal_reblur_reflection_stabilized((_685 + _748) * nrd.gResourceSizeInvPrev).x * _723)) / _725;
+        }
+        float _797 = spvNMax(_796, 0.0);
+        float _798 = mix(sqrt(clamp(mix(mix(_451, _455, _453), mix(_459, _462, _453), _457), 0.0, 1.0)), sqrt(clamp(mix(mix(_649, _653, _651), mix(_657, _660, _651), _655), 0.0, 1.0)), _431);
+        float _802 = _519 * nrd.gAntilagSettings.x;
+        float _805 = 2.0 * nrd.gFrameRateScaleSmoothed;
+        float _812 = clamp(_797, _514 - _802, _514 + _802);
+        float _821 = 1.0 / (1.0 + (((abs(_797 - _812) / (spvNMax(_797, _812) + 9.9999999747524270787835121154785e-07)) * (_798 * _520)) / ((nrd.gAntilagSettings.y * _805) * _805)));
+        float _823 = mix(spvNMin(_520, nrd.gHistoryFixFrameNum), _520, _821);
+        float _843 = (_798 * (1.0 - (1.0 / (1.0 + ((nrd.gConvergenceSettings.x * mix(nrd.gConvergenceSettings.y, 1.0, clamp(_823 / (1.0 + (nrd.gMaxAccumulatedFrameNum * nrd.gConvergenceSettings.z)), 0.0, 1.0))) * _823))))) * _821;
+        float _862;
+        if (_431 != 1.0)
+        {
+            _862 = float(_385.x >= nrd.gSplitScreenPrev);
+        }
+        else
+        {
+            _862 = 1.0;
+        }
+        float _873;
+        if (_431 != 0.0)
+        {
+            _873 = float(_635.x >= nrd.gSplitScreenPrev);
+        }
+        else
+        {
+            _873 = 1.0;
+        }
+        float _879 = clamp(spvNMax(_405, 0.001000000047497451305389404296875) * nrd.gResponsiveAccumulationInvRoughnessThreshold, 0.0, 1.0);
+        float _892 = mix((1.0 - exp2(((-200.0) * _405) * _405)) * pow(_546, 0.25), 1.0, 0.5 + (((_879 * _879) * (3.0 - (_879 * 2.0))) * 0.5));
+        float _899;
+        if (_408 == nrd.gStrandMaterialID)
+        {
+            _899 = spvNMin(_892, 0.5);
+        }
+        else
+        {
+            _899 = _892;
+        }
+        float _901 = _519 * (1.0 + ((_843 * 6.0) * nrd.gFrameRateScaleSmoothed));
+        float _908 = mix(_531, clamp(_797, _514 - _901, _514 + _901), spvNMin((((_843 * float(_283.x >= nrd.gSplitScreen)) * _862) * _873) * _899, nrd.gStabilizationStrength));
+        vec4 _910 = reblurFetch_temporal_reblur_reflection_history(ivec2(_265));
+        vec3 _915 = _910.xyz * (_908 / spvNMax(_910.x, 9.9999999747524270787835121154785e-07));
+        vec4 _916 = vec4(_915.x, _915.y, _915.z, _910.w);
+        float _924;
+        if (nrd.gReturnHistoryLengthInsteadOfOcclusion != 0u)
+        {
+            _924 = _823;
+        }
+        else
+        {
+            _924 = _910.w;
+        }
+        _916.w = _924;
+        reblurStore_out_reblur_reflection_work(ivec2(_265),_916);
+        reblurStore_out_temporal_reblur_reflection_stabilized(ivec2(_265),vec4(_908));
+        uvec4 _943 = uvec4((clamp(vec3(roundEven(spvNMin(_421.x + 1.0, nrd.gMaxAccumulatedFrameNum)) * 0.01587301678955554962158203125, roundEven(spvNMin(_823 + 1.0, nrd.gMaxAccumulatedFrameNum)) * 0.01587301678955554962158203125, _407 * 0.2000000178813934326171875).xyzz, vec4(0.0), vec4(1.0)) * vec4(63.0, 63.0, 15.0, 0.0)) + vec4(0.5));
+        uvec3 _945 = _943.yzw << uvec3(6u, 12u, 16u);
+        uvec2 _949 = uvec4(_943.x, _945.x, _945.y, _945.z).xy | _945.yz;
+        reblurStore_out_temporal_reblur_reflection_internal(ivec2(_265),uvec4(_949.x | _949.y));
+        break;
+    } while(false);
+}
+

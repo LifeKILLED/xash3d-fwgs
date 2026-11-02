@@ -395,10 +395,25 @@ void NrdConstants::AddSharedConstants_Reblur(const ReblurSettings& settings, voi
     consts->gReturnHistoryLengthInsteadOfOcclusion = settings.returnHistoryLengthInsteadOfOcclusion ? 1 : 0;
 }
 
+static void halfProjection(float *projection,unsigned width,unsigned height) {
+ float scaleX=(float)width/(2*(width/2)),scaleY=(float)height/(2*(height/2));
+ float biasX=scaleX-1.0f+0.5f/(width/2),biasY=scaleY-1.0f+0.5f/(height/2);
+ for(unsigned column=0;column<4;column++) {
+  projection[column*4]=projection[column*4]*scaleX+projection[column*4+3]*biasX;
+  projection[column*4+1]=projection[column*4+1]*scaleY+projection[column*4+3]*biasY;
+ }
+}
+
 extern "C" void NrdPrepareConstants(const NrdFrame *frame,void *data) {
+ NrdFrame local=*frame;
+ if(local.signal==0) {
+  halfProjection(local.projection,local.width,local.height);
+  halfProjection(local.previousProjection,local.previousWidth,local.previousHeight);
+  local.width/=2;local.height/=2;local.previousWidth/=2;local.previousHeight/=2;
+ }
  alignas(16) unsigned char aligned[1024] = {};
  static NrdConstants controllers[2];
- NrdConstants& c=controllers[frame->signal & 1]; c.Prepare(*frame);
+ NrdConstants& c=controllers[frame->signal & 1]; c.Prepare(local);
  { ReblurSettings s; s.hitDistanceParameters.A=118.11024f; c.AddSharedConstants_Reblur(s,aligned); }
  memcpy(data,aligned,1024);
 }

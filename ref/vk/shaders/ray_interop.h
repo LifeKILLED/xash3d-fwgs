@@ -384,6 +384,13 @@ struct UniformBuffer {
 	uint bounce_count; // rt_bounces; independent GI keeps the entire path in one pixel.
 	uint nrd_bounce, nrd_reflection;
 	PAD(1)
+#ifdef GLSL
+	uvec4 nrd_bounce_constants[64];
+	uvec4 nrd_reflection_constants[64];
+#else
+	uint32_t nrd_bounce_constants[64][4];
+	uint32_t nrd_reflection_constants[64][4];
+#endif
 };
 
 #undef PAD

@@ -1,6 +1,4 @@
 #include "VMeatpipe.h"
-#include "VNrd.h"
-#include "shaders/ray_interop.h"
 
 #include "VPipeline.h"
 #include "VResource.h"
@@ -15,7 +13,7 @@
 #define MIN(a,b) ((a)<(b)?(a):(b))
 
 #define CHAR4UINT(a,b,c,d) (((d)<<24)|((c)<<16)|((b)<<8)|(a))
-static const uint32_t k_meatpipe_magic = CHAR4UINT('M', 'E', 'A', 'T');
+static const uint32_t k_meatpipe_magic = CHAR4UINT('M', 'E', 'A', '2');
 
 enum {
 	MEATPIPE_RES_WRITE = (1<<0),
@@ -31,6 +29,7 @@ typedef struct {
 	union {
 		uint32_t image_format;
 	};
+	uint32_t extent_divisor[2];
 
 	// Index+1 of resource image to read data from if this resource is a "previous frame" contents of another one.
 	// Value of zero means that it is a standalone resource. The real index is the value - 1.
@@ -56,7 +55,6 @@ typedef struct vk_meatpipe_s {
 struct ray_pass_s;
 typedef struct vk_meatpipe_pass_s {
 	struct ray_pass_s* pass;
-	char name[64];
 	int write_from;
 	int resource_count;
 	int *resource_map;
@@ -151,10 +149,16 @@ static struct ray_pass_s *pipelineLoadCompute(load_context_t *ctx, int i, const 
 		return NULL;
 	}
 
+	uint32_t divisor[2], span[2];
+	for(int axis=0;axis<2;axis++) divisor[axis] = READ_U32_RETURN(NULL,"Missing dispatch divisor");
+	for(int axis=0;axis<2;axis++) span[axis] = READ_U32_RETURN(NULL,"Missing workgroup span");
+	if(!divisor[0] || !divisor[1] || !span[0] || !span[1]) return NULL;
 	const ray_pass_create_compute_t rpcc = {
 		.debug_name = name,
 		.layout = *layout,
 		.shader_module = ctx->shaders[shader_comp],
+		.dispatch_divisor = {divisor[0],divisor[1]},
+		.group_span = {span[0],span[1]},
 	};
 
 	return RayPassCreateCompute(&rpcc);
@@ -298,7 +302,6 @@ static qboolean readAndCreatePass(load_context_t *ctx, int i) {
 	char name[64];
 	READ_STR(name, "Couldn't read pipeline %d name", i);
 
-	memcpy(pass->name,name,sizeof(pass->name));
 	DEBUG("%d: loading pipeline %s", i, name);
 
 	if (!readBindings(ctx, bindings, pass)) {
@@ -350,6 +353,8 @@ static qboolean readResources(load_context_t *ctx) {
 		if (is_image) {
 			res->image_format = READ_U32("Couldn't read image format for res %d:%s", i, res->name);
 			res->prev_frame_index_plus_1 = READ_U32("Couldn't read resource %d:%s previous frame index", i, res->name);
+			for(int axis=0;axis<2;axis++) res->extent_divisor[axis] = READ_U32("Missing image extent divisor");
+			if(!res->extent_divisor[0] || !res->extent_divisor[1]) goto finalize;
 		}
 
 		DEBUG("Resource %d:%s = %08x is_image=%d image_format=%08x count=%d",
@@ -525,6 +530,8 @@ static rt_resource_t *createStorageImageResource(const vk_meatpipe_resource_t *c
 		return NULL;
 	}
 
+	max_width = (max_width + mr->extent_divisor[0]-1)/mr->extent_divisor[0];
+	max_height = (max_height + mr->extent_divisor[1]-1)/mr->extent_divisor[1];
 	vk_resource_storage_image_t *res = NULL;
 	rt_resource_t *found = R_VkResourceFindByName(mr->name);
 	if (found) {
@@ -569,7 +576,6 @@ static rt_resource_t *createStorageImageResource(const vk_meatpipe_resource_t *c
 			// TODO figure out how to detect this need properly. prev_dest is not defined as "output"
 			//.usage = VK_IMAGE_USAGE_STORAGE_BIT | (output ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT : 0),
 			.usage = VK_IMAGE_USAGE_STORAGE_BIT
-				| VK_IMAGE_USAGE_SAMPLED_BIT // required by VK_IMAGE_LAYOUT_SHADER_READ_OPTIMAL
 				| VK_IMAGE_USAGE_TRANSFER_SRC_BIT
 				| VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			.flags = 0,
@@ -734,31 +740,6 @@ static void swapPingPongImages(vk_meatpipe_t *meatpipe, vk_combuf_t* combuf, qbo
 	}
 }
 
-static r_vk_image_t *nrdGraphImage(vk_meatpipe_t *mp,const char *name) {
- for(int i=0;i<mp->resources_count;i++) if(!strcmp(mp->resources[i].name,name)) {
-  vk_resource_storage_image_t *r=(vk_resource_storage_image_t*)mp->acquired_resources[i];
-  return &r->image;
- }
- ASSERT(0);return NULL;
-}
-static void nrdPerform(vk_meatpipe_t *mp,vk_meatpipe_dispatch_t args) {
- const struct UniformBuffer *u=args.frame_uniform;
- if(!u)return;
- static double previousTime=0;double now=gEngine.pfnTime();
- NrdDispatch n={0};n.frameSlot=args.frame_set_slot;n.diffuseMode=u->nrd_bounce;n.specularMode=u->nrd_reflection;
- memcpy(n.frame.projection,u->proj,64);memcpy(n.frame.previousProjection,u->prev_proj,64);
- memcpy(n.frame.view,u->view,64);memcpy(n.frame.previousView,u->prev_view,64);
- n.frame.width=n.frame.previousWidth=args.width;n.frame.height=n.frame.previousHeight=args.height;
- n.frame.frame=args.frame_sequence;n.frame.reset=args.is_discontinuous;
- n.frame.deltaMilliseconds=previousTime?(float)((now-previousTime)*1000.0):16.6667f;previousTime=now;
- n.position=nrdGraphImage(mp,"position_t");n.normals=nrdGraphImage(mp,"normals_gs");n.material=nrdGraphImage(mp,"material_rmxx");
- n.previousPosition=nrdGraphImage(mp,"geometry_prev_position");
- n.diffuse=nrdGraphImage(mp,"indirect_diffuse");n.specular=nrdGraphImage(mp,"indirect_specular");
- n.diffuseRay=nrdGraphImage(mp,"first_bounce_direction");n.specularRay=nrdGraphImage(mp,"reflection_direction_pdf");
- n.diffuseDestination=nrdGraphImage(mp,"nrd_diff_filtered");n.specularDestination=nrdGraphImage(mp,"nrd_spec_filtered");
- R_VkNrdDispatch(args.combuf,&n);
-}
-
 struct r_vk_image_s* R_VkMeatpipeDispatch(struct vk_meatpipe_s *meatpipe, vk_meatpipe_dispatch_t args) {
 	APROF_SCOPE_DECLARE_BEGIN(dispatch, __FUNCTION__);
 
@@ -777,7 +758,6 @@ struct r_vk_image_s* R_VkMeatpipeDispatch(struct vk_meatpipe_s *meatpipe, vk_mea
 				.resources_map = pass->resource_map,
 			}
 		);
-		if(!strcmp(pass->name,"nrd_resources")) nrdPerform(meatpipe,args);
 	}
 	APROF_SCOPE_END(dispatch);
 
