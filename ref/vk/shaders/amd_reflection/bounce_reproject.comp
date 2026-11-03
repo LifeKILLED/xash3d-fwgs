@@ -7,7 +7,7 @@
 #define AMD_POSITION_T_IMAGE position_t
 #define AMD_GEOMETRY_PREV_POSITION_IMAGE geometry_prev_position
 #define AMD_NORMALS_GS_IMAGE normals_gs
-#define AMD_INDIRECT_SPECULAR_IMAGE indirect_diffuse
+#define AMD_INDIRECT_SPECULAR_IMAGE firefly_filtered_diffuse
 #define AMD_PREV_TEMPORAL_AMD_RADIANCE_IMAGE prev_temporal_amd_bounce_radiance
 #define AMD_PREV_TEMPORAL_AMD_GEOMETRY_IMAGE prev_temporal_amd_bounce_geometry
 #define AMD_PREV_TEMPORAL_AMD_DEPTH_IMAGE prev_temporal_amd_bounce_depth

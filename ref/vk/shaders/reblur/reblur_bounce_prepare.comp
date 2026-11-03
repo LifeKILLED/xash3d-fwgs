@@ -9,7 +9,7 @@
 #define NORMALS_GS_IMAGE normals_gs
 #define MATERIAL_RMXX_IMAGE material_rmxx
 #define GEOMETRY_PREV_POSITION_IMAGE geometry_prev_position
-#define INPUT_RADIANCE_IMAGE indirect_diffuse
+#define INPUT_RADIANCE_IMAGE firefly_filtered_diffuse
 #define INPUT_RAY_IMAGE first_bounce_direction
 #define NORMAL_OUTPUT_IMAGE out_reblur_bounce_normal
 #define VIEWZ_OUTPUT_IMAGE out_reblur_bounce_viewz

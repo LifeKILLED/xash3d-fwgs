@@ -1,0 +1,6 @@
+#version 460
+
+#define FIREFLY_INPUT indirect_specular
+#define FIREFLY_OUTPUT out_firefly_filtered_specular
+#define FIREFLY_PIXEL_SCALE 1
+#include "firefly_rejection.glsl"

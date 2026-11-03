@@ -6,7 +6,7 @@
 #define AMD_PIXEL_SCALE 2
 #define AMD_POSITION_T_IMAGE position_t
 #define AMD_NORMALS_GS_IMAGE normals_gs
-#define AMD_INDIRECT_SPECULAR_IMAGE indirect_diffuse
+#define AMD_INDIRECT_SPECULAR_IMAGE firefly_filtered_diffuse
 #define AMD_AMD_VARIANCE_IMAGE amd_bounce_variance
 #define AMD_AMD_AVERAGE_IMAGE amd_bounce_average
 #define AMD_OUT_AMD_FILTERED_IMAGE out_amd_bounce_filtered

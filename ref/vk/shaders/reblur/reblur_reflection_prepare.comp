@@ -9,7 +9,7 @@
 #define NORMALS_GS_IMAGE normals_gs
 #define MATERIAL_RMXX_IMAGE material_rmxx
 #define GEOMETRY_PREV_POSITION_IMAGE geometry_prev_position
-#define INPUT_RADIANCE_IMAGE indirect_specular
+#define INPUT_RADIANCE_IMAGE firefly_filtered_specular
 #define INPUT_RAY_IMAGE reflection_direction_pdf
 #define NORMAL_OUTPUT_IMAGE out_reblur_reflection_normal
 #define VIEWZ_OUTPUT_IMAGE out_reblur_reflection_viewz

@@ -38,6 +38,10 @@ def pass_source(path):
             body = re.sub(r'#if AMD_REFLECTION\n.*?#endif', '', body, flags=re.S)
         aliases = dict(re.findall(r'^#define (AMD_\w+_IMAGE) (\w+)$', source, re.M))
         return re.sub(r'\bAMD_\w+_IMAGE\b', lambda m: aliases[m[0]], body)
+    if path.stem in ('reflection_firefly', 'bounce_firefly'):
+        body = (path.parent / include[1]).read_text()
+        aliases = dict(re.findall(r'^#define (FIREFLY_\w+) (\w+)$', source, re.M))
+        return re.sub(r'\bFIREFLY_\w+\b', lambda m: aliases[m[0]], body)
     if path.parent.name != "reblur":
         return source
     assert include
@@ -114,8 +118,8 @@ environment['PIPELINE_COMPUTE'] = 1
 environment['PIPELINE_RAYTRACING'] = 2
 with (VK / 'shaders/rt.json').open() as stream:
     graph = environment['prepareJSON'](stream)
-selected = {name: desc for name, desc in graph.items() if name.startswith(('reblur_', 'amd_reflection_', 'amd_bounce_')) or name == 'nrd_resolve'}
-assert len(selected) == 23
+selected = {name: desc for name, desc in graph.items() if name.startswith(('reblur_', 'amd_reflection_', 'amd_bounce_')) or name in ('reflection_firefly', 'bounce_firefly', 'nrd_resolve')}
+assert len(selected) == 25
 pipelines = environment['NameIndex']()
 for name, desc in selected.items():
     pipelines.put(name, environment['PipelineCompute'](name, desc))
@@ -280,4 +284,4 @@ for value in [0,1,255,65535,65536,0x7f800000,0x7fc00000,0x80000000,0xffffffff] +
     low,high = f32(value & 65535), f32(value >> 16)
     assert (int(low) | (int(high)<<16)) == value
 
-print('Reflection denoiser graph checks passed: 23 nodes, 23 history pairs, original MEAT format, existing RGBA formats, producer order, named UBO fields and layout, group guards, exact integer storage.')
+print('Reflection denoiser graph checks passed: 25 nodes, 23 history pairs, original MEAT format, existing RGBA formats, producer order, named UBO fields and layout, group guards, exact integer storage.')

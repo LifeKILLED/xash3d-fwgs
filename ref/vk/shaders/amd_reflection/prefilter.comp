@@ -7,7 +7,7 @@
 #define AMD_POSITION_T_IMAGE position_t
 #define AMD_NORMALS_GS_IMAGE normals_gs
 #define AMD_MATERIAL_RMXX_IMAGE material_rmxx
-#define AMD_INDIRECT_SPECULAR_IMAGE indirect_specular
+#define AMD_INDIRECT_SPECULAR_IMAGE firefly_filtered_specular
 #define AMD_AMD_VARIANCE_IMAGE amd_variance
 #define AMD_AMD_AVERAGE_IMAGE amd_average
 #define AMD_OUT_AMD_FILTERED_IMAGE out_amd_filtered

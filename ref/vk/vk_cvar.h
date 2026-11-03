@@ -35,6 +35,7 @@ void VK_LoadCvarsAfterInit( void );
 	X(rt_disable_refraction) \
 	X(rt_disable_reconstruction) \
 	X(rt_disable_atrous) \
+	X(rt_firefly_rejection) \
 	X(rt_nrd_bounce) \
 	X(rt_nrd_reflection) \
 	X(rt_disable_sh_gi_denoising) \

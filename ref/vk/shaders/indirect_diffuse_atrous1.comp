@@ -15,7 +15,7 @@ layout(set = 0, binding = 1, rgba16f) uniform image2D out_indirect_diffuse_atrou
 layout(set = 0, binding = 2, rgba32f) uniform readonly image2D position_t;
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D normals_gs;
 
-layout(set = 0, binding = 4, rgba16f) uniform readonly image2D indirect_diffuse;
+layout(set = 0, binding = 4, rgba16f) uniform readonly image2D firefly_filtered_diffuse;
 
 #include "atrous.glsl"
 
@@ -56,7 +56,7 @@ void main() {
 	// bounce GI, without SH projection/reconstruction and without this a-trous blur.
 	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_INDIRECT_DIFF ||
 		(ubo.ubo.renderer_flags & RENDERER_FLAG_DISABLE_ATROUS) != 0) {
-		const vec3 raw_indirect_diffuse = imageLoad(indirect_diffuse, pix).rgb;
+		const vec3 raw_indirect_diffuse = imageLoad(firefly_filtered_diffuse, pix).rgb;
 		storeIndirectDiffuseUpscaled2x2(pix, res, raw_indirect_diffuse);
 		return;
 	}
@@ -79,7 +79,7 @@ void main() {
 
 			if (weight > 0.0 && all(greaterThanEqual(p, ivec2(0))) && all(lessThan(p, res_scaled))) {
 				weight_total_indirect_diffuse += weight;
-				indiff += imageLoad(indirect_diffuse, p).rgb * weight;
+				indiff += imageLoad(firefly_filtered_diffuse, p).rgb * weight;
 			}
 		}
 	}
