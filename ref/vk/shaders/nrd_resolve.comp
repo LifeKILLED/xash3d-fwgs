@@ -1,13 +1,38 @@
 #version 460
+#extension GL_GOOGLE_include_directive : require
 #define GLSL
 #include "ray_interop.h"
+
 layout(local_size_x=8,local_size_y=8) in;
 layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set=0,binding=1,rgba16f) uniform readonly image2D reblur_bounce_work;
 layout(set=0,binding=2,rgba16f) uniform readonly image2D reblur_reflection_work;
 layout(set=0,binding=3,rgba16f) uniform writeonly image2D out_nrd_diffuse;
 layout(set=0,binding=4,rgba16f) uniform writeonly image2D out_nrd_specular;
-vec3 decode(vec3 c){float t=c.x-c.z;return max(vec3(t+c.y,c.x+c.z,t-c.y),vec3(0));}
-void main(){ivec2 p=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(p,ubo.ubo.res)))return;
-imageStore(out_nrd_diffuse,p,vec4(decode(imageLoad(reblur_bounce_work,min(p/2,ubo.ubo.res/2-1)).rgb),0));
-imageStore(out_nrd_specular,p,vec4(decode(imageLoad(reblur_reflection_work,p).rgb),0));}
+layout(set=0,binding=5,rgba16f) uniform readonly image2D temporal_amd_radiance;
+layout(set=0,binding=6,rgba16f) uniform readonly image2D indirect_specular;
+
+layout(set=0,binding=7,rgba16f) uniform readonly image2D temporal_amd_bounce_radiance;
+
+vec3 decode(vec3 c) {
+    float t = c.x - c.z;
+    return max(vec3(t + c.y, c.x + c.z, t - c.y), vec3(0));
+}
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(p, ubo.ubo.res))) return;
+
+    ivec2 bouncePixel = min(p / 2, ubo.ubo.res / 2 - 1);
+    vec3 bounce = ubo.ubo.nrd_bounce == 2u ? imageLoad(temporal_amd_bounce_radiance, bouncePixel).rgb :
+        decode(imageLoad(reblur_bounce_work, bouncePixel).rgb);
+    imageStore(out_nrd_diffuse, p, vec4(bounce, 0));
+
+    vec3 reflection;
+    switch (ubo.ubo.nrd_reflection) {
+        case 2u: reflection = imageLoad(temporal_amd_radiance, p).rgb; break;
+        case 3u: reflection = imageLoad(indirect_specular, p).rgb; break;
+        default: reflection = decode(imageLoad(reblur_reflection_work, p).rgb); break;
+    }
+    imageStore(out_nrd_specular, p, vec4(reflection, 0));
+}

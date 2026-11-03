@@ -106,6 +106,12 @@
 	"reblur_reflection_blur": {"comp": "reblur/reblur_reflection_blur"},
 	"reblur_reflection_postblur": {"comp": "reblur/reblur_reflection_postblur"},
 	"reblur_reflection_temporalstabilization": {"comp": "reblur/reblur_reflection_temporalstabilization"},
+	"amd_reflection_reproject": {"comp": "amd_reflection/reproject"},
+	"amd_reflection_prefilter": {"comp": "amd_reflection/prefilter"},
+	"amd_reflection_resolve": {"comp": "amd_reflection/resolve"},
+	"amd_bounce_reproject": {"comp": "amd_reflection/bounce_reproject"},
+	"amd_bounce_prefilter": {"comp": "amd_reflection/bounce_prefilter"},
+	"amd_bounce_resolve": {"comp": "amd_reflection/bounce_resolve"},
 	"nrd_resolve": { "comp": "nrd_resolve" },
 	"refraction_primary_rays": {
 		"comp": "refraction_primary_rays"

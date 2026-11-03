@@ -27,29 +27,29 @@ layout(set=0,binding=31,rgba32f) uniform readonly image2D REBLUR_REPROJECTION_MA
 
 vec4 reblurFetch_tiles(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TILES(p);
+	return imageLoad(TILES_IMAGE,p);
 }
 
 vec4 reblurFetch_normal(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_NORMAL(p);
+	return imageLoad(NORMAL_IMAGE,p);
 }
 
 vec4 reblurFetch_temporal_depth(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TEMPORAL_DEPTH(p);
+	return imageLoad(TEMPORAL_DEPTH_IMAGE,p);
 }
 
 vec4 reblurFetch_frame_counts(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_FRAME_COUNTS(p);
+	return imageLoad(FRAME_COUNTS_IMAGE,p);
 }
 
 uvec4 reblurUintLoad_history_flags(ivec2 p) {
 #if !NRD_REFLECTION
-	vec4 v=LOAD_HISTORY_FLAGS(p); return uvec4(uint(v.x),0u,0u,1u);
+	vec4 v=imageLoad(HISTORY_FLAGS_IMAGE,p); return uvec4(uint(v.x),0u,0u,1u);
 #else
-	vec4 v=LOAD_HISTORY_FLAGS(p); return uvec4(uint(v.x) | (uint(v.y) << 16u),0u,0u,1u);
+	vec4 v=imageLoad(HISTORY_FLAGS_IMAGE,p); return uvec4(uint(v.x) | (uint(v.y) << 16u),0u,0u,1u);
 #endif
 }
 uvec4 reblurFetch_history_flags(ivec2 p) {
@@ -60,24 +60,24 @@ uvec4 reblurFetch_history_flags(ivec2 p) {
 
 vec4 reblurFetch_temporal_tracking(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TEMPORAL_TRACKING(p);
+	return imageLoad(TEMPORAL_TRACKING_IMAGE,p);
 #endif
 }
 
 vec4 reblurFetch_temporal_history(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TEMPORAL_HISTORY(p);
+	return imageLoad(TEMPORAL_HISTORY_IMAGE,p);
 }
 
 vec4 reblurLinear_prev_temporal_stabilized(vec2 uv) {
 	vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
-	return mix(mix(LOAD_PREV_TEMPORAL_STABILIZED(clamp(b,ivec2(0),reblurExtent()-1)),LOAD_PREV_TEMPORAL_STABILIZED(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
-	mix(LOAD_PREV_TEMPORAL_STABILIZED(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),LOAD_PREV_TEMPORAL_STABILIZED(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+	return mix(mix(imageLoad(PREV_TEMPORAL_STABILIZED_IMAGE,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(PREV_TEMPORAL_STABILIZED_IMAGE,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+	mix(imageLoad(PREV_TEMPORAL_STABILIZED_IMAGE,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(PREV_TEMPORAL_STABILIZED_IMAGE,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
 }
 
-void reblurStore_out_temporal_internal(ivec2 p,uvec4 v) { STORE_OUT_TEMPORAL_INTERNAL(p,vec4(float(v.x & 65535u),0.0,0.0,1.0)); }
-void reblurStore_out_work(ivec2 p,vec4 v) { STORE_OUT_WORK(p,v); }
-void reblurStore_out_temporal_stabilized(ivec2 p,vec4 v) { STORE_OUT_TEMPORAL_STABILIZED(p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_temporal_internal(ivec2 p,uvec4 v) { imageStore(TEMPORAL_INTERNAL_OUTPUT_IMAGE,p,vec4(float(v.x & 65535u),0.0,0.0,1.0)); }
+void reblurStore_out_work(ivec2 p,vec4 v) { imageStore(WORK_OUTPUT_IMAGE,p,v); }
+void reblurStore_out_temporal_stabilized(ivec2 p,vec4 v) { imageStore(TEMPORAL_STABILIZED_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
 layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
 
 vec3 unusedPositionPadding;
@@ -144,9 +144,9 @@ void main() {
 		bool asvgfHistoryValid = false;
 		vec2 asvgfDonor = vec2(0.0); {
 #if !NRD_REFLECTION
-			vec2 encodedDonor = LOAD_REBLUR_REPROJECTION_MAP(ivec2(out_pix)).rg;
+			vec2 encodedDonor = imageLoad(REBLUR_REPROJECTION_MAP_IMAGE,ivec2(out_pix)).rg;
 #else
-			vec2 encodedDonor = LOAD_REBLUR_REPROJECTION_MAP(ivec2(out_pix)).ba;
+			vec2 encodedDonor = imageLoad(REBLUR_REPROJECTION_MAP_IMAGE,ivec2(out_pix)).ba;
 #endif
 			asvgfHistoryValid = all(greaterThan(encodedDonor, vec2(0.0))) &&
 				ubo.ubo.reblur_reset_history[REBLUR_SIGNAL] == 0u;
@@ -244,7 +244,7 @@ void main() {
 			currentLuminance = s_SpecLuma[sharedCenterY][sharedCenterX];
 #endif
 		}
-		float sampledHistoryLuminance = asvgfHistoryValid ? LOAD_PREV_TEMPORAL_STABILIZED(ivec2(asvgfDonor)).x : 0.0;
+		float sampledHistoryLuminance = asvgfHistoryValid ? imageLoad(PREV_TEMPORAL_STABILIZED_IMAGE,ivec2(asvgfDonor)).x : 0.0;
 		float historyLuminance = spvNMax(sampledHistoryLuminance, 0.0);
 #if NRD_REFLECTION
 		float footprintQuality = float(asvgfHistoryValid);

@@ -1,0 +1,27 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define AMD_REFLECTION 1
+#define AMD_SIGNAL 1
+#define AMD_PIXEL_SCALE 1
+#define AMD_POSITION_T_IMAGE position_t
+#define AMD_GEOMETRY_PREV_POSITION_IMAGE geometry_prev_position
+#define AMD_REFLECTION_DIRECTION_PDF_IMAGE reflection_direction_pdf
+#define AMD_NORMALS_GS_IMAGE normals_gs
+#define AMD_MATERIAL_RMXX_IMAGE material_rmxx
+#define AMD_INDIRECT_SPECULAR_IMAGE indirect_specular
+#define AMD_PREV_TEMPORAL_AMD_RADIANCE_IMAGE prev_temporal_amd_radiance
+#define AMD_PREV_TEMPORAL_AMD_GEOMETRY_IMAGE prev_temporal_amd_geometry
+#define AMD_PREV_TEMPORAL_AMD_DEPTH_IMAGE prev_temporal_amd_depth
+#define AMD_PREV_TEMPORAL_AMD_VARIANCE_IMAGE prev_temporal_amd_variance
+#define AMD_PREV_TEMPORAL_AMD_SAMPLES_IMAGE prev_temporal_amd_samples
+#define AMD_OUT_TEMPORAL_AMD_GEOMETRY_IMAGE out_temporal_amd_geometry
+#define AMD_OUT_TEMPORAL_AMD_DEPTH_IMAGE out_temporal_amd_depth
+#define AMD_OUT_TEMPORAL_AMD_SAMPLES_IMAGE out_temporal_amd_samples
+#define AMD_OUT_AMD_REPROJECTED_IMAGE out_amd_reprojected
+#define AMD_OUT_AMD_VARIANCE_IMAGE out_amd_variance
+#define AMD_OUT_AMD_AVERAGE_IMAGE out_amd_average
+#define AMD_ROUGHNESS(p) min(AMD_GEOMETRY_LOAD(AMD_MATERIAL_RMXX_IMAGE,p).x, 0.99)
+#define AMD_RAY_LENGTH(p) length(AMD_GEOMETRY_LOAD(AMD_REFLECTION_DIRECTION_PDF_IMAGE,p).xyz)
+
+#include "reproject.glsl"

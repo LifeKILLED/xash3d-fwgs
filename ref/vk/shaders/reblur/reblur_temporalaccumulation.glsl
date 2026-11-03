@@ -29,51 +29,51 @@ layout(set=0,binding=31,rgba32f) uniform readonly image2D REBLUR_REPROJECTION_MA
 
 vec4 reblurFetch_tiles(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TILES(p);
+	return imageLoad(TILES_IMAGE,p);
 }
 
 vec4 reblurFetch_normal(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_NORMAL(p);
+	return imageLoad(NORMAL_IMAGE,p);
 }
 #if NRD_REFLECTION
-vec4 reblurNearest_normal(vec2 uv) { return LOAD_NORMAL(clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurNearest_normal(vec2 uv) { return imageLoad(NORMAL_IMAGE,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
 #endif
 
 vec4 reblurFetch_viewz(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_VIEWZ(p);
+	return imageLoad(VIEWZ_IMAGE,p);
 #if NRD_REFLECTION
 }
 
 vec4 reblurLinear_viewz(vec2 uv) {
 	vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
-	return mix(mix(LOAD_VIEWZ(clamp(b,ivec2(0),reblurExtent()-1)),LOAD_VIEWZ(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
-	mix(LOAD_VIEWZ(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),LOAD_VIEWZ(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+	return mix(mix(imageLoad(VIEWZ_IMAGE,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(VIEWZ_IMAGE,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+	mix(imageLoad(VIEWZ_IMAGE,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(VIEWZ_IMAGE,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
 #endif
 }
 
 vec4 reblurFetch_motion(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_MOTION(p);
+	return imageLoad(MOTION_IMAGE,p);
 }
 
 vec4 reblurGather_prev_temporal_depth(vec2 uv, ivec2 offset) {
 	ivec2 b=ivec2(floor(uv*vec2(reblurExtent())-0.5))+offset;
-	return vec4(LOAD_PREV_TEMPORAL_DEPTH(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,LOAD_PREV_TEMPORAL_DEPTH(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
-	LOAD_PREV_TEMPORAL_DEPTH(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,LOAD_PREV_TEMPORAL_DEPTH(clamp(b,ivec2(0),reblurExtent()-1)).x);
+	return vec4(imageLoad(PREV_TEMPORAL_DEPTH_IMAGE,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)).x,imageLoad(PREV_TEMPORAL_DEPTH_IMAGE,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)).x,
+	imageLoad(PREV_TEMPORAL_DEPTH_IMAGE,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)).x,imageLoad(PREV_TEMPORAL_DEPTH_IMAGE,clamp(b,ivec2(0),reblurExtent()-1)).x);
 }
 
 vec4 reblurFetch_prev_temporal_normal(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_PREV_TEMPORAL_NORMAL(p);
+	return imageLoad(PREV_TEMPORAL_NORMAL_IMAGE,p);
 }
 #if NRD_REFLECTION
-vec4 reblurNearest_prev_temporal_normal(vec2 uv) { return LOAD_PREV_TEMPORAL_NORMAL(clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
+vec4 reblurNearest_prev_temporal_normal(vec2 uv) { return imageLoad(PREV_TEMPORAL_NORMAL_IMAGE,clamp(ivec2(floor(uv*vec2(reblurExtent()))),ivec2(0),reblurExtent()-1)); }
 #endif
 
 uvec4 reblurUintLoad_prev_temporal_internal(ivec2 p) {
-	vec4 v=LOAD_PREV_TEMPORAL_INTERNAL(p); return uvec4(uint(v.x),0u,0u,1u);
+	vec4 v=imageLoad(PREV_TEMPORAL_INTERNAL_IMAGE,p); return uvec4(uint(v.x),0u,0u,1u);
 }
 
 uvec4 reblurGather_prev_temporal_internal(vec2 uv, ivec2 offset) {
@@ -84,41 +84,41 @@ uvec4 reblurGather_prev_temporal_internal(vec2 uv, ivec2 offset) {
 
 vec4 reblurFetch_work(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_WORK(p);
+	return imageLoad(WORK_IMAGE,p);
 }
 
 vec4 reblurLinear_prev_temporal_history(vec2 uv) {
 	vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
-	return mix(mix(LOAD_PREV_TEMPORAL_HISTORY(clamp(b,ivec2(0),reblurExtent()-1)),LOAD_PREV_TEMPORAL_HISTORY(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
-	mix(LOAD_PREV_TEMPORAL_HISTORY(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),LOAD_PREV_TEMPORAL_HISTORY(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+	return mix(mix(imageLoad(PREV_TEMPORAL_HISTORY_IMAGE,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(PREV_TEMPORAL_HISTORY_IMAGE,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+	mix(imageLoad(PREV_TEMPORAL_HISTORY_IMAGE,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(PREV_TEMPORAL_HISTORY_IMAGE,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
 }
 
 vec4 reblurFetch_prev_temporal_fast(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_PREV_TEMPORAL_FAST(p);
+	return imageLoad(PREV_TEMPORAL_FAST_IMAGE,p);
 }
 
 #if NRD_REFLECTION
 vec4 reblurLinear_prev_temporal_tracking(vec2 uv) {
 	vec2 p=uv*vec2(reblurExtent())-0.5; ivec2 b=ivec2(floor(p)); vec2 f=fract(p);
-	return mix(mix(LOAD_PREV_TEMPORAL_TRACKING(clamp(b,ivec2(0),reblurExtent()-1)),LOAD_PREV_TEMPORAL_TRACKING(clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
-	mix(LOAD_PREV_TEMPORAL_TRACKING(clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),LOAD_PREV_TEMPORAL_TRACKING(clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
+	return mix(mix(imageLoad(PREV_TEMPORAL_TRACKING_IMAGE,clamp(b,ivec2(0),reblurExtent()-1)),imageLoad(PREV_TEMPORAL_TRACKING_IMAGE,clamp(b+ivec2(1,0),ivec2(0),reblurExtent()-1)),f.x),
+	mix(imageLoad(PREV_TEMPORAL_TRACKING_IMAGE,clamp(b+ivec2(0,1),ivec2(0),reblurExtent()-1)),imageLoad(PREV_TEMPORAL_TRACKING_IMAGE,clamp(b+ivec2(1,1),ivec2(0),reblurExtent()-1)),f.x),f.y);
 }
 
 vec4 reblurFetch_tracking_distance(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TRACKING_DISTANCE(p);
+	return imageLoad(TRACKING_DISTANCE_IMAGE,p);
 }
 
 #endif
-void reblurStore_out_frame_counts(ivec2 p,vec4 v) { STORE_OUT_FRAME_COUNTS(p,vec4(v.x,0.0,0.0,1.0)); }
-void reblurStore_out_radiance(ivec2 p,vec4 v) { STORE_OUT_RADIANCE(p,v); }
-void reblurStore_out_fast_luma(ivec2 p,vec4 v) { STORE_OUT_FAST_LUMA(p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_frame_counts(ivec2 p,vec4 v) { imageStore(FRAME_COUNTS_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_radiance(ivec2 p,vec4 v) { imageStore(RADIANCE_OUTPUT_IMAGE,p,v); }
+void reblurStore_out_fast_luma(ivec2 p,vec4 v) { imageStore(FAST_LUMA_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
 #if !NRD_REFLECTION
-void reblurStore_out_history_flags(ivec2 p,uvec4 v) { STORE_OUT_HISTORY_FLAGS(p,vec4(float(v.x & 255u),0.0,0.0,1.0)); }
+void reblurStore_out_history_flags(ivec2 p,uvec4 v) { imageStore(HISTORY_FLAGS_OUTPUT_IMAGE,p,vec4(float(v.x & 255u),0.0,0.0,1.0)); }
 #else
-void reblurStore_out_temporal_tracking(ivec2 p,vec4 v) { STORE_OUT_TEMPORAL_TRACKING(p,vec4(v.x,0.0,0.0,1.0)); }
-void reblurStore_out_history_flags(ivec2 p,uvec4 v) { STORE_OUT_HISTORY_FLAGS(p,vec4(float(v.x & 65535u),float(v.x >> 16u),0.0,1.0)); }
+void reblurStore_out_temporal_tracking(ivec2 p,vec4 v) { imageStore(TEMPORAL_TRACKING_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_history_flags(ivec2 p,uvec4 v) { imageStore(HISTORY_FLAGS_OUTPUT_IMAGE,p,vec4(float(v.x & 65535u),float(v.x >> 16u),0.0,1.0)); }
 #endif
 layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
 #if NRD_REFLECTION
@@ -289,9 +289,9 @@ void main() {
 		bool asvgfHistoryValid = false;
 		vec2 asvgfDonor = vec2(0.0); {
 #if !NRD_REFLECTION
-			vec2 encodedDonor = LOAD_REBLUR_REPROJECTION_MAP(ivec2(out_pix)).rg;
+			vec2 encodedDonor = imageLoad(REBLUR_REPROJECTION_MAP_IMAGE,ivec2(out_pix)).rg;
 #else
-			vec2 encodedDonor = LOAD_REBLUR_REPROJECTION_MAP(ivec2(out_pix)).ba;
+			vec2 encodedDonor = imageLoad(REBLUR_REPROJECTION_MAP_IMAGE,ivec2(out_pix)).ba;
 #endif
 			asvgfHistoryValid = all(greaterThan(encodedDonor, vec2(0.0))) &&
 				ubo.ubo.reblur_reset_history[REBLUR_SIGNAL] == 0u;
@@ -494,7 +494,7 @@ void main() {
 		vec2 historyFrameCountLimits = spvNMin(confidenceLimitedFrameCounts, normalLimitedFrameCounts);
 		float surfaceFrameCount = spvNMin(surfaceConfidenceAdjustedFrameCount, historyFrameCountLimits.x);
 #endif
-		vec4 reprojectedHistoryYCoCg = asvgfHistoryValid ? LOAD_PREV_TEMPORAL_HISTORY(ivec2(asvgfDonor)) : vec4(0.0);
+		vec4 reprojectedHistoryYCoCg = asvgfHistoryValid ? imageLoad(PREV_TEMPORAL_HISTORY_IMAGE,ivec2(asvgfDonor)) : vec4(0.0);
 		ivec2 fastHistoryPixelOrigin = ivec2(asvgfDonor);
 #if NRD_REFLECTION
 		float bilinearHistoryWeightSum = dot(surfaceHistoryWeights, vec4(1.0));

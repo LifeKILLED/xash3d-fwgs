@@ -14,38 +14,38 @@ layout(set=0,binding=10,rgba16f) uniform writeonly image2D SIGNAL_OUTPUT_IMAGE;
 
 vec4 reblurFetch_position_t(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
-	return LOAD_POSITION_T(p);
+	return imageLoad(POSITION_T_IMAGE,p);
 }
 
 vec4 reblurFetch_normals_gs(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
-	return LOAD_NORMALS_GS(p);
+	return imageLoad(NORMALS_GS_IMAGE,p);
 }
 
 vec4 reblurFetch_material_rmxx(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
-	return LOAD_MATERIAL_RMXX(p);
+	return imageLoad(MATERIAL_RMXX_IMAGE,p);
 }
 
 vec4 reblurFetch_geometry_prev_position(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
-	return LOAD_GEOMETRY_PREV_POSITION(p);
+	return imageLoad(GEOMETRY_PREV_POSITION_IMAGE,p);
 }
 
 vec4 reblurFetch_input_radiance(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_INPUT_RADIANCE(p);
+	return imageLoad(INPUT_RADIANCE_IMAGE,p);
 }
 
 vec4 reblurFetch_input_ray(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_INPUT_RAY(p);
+	return imageLoad(INPUT_RAY_IMAGE,p);
 }
 
-void reblurStore_out_normal(ivec2 p,vec4 v) { STORE_OUT_NORMAL(p,v); }
-void reblurStore_out_viewz(ivec2 p,vec4 v) { STORE_OUT_VIEWZ(p,vec4(v.x,0.0,0.0,1.0)); }
-void reblurStore_out_motion(ivec2 p,vec4 v) { STORE_OUT_MOTION(p,v); }
-void reblurStore_out_signal(ivec2 p,vec4 v) { STORE_OUT_SIGNAL(p,v); }
+void reblurStore_out_normal(ivec2 p,vec4 v) { imageStore(NORMAL_OUTPUT_IMAGE,p,v); }
+void reblurStore_out_viewz(ivec2 p,vec4 v) { imageStore(VIEWZ_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_motion(ivec2 p,vec4 v) { imageStore(MOTION_OUTPUT_IMAGE,p,v); }
+void reblurStore_out_signal(ivec2 p,vec4 v) { imageStore(SIGNAL_OUTPUT_IMAGE,p,v); }
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 vec4 unusedPackingPadding;

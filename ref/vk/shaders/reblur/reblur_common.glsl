@@ -3,13 +3,7 @@
 #include "../ray_interop.h"
 #define REBLUR_SIGNAL NRD_REFLECTION
 layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
-bool reblurEnabled() {
-#if !NRD_REFLECTION
-return ubo.ubo.nrd_bounce != 0u;
-#else
-return ubo.ubo.nrd_reflection != 0u;
-#endif
-}
+bool reblurEnabled() { return true; }
 ivec2 reblurExtent() { return ivec2(ubo.ubo.reblur_resource_size[REBLUR_SIGNAL].xy); }
 
 // REBLUR uses positive view Z and row-vector multiplication at its call sites.

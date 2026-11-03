@@ -661,7 +661,13 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	}
 	// Clamp only to the storage range, independently of the old four-lane atlas.
 	ret.nrd_bounce = CVAR_TO_BOOL(rt_nrd_bounce);
+	if (rt_nrd_bounce && rt_nrd_bounce->value == 2.0f)
+		ret.nrd_bounce = 2;
 	ret.nrd_reflection = CVAR_TO_BOOL(rt_nrd_reflection);
+	if (rt_nrd_reflection && rt_nrd_reflection->value == 2.0f)
+		ret.nrd_reflection = 2;
+	else if (rt_nrd_reflection && rt_nrd_reflection->value == 3.0f)
+		ret.nrd_reflection = 3;
 	ret.bounce_count = rt_bounces->value > 0.0f
 		? (uint32_t)Q_min((double)rt_bounces->value, (double)UINT32_MAX) : 0u;
 	ret.renderer_flags = SET_RENDERER_FLAG(RENDERER_FLAG_ONLY_DIFFUSE_GI) |
@@ -704,18 +710,15 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 
 	// REBLUR owns no GPU resources here: both signals share the existing UBO.
 	static double nrd_previous_time;
-	static unsigned nrd_previous_width, nrd_previous_height, nrd_previous_enabled[2];
+	static unsigned nrd_previous_width, nrd_previous_height;
 	double nrd_now = gEngine.pfnTime();
 	unsigned nrd_previous_frame_width=nrd_previous_width ? nrd_previous_width : frame_width;
 	unsigned nrd_previous_frame_height=nrd_previous_height ? nrd_previous_height : frame_height;
 	float nrd_delta_ms=nrd_previous_time ? (float)((nrd_now-nrd_previous_time)*1000.0) : 16.6667f;
-	for(unsigned signal=0;signal<2;signal++) {
-		unsigned enabled = signal ? ret.nrd_reflection : ret.nrd_bounce;
-		int reset = g_rtx.discontinuity || !nrd_previous_enabled[signal]
-			|| nrd_previous_width != (unsigned)frame_width || nrd_previous_height != (unsigned)frame_height;
-		if(enabled) R_VkReblurPrepare(&ret,signal,nrd_previous_frame_width,nrd_previous_frame_height,nrd_delta_ms,reset);
-		nrd_previous_enabled[signal] = enabled;
-	}
+	const int reset = g_rtx.discontinuity || nrd_previous_width != (unsigned)frame_width
+		|| nrd_previous_height != (unsigned)frame_height;
+	for (unsigned signal = 0; signal < 2; ++signal)
+		R_VkReblurPrepare(&ret, signal, nrd_previous_frame_width, nrd_previous_frame_height, nrd_delta_ms, reset);
 	nrd_previous_width=frame_width;nrd_previous_height=frame_height;nrd_previous_time=nrd_now;
 	return ret;
 }

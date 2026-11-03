@@ -12,27 +12,27 @@ layout(set=0,binding=6,rgba16f) uniform writeonly image2D TRACKING_DISTANCE_OUTP
 
 vec4 reblurFetch_tiles(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TILES(p);
+	return imageLoad(TILES_IMAGE,p);
 }
 
 vec4 reblurFetch_normal(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_NORMAL(p);
+	return imageLoad(NORMAL_IMAGE,p);
 }
 
 vec4 reblurFetch_viewz(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_VIEWZ(p);
+	return imageLoad(VIEWZ_IMAGE,p);
 }
 
 vec4 reblurFetch_signal(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_SIGNAL(p);
+	return imageLoad(SIGNAL_IMAGE,p);
 }
 
-void reblurStore_out_work(ivec2 p,vec4 v) { STORE_OUT_WORK(p,v); }
+void reblurStore_out_work(ivec2 p,vec4 v) { imageStore(WORK_OUTPUT_IMAGE,p,v); }
 #if NRD_REFLECTION
-void reblurStore_out_tracking_distance(ivec2 p,vec4 v) { STORE_OUT_TRACKING_DISTANCE(p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_tracking_distance(ivec2 p,vec4 v) { imageStore(TRACKING_DISTANCE_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
 #endif
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 

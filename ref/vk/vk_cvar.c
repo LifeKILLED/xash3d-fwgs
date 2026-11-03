@@ -49,8 +49,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_disable_reflection = gEngine.Cvar_Get("rt_disable_reflection", "0", FCVAR_GLCONFIG, "Disable reflection rays and RIS lighting for indirect specular");
 		rt_disable_refraction = gEngine.Cvar_Get("rt_disable_refraction", "0", FCVAR_GLCONFIG, "Disable refraction rays and RIS lighting for transparency refraction");
 		rt_disable_reconstruction = gEngine.Cvar_Get("rt_disable_reconstruction", "0", FCVAR_GLCONFIG, "Disable spatial reconstruction pass for indirect specular");
-		rt_nrd_bounce = gEngine.Cvar_Get("rt_nrd_bounce", "0", FCVAR_GLCONFIG, "Bounce denoiser: 0 existing, 1 REBLUR");
-		rt_nrd_reflection = gEngine.Cvar_Get("rt_nrd_reflection", "0", FCVAR_GLCONFIG, "Reflection denoiser: 0 existing, 1 REBLUR");
+		rt_nrd_bounce = gEngine.Cvar_Get("rt_nrd_bounce", "0", FCVAR_GLCONFIG, "Bounce denoiser: 0 existing, 1 REBLUR, 2 AMD");
+		rt_nrd_reflection = gEngine.Cvar_Get("rt_nrd_reflection", "0", FCVAR_GLCONFIG, "Reflection denoiser: 0 existing, 1 REBLUR, 2 AMD, 3 raw");
 		rt_disable_atrous = gEngine.Cvar_Get("rt_disable_atrous", "0", FCVAR_GLCONFIG, "Disable a-trous spatial filtering, including SH GI filtering; keep temporal accumulation");
 		rt_disable_sh_gi_denoising = gEngine.Cvar_Get("rt_disable_sh_gi_denoising", "0", FCVAR_GLCONFIG, "Disable SH-based denoising for indirect diffuse GI");
 		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable ASVGF history reprojection only; keep reservoir and light cache history enabled");

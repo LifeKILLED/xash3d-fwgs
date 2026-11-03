@@ -31,6 +31,13 @@ formats = {'rgba8':'Rgba8','rgba16f':'Rgba16f','rgba32f':'Rgba32f'}
 def pass_source(path):
     source = path.read_text()
     include = re.search(r'#include "([^"]+)"\s*$', source)
+    if path.parent.name == "amd_reflection":
+        assert include
+        body = (path.parent / include[1]).read_text()
+        if '#define AMD_REFLECTION 0' in source:
+            body = re.sub(r'#if AMD_REFLECTION\n.*?#endif', '', body, flags=re.S)
+        aliases = dict(re.findall(r'^#define (AMD_\w+_IMAGE) (\w+)$', source, re.M))
+        return re.sub(r'\bAMD_\w+_IMAGE\b', lambda m: aliases[m[0]], body)
     if path.parent.name != "reblur":
         return source
     assert include
@@ -107,8 +114,8 @@ environment['PIPELINE_COMPUTE'] = 1
 environment['PIPELINE_RAYTRACING'] = 2
 with (VK / 'shaders/rt.json').open() as stream:
     graph = environment['prepareJSON'](stream)
-selected = {name: desc for name, desc in graph.items() if name.startswith('reblur_') or name == 'nrd_resolve'}
-assert len(selected) == 17
+selected = {name: desc for name, desc in graph.items() if name.startswith(('reblur_', 'amd_reflection_', 'amd_bounce_')) or name == 'nrd_resolve'}
+assert len(selected) == 23
 pipelines = environment['NameIndex']()
 for name, desc in selected.items():
     pipelines.put(name, environment['PipelineCompute'](name, desc))
@@ -131,7 +138,7 @@ for _ in range(u32()):
     resources.append(record)
 by_name = {r['name']: r for r in resources}
 history = [r for r in resources if r['name'].startswith('prev_temporal_')]
-assert len(history) == 13, len(history)
+assert len(history) == 23, len(history)
 for resource in history:
     current = resources[resource['previous']-1]
     assert current['name'] == resource['name'].removeprefix('prev_')
@@ -143,7 +150,7 @@ shader_count=u32()
 for _ in range(shader_count):
     string()
     binary.read(u32())
-assert u32() == 17
+assert u32() == len(selected)
 for expected_name in selected:
     assert u32() == 1  # compute
     assert string() == expected_name
@@ -273,4 +280,4 @@ for value in [0,1,255,65535,65536,0x7f800000,0x7fc00000,0x80000000,0xffffffff] +
     low,high = f32(value & 65535), f32(value >> 16)
     assert (int(low) | (int(high)<<16)) == value
 
-print('REBLUR graph checks passed: 17 nodes, 13 history pairs, original MEAT format, existing RGBA formats, producer order, named UBO fields and layout, group guards, exact integer storage.')
+print('Reflection denoiser graph checks passed: 23 nodes, 23 history pairs, original MEAT format, existing RGBA formats, producer order, named UBO fields and layout, group guards, exact integer storage.')

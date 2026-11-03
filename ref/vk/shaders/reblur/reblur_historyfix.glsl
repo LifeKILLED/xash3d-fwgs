@@ -18,43 +18,43 @@ layout(set=0,binding=9,rgba16f) uniform writeonly image2D TEMPORAL_FAST_OUTPUT_I
 
 vec4 reblurFetch_tiles(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TILES(p);
+	return imageLoad(TILES_IMAGE,p);
 }
 
 vec4 reblurFetch_normal(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_NORMAL(p);
+	return imageLoad(NORMAL_IMAGE,p);
 }
 
 vec4 reblurFetch_frame_counts(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_FRAME_COUNTS(p);
+	return imageLoad(FRAME_COUNTS_IMAGE,p);
 }
 
 vec4 reblurFetch_viewz(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_VIEWZ(p);
+	return imageLoad(VIEWZ_IMAGE,p);
 }
 
 vec4 reblurFetch_radiance(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_RADIANCE(p);
+	return imageLoad(RADIANCE_IMAGE,p);
 }
 
 vec4 reblurFetch_fast_luma(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_FAST_LUMA(p);
+	return imageLoad(FAST_LUMA_IMAGE,p);
 }
 
 #if NRD_REFLECTION
 vec4 reblurFetch_temporal_tracking(ivec2 p) {
 	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
-	return LOAD_TEMPORAL_TRACKING(p);
+	return imageLoad(TEMPORAL_TRACKING_IMAGE,p);
 }
 
 #endif
-void reblurStore_out_work(ivec2 p,vec4 v) { STORE_OUT_WORK(p,v); }
-void reblurStore_out_temporal_fast(ivec2 p,vec4 v) { STORE_OUT_TEMPORAL_FAST(p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_work(ivec2 p,vec4 v) { imageStore(WORK_OUTPUT_IMAGE,p,v); }
+void reblurStore_out_temporal_fast(ivec2 p,vec4 v) { imageStore(TEMPORAL_FAST_OUTPUT_IMAGE,p,vec4(v.x,0.0,0.0,1.0)); }
 layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in;
 
 vec3 unusedPositionPadding;

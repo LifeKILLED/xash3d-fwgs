@@ -76,7 +76,6 @@ void main()
 
 	imageStore(out_temporal_reprojection_map, pix, reprojection_map);
 
-	if (ubo.ubo.nrd_bounce == 0u && ubo.ubo.nrd_reflection == 0u) return;
 	vec4 reblur_map = vec4(0.0);
 	for (int signal = 0; signal < 2; ++signal) {
 		bool bounce = signal == 0;

@@ -1,0 +1,25 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define AMD_REFLECTION 0
+#define AMD_SIGNAL 0
+#define AMD_PIXEL_SCALE 2
+#define AMD_POSITION_T_IMAGE position_t
+#define AMD_GEOMETRY_PREV_POSITION_IMAGE geometry_prev_position
+#define AMD_NORMALS_GS_IMAGE normals_gs
+#define AMD_INDIRECT_SPECULAR_IMAGE indirect_diffuse
+#define AMD_PREV_TEMPORAL_AMD_RADIANCE_IMAGE prev_temporal_amd_bounce_radiance
+#define AMD_PREV_TEMPORAL_AMD_GEOMETRY_IMAGE prev_temporal_amd_bounce_geometry
+#define AMD_PREV_TEMPORAL_AMD_DEPTH_IMAGE prev_temporal_amd_bounce_depth
+#define AMD_PREV_TEMPORAL_AMD_VARIANCE_IMAGE prev_temporal_amd_bounce_variance
+#define AMD_PREV_TEMPORAL_AMD_SAMPLES_IMAGE prev_temporal_amd_bounce_samples
+#define AMD_OUT_TEMPORAL_AMD_GEOMETRY_IMAGE out_temporal_amd_bounce_geometry
+#define AMD_OUT_TEMPORAL_AMD_DEPTH_IMAGE out_temporal_amd_bounce_depth
+#define AMD_OUT_TEMPORAL_AMD_SAMPLES_IMAGE out_temporal_amd_bounce_samples
+#define AMD_OUT_AMD_REPROJECTED_IMAGE out_amd_bounce_reprojected
+#define AMD_OUT_AMD_VARIANCE_IMAGE out_amd_bounce_variance
+#define AMD_OUT_AMD_AVERAGE_IMAGE out_amd_bounce_average
+#define AMD_ROUGHNESS(p) 0.99
+#define AMD_RAY_LENGTH(p) 0.0
+
+#include "reproject.glsl"
