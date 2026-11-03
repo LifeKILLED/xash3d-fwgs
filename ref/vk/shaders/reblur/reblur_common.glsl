@@ -1,10 +1,10 @@
 // NVIDIA NRD-derived helpers. See ../../nrd_port/LICENSE.NVIDIA.txt.
 #define GLSL
 #include "../ray_interop.h"
-#define REBLUR_SIGNAL (1 - NRD_BOUNCE)
+#define REBLUR_SIGNAL NRD_REFLECTION
 layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
 bool reblurEnabled() {
-#if NRD_BOUNCE
+#if !NRD_REFLECTION
 return ubo.ubo.nrd_bounce != 0u;
 #else
 return ubo.ubo.nrd_reflection != 0u;
@@ -39,7 +39,7 @@ mat4 reblurViewToWorld()
 mat4 reblurProjection(bool previous)
 {
     mat4 projection = previous ? ubo.ubo.prev_proj : ubo.ubo.proj;
-#if NRD_BOUNCE
+#if !NRD_REFLECTION
     vec2 halfExtent = previous ? ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy
                                : ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy;
     // Match primary pixel 2*p in the half-resolution atlas. Resizes reset history.

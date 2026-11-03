@@ -1,0 +1,39 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt.
+*/
+#version 460
+#if defined(GL_EXT_control_flow_attributes)
+#extension GL_EXT_control_flow_attributes : require
+#define SPIRV_CROSS_FLATTEN [[flatten]]
+#define SPIRV_CROSS_BRANCH [[dont_flatten]]
+#define SPIRV_CROSS_UNROLL [[unroll]]
+#define SPIRV_CROSS_LOOP [[dont_unroll]]
+#else
+#define SPIRV_CROSS_FLATTEN
+#define SPIRV_CROSS_BRANCH
+#define SPIRV_CROSS_UNROLL
+#define SPIRV_CROSS_LOOP
+#endif
+#extension GL_EXT_spirv_intrinsics : require
+
+#define NRD_REFLECTION 0
+#include "reblur_common.glsl"
+
+#define TILES_IMAGE reblur_bounce_scratch_4
+#define NORMAL_IMAGE reblur_bounce_normal
+#define TEMPORAL_DEPTH_IMAGE temporal_reblur_bounce_depth
+#define FRAME_COUNTS_IMAGE reblur_bounce_scratch_0
+#define HISTORY_FLAGS_IMAGE reblur_bounce_scratch_1
+#define TEMPORAL_HISTORY_IMAGE temporal_reblur_bounce_history
+#define PREV_TEMPORAL_STABILIZED_IMAGE prev_temporal_reblur_bounce_stabilized
+#define MOTION_IMAGE reblur_bounce_motion
+#define TEMPORAL_INTERNAL_OUTPUT_IMAGE out_temporal_reblur_bounce_internal
+#define WORK_OUTPUT_IMAGE out_reblur_bounce_work
+#define TEMPORAL_STABILIZED_OUTPUT_IMAGE out_temporal_reblur_bounce_stabilized
+#define REBLUR_REPROJECTION_MAP_IMAGE reblur_reprojection_map
+
+#include "reblur_temporalstabilization.glsl"

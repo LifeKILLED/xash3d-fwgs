@@ -1,0 +1,153 @@
+/* Shared REBLUR pass derived from NVIDIA NRD 4.18.
+	* See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt. */
+
+layout(set=0,binding=1,rgba32f) uniform readonly image2D POSITION_T_IMAGE;
+layout(set=0,binding=2,rgba16f) uniform readonly image2D NORMALS_GS_IMAGE;
+layout(set=0,binding=3,rgba8) uniform readonly image2D MATERIAL_RMXX_IMAGE;
+layout(set=0,binding=4,rgba32f) uniform readonly image2D GEOMETRY_PREV_POSITION_IMAGE;
+layout(set=0,binding=5,rgba16f) uniform readonly image2D INPUT_RADIANCE_IMAGE;
+layout(set=0,binding=6,rgba32f) uniform readonly image2D INPUT_RAY_IMAGE;
+layout(set=0,binding=7,rgba16f) uniform writeonly image2D NORMAL_OUTPUT_IMAGE;
+layout(set=0,binding=8,rgba32f) uniform writeonly image2D VIEWZ_OUTPUT_IMAGE;
+layout(set=0,binding=9,rgba16f) uniform writeonly image2D MOTION_OUTPUT_IMAGE;
+layout(set=0,binding=10,rgba16f) uniform writeonly image2D SIGNAL_OUTPUT_IMAGE;
+
+vec4 reblurFetch_position_t(ivec2 p) {
+	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
+	return LOAD_POSITION_T(p);
+}
+
+vec4 reblurFetch_normals_gs(ivec2 p) {
+	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
+	return LOAD_NORMALS_GS(p);
+}
+
+vec4 reblurFetch_material_rmxx(ivec2 p) {
+	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
+	return LOAD_MATERIAL_RMXX(p);
+}
+
+vec4 reblurFetch_geometry_prev_position(ivec2 p) {
+	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,ubo.ubo.res))) return vec4(0);
+	return LOAD_GEOMETRY_PREV_POSITION(p);
+}
+
+vec4 reblurFetch_input_radiance(ivec2 p) {
+	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+	return LOAD_INPUT_RADIANCE(p);
+}
+
+vec4 reblurFetch_input_ray(ivec2 p) {
+	if(any(lessThan(p,ivec2(0))) || any(greaterThanEqual(p,reblurExtent()))) return vec4(0);
+	return LOAD_INPUT_RAY(p);
+}
+
+void reblurStore_out_normal(ivec2 p,vec4 v) { STORE_OUT_NORMAL(p,v); }
+void reblurStore_out_viewz(ivec2 p,vec4 v) { STORE_OUT_VIEWZ(p,vec4(v.x,0.0,0.0,1.0)); }
+void reblurStore_out_motion(ivec2 p,vec4 v) { STORE_OUT_MOTION(p,v); }
+void reblurStore_out_signal(ivec2 p,vec4 v) { STORE_OUT_SIGNAL(p,v); }
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+vec4 unusedPackingPadding;
+
+spirv_instruction(set = "GLSL.std.450", id = 79) float spvNMin(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec2 spvNMin(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec3 spvNMin(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 79) vec4 spvNMin(vec4, vec4);
+spirv_instruction(set = "GLSL.std.450", id = 80) float spvNMax(float, float);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec2 spvNMax(vec2, vec2);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
+spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
+
+void main() {
+	if (!reblurEnabled()) return;
+	if (any(greaterThanEqual(gl_WorkGroupID.xy, ubo.ubo.reblur_groups_8x8_8x16[REBLUR_SIGNAL].xy))) return;
+	do {
+		if (any(greaterThanEqual(gl_GlobalInvocationID.xy, uvec2(ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy)))) {
+			break;
+		}
+		bool isDiffuse = NRD_REFLECTION == 0;
+		uvec2 sourcePixel;
+		if (isDiffuse) {
+			sourcePixel = gl_GlobalInvocationID.xy * uvec2(2u);
+		} else {
+			sourcePixel = gl_GlobalInvocationID.xy;
+		}
+		vec4 surfacePosition = reblurFetch_position_t(ivec2(sourcePixel));
+		vec2 encodedShadingNormal = (reblurFetch_normals_gs(ivec2(sourcePixel)).zw * 2.0) - vec2(1.0);
+		float octNormalX = encodedShadingNormal.x;
+		float octNormalY = encodedShadingNormal.y;
+		float octNormalZ = (1.0 - abs(octNormalX)) - abs(octNormalY);
+		vec3 unfoldedNormal = vec3(octNormalX, octNormalY, octNormalZ);
+		vec2 foldedNormalXY = unfoldedNormal.xy - (vec2(float((octNormalX >= 0.0) ? 1 : (-1)), float((octNormalY >= 0.0) ? 1 : (-1))) * spvNMax(-octNormalZ, 0.0));
+		vec3 shadingNormal = normalize(vec3(foldedNormalXY.x, foldedNormalXY.y, unfoldedNormal.z));
+		float roughness;
+		if (isDiffuse) {
+			roughness = 1.0;
+		} else {
+			roughness = reblurFetch_material_rmxx(ivec2(sourcePixel)).x;
+		}
+		float viewDepth = (surfacePosition.w <= 0.0) ? 100000000.0 : abs((vec4(surfacePosition.xyz, 1.0) * transpose(ubo.ubo.view)).z);
+		vec4 sampleRay = reblurFetch_input_ray(ivec2(gl_GlobalInvocationID.xy));
+		float hitDistance;
+		if (isDiffuse) {
+			hitDistance = sampleRay.w;
+		} else {
+			hitDistance = length(sampleRay.xyz);
+		}
+		vec3 incidentRadiance = reblurFetch_input_radiance(ivec2(gl_GlobalInvocationID.xy)).xyz;
+		vec3 shadedRadiance;
+		if (isDiffuse) {
+			shadedRadiance = incidentRadiance * (2.0 * spvNMax(dot(shadingNormal, sampleRay.xyz), 0.0));
+		} else {
+			shadedRadiance = incidentRadiance;
+		}
+		vec3 clampedRadiance = clamp(shadedRadiance, vec3(0.0), vec3(65504.0));
+		float normalizedHitDistance = clamp(hitDistance / ((118.11023712158203125 + (abs(viewDepth) * 0.100000001490116119384765625)) * mix(20.0, 1.0, (1.0 - exp2(((-200.0) * roughness) * roughness)) * pow(clamp(roughness, 0.0, 1.0), 0.5))), 0.0, 1.0);
+		vec3 octNormal = shadingNormal / vec3((abs(shadingNormal.x) + abs(shadingNormal.y)) + abs(shadingNormal.z));
+		float packedNormalY = (octNormal.y * 0.5) + 0.5;
+		float packedNormalX = octNormal.x * 0.5;
+		float clampedRoughness = spvNMax(roughness, 0.0029296875);
+		float signedRoughness;
+		if (octNormal.z < 0.0) {
+			signedRoughness = -clampedRoughness;
+		} else {
+			signedRoughness = clampedRoughness;
+		}
+		vec3 encodedNormalRoughness = vec3(packedNormalX + packedNormalY, packedNormalY - packedNormalX, (signedRoughness * 0.5) + 0.5);
+		vec4 packedNormalRoughness = vec4(encodedNormalRoughness.x, encodedNormalRoughness.y, encodedNormalRoughness.z, unusedPackingPadding.w);
+		packedNormalRoughness.w = 0.0;
+		reblurStore_out_normal(ivec2(gl_GlobalInvocationID.xy),packedNormalRoughness);
+		reblurStore_out_viewz(ivec2(gl_GlobalInvocationID.xy),vec4(viewDepth));
+		reblurStore_out_motion(ivec2(gl_GlobalInvocationID.xy),vec4(reblurFetch_geometry_prev_position(ivec2(sourcePixel)).xyz - surfacePosition.xyz, 0.0));
+		vec4 packedSignal; {
+			bool invalidRadiance;
+			if (!any(isnan(clampedRadiance))) {
+				invalidRadiance = any(isinf(clampedRadiance));
+			} else {
+				invalidRadiance = true;
+			}
+			vec3 finiteRadiance;
+			if (invalidRadiance) {
+				finiteRadiance = vec3(0.0);
+			} else {
+				finiteRadiance = clamp(clampedRadiance, vec3(0.0), vec3(65504.0));
+			}
+			bool invalidHitDistance;
+			if (!isnan(normalizedHitDistance)) {
+				invalidHitDistance = isinf(normalizedHitDistance);
+			} else {
+				invalidHitDistance = true;
+			}
+			float finiteHitDistance;
+			if (invalidHitDistance) {
+				finiteHitDistance = 0.0;
+			} else {
+				finiteHitDistance = clamp(normalizedHitDistance, 0.0, 1.0);
+			}
+			packedSignal = vec4(dot(finiteRadiance, vec3(0.25, 0.5, 0.25)), dot(finiteRadiance, vec3(0.5, 0.0, -0.5)), dot(finiteRadiance, vec3(-0.25, 0.5, -0.25)), finiteHitDistance);
+		}
+		reblurStore_out_signal(ivec2(gl_GlobalInvocationID.xy),packedSignal);
+		break;
+	} while(false);
+}

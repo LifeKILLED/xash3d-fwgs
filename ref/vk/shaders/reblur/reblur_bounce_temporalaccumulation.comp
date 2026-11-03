@@ -1,0 +1,30 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_spirv_intrinsics : require
+
+#define NRD_REFLECTION 0
+#include "reblur_common.glsl"
+
+#define TILES_IMAGE reblur_bounce_scratch_4
+#define NORMAL_IMAGE reblur_bounce_normal
+#define VIEWZ_IMAGE reblur_bounce_viewz
+#define MOTION_IMAGE reblur_bounce_motion
+#define PREV_TEMPORAL_DEPTH_IMAGE prev_temporal_reblur_bounce_depth
+#define PREV_TEMPORAL_NORMAL_IMAGE prev_temporal_reblur_bounce_normal
+#define PREV_TEMPORAL_INTERNAL_IMAGE prev_temporal_reblur_bounce_internal
+#define WORK_IMAGE reblur_bounce_work
+#define PREV_TEMPORAL_HISTORY_IMAGE prev_temporal_reblur_bounce_history
+#define PREV_TEMPORAL_FAST_IMAGE prev_temporal_reblur_bounce_fast
+#define FRAME_COUNTS_OUTPUT_IMAGE out_reblur_bounce_scratch_0
+#define RADIANCE_OUTPUT_IMAGE out_reblur_bounce_scratch_2
+#define FAST_LUMA_OUTPUT_IMAGE out_reblur_bounce_scratch_3
+#define HISTORY_FLAGS_OUTPUT_IMAGE out_reblur_bounce_scratch_1
+#define REBLUR_REPROJECTION_MAP_IMAGE reblur_reprojection_map
+
+#include "reblur_temporalaccumulation.glsl"

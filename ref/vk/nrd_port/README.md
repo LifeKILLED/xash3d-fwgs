@@ -123,9 +123,9 @@ shaders or starting Vulkan. It does not validate shader compilation or image qua
 `python ref/vk/tests/nrd_contract.py` checks the reference schedules and
 half-resolution projection math.
 
-`graph_shaders.py` regenerates the graph GLSL from the pinned translations
-and reference metadata. It is an offline development tool, not a build/runtime
-dependency. `export_shaders.py` can regenerate the original translation using
+The runtime passes are maintained as shared GLSL includes with one binding
+wrapper per signal. `graph_shaders.py` writes archival translations to
+`generated_reference` for comparison. `export_shaders.py` can regenerate the original translation using
 optional upstream checkouts and DXC/SPIRV-Cross; normal builds need neither.
 
 `readable_shaders.py` is an offline postprocessor used by the graph generator.
@@ -142,7 +142,7 @@ collide, and reversing the substitution reproduces the input source exactly.
 This table is an offline development aid; builds use the checked-in GLSL.
 
 The follow-up cleanup shares octahedral normal decoding, safe normalization,
-normal-angle approximation and RNG hashing in `shaders/reblur/filter_math.glsl`.
+normal-angle approximation and RNG hashing in `shaders/reblur/reblur_filter_math.glsl`.
 Temporal accumulation restores the 2x2 normal average, 3x3 tracking-distance
 minimum and four-tap previous-normal footprint. Names distinguish view-space
 normals, world-space view directions, camera-relative world positions and the

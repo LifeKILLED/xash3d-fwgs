@@ -28,10 +28,36 @@ environment['resources'] = environment['Resources']()
 formats = {'rgba8':'Rgba8','rgba16f':'Rgba16f','rgba32f':'Rgba32f'}
 
 
+def pass_source(path):
+    source = path.read_text()
+    include = re.search(r'#include "([^"]+)"\s*$', source)
+    if path.parent.name != "reblur":
+        return source
+    assert include
+    reflection = '#define NRD_REFLECTION 1' in source
+    active = [True]
+    lines = []
+    for line in (path.parent / include[1]).read_text().splitlines():
+        if line in ('#if NRD_REFLECTION', '#if !NRD_REFLECTION'):
+            active.append(active[-1] and (reflection == (line == '#if NRD_REFLECTION')))
+        elif line == '#else':
+            active[-1] = active[-2] and not active[-1]
+        elif line == '#endif':
+            active.pop()
+        elif active[-1]:
+            lines.append(line)
+    assert len(active) == 1
+    body = '\n'.join(lines)
+    macros = dict(re.findall(r'^#define (\w+_IMAGE) (\w+)', source, re.M))
+    assert set(re.findall(r'\bimage(?:Load|Store)\((\w+_IMAGE),', body)) <= macros.keys(), path
+    body = re.sub(r'\b\w+_IMAGE\b', lambda m: macros[m[0]], body)
+    return source + body
+
+
 class DeclarationShader:
     def __init__(self, name):
         self.name = name + '.comp.spv'
-        self.source = (VK / 'shaders' / (name + '.comp')).read_text()
+        self.source = pass_source(VK / 'shaders' / (name + '.comp'))
         self.bindings = []
         for binding, fmt, qualifier, kind, resource in re.findall(
                 r'layout\(set\s*=\s*0,\s*binding\s*=\s*(\d+),\s*(\w+)\)\s*uniform\s+(?:(readonly|writeonly)\s+)?(u?image2D)\s+(\w+);', self.source):
@@ -148,8 +174,8 @@ for pipeline in pipelines:
 for width,height in [(63,31),(1152,864),(1921,1081),(3840,2160)]:
     launched=((width+7)//8,(height+7)//8)
     for path in (VK / 'shaders/reblur').glob('*.comp'):
-        text=path.read_text()
-        logical=(width//2,height//2) if path.name.startswith('bounce_') else (width,height)
+        text=pass_source(path)
+        logical=(width//2,height//2) if path.name.startswith('reblur_bounce_') else (width,height)
         if path.stem.endswith('prepare'):
             field,channels,span='reblur_groups_8x8_8x16','xy',(8,8)
         elif path.stem.endswith(('prepass','classifytiles')):
@@ -159,35 +185,35 @@ for width,height in [(63,31),(1152,864),(1921,1081),(3840,2160)]:
         limit=tuple((value+step-1)//step for value,step in zip(logical,span))
         assert all(n<=available for n,available in zip(limit,launched)),path
         assert all(n*step>=value for n,step,value in zip(limit,span,logical)),path
-        guard=f'if(any(greaterThanEqual(gl_WorkGroupID.xy,ubo.ubo.{field}[REBLUR_SIGNAL].{channels}))) return;'
+        guard=f'if (any(greaterThanEqual(gl_WorkGroupID.xy, ubo.ubo.{field}[REBLUR_SIGNAL].{channels}))) return;'
         main=text[text.index('void main()'):]
-        assert main.split('{',1)[1].strip().startswith('if(!reblurEnabled()) return;\n    '+guard),path
+        assert main.split('{',1)[1].strip().startswith('if (!reblurEnabled()) return;\n\t'+guard),path
         if 'barrier();' in main:
             assert main.index(guard)<main.index('barrier();'),path
         assert 'gl_NumWorkGroups' not in text,path
 
 for path in (VK / 'shaders/reblur').glob('*.comp'):
-    text = path.read_text()
-    stage=path.stem.split('_',1)[1]
+    text = pass_source(path)
+    stage=path.stem.split('_',2)[2]
     if stage in ('blur','postblur','prepass'):
-        assert 'for (int sampleIndex = 0; sampleIndex < 8; ++sampleIndex)' in text,path
-        assert 'radianceSum += sampleRadiance * sampleWeight;' in text,path
+        assert re.search(r'for \(int (\w+) = 0; \1 < 8; \+\+\1\)', text),path
+        assert 'sum += sampleRadiance * w;' in text,path
     if stage in ('historyfix','temporalaccumulation','temporalstabilization'):
         assert 'for (uint sharedIndex = gl_LocalInvocationIndex;' in text,path
     if stage=='classifytiles':
-        assert 'for (int sampleX = 0; sampleX < 2; ++sampleX)' in text,path
-        assert 'for (int sampleY = 0; sampleY < 4; ++sampleY)' in text,path
+        assert 'for (int x = 0; x < 2; ++x)' in text,path
+        assert 'for (int y = 0; y < 4; ++y)' in text,path
     assert not re.search(r'\b(?:tapValue|sharedValue)\d+\b',text),path
     helper_calls=set(re.findall(r'\b(reblur\w+)\s*\(',text))
-    helper_source=(VK / 'shaders/reblur/filter_math.glsl').read_text() if '#include "filter_math.glsl"' in text else ''
+    helper_source=(VK / 'shaders/reblur/reblur_filter_math.glsl').read_text() if '#include "reblur_filter_math.glsl"' in text else ''
     helper_definitions=set(re.findall(r'\b(?:void|float|uint|vec3|vec4|uvec4)\s+(reblur\w+)\s*\(',text+helper_source))
-    assert helper_calls <= helper_definitions | set(re.findall(r'\b(?:bool|ivec2|vec3|mat4|float)\s+(reblur\w+)\s*\(', (VK / 'shaders/reblur/common.glsl').read_text())),(path,helper_calls-helper_definitions)
+    assert helper_calls <= helper_definitions | set(re.findall(r'\b(?:bool|ivec2|vec3|mat4|float)\s+(reblur\w+)\s*\(', (VK / 'shaders/reblur/reblur_common.glsl').read_text())),(path,helper_calls-helper_definitions)
     numeric_ids=set(re.findall(r'\b_\d+\b',text))
     assert not numeric_ids,(path,numeric_ids)
     declared_ids=set(re.findall(r'\b(?:float|bool|u?int|[biu]?vec[234]|mat[234])\s+(_\d+)\b',text))
     assert numeric_ids<=declared_ids,(path,numeric_ids-declared_ids)
     assert not re.search(r'\b(?:texture2D|utexture2D|sampler2D|textureLod|textureGather\w*|texelFetch\w*)\b',text), path
-    assert 'if(!reblurEnabled()) return;' in text
+    assert 'if (!reblurEnabled()) return;' in text
     assert 'uimage2D' not in text
     for qualifier,name in re.findall(r'uniform (readonly|writeonly) image2D (\w+);',text):
         assert name.startswith('out_') == (qualifier == 'writeonly'), (path,name)

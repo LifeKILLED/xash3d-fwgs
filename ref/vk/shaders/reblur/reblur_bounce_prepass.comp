@@ -1,0 +1,20 @@
+/*
+Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
+This software contains source code provided by NVIDIA Corporation.
+GLSL translation of NVIDIA NRD v4.18.0, commit 8f12a22fc90e6a3c7f5da4c9c3103633c842963a.
+Derived using DXC and SPIRV-Cross; not an independently licensed implementation.
+See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt.
+*/
+#version 460
+#extension GL_EXT_spirv_intrinsics : require
+
+#define NRD_REFLECTION 0
+#include "reblur_common.glsl"
+
+#define TILES_IMAGE reblur_bounce_scratch_4
+#define NORMAL_IMAGE reblur_bounce_normal
+#define VIEWZ_IMAGE reblur_bounce_viewz
+#define SIGNAL_IMAGE reblur_bounce_signal
+#define WORK_OUTPUT_IMAGE out_reblur_bounce_work
+
+#include "reblur_prepass.glsl"

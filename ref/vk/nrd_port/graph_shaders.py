@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 PORT = Path(__file__).resolve().parent
-OUT = PORT.parent / "shaders/reblur"
+OUT = PORT / "generated_reference"
 SEQUENCE = [0, 5, 8, 15, 16, 18, 19]
 FORMATS = {0: "r8", 2: "r8ui", 15: "r16ui", 17: "r16f", 27: "rgba16f", 28: "r32ui", 30: "r32f", 40: "rgb10_a2"}
 # Reference formats above describe the original signal, not allocated images.
@@ -68,7 +68,7 @@ def common(kernels):
              'bool reblurEnabled() {', '#if NRD_BOUNCE', 'return ubo.ubo.nrd_bounce != 0u;', '#else',
              'return ubo.ubo.nrd_reflection != 0u;', '#endif', '}',
              'ivec2 reblurExtent() { return ivec2(ubo.ubo.reblur_resource_size[REBLUR_SIGNAL].xy); }']
-    (OUT / 'common.glsl').write_text('\n'.join(lines) + '\n')
+    (OUT / 'reblur_common.glsl').write_text('\n'.join(lines) + '\n')
 
 
 def sampling_helpers(name, unsigned, extent="reblurExtent()"):
@@ -171,7 +171,7 @@ def transform(kernel, resource_map, bounce, frontend=False):
     source = calls(source, 'imageStore', lambda a: f'reblurStore_{a[0]}({a[1]},{a[2]})' if a[0] in output_names else f'imageStore({",".join(a)})')
     source = source.replace('#extension GL_EXT_samplerless_texture_functions : require\n', '').replace('#extension GL_EXT_shader_image_load_formatted : require\n','')
     source = source.replace('See ../LICENSE.NVIDIA.txt and ../LICENSE.MathLib.txt.', 'See ../../nrd_port/LICENSE.NVIDIA.txt and ../../nrd_port/LICENSE.MathLib.txt.').replace('See ../LICENSE.NVIDIA.txt.', 'See ../../nrd_port/LICENSE.NVIDIA.txt.')
-    insertion = f'\n#define NRD_BOUNCE {int(bounce)}\n#include "common.glsl"\n' + '\n'.join(declarations + helpers) + '\n'
+    insertion = f'\n#define NRD_BOUNCE {int(bounce)}\n#include "reblur_common.glsl"\n' + '\n'.join(declarations + helpers) + '\n'
     # Extensions must precede declarations in GLSL.
     end = source.index('layout(local_size_')
     source = source[:end] + insertion + source[end:]

@@ -1,0 +1,19 @@
+/* Uses NVIDIA NRD front-end helpers. See ../../nrd_port/LICENSE.NVIDIA.txt. */
+#version 460
+#extension GL_EXT_spirv_intrinsics : require
+
+#define NRD_REFLECTION 1
+#include "reblur_common.glsl"
+
+#define POSITION_T_IMAGE position_t
+#define NORMALS_GS_IMAGE normals_gs
+#define MATERIAL_RMXX_IMAGE material_rmxx
+#define GEOMETRY_PREV_POSITION_IMAGE geometry_prev_position
+#define INPUT_RADIANCE_IMAGE indirect_specular
+#define INPUT_RAY_IMAGE reflection_direction_pdf
+#define NORMAL_OUTPUT_IMAGE out_reblur_reflection_normal
+#define VIEWZ_OUTPUT_IMAGE out_reblur_reflection_viewz
+#define MOTION_OUTPUT_IMAGE out_reblur_reflection_motion
+#define SIGNAL_OUTPUT_IMAGE out_reblur_reflection_signal
+
+#include "reblur_prepare.glsl"
