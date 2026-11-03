@@ -388,21 +388,15 @@ struct UniformBuffer {
 	uint nrd_bounce, nrd_reflection;
 	PAD(1)
 	// REBLUR fields: signal 0 = bounce, signal 1 = reflection.
-	mat4 reblur_world_to_clip[2];
-	mat4 reblur_view_to_clip[2];
-	mat4 reblur_view_to_world[2];
-	mat4 reblur_world_to_view_prev[2];
-	mat4 reblur_world_to_clip_prev[2];
-	mat4 reblur_world_prev_to_world[2];
+
 	vec4 reblur_rotator_pre[2];
 	vec4 reblur_rotator[2];
 	vec4 reblur_rotator_post[2];
 	vec4 reblur_frustum[2];
 	vec4 reblur_frustum_prev[2];
-	vec4 reblur_camera_delta[2];
+
 	vec4 reblur_hit_dist_settings[2];
-	vec4 reblur_view_vector_world[2];
-	vec4 reblur_view_vector_world_prev[2];
+
 	vec4 reblur_mv_scale[2];
 	vec4 reblur_mv_bias[2];
 	vec4 reblur_convergence_settings[2];

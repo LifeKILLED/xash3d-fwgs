@@ -95,7 +95,7 @@ void main()
         vec4 packedNormalRoughness = reblurFetch_reblur_bounce_normal(ivec2(outputPixel));
         vec3 decodedNormal = reblurDecodeNormalUnnormalized(packedNormalRoughness);
         vec3 normalWorld = (reblurSafeNormalize(decodedNormal)).xyz;
-        mat4 viewToWorld = transpose(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL]);
+        mat4 viewToWorld = transpose(transpose(reblurViewToWorld()));
         vec3 normalView = normalWorld * mat3(viewToWorld[0].xyz, viewToWorld[1].xyz, viewToWorld[2].xyz);
         vec2 pixelUv = (vec2(pixelPos) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
         bool isPerspective = ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0;

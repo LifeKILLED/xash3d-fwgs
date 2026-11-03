@@ -128,6 +128,7 @@ spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
 spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
 
 #include "filter_math.glsl"
+layout(set=0,binding=31,rgba32f) uniform readonly image2D reblur_reprojection_map;
 
 void main()
 {
@@ -194,7 +195,7 @@ void main()
         vec2 positionViewXY = ((pixelUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
         vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, unusedPositionPadding.z);
         positionView.z = viewDepth;
-        mat3 viewToWorldRotation = mat3(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][0].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][1].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][2].xyz);
+        mat3 viewToWorldRotation = mat3(transpose(reblurViewToWorld())[0].xyz, transpose(reblurViewToWorld())[1].xyz, transpose(reblurViewToWorld())[2].xyz);
         vec3 positionWorld = positionView * viewToWorldRotation;
         vec3 averagedNormalWorld = s_Normal_HitDistForTracking[gl_LocalInvocationID.y][gl_LocalInvocationID.x].xyz * 0.25;
         for (int normalTap = 1; normalTap < 4; ++normalTap)
@@ -222,20 +223,6 @@ void main()
         float averagedNormalLengthSquared = averagedNormalLength * averagedNormalLength;
         float roughnessSquared = roughness * roughness;
         float normalVarianceAdjustedRoughness = sqrt(clamp(roughnessSquared + (clamp(1.0 - averagedNormalLengthSquared, 0.0, 1.0) * (1.0 / spvNMax(averagedNormalLength * (3.0 - averagedNormalLengthSquared), 1.0000000036274937255387218471014e-15))), 0.0, 1.0));
-        uint pixelX = outputPixel.x;
-        uint mortonSpreadXBytes = (pixelX | (pixelX << 8u)) & 16711935u;
-        uint mortonSpreadXNibbles = (mortonSpreadXBytes | (mortonSpreadXBytes << 4u)) & 252645135u;
-        uint mortonSpreadXPairs = (mortonSpreadXNibbles | (mortonSpreadXNibbles << 2u)) & 858993459u;
-        uint pixelY = outputPixel.y;
-        uint mortonSpreadYBytes = (pixelY | (pixelY << 8u)) & 16711935u;
-        uint mortonSpreadYNibbles = (mortonSpreadYBytes | (mortonSpreadYBytes << 4u)) & 252645135u;
-        uint mortonSpreadYPairs = (mortonSpreadYNibbles | (mortonSpreadYNibbles << 2u)) & 858993459u;
-        uint mortonPixel = ((mortonSpreadXPairs | (mortonSpreadXPairs << 1u)) & 1431655765u) | (((mortonSpreadYPairs | (mortonSpreadYPairs << 1u)) & 1431655765u) << 1u);
-        uint frameSeed = ubo.ubo.reblur_frame_index[REBLUR_SIGNAL] + 56598313u;
-        uint frameHash = reblurHash(frameSeed);
-        uint pixelHashFirst = (mortonPixel ^ (mortonPixel >> 16u)) * 2146121005u;
-        uint pixelHashSecond = (pixelHashFirst ^ (pixelHashFirst >> 15u)) * 2221713035u;
-        uint rngSeed = frameHash ^ ((((pixelHashSecond ^ (pixelHashSecond >> 16u)) + 2654435769u) + (frameHash << 6u)) + (frameHash >> 2u));
         float roughnessHitDistanceCurve = 1.0 - exp2(((-200.0) * roughness) * roughness);
         float clampedRoughness = clamp(roughness, 0.0, 1.0);
         float hitDistanceNormalization = (ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].x + (abs(viewDepth) * ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].y)) * mix(ubo.ubo.reblur_hit_dist_settings[REBLUR_SIGNAL].z, 1.0, roughnessHitDistanceCurve * pow(clampedRoughness, 0.5));
@@ -251,7 +238,7 @@ void main()
             if (ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].z == 0.0)
             {
                 vec3 inferredDepthMotion;
-                inferredDepthMotion.z = (vec4(positionWorld, 1.0) * ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL]).z - viewDepth;
+                inferredDepthMotion.z = (vec4(positionWorld, 1.0) * transpose(reblurWorldToView(true))).z - viewDepth;
                 screenMotionWithDepth = inferredDepthMotion;
             }
             else
@@ -262,25 +249,29 @@ void main()
             vec2 positionViewXY2 = ((screenMotionUv * ubo.ubo.reblur_frustum_prev[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum_prev[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth2 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
             vec3 positionView2 = vec3(positionViewXY2.x, positionViewXY2.y, unusedPositionPadding.z);
             positionView2.z = viewDepth2;
-            mat4 previousWorldToView = transpose(ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL]);
-            previousPositionWorld = (positionView2 * mat3(previousWorldToView[0].xyz, previousWorldToView[1].xyz, previousWorldToView[2].xyz)) + ubo.ubo.reblur_camera_delta[REBLUR_SIGNAL].xyz;
+            mat4 previousWorldToView = transpose(transpose(reblurWorldToView(true)));
+            previousPositionWorld = (positionView2 * mat3(previousWorldToView[0].xyz, previousWorldToView[1].xyz, previousWorldToView[2].xyz)) + vec4(reblurCameraDelta(), 0.0).xyz;
             surfaceMotionUv = screenMotionUv;
         }
         else
         {
             vec3 worldMotionPosition = positionWorld + motionVector;
-            vec4 worldMotionClipPosition = vec4(worldMotionPosition, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
+            vec4 worldMotionClipPosition = vec4(worldMotionPosition, 1.0) * reblurWorldToClip(true);
             previousPositionWorld = worldMotionPosition;
             surfaceMotionUv = ((worldMotionClipPosition.xy / vec2(worldMotionClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5);
         }
-        vec2 surfacePreviousPixel = (surfaceMotionUv * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) - vec2(0.5);
+        bool asvgfHistoryValid = false;
+        vec2 asvgfDonor = vec2(0.0);
+        {
+            vec2 encodedDonor = imageLoad(reblur_reprojection_map, ivec2(outputPixel)).ba;
+            asvgfHistoryValid = all(greaterThan(encodedDonor, vec2(0.0))) &&
+                ubo.ubo.reblur_reset_history[REBLUR_SIGNAL] == 0u;
+            asvgfDonor = asvgfHistoryValid ? encodedDonor - 1.0 : vec2(0.0);
+            surfaceMotionUv = (asvgfDonor + 0.5) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
+        }
+        vec2 surfacePreviousPixel = asvgfDonor;
         vec2 surfacePreviousFloor = floor(surfacePreviousPixel);
         vec2 surfaceGatherUv = (surfacePreviousFloor + vec2(-1.0)) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy;
-        vec3 surfaceDepthUpperLeft = abs(reblurGather_prev_temporal_reblur_reflection_depth(surfaceGatherUv,ivec2(1)).zxy * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        vec3 surfaceDepthUpperRight = abs(reblurGather_prev_temporal_reblur_reflection_depth(surfaceGatherUv,ivec2(3, 1)).wxy * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        vec3 surfaceDepthLowerLeft = abs(reblurGather_prev_temporal_reblur_reflection_depth(surfaceGatherUv,ivec2(1, 3)).wzy * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        vec3 surfaceDepthLowerRight = abs(reblurGather_prev_temporal_reblur_reflection_depth(surfaceGatherUv,ivec2(3)).wzx * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        vec2 surfaceBilinearFraction = clamp(surfacePreviousPixel - surfacePreviousFloor, vec2(0.0), vec2(1.0));
         ivec2 surfaceNormalOrigin = ivec3(ivec2(surfacePreviousFloor), 0).xy;
         vec3 previousNormalsUnnormalized[4];
         for (int reprojectionTap = 0; reprojectionTap < 4; ++reprojectionTap)
@@ -293,18 +284,17 @@ void main()
         float surfaceNormalDotTopRight = dot((reblurSafeNormalize(previousNormalsUnnormalized[1])).xyz, averagedNormalWorld);
         float surfaceNormalDotBottomLeft = dot((reblurSafeNormalize(previousNormalsUnnormalized[2])).xyz, averagedNormalWorld);
         float surfaceNormalDotBottomRight = dot((reblurSafeNormalize(previousNormalsUnnormalized[3])).xyz, averagedNormalWorld);
-        float surfaceRightWeight = surfaceBilinearFraction.x;
-        float surfaceBottomWeight = surfaceBilinearFraction.y;
+        float surfaceRightWeight = 0.0;
+        float surfaceBottomWeight = 0.0;
         bvec2 perspectiveMask = bvec2(isPerspective);
         vec2 surfaceParallaxOriginUv = mix(pixelUv, surfaceMotionUv, perspectiveMask);
-        vec4 forwardParallaxClip = vec4(previousPositionWorld + ubo.ubo.reblur_camera_delta[REBLUR_SIGNAL].xyz, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
+        vec4 forwardParallaxClip = vec4(previousPositionWorld + vec4(reblurCameraDelta(), 0.0).xyz, 1.0) * reblurWorldToClip(true);
         vec2 forwardParallaxUv = ((forwardParallaxClip.xy / vec2(forwardParallaxClip.w)) * vec2(0.5, -0.5)) + vec2(0.5);
         float surfaceForwardParallaxPixels = length((forwardParallaxUv - surfaceParallaxOriginUv) * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy);
-        vec3 backwardParallaxPosition = previousPositionWorld - ubo.ubo.reblur_camera_delta[REBLUR_SIGNAL].xyz;
-        vec4 backwardParallaxClip = vec4(backwardParallaxPosition, 1.0) * ubo.ubo.reblur_world_to_clip[REBLUR_SIGNAL];
+        vec3 backwardParallaxPosition = previousPositionWorld - vec4(reblurCameraDelta(), 0.0).xyz;
+        vec4 backwardParallaxClip = vec4(backwardParallaxPosition, 1.0) * reblurWorldToClip(false);
         float surfaceBackwardParallaxPixels = length(((((backwardParallaxClip.xy / vec2(backwardParallaxClip.w)) * vec2(0.5, -0.5)) + vec2(0.5)) - mix(surfaceMotionUv, pixelUv, perspectiveMask)) * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy);
         float maxSurfaceParallaxPixels = spvNMax(surfaceForwardParallaxPixels, surfaceBackwardParallaxPixels);
-        float minSurfaceParallaxPixels = spvNMin(surfaceForwardParallaxPixels, surfaceBackwardParallaxPixels);
         float orthoFactor = abs(ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
         float projectionDepthScale = mix(viewDepth, 1.0, orthoFactor);
         float pixelWorldSize = ubo.ubo.reblur_unproject[REBLUR_SIGNAL] * projectionDepthScale;
@@ -330,7 +320,6 @@ void main()
         {
             disocclusionThreshold = materialDisocclusionThreshold;
         }
-        float normalRejectionAngle = radians(180.0);
         vec3 viewDirectionWorld;
         if (isPerspective)
         {
@@ -338,15 +327,9 @@ void main()
         }
         else
         {
-            viewDirectionWorld = ubo.ubo.reblur_view_vector_world[REBLUR_SIGNAL].xyz;
+            viewDirectionWorld = vec4(reblurViewDirection(false), 0.0).xyz;
         }
         float absNormalDotView = abs(dot(surfaceNormalWorld, viewDirectionWorld));
-        vec4 normalRejectionThresholds = vec4(cos(normalRejectionAngle * 0.4944444596767425537109375) - (0.25 * clamp((maxSurfaceParallaxPixels - 0.25) * (-4.0), 0.0, 1.0)));
-        vec4 surfaceBilinearBounds = surfacePreviousFloor.xyxy + vec4(0.0, 0.0, 1.0, 1.0);
-        bvec4 surfaceBoundsValid = notEqual((ivec4(greaterThanEqual(surfaceBilinearBounds, vec4(0.0))) & ivec4(lessThan(surfaceBilinearBounds, ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy.xyxy))), ivec4(0));
-        vec4 surfacePlaneThresholds = ((vec4(greaterThan(vec4(surfaceNormalDotTopLeft, surfaceNormalDotTopRight, surfaceNormalDotBottomLeft, surfaceNormalDotBottomRight), normalRejectionThresholds)) * vec4(ivec4(surfaceBoundsValid.xzxz) & ivec4(surfaceBoundsValid.yyww))) * (frustumSize * clamp(disocclusionThreshold / spvNMax(0.0500000007450580596923828125, mix(absNormalDotView, 1.0, clamp(maxSurfaceParallaxPixels * 0.0333333350718021392822265625, 0.0, 1.0))), 0.0, 1.0))) - vec4(9.9999999747524270787835121154785e-07);
-        vec3 expectedPreviousViewDepth = vec3((vec4(previousPositionWorld, 1.0) * ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL]).z);
-        vec3 denoisingRangeVector = vec3(ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL]);
         uvec4 surfacePackedStateUpperLeft = reblurGather_prev_temporal_reblur_reflection_internal(surfaceGatherUv,ivec2(1));
         uvec4 surfacePackedStateUpperRight = reblurGather_prev_temporal_reblur_reflection_internal(surfaceGatherUv,ivec2(3, 1));
         uvec4 surfacePackedStateLowerLeft = reblurGather_prev_temporal_reblur_reflection_internal(surfaceGatherUv,ivec2(1, 3));
@@ -357,22 +340,23 @@ void main()
         vec4 surfaceHistoryStateTopRight = vec4((uvec4(surfacePackedStateUpperRight.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
         vec4 surfaceHistoryStateBottomLeft = vec4((uvec4(surfacePackedStateLowerLeft.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
         vec4 surfaceHistoryStateBottomRight = vec4((uvec4(surfacePackedStateLowerRight.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
-        float minComparableMaterial = spvNMin(ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL], ubo.ubo.reblur_diff_min_material[REBLUR_SIGNAL]);
-        vec3 comparableMaterialVector = vec3(spvNMax(materialId, minComparableMaterial));
-        vec3 minComparableMaterialVector = vec3(minComparableMaterial);
-        vec3 surfaceValidUpperLeft = (step(abs(surfaceDepthUpperLeft - expectedPreviousViewDepth), vec3(surfacePlaneThresholds.x)) * vec3(lessThan(surfaceDepthUpperLeft, denoisingRangeVector))) * vec3(equal(comparableMaterialVector, spvNMax(vec3((vec4((uvec4(surfacePackedStateUpperLeft.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0, (vec4((uvec4(surfacePackedStateUpperLeft.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0, surfaceHistoryStateTopLeft.z * 15.0), minComparableMaterialVector)));
-        vec3 surfaceValidUpperRight = (step(abs(surfaceDepthUpperRight - expectedPreviousViewDepth), vec3(surfacePlaneThresholds.y)) * vec3(lessThan(surfaceDepthUpperRight, denoisingRangeVector))) * vec3(equal(comparableMaterialVector, spvNMax(vec3((vec4((uvec4(surfacePackedStateUpperRight.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0, surfaceHistoryStateTopRight.z * 15.0, (vec4((uvec4(surfacePackedStateUpperRight.y) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0), minComparableMaterialVector)));
-        vec3 surfaceValidLowerLeft = (step(abs(surfaceDepthLowerLeft - expectedPreviousViewDepth), vec3(surfacePlaneThresholds.z)) * vec3(lessThan(surfaceDepthLowerLeft, denoisingRangeVector))) * vec3(equal(comparableMaterialVector, spvNMax(vec3((vec4((uvec4(surfacePackedStateLowerLeft.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0, surfaceHistoryStateBottomLeft.z * 15.0, (vec4((uvec4(surfacePackedStateLowerLeft.y) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0), minComparableMaterialVector)));
-        vec3 surfaceValidLowerRight = (step(abs(surfaceDepthLowerRight - expectedPreviousViewDepth), vec3(surfacePlaneThresholds.w)) * vec3(lessThan(surfaceDepthLowerRight, denoisingRangeVector))) * vec3(equal(comparableMaterialVector, spvNMax(vec3(surfaceHistoryStateBottomRight.z * 15.0, (vec4((uvec4(surfacePackedStateLowerRight.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0, (vec4((uvec4(surfacePackedStateLowerRight.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale).z * 15.0), minComparableMaterialVector)));
-        vec2 surfaceBilinearComplement = clamp(vec2(1.0) - surfaceBilinearFraction, vec2(0.0), vec2(1.0));
-        float surfaceLeftWeight = surfaceBilinearComplement.x;
-        float surfaceTopWeight = surfaceBilinearComplement.y;
+        vec3 surfaceValidUpperLeft;
+        vec3 surfaceValidUpperRight;
+        vec3 surfaceValidLowerLeft;
+        vec3 surfaceValidLowerRight;
+        {
+            surfaceValidUpperLeft = vec3(0.0, 0.0, float(asvgfHistoryValid));
+            surfaceValidUpperRight = vec3(0.0);
+            surfaceValidLowerLeft = vec3(0.0);
+            surfaceValidLowerRight = vec3(0.0);
+        }
+        float surfaceLeftWeight = 1.0;
+        float surfaceTopWeight = 1.0;
         float surfaceHistoryWeightTopLeft = surfaceValidUpperLeft.z * (surfaceLeftWeight * surfaceTopWeight);
         float surfaceHistoryWeightTopRight = surfaceValidUpperRight.y * (surfaceRightWeight * surfaceTopWeight);
         float surfaceHistoryWeightBottomLeft = surfaceValidLowerLeft.y * (surfaceLeftWeight * surfaceBottomWeight);
         float surfaceHistoryWeightBottomRight = surfaceValidLowerRight.x * (surfaceRightWeight * surfaceBottomWeight);
         vec4 surfaceHistoryWeights = vec4(surfaceHistoryWeightTopLeft, surfaceHistoryWeightTopRight, surfaceHistoryWeightBottomLeft, surfaceHistoryWeightBottomRight);
-        bool allowSurfaceCatmullRom = (dot(((surfaceValidUpperLeft + surfaceValidUpperRight) + surfaceValidLowerLeft) + surfaceValidLowerRight, vec3(1.0)) > 11.5) ? true : false;
         float surfaceHistoryWeightSum = dot(surfaceHistoryWeights, vec4(1.0));
         float inverseSurfaceHistoryWeight;
         if (surfaceHistoryWeightSum < 9.9999997473787516355514526367188e-05)
@@ -387,310 +371,17 @@ void main()
         vec3 previousViewDirectionWorld;
         if (isPerspective)
         {
-            previousViewDirectionWorld = normalize(ubo.ubo.reblur_camera_delta[REBLUR_SIGNAL].xyz - previousPositionWorld);
+            previousViewDirectionWorld = normalize(vec4(reblurCameraDelta(), 0.0).xyz - previousPositionWorld);
         }
         else
         {
-            previousViewDirectionWorld = ubo.ubo.reblur_view_vector_world_prev[REBLUR_SIGNAL].xyz;
+            previousViewDirectionWorld = vec4(reblurViewDirection(true), 0.0).xyz;
         }
         float normalDotViewRatio = (abs(dot(surfaceNormalWorld, previousViewDirectionWorld)) + 0.001000000047497451305389404296875) / (absNormalDotView + 0.001000000047497451305389404296875);
         float surfaceConfidenceAdjustedFrameCount = surfaceReprojectedFrameCount * mix(sqrt(clamp(mix(mix(surfaceValidUpperLeft.z, surfaceValidUpperRight.y, surfaceRightWeight), mix(surfaceValidLowerLeft.y, surfaceValidLowerRight.x, surfaceRightWeight), surfaceBottomWeight), 0.0, 1.0)) * mix(0.100000001490116119384765625, 1.0, clamp(normalDotViewRatio * normalDotViewRatio, 0.0, 1.0)), 1.0, 1.0 / (1.0 + surfaceReprojectedFrameCount));
         vec4 currentRadiance = reblurFetch_reblur_reflection_work(ivec2(outputPixel));
-        vec2 parallaxDirectionPixels = ((surfaceParallaxOriginUv - forwardParallaxUv) * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) / vec2(spvNMax(surfaceForwardParallaxPixels, 0.00390625));
-        float neighborProjectionScale = isPerspective ? 1.0 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL];
-        vec2 neighborViewXYRight = (((pixelUv + (vec2(1.0, 0.0) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy)) * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * neighborProjectionScale;
-        vec3 neighborViewPositionRight = vec3(neighborViewXYRight.x, neighborViewXYRight.y, unusedPositionPadding.z);
-        neighborViewPositionRight.z = 1.0;
-        vec3 neighborWorldPositionRight = neighborViewPositionRight * viewToWorldRotation;
-        vec3 neighborViewDirectionX;
-        if (isPerspective)
-        {
-            neighborViewDirectionX = normalize(-neighborWorldPositionRight);
-        }
-        else
-        {
-            neighborViewDirectionX = ubo.ubo.reblur_view_vector_world[REBLUR_SIGNAL].xyz;
-        }
-        bvec3 perspectiveVectorMask = bvec3(isPerspective);
-        vec3 neighborRayOriginRight = mix(neighborWorldPositionRight, vec3(0.0), perspectiveVectorMask);
-        vec2 neighborViewXYBottom = (((pixelUv + (vec2(0.0, 1.0) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy)) * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * neighborProjectionScale;
-        vec3 neighborViewPositionBottom = vec3(neighborViewXYBottom.x, neighborViewXYBottom.y, unusedPositionPadding.z);
-        neighborViewPositionBottom.z = 1.0;
-        vec3 neighborWorldPositionBottom = neighborViewPositionBottom * viewToWorldRotation;
-        vec3 neighborViewDirectionY;
-        if (isPerspective)
-        {
-            neighborViewDirectionY = normalize(-neighborWorldPositionBottom);
-        }
-        else
-        {
-            neighborViewDirectionY = ubo.ubo.reblur_view_vector_world[REBLUR_SIGNAL].xyz;
-        }
-        vec3 neighborRayOriginBottom = mix(neighborWorldPositionBottom, vec3(0.0), perspectiveVectorMask);
-        vec2 parallaxAxisMagnitude = abs(parallaxDirectionPixels) + vec2(0.00390625);
-        vec2 parallaxAxisWeights = parallaxAxisMagnitude / vec2(parallaxAxisMagnitude.x + parallaxAxisMagnitude.y);
-        float parallaxWeightX = parallaxAxisWeights.x;
-        float parallaxWeightY = parallaxAxisWeights.y;
-        vec3 estimatedNeighborPositionWorld = ((neighborRayOriginRight + ((neighborViewDirectionX * dot(positionWorld - neighborRayOriginRight, surfaceNormalWorld)) / vec3(dot(surfaceNormalWorld, neighborViewDirectionX)))) * parallaxWeightX) + ((neighborRayOriginBottom + ((neighborViewDirectionY * dot(positionWorld - neighborRayOriginBottom, surfaceNormalWorld)) / vec3(dot(surfaceNormalWorld, neighborViewDirectionY)))) * parallaxWeightY);
-        vec3 interpolatedNeighborNormalWorld = (s_Normal_HitDistForTracking[ivec3(gl_LocalInvocationID).y + 1][ivec3(gl_LocalInvocationID).x + 2].xyz * parallaxWeightX) + (s_Normal_HitDistForTracking[ivec3(gl_LocalInvocationID).y + 2][ivec3(gl_LocalInvocationID).x + 1].xyz * parallaxWeightY);
-        vec3 estimatedNeighborNormalWorld = reblurSafeNormalize(interpolatedNeighborNormalWorld);
-        vec2 curvatureSampleUv = pixelUv + ((parallaxDirectionPixels * minSurfaceParallaxPixels) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy);
-        bool useSampledCurvature;
-        if (minSurfaceParallaxPixels > 1.41421353816986083984375)
-        {
-            bool curvatureSampleInsideRect;
-            if (all(greaterThan(curvatureSampleUv, vec2(0.0))))
-            {
-                curvatureSampleInsideRect = all(lessThan(curvatureSampleUv, vec2(1.0)));
-            }
-            else
-            {
-                curvatureSampleInsideRect = false;
-            }
-            useSampledCurvature = float(curvatureSampleInsideRect) != 0.0;
-        }
-        else
-        {
-            useSampledCurvature = false;
-        }
-        uint curvatureRngState;
-        vec3 neighborNormalWorld;
-        vec3 neighborPositionWorld;
-        if (useSampledCurvature)
-        {
-            vec2 clampedCurvatureSampleUv = spvNMin(curvatureSampleUv * ubo.ubo.reblur_resolution_scale[REBLUR_SIGNAL].xy, ubo.ubo.reblur_resolution_scale[REBLUR_SIGNAL].xy - (ubo.ubo.reblur_resource_size_inv[REBLUR_SIGNAL].xy * 0.5));
-            float viewDepth3 = abs(reblurLinear_reblur_reflection_viewz(clampedCurvatureSampleUv).x * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-            vec2 positionViewXY3 = ((curvatureSampleUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth3 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 positionView3 = vec3(positionViewXY3.x, positionViewXY3.y, unusedPositionPadding.z);
-            positionView3.z = viewDepth3;
-            vec3 sampledNeighborPositionWorld = positionView3 * viewToWorldRotation;
-            vec2 curvatureSamplePixel = (clampedCurvatureSampleUv * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) - vec2(0.5);
-            vec2 curvatureSampleFloor = floor(curvatureSamplePixel);
-            uint curvatureRandomX = reblurHash(rngSeed);
-            uint curvatureRandomY = reblurHash(curvatureRandomX);
-            vec4 curvaturePackedNormal = reblurNearest_reblur_reflection_normal(((curvatureSampleFloor + step(uintBitsToFloat((uvec2(curvatureRandomX, curvatureRandomY) >> uvec2(9u)) | uvec2(1065353216u)) - vec2(1.0), clamp(curvatureSamplePixel - curvatureSampleFloor, vec2(0.0), vec2(1.0)))) + vec2(0.5)) / ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy);
-            vec3 curvatureDecodedNormal = reblurDecodeNormalUnnormalized(curvaturePackedNormal);
-            float curvaturePlaneWeightScale = 25.0 / frustumSize;
-            float curvaturePlaneWeight = clamp((abs((dot(surfaceNormalWorld, sampledNeighborPositionWorld) * curvaturePlaneWeightScale) + (-(dot(surfaceNormalWorld, positionWorld) * curvaturePlaneWeightScale))) - 1.0) * (-1.0), 0.0, 1.0);
-            bvec3 curvatureSampleValid = bvec3(((!(viewDepth3 < ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])) ? 0.0 : ((curvaturePlaneWeight * curvaturePlaneWeight) * (3.0 - (curvaturePlaneWeight * 2.0)))) > 0.5);
-            curvatureRngState = curvatureRandomY;
-            neighborNormalWorld = mix(estimatedNeighborNormalWorld, (reblurSafeNormalize(curvatureDecodedNormal)).xyz, curvatureSampleValid);
-            neighborPositionWorld = mix(estimatedNeighborPositionWorld, sampledNeighborPositionWorld, curvatureSampleValid);
-        }
-        else
-        {
-            curvatureRngState = rngSeed;
-            neighborNormalWorld = estimatedNeighborNormalWorld;
-            neighborPositionWorld = estimatedNeighborPositionWorld;
-        }
-        vec3 surfaceEdgeWorld = neighborPositionWorld - positionWorld;
-        float curvature = dot(neighborNormalWorld - surfaceNormalWorld, surfaceEdgeWorld) * (1.0 / spvNMax(dot(surfaceEdgeWorld, surfaceEdgeWorld), 1.0000000036274937255387218471014e-15));
-        float correctedCurvature;
-        if (curvature < 0.0)
-        {
-            float correctionDominantDirectionFit = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * clampedRoughness));
-            float correctionGrazingAngleFactor = clamp(1.0 - absNormalDotView, 0.0, 1.0);
-            float correctionDominantDirectionFactor = clamp((pow(correctionGrazingAngleFactor, 10.86489963531494140625) * (1.0 - correctionDominantDirectionFit)) + correctionDominantDirectionFit, 0.0, 1.0);
-            float correctionNormalZ = normalizedSurfaceNormalWorld.z;
-            float correctionNormalZSign = (step(0.0, correctionNormalZ) * 2.0) - 1.0;
-            float correctionInverseBasisDenominator = 1.0 / (correctionNormalZSign + correctionNormalZ);
-            float correctionNormalY = normalizedSurfaceNormalWorld.y;
-            float correctionScaledNormalY = correctionNormalY * correctionInverseBasisDenominator;
-            float correctionNormalX = normalizedSurfaceNormalWorld.x;
-            float correctionNormalCrossTerm = correctionNormalX * correctionScaledNormalY;
-            float correctionSignedNormalX = correctionNormalX * correctionNormalZSign;
-            vec3 correctionDominantDisplacementLocal = (vec4(normalize(mix(surfaceNormalWorld, reflect(-viewDirectionWorld, surfaceNormalWorld), vec3(correctionDominantDirectionFactor))), correctionDominantDirectionFactor).xyz * hitDistanceForTracking) * mat3(vec3(((correctionSignedNormalX * correctionNormalX) * correctionInverseBasisDenominator) - 1.0, correctionNormalZSign * correctionNormalCrossTerm, correctionSignedNormalX), vec3(correctionNormalCrossTerm, (correctionNormalY * correctionScaledNormalY) - correctionNormalZSign, correctionNormalY), surfaceNormalWorld);
-            float correctionVirtualNormalOffset = -correctionDominantDisplacementLocal.z;
-            vec3 correctionVirtualDisplacementLocal = correctionDominantDisplacementLocal;
-            correctionVirtualDisplacementLocal.z = correctionVirtualNormalOffset;
-            float correctionVirtualFocusScale = (1.0 / (((2.0 * curvature) * correctionVirtualNormalOffset) - 1.0)) * (1.0 / (1.0 + ((length(positionWorld) * correctionGrazingAngleFactor) * spvNMax(curvature, 0.0))));
-            float correctionVirtualDisplacementLength = correctionDominantDirectionFactor * length(correctionVirtualDisplacementLocal * correctionVirtualFocusScale);
-            vec4 correctionVirtualClipPosition = vec4(mix(positionWorld, positionWorld, vec3(clamp(correctionVirtualDisplacementLength / (hitDistanceForTracking + 9.9999999747524270787835121154785e-07), 0.0, 1.0))) + ((viewDirectionWorld * correctionVirtualDisplacementLength) * ((step(0.0, correctionVirtualFocusScale) * 2.0) - 1.0)), 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
-            vec4 correctionSurfaceClipPosition = vec4(positionWorld, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
-            correctedCurvature = curvature * float(length(((((correctionVirtualClipPosition.xy / vec2(correctionVirtualClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5)) - (((correctionSurfaceClipPosition.xy / vec2(correctionSurfaceClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5))) * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) < ((5.0 * maxSurfaceParallaxPixels) + ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy.x));
-        }
-        else
-        {
-            correctedCurvature = curvature;
-        }
-        float dominantDirectionFit = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * clampedRoughness));
-        float grazingAngleFactor = clamp(1.0 - absNormalDotView, 0.0, 1.0);
-        float dominantDirectionFactor = clamp((pow(grazingAngleFactor, 10.86489963531494140625) * (1.0 - dominantDirectionFit)) + dominantDirectionFit, 0.0, 1.0);
-        vec3 dominantDirectionWorld = vec4(normalize(mix(surfaceNormalWorld, reflect(-viewDirectionWorld, surfaceNormalWorld), vec3(dominantDirectionFactor))), dominantDirectionFactor).xyz;
-        float normalZ = normalizedSurfaceNormalWorld.z;
-        float normalZSign = (step(0.0, normalZ) * 2.0) - 1.0;
-        float inverseBasisDenominator = 1.0 / (normalZSign + normalZ);
-        float normalY = normalizedSurfaceNormalWorld.y;
-        float scaledNormalY = normalY * inverseBasisDenominator;
-        float normalX = normalizedSurfaceNormalWorld.x;
-        float normalCrossTerm = normalX * scaledNormalY;
-        float signedNormalX = normalX * normalZSign;
-        mat3 normalBasisWorldToLocal = mat3(vec3(((signedNormalX * normalX) * inverseBasisDenominator) - 1.0, normalZSign * normalCrossTerm, signedNormalX), vec3(normalCrossTerm, (normalY * scaledNormalY) - normalZSign, normalY), surfaceNormalWorld);
-        vec3 dominantDisplacementLocal = (dominantDirectionWorld * hitDistanceForTracking) * normalBasisWorldToLocal;
-        float virtualNormalOffset = -dominantDisplacementLocal.z;
-        vec3 virtualDisplacementLocal = dominantDisplacementLocal;
-        virtualDisplacementLocal.z = virtualNormalOffset;
-        float doubledCurvature = 2.0 * correctedCurvature;
         float cameraDistance = length(positionWorld);
-        float virtualFocusAttenuation = 1.0 / (1.0 + ((cameraDistance * grazingAngleFactor) * spvNMax(correctedCurvature, 0.0)));
-        float virtualFocusScale = (1.0 / ((doubledCurvature * virtualNormalOffset) - 1.0)) * virtualFocusAttenuation;
-        float virtualDisplacementLength = dominantDirectionFactor * length(virtualDisplacementLocal * virtualFocusScale);
-        vec3 virtualPositionWorld = mix(previousPositionWorld, positionWorld, vec3(clamp(virtualDisplacementLength / (hitDistanceForTracking + 9.9999999747524270787835121154785e-07), 0.0, 1.0))) + ((viewDirectionWorld * virtualDisplacementLength) * ((step(0.0, virtualFocusScale) * 2.0) - 1.0));
-        vec4 virtualClipPosition = vec4(virtualPositionWorld, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
-        bvec2 cameraAttachedReflectionMask = bvec2(materialId == ubo.ubo.reblur_camera_attached_reflection_material_id[REBLUR_SIGNAL]);
-        vec2 virtualMotionUv = mix(((virtualClipPosition.xy / vec2(virtualClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5), surfaceMotionUv, cameraAttachedReflectionMask);
-        vec2 virtualMotionDeltaUv = virtualMotionUv - surfaceMotionUv;
         float motionFrameRateScale = ubo.ubo.reblur_frame_rate_scale[REBLUR_SIGNAL] * 0.75;
-        float virtualTravelPixels = length(virtualMotionDeltaUv * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) * motionFrameRateScale;
-        vec2 virtualPreviousPixel = (virtualMotionUv * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) - vec2(0.5);
-        vec2 virtualPreviousFloor = floor(virtualPreviousPixel);
-        vec2 virtualBilinearFraction = clamp(virtualPreviousPixel - virtualPreviousFloor, vec2(0.0), vec2(1.0));
-        vec2 virtualGatherUv = (virtualPreviousFloor + vec2(1.0)) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy;
-        ivec2 virtualNormalOrigin = ivec3(ivec2(virtualPreviousFloor), 0).xy;
-        vec4 virtualPackedNormalTopLeft = reblurFetch_prev_temporal_reblur_reflection_normal(virtualNormalOrigin);
-        float virtualSignedRoughnessTopLeft = (virtualPackedNormalTopLeft.z * 2.0) - 1.0;
-        float virtualEncodedNormalXTopLeft = virtualPackedNormalTopLeft.x;
-        float virtualEncodedNormalYTopLeft = virtualPackedNormalTopLeft.y;
-        float virtualOctNormalXTopLeft = virtualEncodedNormalXTopLeft - virtualEncodedNormalYTopLeft;
-        float virtualOctNormalYTopLeft = (virtualEncodedNormalXTopLeft + virtualEncodedNormalYTopLeft) - 1.0;
-        float virtualRoughnessTopLeft = abs(virtualSignedRoughnessTopLeft);
-        vec4 virtualDecodedNormalRoughnessTopLeft = vec4(virtualOctNormalXTopLeft, virtualOctNormalYTopLeft, float((virtualSignedRoughnessTopLeft < 0.0) ? (-1) : 1) * ((1.0 - abs(virtualOctNormalXTopLeft)) - abs(virtualOctNormalYTopLeft)), virtualRoughnessTopLeft);
-        vec3 virtualDecodedNormalTopLeft = virtualDecodedNormalRoughnessTopLeft.xyz;
-        vec3 virtualNormalWorldTopLeft = reblurSafeNormalize(virtualDecodedNormalTopLeft);
-        vec4 virtualPackedNormalTopRight = reblurFetch_prev_temporal_reblur_reflection_normal((virtualNormalOrigin)+(ivec2(1, 0)));
-        float virtualSignedRoughnessTopRight = (virtualPackedNormalTopRight.z * 2.0) - 1.0;
-        float virtualEncodedNormalXTopRight = virtualPackedNormalTopRight.x;
-        float virtualEncodedNormalYTopRight = virtualPackedNormalTopRight.y;
-        float virtualOctNormalXTopRight = virtualEncodedNormalXTopRight - virtualEncodedNormalYTopRight;
-        float virtualOctNormalYTopRight = (virtualEncodedNormalXTopRight + virtualEncodedNormalYTopRight) - 1.0;
-        float virtualRoughnessTopRight = abs(virtualSignedRoughnessTopRight);
-        vec4 virtualDecodedNormalRoughnessTopRight = vec4(virtualOctNormalXTopRight, virtualOctNormalYTopRight, float((virtualSignedRoughnessTopRight < 0.0) ? (-1) : 1) * ((1.0 - abs(virtualOctNormalXTopRight)) - abs(virtualOctNormalYTopRight)), virtualRoughnessTopRight);
-        vec3 virtualDecodedNormalTopRight = virtualDecodedNormalRoughnessTopRight.xyz;
-        vec3 virtualNormalWorldTopRight = reblurSafeNormalize(virtualDecodedNormalTopRight);
-        vec4 virtualPackedNormalBottomLeft = reblurFetch_prev_temporal_reblur_reflection_normal((virtualNormalOrigin)+(ivec2(0, 1)));
-        float virtualSignedRoughnessBottomLeft = (virtualPackedNormalBottomLeft.z * 2.0) - 1.0;
-        float virtualEncodedNormalXBottomLeft = virtualPackedNormalBottomLeft.x;
-        float virtualEncodedNormalYBottomLeft = virtualPackedNormalBottomLeft.y;
-        float virtualOctNormalXBottomLeft = virtualEncodedNormalXBottomLeft - virtualEncodedNormalYBottomLeft;
-        float virtualOctNormalYBottomLeft = (virtualEncodedNormalXBottomLeft + virtualEncodedNormalYBottomLeft) - 1.0;
-        float virtualRoughnessBottomLeft = abs(virtualSignedRoughnessBottomLeft);
-        vec4 virtualDecodedNormalRoughnessBottomLeft = vec4(virtualOctNormalXBottomLeft, virtualOctNormalYBottomLeft, float((virtualSignedRoughnessBottomLeft < 0.0) ? (-1) : 1) * ((1.0 - abs(virtualOctNormalXBottomLeft)) - abs(virtualOctNormalYBottomLeft)), virtualRoughnessBottomLeft);
-        vec3 virtualDecodedNormalBottomLeft = virtualDecodedNormalRoughnessBottomLeft.xyz;
-        vec3 virtualNormalWorldBottomLeft = reblurSafeNormalize(virtualDecodedNormalBottomLeft);
-        vec4 virtualPackedNormalBottomRight = reblurFetch_prev_temporal_reblur_reflection_normal((virtualNormalOrigin)+(ivec2(1)));
-        float virtualSignedRoughnessBottomRight = (virtualPackedNormalBottomRight.z * 2.0) - 1.0;
-        float virtualEncodedNormalXBottomRight = virtualPackedNormalBottomRight.x;
-        float virtualEncodedNormalYBottomRight = virtualPackedNormalBottomRight.y;
-        float virtualOctNormalXBottomRight = virtualEncodedNormalXBottomRight - virtualEncodedNormalYBottomRight;
-        float virtualOctNormalYBottomRight = (virtualEncodedNormalXBottomRight + virtualEncodedNormalYBottomRight) - 1.0;
-        float virtualRoughnessBottomRight = abs(virtualSignedRoughnessBottomRight);
-        vec4 virtualDecodedNormalRoughnessBottomRight = vec4(virtualOctNormalXBottomRight, virtualOctNormalYBottomRight, float((virtualSignedRoughnessBottomRight < 0.0) ? (-1) : 1) * ((1.0 - abs(virtualOctNormalXBottomRight)) - abs(virtualOctNormalYBottomRight)), virtualRoughnessBottomRight);
-        vec3 virtualDecodedNormalBottomRight = virtualDecodedNormalRoughnessBottomRight.xyz;
-        vec3 virtualNormalWorldBottomRight = reblurSafeNormalize(virtualDecodedNormalBottomRight);
-        vec4 virtualRoughnessTaps = vec4(virtualRoughnessTopLeft, virtualRoughnessTopRight, virtualRoughnessBottomLeft, virtualRoughnessBottomRight);
-        float virtualNormalDotTopLeft = dot(virtualNormalWorldTopLeft.xyz, surfaceNormalWorld);
-        float virtualNormalDotTopRight = dot(virtualNormalWorldTopRight.xyz, surfaceNormalWorld);
-        float virtualNormalDotBottomLeft = dot(virtualNormalWorldBottomLeft.xyz, surfaceNormalWorld);
-        float virtualNormalDotBottomRight = dot(virtualNormalWorldBottomRight.xyz, surfaceNormalWorld);
-        float virtualRightWeight = virtualBilinearFraction.x;
-        float virtualBottomWeight = virtualBilinearFraction.y;
-        vec4 virtualRightWeightVector = vec4(virtualRightWeight);
-        vec4 virtualInterpolatedNormalRoughness = mix(mix(vec4(virtualNormalWorldTopLeft.x, virtualNormalWorldTopLeft.y, virtualNormalWorldTopLeft.z, virtualDecodedNormalRoughnessTopLeft.w), vec4(virtualNormalWorldTopRight.x, virtualNormalWorldTopRight.y, virtualNormalWorldTopRight.z, virtualDecodedNormalRoughnessTopRight.w), virtualRightWeightVector), mix(vec4(virtualNormalWorldBottomLeft.x, virtualNormalWorldBottomLeft.y, virtualNormalWorldBottomLeft.z, virtualDecodedNormalRoughnessBottomLeft.w), vec4(virtualNormalWorldBottomRight.x, virtualNormalWorldBottomRight.y, virtualNormalWorldBottomRight.z, virtualDecodedNormalRoughnessBottomRight.w), virtualRightWeightVector), vec4(virtualBottomWeight));
-        vec3 virtualInterpolatedNormal = virtualInterpolatedNormalRoughness.xyz;
-        float roughnessRejectionFraction = clamp(ubo.ubo.reblur_roughness_fraction[REBLUR_SIGNAL], 0.0, 1.0);
-        float roughnessWeightScale = 1.0 / mix(0.0030000000260770320892333984375, 1.0, mix(roughnessSquared * roughnessSquared, roughnessSquared, roughnessRejectionFraction));
-        vec4 virtualRoughnessWeights = clamp((abs(((virtualRoughnessTaps * virtualRoughnessTaps) * roughnessWeightScale) + vec4(-(roughnessSquared * roughnessWeightScale))) - vec4(1.0)) * vec4(-1.0), vec4(0.0), vec4(1.0));
-        float virtualTravelFraction = clamp(virtualTravelPixels, 0.0, 1.0);
-        float virtualTravelSmoothWeight = (virtualTravelFraction * virtualTravelFraction) * (3.0 - (virtualTravelFraction * 2.0));
-        vec4 motionAdjustedRoughnessWeights = mix(vec4(1.0), (virtualRoughnessWeights * virtualRoughnessWeights) * (vec4(3.0) - (virtualRoughnessWeights * 2.0)), vec4(virtualTravelSmoothWeight));
-        vec4 virtualBilinearBounds = virtualPreviousFloor.xyxy + vec4(0.0, 0.0, 1.0, 1.0);
-        bvec4 virtualBoundsValid = notEqual((ivec4(greaterThanEqual(virtualBilinearBounds, vec4(0.0))) & ivec4(lessThan(virtualBilinearBounds, ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy.xyxy))), ivec4(0));
-        vec4 virtualDepthTaps = abs(reblurGather_prev_temporal_reblur_reflection_depth(virtualGatherUv,ivec2(0)).wzxy * ubo.ubo.reblur_view_z_scale[REBLUR_SIGNAL]);
-        vec2 virtualPreviousViewRayXY = ((virtualMotionUv * ubo.ubo.reblur_frustum_prev[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum_prev[REBLUR_SIGNAL].xy).xy * 1.0;
-        vec3 surfaceNormalPreviousView = surfaceNormalWorld * mat3(ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL][0].xyz, ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL][1].xyz, ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL][2].xyz);
-        vec4 virtualProjectionDepthScale;
-        if (isPerspective)
-        {
-            virtualProjectionDepthScale = virtualDepthTaps;
-        }
-        else
-        {
-            virtualProjectionDepthScale = vec4(ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-        }
-        uvec4 virtualPackedStateTaps = reblurGather_prev_temporal_reblur_reflection_internal(virtualGatherUv,ivec2(0));
-        vec4 virtualHistoryStateTopLeft = vec4((uvec4(virtualPackedStateTaps.w) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
-        vec4 virtualHistoryStateTopRight = vec4((uvec4(virtualPackedStateTaps.z) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
-        vec4 virtualHistoryStateBottomLeft = vec4((uvec4(virtualPackedStateTaps.x) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
-        vec4 virtualHistoryStateBottomRight = vec4((uvec4(virtualPackedStateTaps.y) >> uvec4(0u, 6u, 12u, 16u)) & uvec4(63u, 63u, 15u, 0u)) * historyStateChannelScale;
-        vec4 virtualValidityTaps = (step(abs(((virtualProjectionDepthScale * ((surfaceNormalPreviousView.x * virtualPreviousViewRayXY.x) + (surfaceNormalPreviousView.y * virtualPreviousViewRayXY.y))) + (virtualDepthTaps * surfaceNormalPreviousView.z)) - vec4(dot(surfaceNormalWorld, backwardParallaxPosition))), ((((vec4(greaterThan(vec4(virtualNormalDotTopLeft, virtualNormalDotTopRight, virtualNormalDotBottomLeft, virtualNormalDotBottomRight), normalRejectionThresholds)) * step(vec4(0.5), motionAdjustedRoughnessWeights)) * vec4(ivec4(virtualBoundsValid.xzxz) & ivec4(virtualBoundsValid.yyww))) * (disocclusionThreshold * frustumSize)) * mix(0.100000001490116119384765625, 1.0, absNormalDotView)) - vec4(9.9999999747524270787835121154785e-07)) * vec4(lessThan(virtualDepthTaps, vec4(ubo.ubo.reblur_denoising_range[REBLUR_SIGNAL])))) * vec4(equal(vec4(spvNMax(materialId, ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL])), spvNMax(vec4(virtualHistoryStateTopLeft.z * 15.0, virtualHistoryStateTopRight.z * 15.0, virtualHistoryStateBottomLeft.z * 15.0, virtualHistoryStateBottomRight.z * 15.0), vec4(ubo.ubo.reblur_spec_min_material[REBLUR_SIGNAL]))));
-        vec2 virtualBilinearComplement = clamp(vec2(1.0) - virtualBilinearFraction, vec2(0.0), vec2(1.0));
-        float virtualLeftWeight = virtualBilinearComplement.x;
-        float virtualTopWeight = virtualBilinearComplement.y;
-        float virtualHistoryWeightTopLeft = virtualValidityTaps.x * (virtualLeftWeight * virtualTopWeight);
-        float virtualHistoryWeightTopRight = virtualValidityTaps.y * (virtualRightWeight * virtualTopWeight);
-        float virtualHistoryWeightBottomLeft = virtualValidityTaps.z * (virtualLeftWeight * virtualBottomWeight);
-        float virtualHistoryWeightBottomRight = virtualValidityTaps.w * (virtualRightWeight * virtualBottomWeight);
-        vec4 virtualHistoryWeights = vec4(virtualHistoryWeightTopLeft, virtualHistoryWeightTopRight, virtualHistoryWeightBottomLeft, virtualHistoryWeightBottomRight);
-        float virtualHistoryWeightSum = dot(virtualHistoryWeights, vec4(1.0));
-        float inverseVirtualHistoryWeight;
-        if (virtualHistoryWeightSum < 9.9999997473787516355514526367188e-05)
-        {
-            inverseVirtualHistoryWeight = 0.0;
-        }
-        else
-        {
-            inverseVirtualHistoryWeight = 1.0 / virtualHistoryWeightSum;
-        }
-        float virtualReprojectedFrameCount = ((((roundEven((virtualHistoryStateTopLeft.xy * 63.0).xy).y * virtualHistoryWeightTopLeft) + (roundEven((virtualHistoryStateTopRight.xy * 63.0).xy).y * virtualHistoryWeightTopRight)) + (roundEven((virtualHistoryStateBottomLeft.xy * 63.0).xy).y * virtualHistoryWeightBottomLeft)) + (roundEven((virtualHistoryStateBottomRight.xy * 63.0).xy).y * virtualHistoryWeightBottomRight)) * inverseVirtualHistoryWeight;
-        float virtualConfidenceAdjustedFrameCount = virtualReprojectedFrameCount * mix(sqrt(clamp(mix(mix(virtualValidityTaps.x, virtualValidityTaps.y, virtualRightWeight), mix(virtualValidityTaps.z, virtualValidityTaps.w, virtualRightWeight), virtualBottomWeight), 0.0, 1.0)), 1.0, 1.0 / (1.0 + virtualReprojectedFrameCount));
-        bool allowVirtualCatmullRom = ((dot(virtualValidityTaps, vec4(1.0)) > 3.5) ? true : false) ? allowSurfaceCatmullRom : false;
-        float curvatureAngle = atan(((pixelWorldSize * abs(correctedCurvature)) * spvNMax(virtualTravelPixels / spvNMax(absNormalDotView, 0.00999999977648258209228515625), 1.0)) * 2.0);
-        float lobeProbability = clamp(0.75 / (1.0 + virtualConfidenceAdjustedFrameCount), 0.0, 1.0);
-        float lobeHalfAngleTangent = spvNMax(clampedRoughness * sqrt(lobeProbability / (1.00000095367431640625 - lobeProbability)), 0.00294117652811110019683837890625);
-        float lobeHalfAngle = atan(lobeHalfAngleTangent);
-        vec4 previousTrackingData = reblurLinear_prev_temporal_reblur_reflection_tracking(virtualMotionUv * ubo.ubo.reblur_resolution_scale_prev[REBLUR_SIGNAL].xy);
-        float previousTrackingHitDistance = previousTrackingData.x;
-        vec3 previousDominantDisplacementLocal = (dominantDirectionWorld * previousTrackingHitDistance) * normalBasisWorldToLocal;
-        float previousVirtualNormalOffset = -previousDominantDisplacementLocal.z;
-        vec3 previousVirtualDisplacementLocal = previousDominantDisplacementLocal;
-        previousVirtualDisplacementLocal.z = previousVirtualNormalOffset;
-        float previousVirtualFocusScale = (1.0 / ((doubledCurvature * previousVirtualNormalOffset) - 1.0)) * virtualFocusAttenuation;
-        float previousVirtualDisplacementLength = dominantDirectionFactor * length(previousVirtualDisplacementLocal * previousVirtualFocusScale);
-        vec3 previousVirtualPositionWorld = mix(previousPositionWorld, positionWorld, vec3(clamp(previousVirtualDisplacementLength / (previousTrackingHitDistance + 9.9999999747524270787835121154785e-07), 0.0, 1.0))) + ((viewDirectionWorld * previousVirtualDisplacementLength) * ((step(0.0, previousVirtualFocusScale) * 2.0) - 1.0));
-        vec4 previousVirtualClipPosition = vec4(previousVirtualPositionWorld, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
-        float virtualFootprintSize = spvNMax((spvNMin(hitDistanceForTracking, previousTrackingHitDistance) * ((1.0 / (ubo.ubo.reblur_unproject[REBLUR_SIGNAL] * mix(length(virtualPositionWorld), 1.0, orthoFactor))) * lobeHalfAngleTangent)) * 0.5, 0.100000001490116119384765625 * roughness);
-        vec3 reprojectedVirtualNormalWorld = (reblurSafeNormalize(virtualInterpolatedNormal)).xyz;
-        float virtualNormalAgreement = dot(surfaceNormalWorld, reprojectedVirtualNormalWorld);
-        float virtualNormalAngularWeight = clamp(1.0 - (((reblurNormalAngle(virtualNormalAgreement)) - curvatureAngle) / lobeHalfAngle), 0.0, 1.0);
-        float virtualNormalConfidence = clamp((((virtualNormalAngularWeight * virtualNormalAngularWeight) * (3.0 - (virtualNormalAngularWeight * 2.0))) - 0.0500000007450580596923828125) * 1.111111164093017578125, 0.0, 1.0);
-        float virtualProbeDistancePixels = spvNMin(((virtualTravelPixels * 2.0) * ubo.ubo.reblur_frame_rate_scale[REBLUR_SIGNAL]) / motionFrameRateScale, 2.0) + virtualTravelPixels;
-        float virtualInterpolatedRoughness = virtualInterpolatedNormalRoughness.w;
-        float virtualInterpolatedRoughnessSquared = virtualInterpolatedRoughness * virtualInterpolatedRoughness;
-        float virtualProbeRoughnessWeightScale = 1.0 / mix(0.0030000000260770320892333984375, 1.0, mix(virtualInterpolatedRoughnessSquared * virtualInterpolatedRoughnessSquared, virtualInterpolatedRoughnessSquared, roughnessRejectionFraction));
-        vec2 virtualProbeUv = virtualMotionUv + ((((virtualMotionDeltaUv * (1.0 / sqrt(spvNMax(dot(virtualMotionDeltaUv, virtualMotionDeltaUv), 1.0000000036274937255387218471014e-15)))) / ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) * 1.0) * virtualProbeDistancePixels);
-        vec2 virtualProbePixel = (virtualProbeUv * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) - vec2(0.5);
-        vec2 virtualProbeFloor = floor(virtualProbePixel);
-        uint virtualProbeRandomX = reblurHash(curvatureRngState);
-        uint virtualProbeRandomYFirst = (virtualProbeRandomX ^ (virtualProbeRandomX >> 16u)) * 2146121005u;
-        uint virtualProbeRandomYSecond = (virtualProbeRandomYFirst ^ (virtualProbeRandomYFirst >> 15u)) * 2221713035u;
-        vec4 virtualProbePackedNormal = reblurNearest_prev_temporal_reblur_reflection_normal((((virtualProbeFloor + step(uintBitsToFloat((uvec2(virtualProbeRandomX, virtualProbeRandomYSecond ^ (virtualProbeRandomYSecond >> 16u)) >> uvec2(9u)) | uvec2(1065353216u)) - vec2(1.0), clamp(virtualProbePixel - virtualProbeFloor, vec2(0.0), vec2(1.0)))) + vec2(0.5)) / ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) * ubo.ubo.reblur_resolution_scale_prev[REBLUR_SIGNAL].xy);
-        float virtualProbeSignedRoughness = (virtualProbePackedNormal.z * 2.0) - 1.0;
-        float virtualProbeRoughness = abs(virtualProbeSignedRoughness);
-        vec3 virtualProbeDecodedNormal = reblurDecodeNormalUnnormalized(virtualProbePackedNormal);
-        float virtualProbeNormalAgreement = dot(reprojectedVirtualNormalWorld, (reblurSafeNormalize(virtualProbeDecodedNormal)).xyz);
-        float virtualProbeAngularWeight = clamp(1.0 - (((reblurNormalAngle(virtualProbeNormalAgreement)) - (curvatureAngle * (1.0 + virtualProbeDistancePixels))) / lobeHalfAngle), 0.0, 1.0);
-        float virtualProbeNormalConfidence = clamp((((virtualProbeAngularWeight * virtualProbeAngularWeight) * (3.0 - (virtualProbeAngularWeight * 2.0))) - 0.0500000007450580596923828125) * 1.111111164093017578125, 0.0, 1.0);
-        float virtualProbeRoughnessWeight = clamp((abs(((virtualProbeRoughness * virtualProbeRoughness) * virtualProbeRoughnessWeightScale) + (-(virtualInterpolatedRoughnessSquared * virtualProbeRoughnessWeightScale))) - 1.0) * (-1.0), 0.0, 1.0);
-        bool virtualHistoryDistanceConfidence;
-        if (all(greaterThan(virtualProbeUv, vec2(0.0))))
-        {
-            virtualHistoryDistanceConfidence = all(lessThan(virtualProbeUv, vec2(1.0)));
-        }
-        else
-        {
-            virtualHistoryDistanceConfidence = false;
-        }
-        float virtualHistoryConfidence = spvNMin(mix(mix(motionAdjustedRoughnessWeights.x, motionAdjustedRoughnessWeights.y, virtualRightWeight), mix(motionAdjustedRoughnessWeights.z, motionAdjustedRoughnessWeights.w, virtualRightWeight), virtualBottomWeight) * mix(1.0, (virtualNormalConfidence * virtualNormalConfidence) * (3.0 - (virtualNormalConfidence * 2.0)), virtualTravelSmoothWeight), (float(virtualHistoryDistanceConfidence) != 0.0) ? mix(1.0, ((virtualProbeNormalConfidence * virtualProbeNormalConfidence) * (3.0 - (virtualProbeNormalConfidence * 2.0))) * ((virtualProbeRoughnessWeight * virtualProbeRoughnessWeight) * (3.0 - (virtualProbeRoughnessWeight * 2.0))), clamp(virtualProbeDistancePixels, 0.0, 1.0)) : 1.0) * clamp(((length((mix(((previousVirtualClipPosition.xy / vec2(previousVirtualClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5), surfaceMotionUv, cameraAttachedReflectionMask) - virtualMotionUv) * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) * motionFrameRateScale) - virtualFootprintSize) / (-virtualFootprintSize), 0.0, 1.0);
         float surfaceMotionMagnitude = clamp((length((surfaceMotionUv - pixelUv) * ubo.ubo.reblur_rect_size[REBLUR_SIGNAL].xy) * motionFrameRateScale) * 4.0, 0.0, 1.0);
         float surfaceCurrentFrameWeight = 1.0 / (1.0 + surfaceConfidenceAdjustedFrameCount);
         float currentHitDistance = currentRadiance.w;
@@ -700,96 +391,14 @@ void main()
         float responsiveRoughness = clamp(spvNMax(normalVarianceAdjustedRoughness, 0.001000000047497451305389404296875) * ubo.ubo.reblur_responsive_accumulation_inv_roughness_threshold[REBLUR_SIGNAL], 0.0, 1.0);
         float responsiveRoughnessSmooth = (responsiveRoughness * responsiveRoughness) * (3.0 - (responsiveRoughness * 2.0));
         float responsiveHitDistanceFactor = (1.0 - exp2(((-200.0) * normalVarianceAdjustedRoughness) * normalVarianceAdjustedRoughness)) * pow(clampedAdjustedRoughness, 0.25);
-        vec2 normalLimitedFrameCounts = spvNMax(vec2(ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL]) * (pow(clamp(vec2(mix(mix(surfaceNormalDotTopLeft, surfaceNormalDotTopRight, surfaceRightWeight), mix(surfaceNormalDotBottomLeft, surfaceNormalDotBottomRight, surfaceRightWeight), surfaceBottomWeight), mix(mix(virtualNormalDotTopLeft, virtualNormalDotTopRight, virtualRightWeight), mix(virtualNormalDotBottomLeft, virtualNormalDotBottomRight, virtualRightWeight), virtualBottomWeight)), vec2(0.0), vec2(1.0)), vec2(mix(32.0, 1.0, responsiveHitDistanceFactor) * (1.0 - responsiveRoughnessSmooth))) * mix(responsiveHitDistanceFactor, 1.0, responsiveRoughnessSmooth)), vec2(float(ubo.ubo.reblur_responsive_accumulation_min_accumulated_frame_num[REBLUR_SIGNAL])));
-        vec2 confidenceLimitedFrameCounts = vec2(surfaceHistoryConfidence, virtualHistoryConfidence) * ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL];
+        vec2 normalLimitedFrameCounts = spvNMax(vec2(ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL]) * (pow(clamp(vec2(mix(mix(surfaceNormalDotTopLeft, surfaceNormalDotTopRight, surfaceRightWeight), mix(surfaceNormalDotBottomLeft, surfaceNormalDotBottomRight, surfaceRightWeight), surfaceBottomWeight), surfaceNormalDotTopLeft), vec2(0.0), vec2(1.0)), vec2(mix(32.0, 1.0, responsiveHitDistanceFactor) * (1.0 - responsiveRoughnessSmooth))) * mix(responsiveHitDistanceFactor, 1.0, responsiveRoughnessSmooth)), vec2(float(ubo.ubo.reblur_responsive_accumulation_min_accumulated_frame_num[REBLUR_SIGNAL])));
+        vec2 confidenceLimitedFrameCounts = vec2(surfaceHistoryConfidence, surfaceHistoryConfidence) * ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL];
         vec2 historyFixFrameCountLimits = spvNMin(confidenceLimitedFrameCounts, spvNMax(normalLimitedFrameCounts, vec2(ubo.ubo.reblur_history_fix_frame_num[REBLUR_SIGNAL])));
         vec2 historyFrameCountLimits = spvNMin(confidenceLimitedFrameCounts, normalLimitedFrameCounts);
         float surfaceFrameCount = spvNMin(surfaceConfidenceAdjustedFrameCount, historyFrameCountLimits.x);
-        float virtualFrameCount = spvNMin(virtualConfidenceAdjustedFrameCount, historyFrameCountLimits.y);
-        float virtualFrameCountAdvantage = clamp(1.0 + ((virtualFrameCount - surfaceFrameCount) / (1.0 + (0.5 * spvNMax(virtualFrameCount, surfaceFrameCount)))), 0.0, 1.0);
-        float hitDistanceHistoryBlend;
-        if (materialId != ubo.ubo.reblur_camera_attached_reflection_material_id[REBLUR_SIGNAL])
-        {
-            hitDistanceHistoryBlend = virtualFrameCountAdvantage * surfaceMotionMagnitude;
-        }
-        else
-        {
-            hitDistanceHistoryBlend = virtualFrameCountAdvantage;
-        }
-        bool virtualHistoryPreference;
-        if (!(!allowSurfaceCatmullRom))
-        {
-            virtualHistoryPreference = !allowVirtualCatmullRom;
-        }
-        else
-        {
-            virtualHistoryPreference = true;
-        }
-        float virtualHistoryBlend;
-        if (virtualHistoryPreference)
-        {
-            virtualHistoryBlend = step(0.5, hitDistanceHistoryBlend);
-        }
-        else
-        {
-            virtualHistoryBlend = hitDistanceHistoryBlend;
-        }
-        vec4 blendedHistoryWeights = mix(surfaceHistoryWeights, virtualHistoryWeights, vec4(virtualHistoryBlend));
-        bool allowCatmullRom = (virtualHistoryBlend < 0.5) ? allowSurfaceCatmullRom : allowVirtualCatmullRom;
-        vec2 historySamplePixel = clamp(mix(surfaceMotionUv, virtualMotionUv, vec2(virtualHistoryBlend)), vec2(0.0), vec2(1.0)) * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy;
-        vec2 historySampleCenter = floor(historySamplePixel - vec2(0.5)) + vec2(0.5);
-        vec2 historySampleFraction = clamp(historySamplePixel - historySampleCenter, vec2(0.0), vec2(1.0));
-        vec2 catmullRomOuterLeftWeights = historySampleFraction * ((historySampleFraction * ((historySampleFraction * (-0.5)) + vec2(1.0))) - vec2(0.5));
-        vec2 catmullRomInnerRightWeights = historySampleFraction * ((historySampleFraction * ((historySampleFraction * (-1.5)) + vec2(2.0))) + vec2(0.5));
-        vec2 catmullRomOuterRightWeights = historySampleFraction * (historySampleFraction * ((historySampleFraction * 0.5) - vec2(0.5)));
-        vec2 catmullRomInnerWeightSum = ((historySampleFraction * (historySampleFraction * ((historySampleFraction * 1.5) - vec2(2.5)))) + vec2(1.0)) + catmullRomInnerRightWeights;
-        vec2 catmullRomInnerOffset = catmullRomInnerRightWeights / catmullRomInnerWeightSum;
-        float catmullRomInnerWeightX = catmullRomInnerWeightSum.x;
-        float catmullRomInnerWeightY = catmullRomInnerWeightSum.y;
-        vec4 historyReconstructionWeights = mix(blendedHistoryWeights, vec4(catmullRomInnerWeightX * catmullRomOuterLeftWeights.y, catmullRomOuterLeftWeights.x * catmullRomInnerWeightY, catmullRomInnerWeightX * catmullRomInnerWeightY, catmullRomOuterRightWeights.x * catmullRomInnerWeightY), bvec4(allowCatmullRom));
-        float historyReconstructionLastWeight = allowCatmullRom ? (catmullRomInnerWeightX * catmullRomOuterRightWeights.y) : 0.0;
-        float historyReconstructionWeightSum = dot(historyReconstructionWeights, vec4(1.0)) + historyReconstructionLastWeight;
-        vec4 historySampleCenterPairs = historySampleCenter.xyxy;
-        vec4 historyFetchOffsetsFirstPair;
-        if (allowCatmullRom)
-        {
-            historyFetchOffsetsFirstPair = vec4(catmullRomInnerOffset.x, -1.0, -1.0, catmullRomInnerOffset.y);
-        }
-        else
-        {
-            historyFetchOffsetsFirstPair = vec4(0.0, 0.0, 1.0, 0.0);
-        }
-        vec4 historyFetchOffsetsSecondPair;
-        if (allowCatmullRom)
-        {
-            historyFetchOffsetsSecondPair = vec4(catmullRomInnerOffset, 2.0, catmullRomInnerOffset.y);
-        }
-        else
-        {
-            historyFetchOffsetsSecondPair = vec4(0.0, 1.0, 1.0, 1.0);
-        }
-        vec2 historyFetchOffsetLast;
-        if (allowCatmullRom)
-        {
-            historyFetchOffsetLast = vec2(catmullRomInnerOffset.x, 2.0);
-        }
-        else
-        {
-            historyFetchOffsetLast = historySampleFraction;
-        }
-        vec4 historyFetchUvsFirstPair = (historySampleCenterPairs + historyFetchOffsetsFirstPair) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy.xyxy;
-        vec4 historyFetchUvsSecondPair = (historySampleCenterPairs + historyFetchOffsetsSecondPair) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy.xyxy;
-        vec4 reprojectedHistoryYCoCg;
-        if (historyReconstructionWeightSum < 9.9999997473787516355514526367188e-05)
-        {
-            reprojectedHistoryYCoCg = vec4(0.0);
-        }
-        else
-        {
-            reprojectedHistoryYCoCg = (((((reblurLinear_prev_temporal_reblur_reflection_history(historyFetchUvsFirstPair.xy) * historyReconstructionWeights.x) + (reblurLinear_prev_temporal_reblur_reflection_history(historyFetchUvsFirstPair.zw) * historyReconstructionWeights.y)) + (reblurLinear_prev_temporal_reblur_reflection_history(historyFetchUvsSecondPair.xy) * historyReconstructionWeights.z)) + (reblurLinear_prev_temporal_reblur_reflection_history(historyFetchUvsSecondPair.zw) * historyReconstructionWeights.w)) + (reblurLinear_prev_temporal_reblur_reflection_history((historySampleCenter + historyFetchOffsetLast) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy) * historyReconstructionLastWeight)) / vec4(historyReconstructionWeightSum);
-        }
-        ivec2 fastHistoryPixelOrigin = ivec3(ivec2(historySampleCenter), 0).xy;
-        float bilinearHistoryWeightSum = dot(blendedHistoryWeights, vec4(1.0));
+        vec4 reprojectedHistoryYCoCg = asvgfHistoryValid ? imageLoad(prev_temporal_reblur_reflection_history, ivec2(asvgfDonor)) : vec4(0.0);
+        ivec2 fastHistoryPixelOrigin = ivec2(asvgfDonor);
+        float bilinearHistoryWeightSum = dot(surfaceHistoryWeights, vec4(1.0));
         float reprojectedFastLuminance;
         if (bilinearHistoryWeightSum < 9.9999997473787516355514526367188e-05)
         {
@@ -797,13 +406,13 @@ void main()
         }
         else
         {
-            reprojectedFastLuminance = ((((reblurFetch_prev_temporal_reblur_reflection_fast(fastHistoryPixelOrigin).x * blendedHistoryWeights.x) + (reblurFetch_prev_temporal_reblur_reflection_fast((fastHistoryPixelOrigin)+(ivec2(1, 0))).x * blendedHistoryWeights.y)) + (reblurFetch_prev_temporal_reblur_reflection_fast((fastHistoryPixelOrigin)+(ivec2(0, 1))).x * blendedHistoryWeights.z)) + (reblurFetch_prev_temporal_reblur_reflection_fast((fastHistoryPixelOrigin)+(ivec2(1))).x * blendedHistoryWeights.w)) / bilinearHistoryWeightSum;
+            reprojectedFastLuminance = ((((reblurFetch_prev_temporal_reblur_reflection_fast(fastHistoryPixelOrigin).x * surfaceHistoryWeights.x) + (reblurFetch_prev_temporal_reblur_reflection_fast((fastHistoryPixelOrigin)+(ivec2(1, 0))).x * surfaceHistoryWeights.y)) + (reblurFetch_prev_temporal_reblur_reflection_fast((fastHistoryPixelOrigin)+(ivec2(0, 1))).x * surfaceHistoryWeights.z)) + (reblurFetch_prev_temporal_reblur_reflection_fast((fastHistoryPixelOrigin)+(ivec2(1))).x * surfaceHistoryWeights.w)) / bilinearHistoryWeightSum;
         }
         float historyYMinusCg = reprojectedHistoryYCoCg.x - reprojectedHistoryYCoCg.z;
         vec3 historyRadianceRgb = spvNMax(vec3(historyYMinusCg + reprojectedHistoryYCoCg.y, reprojectedHistoryYCoCg.x + reprojectedHistoryYCoCg.z, historyYMinusCg - reprojectedHistoryYCoCg.y), vec3(0.0)).xyz;
         float historyLuminance = dot(historyRadianceRgb, vec3(0.25, 0.5, 0.25));
         float historyNormalizedHitDistance = clamp(reprojectedHistoryYCoCg.w, 0.0, 1.0);
-        float confidenceAdjustedFrameCount = mix(surfaceFrameCount, virtualFrameCount, virtualHistoryBlend);
+        float confidenceAdjustedFrameCount = surfaceFrameCount;
         float currentFrameWeight = 1.0 / (1.0 + confidenceAdjustedFrameCount);
         vec3 accumulatedRadianceYCoCg = mix(vec3(historyLuminance, dot(historyRadianceRgb, vec3(0.5, 0.0, -0.5)), dot(historyRadianceRgb, vec3(-0.25, 0.5, -0.25))).xyz, currentRadiance.xyz, vec3(currentFrameWeight));
         float accumulatedHitDistance = mix(historyNormalizedHitDistance, currentHitDistance, spvNMax(currentFrameWeight, 1.0 / (1.0 + ((0.5 * (roughnessHitDistanceCurve * pow(clampedRoughness, 0.25))) * ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL]))));
@@ -825,10 +434,10 @@ void main()
         {
             fastHistoryFrameCountLimit = ubo.ubo.reblur_max_fast_accumulated_frame_num[REBLUR_SIGNAL];
         }
-        float accumulatedFastLuminance = mix(spvNMax(reprojectedFastLuminance, 0.0), currentRadiance.x, spvNMax(1.0 - mix(surfaceHistoryConfidence, virtualHistoryConfidence, virtualHistoryBlend), 1.0 / (1.0 + spvNMin(confidenceAdjustedFrameCount, fastHistoryFrameCountLimit))));
+        float accumulatedFastLuminance = mix(spvNMax(reprojectedFastLuminance, 0.0), currentRadiance.x, spvNMax(1.0 - surfaceHistoryConfidence, 1.0 / (1.0 + spvNMin(confidenceAdjustedFrameCount, fastHistoryFrameCountLimit))));
         reblurStore_out_reblur_reflection_scratch_4(ivec2(outputPixel),vec4(mix(accumulatedFastLuminance, spvNMin(accumulatedFastLuminance, fireflyLuminanceLimit * 4.0), fireflySuppressionStrength)));
-        reblurStore_out_reblur_reflection_scratch_1(ivec2(outputPixel),uvec4(((uint((((((((surfaceValidUpperLeft.z + (surfaceValidUpperRight.y * 2.0)) + (surfaceValidLowerLeft.y * 4.0)) + (surfaceValidLowerRight.x * 8.0)) + (virtualValidityTaps.x * 16.0)) + (virtualValidityTaps.y * 32.0)) + (virtualValidityTaps.z * 64.0)) + (virtualValidityTaps.w * 128.0)) + 0.5) | (uint((clamp(virtualHistoryBlend, 0.0, 1.0) * 127.0) + 0.5) << 8u)) | uint(allowSurfaceCatmullRom ? 32768 : 0)) | (packHalf2x16(vec2(correctedCurvature, 0.0)) << 16u)));
-        float packedAccumulatedFrames = clamp(roundEven(mix(spvNMin(surfaceConfidenceAdjustedFrameCount, historyFixFrameCountLimits.x), spvNMin(virtualConfidenceAdjustedFrameCount, historyFixFrameCountLimits.y), virtualHistoryBlend)) * 0.01587301678955554962158203125, 0.0, 1.0);
+        reblurStore_out_reblur_reflection_scratch_1(ivec2(outputPixel), uvec4(uint(asvgfHistoryValid)));
+        float packedAccumulatedFrames = clamp(roundEven(spvNMin(surfaceConfidenceAdjustedFrameCount, historyFixFrameCountLimits.x)) * 0.01587301678955554962158203125, 0.0, 1.0);
         vec2 packedAccumulationData = vec2(unusedAccumulationPadding, packedAccumulatedFrames);
         packedAccumulationData.x = packedAccumulatedFrames;
         reblurStore_out_reblur_reflection_scratch_0(ivec2(outputPixel),packedAccumulationData.xyyy);

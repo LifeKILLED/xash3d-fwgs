@@ -21,6 +21,8 @@ layout(set = 0, binding = 13, rgba16f) uniform readonly image2D prev_temporal_as
 // A zero pair is invalid; valid coordinates are stored as pixel + 1.
 layout(set = 0, binding = 20, rgba32f) uniform writeonly image2D out_temporal_reprojection_map;
 
+layout(set = 0, binding = 21, rgba32f) uniform writeonly image2D out_reblur_reprojection_map;
+
 #define LOAD_REFLECTION_RAY_LENGTH(pix_) 0.0
 #define REPROJECTION_LOAD_PREV_DEPTH_META(pix_) imageLoad(prev_temporal_asvgf_reproj_depth, (pix_))
 #define TEMPORAL_REPROJECTION_ENABLE_HALF_RES_ATLAS_PRIMARY_PLANE 1
@@ -73,4 +75,47 @@ void main()
 	}
 
 	imageStore(out_temporal_reprojection_map, pix, reprojection_map);
+
+	if (ubo.ubo.nrd_bounce == 0u && ubo.ubo.nrd_reflection == 0u) return;
+	vec4 reblur_map = vec4(0.0);
+	for (int signal = 0; signal < 2; ++signal) {
+		bool bounce = signal == 0;
+		ivec2 extent = bounce ? res / 2 : res;
+		if (any(greaterThanEqual(pix, extent))) continue;
+		ivec2 primary = bounce ? pix * 2 : pix;
+		if (imageLoad(position_t, primary).w <= 0.0) continue;
+		vec3 previous = imageLoad(geometry_prev_position, primary).xyz;
+		vec3 normal = normalDecode(imageLoad(normals_gs, primary).xy);
+		AsvgfReprojectionParams params = ubo.ubo.asvgf.indirect_diffuse;
+		if (!bounce) params = ubo.ubo.asvgf.indirect_specular;
+		ivec2 taps[4];
+		float weights[4];
+		int tap_count;
+		vec2 projected_center;
+		float threshold;
+		if (!buildValidatedReprojectionHistoryTapsForParams(params, previous, normal,
+			primary, res, taps, weights, tap_count, projected_center, threshold)) continue;
+
+		// Match aSVGF's strongest valid tap. Bounce history lives at even
+		// primary pixels, so validate the actual stored sample after conversion.
+		ivec2 donor = ivec2(-1);
+		float best_weight = -1.0;
+		for (int tap = 0; tap < tap_count; ++tap) {
+			if (weights[tap] <= best_weight) continue;
+			ivec2 candidate = bounce ? taps[tap] / 2 : taps[tap];
+			if (any(greaterThanEqual(candidate, extent))) continue;
+			if (bounce) {
+				float validated_threshold;
+				float depth = length(previous - ubo.ubo.prev_inv_view[3].xyz);
+				if (!validateReprojectedHistoryTexelForParams(params, candidate * 2,
+					res, previous, normal, depth, threshold, validated_threshold)) continue;
+			}
+			donor = candidate;
+			best_weight = weights[tap];
+		}
+		if (best_weight < 0.0) continue;
+		if (bounce) reblur_map.rg = vec2(donor) + 1.0;
+		else reblur_map.ba = vec2(donor) + 1.0;
+	}
+	imageStore(out_reblur_reprojection_map, pix, reblur_map);
 }

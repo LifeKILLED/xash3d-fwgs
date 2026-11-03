@@ -14,11 +14,6 @@ extern "C" {
 #include "vendor/NRD/NRDSettings.h"
 using namespace nrd;
 
-// UBO inputs are column-major; the ported REBLUR parameters expect row-major.
-static void reblurStoreMatrix(matrix4x4 destination,const matrix4x4 value) {
- Matrix4x4_Copy(destination,value);
-}
-
 template<class T,size_t N,class... V>
 static void reblurStoreVector(T (&destination)[N],V... values) {
  static_assert(sizeof...(values)<=N,"REBLUR vector exceeds its UBO field");
@@ -56,12 +51,9 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
  ReblurSettings settings;
  settings.hitDistanceParameters.A=118.11024f;
  unsigned rectW=ubo->res[0],rectH=ubo->res[1],rectWprev=previousWidth,rectHprev=previousHeight;
- matrix4x4 viewToClip,viewToClipPrev,worldToView,worldToViewPrev;
- matrix4x4 viewToWorld,viewToWorldPrev,worldToClip,worldToClipPrev,worldPrevToWorld;
+ matrix4x4 viewToClip,viewToClipPrev;
  Matrix4x4_FromArrayFloatGL(viewToClip,&ubo->proj[0][0]);
  Matrix4x4_FromArrayFloatGL(viewToClipPrev,&ubo->prev_proj[0][0]);
- Matrix4x4_FromArrayFloatGL(worldToView,&ubo->view[0][0]);
- Matrix4x4_FromArrayFloatGL(worldToViewPrev,&ubo->prev_view[0][0]);
  if(signal==0) {
   halfProjection(viewToClip,rectW,rectH);halfProjection(viewToClipPrev,rectWprev,rectHprev);
   rectW/=2;rectH/=2;rectWprev/=2;rectHprev/=2;
@@ -74,25 +66,8 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
  if(viewToClip[3][2]<0.0f) {
   for(unsigned i=0;i<4;i++) {
    viewToClip[i][2]*=-1.0f;viewToClipPrev[i][2]*=-1.0f;
-   worldToView[2][i]*=-1.0f;worldToViewPrev[2][i]*=-1.0f;
   }
  }
- Matrix4x4_Invert_Simple(viewToWorld,worldToView);
- Matrix4x4_Invert_Simple(viewToWorldPrev,worldToViewPrev);
- vec3_t cameraPosition,cameraPositionPrev,cameraDelta,viewDirection,viewDirectionPrev;
- for(unsigned i=0;i<3;i++) {
-  cameraPosition[i]=viewToWorld[i][3];cameraPositionPrev[i]=viewToWorldPrev[i][3];
-  viewDirection[i]=-viewToWorld[i][2];viewDirectionPrev[i]=-viewToWorldPrev[i][2];
- }
- VectorSubtract(cameraPositionPrev,cameraPosition,cameraDelta);
- for(unsigned i=0;i<3;i++) {
-  viewToWorld[i][3]=0.0f;viewToWorldPrev[i][3]=cameraDelta[i];
- }
- Matrix4x4_Invert_Simple(worldToView,viewToWorld);
- Matrix4x4_Invert_Simple(worldToViewPrev,viewToWorldPrev);
- Matrix4x4_Concat(worldToClip,viewToClip,worldToView);
- Matrix4x4_Concat(worldToClipPrev,viewToClipPrev,worldToViewPrev);
- Matrix4x4_LoadIdentity(worldPrevToWorld);
  vec4_t frustum,frustumPrev,rotatorPre,rotator,rotatorPost;
  reblurFrustum(viewToClip,frustum);reblurFrustum(viewToClipPrev,frustumPrev);
  const float projectY=fabsf(viewToClip[1][1]);
@@ -138,21 +113,12 @@ extern "C" void R_VkReblurPrepare(UniformBuffer *ubo,unsigned signal,unsigned pr
             break;
     }
 
-    reblurStoreMatrix(ubo->reblur_world_to_clip[signal], worldToClip);
-    reblurStoreMatrix(ubo->reblur_view_to_clip[signal], viewToClip);
-    reblurStoreMatrix(ubo->reblur_view_to_world[signal], viewToWorld);
-    reblurStoreMatrix(ubo->reblur_world_to_view_prev[signal], worldToViewPrev);
-    reblurStoreMatrix(ubo->reblur_world_to_clip_prev[signal], worldToClipPrev);
-    reblurStoreMatrix(ubo->reblur_world_prev_to_world[signal], worldPrevToWorld);
     memcpy(ubo->reblur_rotator_pre[signal],rotatorPre,sizeof(rotatorPre));
     memcpy(ubo->reblur_rotator[signal],rotator,sizeof(rotator));
     memcpy(ubo->reblur_rotator_post[signal],rotatorPost,sizeof(rotatorPost));
     memcpy(ubo->reblur_frustum[signal],frustum,sizeof(frustum));
     memcpy(ubo->reblur_frustum_prev[signal],frustumPrev,sizeof(frustumPrev));
-    reblurStoreVector(ubo->reblur_camera_delta[signal], cameraDelta[0], cameraDelta[1], cameraDelta[2], 0.0f);
     reblurStoreVector(ubo->reblur_hit_dist_settings[signal], settings.hitDistanceParameters.A, settings.hitDistanceParameters.B, settings.hitDistanceParameters.C, 0.0f);
-    reblurStoreVector(ubo->reblur_view_vector_world[signal], viewDirection[0], viewDirection[1], viewDirection[2], 0.0f);
-    reblurStoreVector(ubo->reblur_view_vector_world_prev[signal], viewDirectionPrev[0], viewDirectionPrev[1], viewDirectionPrev[2], 0.0f);
     reblurStoreVector(ubo->reblur_mv_scale[signal], 1.0f, 1.0f, 1.0f, true ? 1.0f : 0.0f);
     reblurStoreVector(ubo->reblur_mv_bias[signal], 0.0f, 0.0f, 0.0f, 0.0f);
     reblurStoreVector(ubo->reblur_convergence_settings[signal], settings.convergenceSettings.s, settings.convergenceSettings.b, settings.convergenceSettings.p, 0.0f);

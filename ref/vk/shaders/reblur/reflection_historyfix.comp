@@ -145,7 +145,7 @@ void main()
         vec2 positionViewXY = ((pixelUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
         vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, unusedPositionPadding.z);
         positionView.z = viewDepth;
-        mat4 viewToWorld = transpose(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL]);
+        mat4 viewToWorld = transpose(transpose(reblurViewToWorld()));
         vec3 normalView = normalWorld * mat3(viewToWorld[0].xyz, viewToWorld[1].xyz, viewToWorld[2].xyz);
         ivec2 sharedCenterPixel = ivec3(gl_LocalInvocationID).xy + ivec2(4);
         float repairBaseStride;

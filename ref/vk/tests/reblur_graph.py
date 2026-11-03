@@ -134,7 +134,7 @@ assert 'extent_divisor' not in (VK / 'vulkan/VMeatpipe.c').read_text()
 
 # Check that each current-frame input has a preceding producer. History reads
 # are supplied by the normal prev_/out_ resource swapping mechanism.
-available = {'position_t','normals_gs','material_rmxx','geometry_prev_position',
+available = {'reblur_reprojection_map','position_t','normals_gs','material_rmxx','geometry_prev_position',
              'indirect_diffuse','indirect_specular','first_bounce_direction','reflection_direction_pdf','ubo'}
 for pipeline in pipelines:
     for binding in pipeline.bindings():
@@ -181,7 +181,7 @@ for path in (VK / 'shaders/reblur').glob('*.comp'):
     helper_calls=set(re.findall(r'\b(reblur\w+)\s*\(',text))
     helper_source=(VK / 'shaders/reblur/filter_math.glsl').read_text() if '#include "filter_math.glsl"' in text else ''
     helper_definitions=set(re.findall(r'\b(?:void|float|uint|vec3|vec4|uvec4)\s+(reblur\w+)\s*\(',text+helper_source))
-    assert helper_calls <= helper_definitions | {'reblurEnabled','reblurExtent'},(path,helper_calls-helper_definitions)
+    assert helper_calls <= helper_definitions | set(re.findall(r'\b(?:bool|ivec2|vec3|mat4|float)\s+(reblur\w+)\s*\(', (VK / 'shaders/reblur/common.glsl').read_text())),(path,helper_calls-helper_definitions)
     numeric_ids=set(re.findall(r'\b_\d+\b',text))
     assert not numeric_ids,(path,numeric_ids)
     declared_ids=set(re.findall(r'\b(?:float|bool|u?int|[biu]?vec[234]|mat[234])\s+(_\d+)\b',text))
@@ -209,7 +209,7 @@ ubo_header=(VK / 'shaders/ray_interop.h').read_text()
 ubo_fields={name:(typ,int(count) if count else None) for typ,name,count in re.findall(
     r'\b(mat4|vec4|vec2|ivec4|uvec4|uvec2)\s+(reblur_\w+)(?:\[(\d+)\])?;',ubo_header)}
 cpp=(VK / 'nrd_port/cpu.cpp').read_text()
-assert len(ubo_fields)==83,len(ubo_fields)
+assert len(ubo_fields)==74,len(ubo_fields)
 for name in ubo_fields:
     assert 'ubo->'+name+'[signal]' in cpp,name
 for path in (VK / 'shaders/reblur').glob('*'):

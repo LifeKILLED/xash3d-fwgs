@@ -192,7 +192,21 @@ def transform(kernel, resource_map, bounce, frontend=False):
     assert not re.search(r'\b(texture2D|utexture2D|sampler2D|textureLod|texelFetch|textureGather)\b', source), (kernel['name'], re.findall(r'.*(?:texture2D|sampler2D|textureGather|textureLod|texelFetch).*', source))
     from readable_shaders import restore
     stage = 'prepare' if frontend else kernel['source'].removeprefix('REBLUR_').removesuffix('.cs.hlsl').lower()
-    return restore(source,stage)
+    source = restore(source,stage)
+    frame_transforms = {
+        'world_to_clip': 'reblurWorldToClip(false)',
+        'world_to_clip_prev': 'reblurWorldToClip(true)',
+        'view_to_clip': 'transpose(reblurProjection(false))',
+        'view_to_world': 'transpose(reblurViewToWorld())',
+        'world_to_view_prev': 'transpose(reblurWorldToView(true))',
+        'world_prev_to_world': 'mat4(1.0)',
+        'camera_delta': 'vec4(reblurCameraDelta(), 0.0)',
+        'view_vector_world': 'vec4(reblurViewDirection(false), 0.0)',
+        'view_vector_world_prev': 'vec4(reblurViewDirection(true), 0.0)',
+    }
+    for field, expression in frame_transforms.items():
+        source = source.replace(f'ubo.ubo.reblur_{field}[REBLUR_SIGNAL]', expression)
+    return source
 
 
 def generate():

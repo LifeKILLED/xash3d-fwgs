@@ -99,6 +99,7 @@ spirv_instruction(set = "GLSL.std.450", id = 80) vec3 spvNMax(vec3, vec3);
 spirv_instruction(set = "GLSL.std.450", id = 80) vec4 spvNMax(vec4, vec4);
 
 #include "filter_math.glsl"
+layout(set=0,binding=31,rgba32f) uniform readonly image2D reblur_reprojection_map;
 
 void main()
 {
@@ -141,74 +142,25 @@ void main()
             break;
         }
         vec2 pixelUv = (vec2(pixelPos) + vec2(0.5)) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
-        bool isPerspective = ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL] == 0.0;
-        vec2 positionViewXY = ((pixelUv * ubo.ubo.reblur_frustum[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-        vec3 positionView = vec3(positionViewXY.x, positionViewXY.y, unusedPositionPadding.z);
-        positionView.z = viewDepth;
-        vec3 positionWorld = positionView * mat3(ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][0].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][1].xyz, ubo.ubo.reblur_view_to_world[REBLUR_SIGNAL][2].xyz);
-        vec3 motionVector = (imageLoad(reblur_reflection_motion,ivec2(outputPixel)).xyz * ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].xyz) + ubo.ubo.reblur_mv_bias[REBLUR_SIGNAL].xyz;
-        vec2 screenMotionUv = pixelUv + motionVector.xy;
         vec2 surfaceMotionUv;
-        vec3 previousPositionWorld;
-        if (ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].w == 0.0)
+        bool asvgfHistoryValid = false;
+        vec2 asvgfDonor = vec2(0.0);
         {
-            vec3 screenMotionWithDepth;
-            if (ubo.ubo.reblur_mv_scale[REBLUR_SIGNAL].z == 0.0)
-            {
-                vec3 inferredDepthMotion;
-                inferredDepthMotion.z = (vec4(positionWorld, 1.0) * ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL]).z - viewDepth;
-                screenMotionWithDepth = inferredDepthMotion;
-            }
-            else
-            {
-                screenMotionWithDepth = motionVector;
-            }
-            float viewDepth2 = viewDepth + screenMotionWithDepth.z;
-            vec2 positionViewXY2 = ((screenMotionUv * ubo.ubo.reblur_frustum_prev[REBLUR_SIGNAL].zw) + ubo.ubo.reblur_frustum_prev[REBLUR_SIGNAL].xy).xy * (isPerspective ? viewDepth2 : ubo.ubo.reblur_ortho_mode[REBLUR_SIGNAL]);
-            vec3 positionView2 = vec3(positionViewXY2.x, positionViewXY2.y, unusedPositionPadding.z);
-            positionView2.z = viewDepth2;
-            mat4 previousWorldToView = transpose(ubo.ubo.reblur_world_to_view_prev[REBLUR_SIGNAL]);
-            surfaceMotionUv = screenMotionUv;
-            previousPositionWorld = (positionView2 * mat3(previousWorldToView[0].xyz, previousWorldToView[1].xyz, previousWorldToView[2].xyz)) + ubo.ubo.reblur_camera_delta[REBLUR_SIGNAL].xyz;
-        }
-        else
-        {
-            vec3 worldMotionPosition = positionWorld + motionVector;
-            vec4 worldMotionClipPosition = vec4(worldMotionPosition, 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
-            surfaceMotionUv = ((worldMotionClipPosition.xy / vec2(worldMotionClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5);
-            previousPositionWorld = worldMotionPosition;
+            vec2 encodedDonor = imageLoad(reblur_reprojection_map, ivec2(outputPixel)).ba;
+            asvgfHistoryValid = all(greaterThan(encodedDonor, vec2(0.0))) &&
+                ubo.ubo.reblur_reset_history[REBLUR_SIGNAL] == 0u;
+            asvgfDonor = asvgfHistoryValid ? encodedDonor - 1.0 : vec2(0.0);
+            surfaceMotionUv = (asvgfDonor + 0.5) * ubo.ubo.reblur_rect_size_inv[REBLUR_SIGNAL].xy;
         }
         vec4 packedNormalRoughness = reblurFetch_reblur_reflection_normal(ivec2(outputPixel));
         float signedRoughness = (packedNormalRoughness.z * 2.0) - 1.0;
         float roughness = abs(signedRoughness);
         float normalizedMaterialId = packedNormalRoughness.w;
         float materialId = normalizedMaterialId * 3.0;
-        vec3 decodedNormal = reblurDecodeNormalUnnormalized(packedNormalRoughness);
-        vec3 normalWorld = reblurSafeNormalize(decodedNormal);
-        vec3 surfaceNormalWorld = normalWorld.xyz;
         vec4 packedAccumulationData = reblurFetch_reblur_reflection_scratch_0(ivec2(outputPixel));
         vec2 accumulationChannels = packedAccumulationData.xy;
         accumulationChannels.y = packedAccumulationData.x;
         vec2 accumulatedFrames = roundEven(accumulationChannels * 63.0);
-        uvec4 packedReprojectionData = reblurFetch_reblur_reflection_scratch_1(ivec2(outputPixel));
-        uint reprojectionBits = packedReprojectionData.x;
-        bool allowSurfaceCatmullRom = (reprojectionBits & 32768u) != 0u;
-        float virtualHistoryBlend = float((reprojectionBits >> 8u) & 127u) * 0.0078740157186985015869140625;
-        vec2 curvatureData = unpackHalf2x16(reprojectionBits >> 16u);
-        float curvature = curvatureData.x;
-        vec2 surfacePreviousPixel = (surfaceMotionUv * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) - vec2(0.5);
-        vec2 surfaceBilinearFraction = clamp(surfacePreviousPixel - floor(surfacePreviousPixel), vec2(0.0), vec2(1.0));
-        uvec4 occlusionBits = uvec4(reprojectionBits & 255u);
-        vec4 surfaceTapValidity = vec4(notEqual((occlusionBits & uvec4(1u, 2u, 4u, 8u)), uvec4(0u)));
-        vec2 surfaceBilinearComplement = clamp(vec2(1.0) - surfaceBilinearFraction, vec2(0.0), vec2(1.0));
-        float surfaceLeftWeight = surfaceBilinearComplement.x;
-        float surfaceTopWeight = surfaceBilinearComplement.y;
-        float surfaceValidTopLeft = surfaceTapValidity.x;
-        float surfaceRightWeight = surfaceBilinearFraction.x;
-        float surfaceValidTopRight = surfaceTapValidity.y;
-        float surfaceBottomWeight = surfaceBilinearFraction.y;
-        float surfaceValidBottomLeft = surfaceTapValidity.z;
-        float surfaceValidBottomRight = surfaceTapValidity.w;
         ivec2 sharedCenterPixel = ivec3(gl_LocalInvocationID).xy + ivec2(1);
         int sharedCenterY = sharedCenterPixel.y;
         int sharedCenterX = sharedCenterPixel.x;
@@ -263,130 +215,18 @@ void main()
         {
             currentLuminance = s_SpecLuma[sharedCenterY][sharedCenterX];
         }
-        vec4 trackingData = reblurFetch_temporal_reblur_reflection_tracking(ivec2(outputPixel));
-        float trackingHitDistance = trackingData.x;
-        vec3 viewDirectionWorld;
-        if (isPerspective)
-        {
-            viewDirectionWorld = normalize(-positionWorld);
-        }
-        else
-        {
-            viewDirectionWorld = ubo.ubo.reblur_view_vector_world[REBLUR_SIGNAL].xyz;
-        }
-        float clampedRoughness = clamp(roughness, 0.0, 1.0);
-        float dominantDirectionFit = 0.2984749972820281982421875 * log(39.4114990234375 - (39.002899169921875 * clampedRoughness));
-        float grazingAngleFactor = clamp(1.0 - abs(dot(surfaceNormalWorld, viewDirectionWorld)), 0.0, 1.0);
-        float dominantDirectionFactor = clamp((pow(grazingAngleFactor, 10.86489963531494140625) * (1.0 - dominantDirectionFit)) + dominantDirectionFit, 0.0, 1.0);
-        float normalZ = normalWorld.z;
-        float normalZSign = (step(0.0, normalZ) * 2.0) - 1.0;
-        float inverseBasisDenominator = 1.0 / (normalZSign + normalZ);
-        float normalY = normalWorld.y;
-        float scaledNormalY = normalY * inverseBasisDenominator;
-        float normalX = normalWorld.x;
-        float normalCrossTerm = normalX * scaledNormalY;
-        float signedNormalX = normalX * normalZSign;
-        vec3 dominantDisplacementLocal = (vec4(normalize(mix(surfaceNormalWorld, reflect(-viewDirectionWorld, surfaceNormalWorld), vec3(dominantDirectionFactor))), dominantDirectionFactor).xyz * trackingHitDistance) * mat3(vec3(((signedNormalX * normalX) * inverseBasisDenominator) - 1.0, normalZSign * normalCrossTerm, signedNormalX), vec3(normalCrossTerm, (normalY * scaledNormalY) - normalZSign, normalY), surfaceNormalWorld);
-        float virtualNormalOffset = -dominantDisplacementLocal.z;
-        vec3 virtualDisplacementLocal = dominantDisplacementLocal;
-        virtualDisplacementLocal.z = virtualNormalOffset;
-        float virtualFocusScale = (1.0 / (((2.0 * curvature) * virtualNormalOffset) - 1.0)) * (1.0 / (1.0 + ((length(positionWorld) * grazingAngleFactor) * spvNMax(curvature, 0.0))));
-        float virtualDisplacementLength = dominantDirectionFactor * length(virtualDisplacementLocal * virtualFocusScale);
-        vec4 virtualClipPosition = vec4(mix(previousPositionWorld, positionWorld, vec3(clamp(virtualDisplacementLength / (trackingHitDistance + 9.9999999747524270787835121154785e-07), 0.0, 1.0))) + ((viewDirectionWorld * virtualDisplacementLength) * ((step(0.0, virtualFocusScale) * 2.0) - 1.0)), 1.0) * ubo.ubo.reblur_world_to_clip_prev[REBLUR_SIGNAL];
-        vec2 virtualMotionUv = mix(((virtualClipPosition.xy / vec2(virtualClipPosition.w)) * vec2(0.5, -0.5)) + vec2(0.5), surfaceMotionUv, bvec2(materialId == ubo.ubo.reblur_camera_attached_reflection_material_id[REBLUR_SIGNAL]));
-        vec2 virtualPreviousPixel = (virtualMotionUv * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy) - vec2(0.5);
-        vec2 virtualBilinearFraction = clamp(virtualPreviousPixel - floor(virtualPreviousPixel), vec2(0.0), vec2(1.0));
-        vec4 virtualTapValidity = vec4(notEqual((occlusionBits & uvec4(16u, 32u, 64u, 128u)), uvec4(0u)));
-        vec2 virtualBilinearComplement = clamp(vec2(1.0) - virtualBilinearFraction, vec2(0.0), vec2(1.0));
-        float virtualLeftWeight = virtualBilinearComplement.x;
-        float virtualTopWeight = virtualBilinearComplement.y;
-        float virtualValidTopLeft = virtualTapValidity.x;
-        float virtualRightWeight = virtualBilinearFraction.x;
-        float virtualValidTopRight = virtualTapValidity.y;
-        float virtualBottomWeight = virtualBilinearFraction.y;
-        float virtualValidBottomLeft = virtualTapValidity.z;
-        float virtualValidBottomRight = virtualTapValidity.w;
-        bool allowCatmullRom = (virtualHistoryBlend < 0.5) ? allowSurfaceCatmullRom : (((dot(virtualTapValidity, vec4(1.0)) > 3.5) ? true : false) ? allowSurfaceCatmullRom : false);
-        vec2 historySamplePixel = clamp(mix(surfaceMotionUv, virtualMotionUv, vec2(virtualHistoryBlend)), vec2(0.0), vec2(1.0)) * ubo.ubo.reblur_rect_size_prev[REBLUR_SIGNAL].xy;
-        vec2 historySampleCenter = floor(historySamplePixel - vec2(0.5)) + vec2(0.5);
-        vec2 historySampleFraction = clamp(historySamplePixel - historySampleCenter, vec2(0.0), vec2(1.0));
-        vec2 catmullRomOuterLeftWeights = historySampleFraction * ((historySampleFraction * ((historySampleFraction * (-0.5)) + vec2(1.0))) - vec2(0.5));
-        vec2 catmullRomInnerRightWeights = historySampleFraction * ((historySampleFraction * ((historySampleFraction * (-1.5)) + vec2(2.0))) + vec2(0.5));
-        vec2 catmullRomOuterRightWeights = historySampleFraction * (historySampleFraction * ((historySampleFraction * 0.5) - vec2(0.5)));
-        vec2 catmullRomInnerWeightSum = ((historySampleFraction * (historySampleFraction * ((historySampleFraction * 1.5) - vec2(2.5)))) + vec2(1.0)) + catmullRomInnerRightWeights;
-        vec2 catmullRomInnerOffset = catmullRomInnerRightWeights / catmullRomInnerWeightSum;
-        float catmullRomInnerWeightX = catmullRomInnerWeightSum.x;
-        float catmullRomInnerWeightY = catmullRomInnerWeightSum.y;
-        vec4 reconstructionWeights = mix(mix(vec4(surfaceValidTopLeft * (surfaceLeftWeight * surfaceTopWeight), surfaceValidTopRight * (surfaceRightWeight * surfaceTopWeight), surfaceValidBottomLeft * (surfaceLeftWeight * surfaceBottomWeight), surfaceValidBottomRight * (surfaceRightWeight * surfaceBottomWeight)), vec4(virtualValidTopLeft * (virtualLeftWeight * virtualTopWeight), virtualValidTopRight * (virtualRightWeight * virtualTopWeight), virtualValidBottomLeft * (virtualLeftWeight * virtualBottomWeight), virtualValidBottomRight * (virtualRightWeight * virtualBottomWeight)), vec4(virtualHistoryBlend)), vec4(catmullRomInnerWeightX * catmullRomOuterLeftWeights.y, catmullRomOuterLeftWeights.x * catmullRomInnerWeightY, catmullRomInnerWeightX * catmullRomInnerWeightY, catmullRomOuterRightWeights.x * catmullRomInnerWeightY), bvec4(allowCatmullRom));
-        float reconstructionLastWeight = allowCatmullRom ? (catmullRomInnerWeightX * catmullRomOuterRightWeights.y) : 0.0;
-        float reconstructionWeightSum = dot(reconstructionWeights, vec4(1.0)) + reconstructionLastWeight;
-        vec4 historySampleCenterPairs = historySampleCenter.xyxy;
-        vec4 fetchOffsetsFirstPair;
-        if (allowCatmullRom)
-        {
-            fetchOffsetsFirstPair = vec4(catmullRomInnerOffset.x, -1.0, -1.0, catmullRomInnerOffset.y);
-        }
-        else
-        {
-            fetchOffsetsFirstPair = vec4(0.0, 0.0, 1.0, 0.0);
-        }
-        vec4 fetchOffsetsSecondPair;
-        if (allowCatmullRom)
-        {
-            fetchOffsetsSecondPair = vec4(catmullRomInnerOffset, 2.0, catmullRomInnerOffset.y);
-        }
-        else
-        {
-            fetchOffsetsSecondPair = vec4(0.0, 1.0, 1.0, 1.0);
-        }
-        vec2 fetchOffsetLast;
-        if (allowCatmullRom)
-        {
-            fetchOffsetLast = vec2(catmullRomInnerOffset.x, 2.0);
-        }
-        else
-        {
-            fetchOffsetLast = historySampleFraction;
-        }
-        vec4 fetchUvsFirstPair = (historySampleCenterPairs + fetchOffsetsFirstPair) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy.xyxy;
-        vec4 fetchUvsSecondPair = (historySampleCenterPairs + fetchOffsetsSecondPair) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy.xyxy;
-        float sampledHistoryLuminance;
-        if (reconstructionWeightSum < 9.9999997473787516355514526367188e-05)
-        {
-            sampledHistoryLuminance = 0.0;
-        }
-        else
-        {
-            sampledHistoryLuminance = (((((reblurLinear_prev_temporal_reblur_reflection_stabilized(fetchUvsFirstPair.xy).x * reconstructionWeights.x) + (reblurLinear_prev_temporal_reblur_reflection_stabilized(fetchUvsFirstPair.zw).x * reconstructionWeights.y)) + (reblurLinear_prev_temporal_reblur_reflection_stabilized(fetchUvsSecondPair.xy).x * reconstructionWeights.z)) + (reblurLinear_prev_temporal_reblur_reflection_stabilized(fetchUvsSecondPair.zw).x * reconstructionWeights.w)) + (reblurLinear_prev_temporal_reblur_reflection_stabilized((historySampleCenter + fetchOffsetLast) * ubo.ubo.reblur_resource_size_inv_prev[REBLUR_SIGNAL].xy).x * reconstructionLastWeight)) / reconstructionWeightSum;
-        }
+        float sampledHistoryLuminance = asvgfHistoryValid ? imageLoad(prev_temporal_reblur_reflection_stabilized, ivec2(asvgfDonor)).x : 0.0;
         float historyLuminance = spvNMax(sampledHistoryLuminance, 0.0);
-        float footprintQuality = mix(sqrt(clamp(mix(mix(surfaceValidTopLeft, surfaceValidTopRight, surfaceRightWeight), mix(surfaceValidBottomLeft, surfaceValidBottomRight, surfaceRightWeight), surfaceBottomWeight), 0.0, 1.0)), sqrt(clamp(mix(mix(virtualValidTopLeft, virtualValidTopRight, virtualRightWeight), mix(virtualValidBottomLeft, virtualValidBottomRight, virtualRightWeight), virtualBottomWeight), 0.0, 1.0)), virtualHistoryBlend);
+        float footprintQuality = float(asvgfHistoryValid);
         float antilagSigmaRange = luminanceSigma * ubo.ubo.reblur_antilag_settings[REBLUR_SIGNAL].xy.x;
         float antilagFrameRateScale = 2.0 * ubo.ubo.reblur_frame_rate_scale_smoothed[REBLUR_SIGNAL];
         float clampedHistoryLuminance = clamp(historyLuminance, meanLuminance - antilagSigmaRange, meanLuminance + antilagSigmaRange);
         float antilagConfidence = 1.0 / (1.0 + (((abs(historyLuminance - clampedHistoryLuminance) / (spvNMax(historyLuminance, clampedHistoryLuminance) + 9.9999999747524270787835121154785e-07)) * (footprintQuality * specularFrameCount)) / ((ubo.ubo.reblur_antilag_settings[REBLUR_SIGNAL].xy.y * antilagFrameRateScale) * antilagFrameRateScale)));
         float adjustedFrameCount = mix(spvNMin(specularFrameCount, ubo.ubo.reblur_history_fix_frame_num[REBLUR_SIGNAL]), specularFrameCount, antilagConfidence);
         float historyWeight = (footprintQuality * (1.0 - (1.0 / (1.0 + ((ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].x * mix(ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].y, 1.0, clamp(adjustedFrameCount / (1.0 + (ubo.ubo.reblur_max_accumulated_frame_num[REBLUR_SIGNAL] * ubo.ubo.reblur_convergence_settings[REBLUR_SIGNAL].z)), 0.0, 1.0))) * adjustedFrameCount))))) * antilagConfidence;
-        float stableFrameCountSample;
-        if (virtualHistoryBlend != 1.0)
-        {
-            stableFrameCountSample = float(surfaceMotionUv.x >= ubo.ubo.reblur_split_screen_prev[REBLUR_SIGNAL]);
-        }
-        else
-        {
-            stableFrameCountSample = 1.0;
-        }
-        float stableFrameCountHistory;
-        if (virtualHistoryBlend != 0.0)
-        {
-            stableFrameCountHistory = float(virtualMotionUv.x >= ubo.ubo.reblur_split_screen_prev[REBLUR_SIGNAL]);
-        }
-        else
-        {
-            stableFrameCountHistory = 1.0;
-        }
+        float stableFrameCountSample = float(surfaceMotionUv.x >= ubo.ubo.reblur_split_screen_prev[REBLUR_SIGNAL]);
         float responsiveRoughness = clamp(spvNMax(roughness, 0.001000000047497451305389404296875) * ubo.ubo.reblur_responsive_accumulation_inv_roughness_threshold[REBLUR_SIGNAL], 0.0, 1.0);
-        float responsiveHistoryScale = mix((1.0 - exp2(((-200.0) * roughness) * roughness)) * pow(clampedRoughness, 0.25), 1.0, 0.5 + (((responsiveRoughness * responsiveRoughness) * (3.0 - (responsiveRoughness * 2.0))) * 0.5));
+        float responsiveHistoryScale = mix((1.0 - exp2(((-200.0) * roughness) * roughness)) * pow(clamp(roughness, 0.0, 1.0), 0.25), 1.0, 0.5 + (((responsiveRoughness * responsiveRoughness) * (3.0 - (responsiveRoughness * 2.0))) * 0.5));
         float outputStableFrameCount;
         if (materialId == ubo.ubo.reblur_strand_material_id[REBLUR_SIGNAL])
         {
@@ -397,7 +237,7 @@ void main()
             outputStableFrameCount = responsiveHistoryScale;
         }
         float stabilizationSigmaRange = luminanceSigma * (1.0 + ((historyWeight * 6.0) * ubo.ubo.reblur_frame_rate_scale_smoothed[REBLUR_SIGNAL]));
-        float stabilizedLuminance = mix(currentLuminance, clamp(historyLuminance, meanLuminance - stabilizationSigmaRange, meanLuminance + stabilizationSigmaRange), spvNMin((((historyWeight * float(pixelUv.x >= ubo.ubo.reblur_split_screen[REBLUR_SIGNAL])) * stableFrameCountSample) * stableFrameCountHistory) * outputStableFrameCount, ubo.ubo.reblur_stabilization_strength[REBLUR_SIGNAL]));
+        float stabilizedLuminance = mix(currentLuminance, clamp(historyLuminance, meanLuminance - stabilizationSigmaRange, meanLuminance + stabilizationSigmaRange), spvNMin((((historyWeight * float(pixelUv.x >= ubo.ubo.reblur_split_screen[REBLUR_SIGNAL])) * stableFrameCountSample)) * outputStableFrameCount, ubo.ubo.reblur_stabilization_strength[REBLUR_SIGNAL]));
         vec4 historyRadiance = reblurFetch_temporal_reblur_reflection_history(ivec2(outputPixel));
         vec3 scaledRadianceYCoCg = historyRadiance.xyz * (stabilizedLuminance / spvNMax(historyRadiance.x, 9.9999999747524270787835121154785e-07));
         vec4 outputRadianceAndHitDistance = vec4(scaledRadianceYCoCg.x, scaledRadianceYCoCg.y, scaledRadianceYCoCg.z, historyRadiance.w);
