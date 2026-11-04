@@ -5,6 +5,9 @@ layout(local_size_x=8,local_size_y=8) in;
 layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set=0,binding=1,rgba16f) uniform readonly image2D FIREFLY_INPUT;
 layout(set=0,binding=2,rgba16f) uniform writeonly image2D FIREFLY_OUTPUT;
+#if FIREFLY_REMOVED_MAP
+layout(set=0,binding=6,rgba16f) uniform writeonly image2D out_bounce_fireflies;
+#endif
 
 #if FIREFLY_SPLIT_REFLECTION
 layout(set=0,binding=3,rgba32f) uniform readonly image2D reflection_reuse_radiance;
@@ -20,6 +23,9 @@ float luminance(vec3 color) {
 
 void storeSplit(ivec2 p, vec4 signal, float scale) {
     imageStore(FIREFLY_OUTPUT, p, vec4(signal.rgb * scale, signal.a));
+#if FIREFLY_REMOVED_MAP
+    imageStore(out_bounce_fireflies, p, vec4(signal.rgb * (1.0 - scale), signal.a));
+#endif
 #if FIREFLY_SPLIT_REFLECTION
     vec4 source = imageLoad(reflection_reuse_radiance, p);
     imageStore(out_reflection_reuse_base, p, vec4(source.rgb * scale, source.a));

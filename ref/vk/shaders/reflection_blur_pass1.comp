@@ -1,8 +1,14 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
 
-#define REFLECTION_BLUR_INPUT indirect_specular_reconstructed
-#define REFLECTION_BLUR_OUTPUT out_reflection_blur_intermediate
-#define REFLECTION_BLUR_RADIUS 8.0
-#define REFLECTION_BLUR_ROTATION mat2(1.0)
-#include "reflection_blur.glsl"
+#ifndef REFLECTION_BLUR_BYPASS
+#define REFLECTION_BLUR_BYPASS 1
+#endif
+
+#define ROTATED_BILATERAL_BLUR_ENABLED ((ubo.ubo.renderer_flags & RENDERER_FLAG_REFLECTION_BLUR) != 0)
+#define ROTATED_BILATERAL_BLUR_BYPASS REFLECTION_BLUR_BYPASS
+#define ROTATED_BILATERAL_BLUR_INPUT indirect_specular_reconstructed
+#define ROTATED_BILATERAL_BLUR_OUTPUT out_reflection_blur_intermediate
+#define ROTATED_BILATERAL_BLUR_RADIUS 8.0
+#define ROTATED_BILATERAL_BLUR_ROTATION mat2(1.0)
+#include "rotated_bilateral_blur.glsl"

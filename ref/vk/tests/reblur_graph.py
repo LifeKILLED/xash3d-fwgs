@@ -41,7 +41,18 @@ def pass_source(path):
     if path.stem in ('reflection_firefly', 'bounce_firefly'):
         body = (path.parent / include[1]).read_text()
         aliases = dict(re.findall(r'^#define (FIREFLY_\w+) (\w+)$', source, re.M))
-        return re.sub(r'\bFIREFLY_\w+\b', lambda m: aliases[m[0]], body)
+        config = (path.parent / 'reflection_firefly_config.glsl').read_text()
+        aliases.update(re.findall(r'^#define (REFLECTION_REUSE_FIREFLIES) (\w+)$', config, re.M))
+        active = [True]
+        lines = []
+        for line in body.splitlines():
+            if line.startswith('#if '):
+                active.append(active[-1] and aliases.get(line.split()[1], '0') != '0')
+            elif line == '#endif':
+                active.pop()
+            elif active[-1]:
+                lines.append(line)
+        return re.sub(r'\bFIREFLY_\w+\b', lambda m: aliases[m[0]], '\n'.join(lines))
     if path.parent.name != "reblur":
         return source
     assert include
@@ -172,7 +183,8 @@ assert 'extent_divisor' not in (VK / 'vulkan/VMeatpipe.c').read_text()
 # Check that each current-frame input has a preceding producer. History reads
 # are supplied by the normal prev_/out_ resource swapping mechanism.
 available = {'reblur_reprojection_map','position_t','normals_gs','material_rmxx','geometry_prev_position',
-             'indirect_diffuse','indirect_specular','first_bounce_direction','reflection_direction_pdf','ubo'}
+             'indirect_diffuse','indirect_specular','first_bounce_direction','reflection_direction_pdf',
+             'reflection_reuse_radiance','reflection_reused_specular','ubo'}
 for pipeline in pipelines:
     for binding in pipeline.bindings():
         name = binding.getResource().name

@@ -34,7 +34,7 @@ void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
 
 
 void main() {
-	ivec2 res = ivec2(imageSize(base_color_a));
+	ivec2 res = ubo.ubo.res;
 	ivec2 pix = ivec2(gl_GlobalInvocationID);
 
 	if (any(greaterThanEqual(pix, res))) {
@@ -58,7 +58,7 @@ void main() {
 	low_freq.shY = FIX_NAN(imageLoad(sh1_pong, pix));
 	low_freq.CoCg = FIX_NAN(imageLoad(sh2_pong, pix)).xy;
 
-	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal) / STORAGE_SCALE_LF;
+	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal);
 
 	imageStore(out_indirect_diffuse_denoised_by_sh, pix, vec4(diffuse_gi, 0.));
 	imageStore(out_indirect_diffuse, pix, vec4(0.));
