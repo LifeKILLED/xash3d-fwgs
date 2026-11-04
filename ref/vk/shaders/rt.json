@@ -142,6 +142,9 @@
 	"indiff_sh_init": {
 		"comp": "diffuse_gi_sh_denoise_init"
 	},
+	"indiff_sh_temporal": {
+		"comp": "diffuse_gi_sh_temporal"
+	},
 	"indiff_sh_blur_pass1": {
 		"comp": "diffuse_gi_sh_blur_pass1"
 	},

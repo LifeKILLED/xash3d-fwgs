@@ -957,7 +957,8 @@ void main() {
 #endif
 
 		bool has_diffuse_history = has_base_history;
-		bool has_indirect_diffuse_history = has_base_history;
+		bool has_indirect_diffuse_history = has_base_history &&
+			(ubo.ubo.renderer_flags & RENDERER_FLAG_GI_SH_TEMPORAL) == 0u;
 		bool has_direct_specular_history = has_base_history;
 		bool has_indirect_specular_history = has_base_history;
 
