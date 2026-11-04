@@ -39,6 +39,7 @@ layout(set=0,binding=48,rgba32f) uniform writeonly image2D out_temporal_lc_refle
 layout(set=0,binding=49,rgba16f) uniform readonly image2D prev_temporal_reflection_path_normals;
 layout(set=0,binding=57,rgba32f) uniform readonly image2D prev_position_t;
 layout(set=0,binding=58,rgba16f) uniform readonly image2D prev_normals_gs;
+layout(set=0,binding=59,rgba32f) uniform writeonly image2D out_reflection_reuse_radiance;
 #include "bounce_path_config.glsl"
 #include "reflection_path_config.glsl"
 #include "ray_primary_common.glsl"
@@ -107,7 +108,8 @@ vec3 reflectionDirection(uint seed,vec3 N,vec3 V,float roughness,out float pdf) 
     return L;
 }
 vec3 traceReflection(uint r, vec3 P, vec3 G, vec3 N, vec3 V,
-    MaterialProperties material,out vec3 L,out float pdf,out vec4 hit,out vec4 identity,out vec3 previous_hit) {
+    MaterialProperties material,out vec3 L,out float pdf,out vec4 hit,out vec4 identity,out vec3 previous_hit,out vec3 incident) {
+    incident=vec3(0);
     vec2 rm=vec2(material.roughness,material.metalness);
     L=reflectionDirection(r,N,V,rm.x,pdf);
     vec3 value=vec3(0); hit=vec4(0); identity=vec4(0); previous_hit=vec3(0);
@@ -120,7 +122,8 @@ vec3 traceReflection(uint r, vec3 P, vec3 G, vec3 N, vec3 V,
             vec3 unused; evalSplitBRDF(N,L,V,material,unused,throughput);
             throughput/=pdf;
         }
-        value=cachedHit(P+G*0.01,L,hit,identity,previous_hit,true)*throughput;
+        incident=cachedHit(P+G*0.01,L,hit,identity,previous_hit,true);
+        value=incident*throughput;
     }
     return value;
 }
@@ -197,6 +200,7 @@ void main() {
     ivec2 pix=ivec2(gl_GlobalInvocationID.xy), res=ubo.ubo.res;
     if (any(greaterThanEqual(pix,res))) return;
     imageStore(out_indirect_specular,pix,vec4(0));
+    imageStore(out_reflection_reuse_radiance,pix,vec4(0));
     imageStore(out_reflection_direction_pdf,pix,vec4(0));
     imageStore(out_temporal_reflection_path_random,pix,vec4(0));
     imageStore(out_temporal_reflection_path_reservoir,pix,vec4(0));
@@ -213,8 +217,8 @@ void main() {
     MaterialProperties material=MaterialProperties(separated ? vec3(1) :
         SRGBtoLINEAR(imageLoad(base_color_a,pix).rgb),separated ? 1.0 : rm.y,rm.x);
     uint selected_seed=xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x72667265u)) & 8388607u;
-    vec3 direction,previous_hit; float pdf; vec4 hit,identity;
-    vec3 selected=traceReflection(selected_seed,position.xyz,G,N,V,material,direction,pdf,hit,identity,previous_hit);
+    vec3 direction,previous_hit,incident; float pdf; vec4 hit,identity;
+    vec3 selected=traceReflection(selected_seed,position.xyz,G,N,V,material,direction,pdf,hit,identity,previous_hit,incident);
     float history_cap=REFLECTION_PATH_MAX_EFFECTIVE_SAMPLES;
     float replay_ratio=1.0;
     LCReservoir reservoir=LCReservoir(0,0,0);
@@ -257,8 +261,8 @@ void main() {
         // Y tags the seed format; old random-pair histories are incompatible.
         if (metadata.y==2.0 && metadata.w==float(((ubo.ubo.frame_counter-1u)&65535u)+1u) &&
             metadata.x>=0.0 && metadata.x<=8388607.0 && lcPathHistoryValid(previous)) {
-            vec3 hd,hp; float hpdf; vec4 hh,hi;
-            vec3 history=traceReflection(uint(metadata.x),position.xyz,G,N,V,material,hd,hpdf,hh,hi,hp);
+            vec3 hd,hp,history_incident; float hpdf; vec4 hh,hi;
+            vec3 history=traceReflection(uint(metadata.x),position.xyz,G,N,V,material,hd,hpdf,hh,hi,hp,history_incident);
             float target=lcPathTarget(history);
             replay_ratio=target/max(previous.x,1e-6);
             float relaxation=smoothstep(REFLECTION_PATH_RELAX_ROUGHNESS_START,REFLECTION_PATH_RELAX_ROUGHNESS_END,rm.x);
@@ -280,12 +284,15 @@ void main() {
                 float choose=uintToFloat01(xxhash32(uvec4(uvec2(pix),ubo.ubo.random_seed,0x7273656cu)));
                 if (!lcOffer(reservoir,lcPathTarget(selected),1.0,choose)) {
                     selected=history; selected_seed=uint(metadata.x);
-                    direction=hd; pdf=hpdf; hit=hh; identity=hi;
+                    incident=history_incident; direction=hd; pdf=hpdf; hit=hh; identity=hi;
                 }
             }
         }
     }
     float W=lcNormalization(reservoir);
+    // Store the selected incident sample with its source proposal and RIS normalization.
+    if (hit.w>0.0 && pdf>0.0 && rm.x>=0.004 && W>0.0)
+        imageStore(out_reflection_reuse_radiance,pix,vec4(incident*(W/pdf),1.0));
     vec3 color=selected*W;
     // Preserve raw estimator luminance: target/final clamps hide fireflies.
     color*=min(1.0,REFLECTION_PATH_FINAL_LUMINANCE_MAX/max(lcWeight(color),1e-6));

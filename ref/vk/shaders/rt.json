@@ -90,6 +90,7 @@
 	// Original compound bounce and reflection passes temporarily disconnected.
 	"lc_reflection": { "comp": "lc_reflection" },
 	"lc_bounce": { "comp": "lc_bounce" },
+	"reflection_spatial_reuse": {"comp": "reflection_spatial_reuse"},
 	"reflection_firefly": {"comp": "reflection_firefly"},
 	"bounce_firefly": {"comp": "bounce_firefly"},
 	"reblur_bounce_prepare": {"comp": "reblur/reblur_bounce_prepare"},

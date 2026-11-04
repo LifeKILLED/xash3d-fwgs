@@ -1,0 +1,13 @@
+#version 460
+
+#define RECON_USE_DEPTH_WEIGHT 1
+#define RECON_USE_NORMAL_WEIGHT 1
+#define RECON_USE_ROUGHNESS_WEIGHT 1
+#define RECON_USE_MUTUAL_HORIZONS 1
+#define RECON_USE_HIT_HORIZON 1
+#define RECON_USE_HIT_BOUNDS 1
+#define RECON_DEPTH_FADE_START 0.03
+#define RECON_DEPTH_FADE_END 0.10
+#define RECON_MAX_RADIUS 12.0
+
+#include "reflection_spatial_reuse.glsl"

@@ -272,7 +272,11 @@ void main() {
 		return;
 	}
 
+	#if defined(SPATIAL_RECONSTRUCTION_PASSTHROUGH)
+    {
+#else
 	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_SPATIAL_RECONSTRUCTION) == 0) {
+#endif
 		vec4 passthrough = imageLoad(SPECULAR_INPUT_IMAGE, pix);
 		float rayLength = SPATIAL_RECONSTRUCTION_INPUT_RAY_LENGTH(pix);
 #if SPATIAL_RECONSTRUCTION_FINAL_PASS
