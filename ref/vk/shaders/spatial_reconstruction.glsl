@@ -24,7 +24,7 @@
 #include "debug.glsl"
 
 #define SPECULAR_CLAMPING_MAX 1.2
-#define SPATIAL_RECONSTRUCTION_SAMPLES 8
+#include "reconstruction_poisson.glsl"
 #define SPATIAL_RECONSTRUCTION_ROUGHNESS_FACTOR 4.
 #define SPATIAL_RECONSTRUCTION_SIGMA 0.9
 
@@ -292,16 +292,6 @@ void main() {
 	const ivec2 primary_pix = pix * SPATIAL_RECONSTRUCTION_SCALE;
 	const vec3 position = imageLoad(position_t, primary_pix).xyz;
 
-	vec3 poisson[SPATIAL_RECONSTRUCTION_SAMPLES];
-	poisson[0] = vec3(-0.4706069, -0.4427112, +0.6461146);
-	poisson[1] = vec3(-0.9057375, +0.3003471, +0.9542373);
-	poisson[2] = vec3(-0.3487388, +0.4037880, +0.5335386);
-	poisson[3] = vec3(+0.1023042, +0.6439373, +0.6520134);
-	poisson[4] = vec3(+0.5699277, +0.3513750, +0.6695386);
-	poisson[5] = vec3(+0.2939128, -0.1131226, +0.3149309);
-	poisson[6] = vec3(+0.7836658, -0.4208784, +0.8895339);
-	poisson[7] = vec3(+0.1564120, -0.8198990, +0.8346850);
-
 	vec3 geometry_normal, shading_normal;
 	readNormals(primary_pix, geometry_normal, shading_normal);
 	vec3 V = normalize(origin - position);
@@ -343,15 +333,16 @@ void main() {
 	float fallbackRayLengthSum = 0.0;
 	float fallbackWeightSum = 0.0;
 	
-	for (int i = 0; i < SPATIAL_RECONSTRUCTION_SAMPLES; i++) {
-		ivec2 p = max(ivec2(0), min(ivec2(res) - ivec2(1), ivec2(pix + radius * poisson[i].xy)));
+	for (int i = 0; i < reconstruction_poisson.length(); i++) {
+		vec3 poisson = reconstruction_poisson[i];
+		ivec2 p = max(ivec2(0), min(ivec2(res) - ivec2(1), ivec2(pix + radius * poisson.xy)));
 		if (legacy_bounce) {
 			vec3 sample_base_color = SRGBtoLINEAR(imageLoad(base_color_a, p * SPATIAL_RECONSTRUCTION_SCALE).rgb);
 			if (any(greaterThan(abs(sample_base_color - center_base_color), vec3(0.05)))) {
 				continue;
 			}
 		}
-		float weightS = computeSpatialWeight(poisson[i].z * poisson[i].z, SPATIAL_RECONSTRUCTION_SIGMA);
+		float weightS = computeSpatialWeight(poisson.z * poisson.z, SPATIAL_RECONSTRUCTION_SIGMA);
 		vec2 weightLength = computeWeightRayLength(p, V, shading_normal, roughness, NdotV, weightS, centerReflectionDirection, neighborhoodStats);
 		vec2 fallbackWeightLength = computeWeightRayLengthFallback(p, V, shading_normal, roughness, NdotV, weightS, centerReflectionDirection, neighborhoodStats);
 		vec3 sampleColor = clampSpecular(imageLoad(SPECULAR_INPUT_IMAGE, p).xyz, SPECULAR_CLAMPING_MAX);

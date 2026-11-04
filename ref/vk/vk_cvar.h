@@ -41,6 +41,8 @@ void VK_LoadCvarsAfterInit( void );
 	X(rt_nrd_bounce) \
 	X(rt_nrd_reflection) \
 	X(rt_disable_sh_gi_denoising) \
+	X(rt_gi_poisson) \
+	X(rt_gi_sh_blur) \
 	X(rt_disable_reprojection) \
 	X(rt_denoiser_console_setup_enable) \
 	X(rt_disable_regir) \

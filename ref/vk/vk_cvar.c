@@ -56,6 +56,8 @@ void VK_LoadCvarsAfterInit( void )
 		rt_firefly_rejection = gEngine.Cvar_Get("rt_firefly_rejection", "1", FCVAR_GLCONFIG, "Suppress fireflies in raw bounce and reflection radiance");
 		rt_disable_atrous = gEngine.Cvar_Get("rt_disable_atrous", "0", FCVAR_GLCONFIG, "Disable a-trous spatial filtering, including SH GI filtering; keep temporal accumulation");
 		rt_disable_sh_gi_denoising = gEngine.Cvar_Get("rt_disable_sh_gi_denoising", "0", FCVAR_GLCONFIG, "Disable SH-based denoising for indirect diffuse GI");
+		rt_gi_poisson = gEngine.Cvar_Get("rt_gi_poisson", "1", FCVAR_GLCONFIG, "Enable Poisson reconstruction before indirect diffuse SH blur");
+		rt_gi_sh_blur = gEngine.Cvar_Get("rt_gi_sh_blur", "1", FCVAR_GLCONFIG, "Enable rotated bilateral blur of indirect diffuse SH coefficients");
 		rt_disable_reprojection = gEngine.Cvar_Get("rt_disable_reprojection", "0", FCVAR_GLCONFIG, "Disable ASVGF history reprojection only; keep reservoir and light cache history enabled");
 		rt_disable_regir = gEngine.Cvar_Get("rt_disable_regir", "0", FCVAR_GLCONFIG, "Disable ReGIR Onion candidates and use random RIS candidates");
 		rt_regir_onion_radius = gEngine.Cvar_Get("rt_regir_onion_radius", "8192", FCVAR_GLCONFIG, "Maximum camera-centered ReGIR Onion radius");

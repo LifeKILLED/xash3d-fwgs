@@ -673,6 +673,8 @@ static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args
 	ret.renderer_flags = SET_RENDERER_FLAG(RENDERER_FLAG_ONLY_DIFFUSE_GI) |
 					  SET_RENDERER_FLAG(RENDERER_FLAG_SEPARATED_REFLECTION) |
 					  (disable_sh_gi_denoising ? 0 : RENDERER_FLAG_DENOISE_GI_BY_SH) |
+					  (CVAR_TO_BOOL(rt_gi_poisson) ? RENDERER_FLAG_GI_POISSON : 0) |
+					  (CVAR_TO_BOOL(rt_gi_sh_blur) ? RENDERER_FLAG_GI_SH_BLUR : 0) |
 					  (disable_reconstruction ? 0 : RENDERER_FLAG_SPATIAL_RECONSTRUCTION) |
 					  (CVAR_TO_BOOL(rt_reflection_reconstruction) ? RENDERER_FLAG_REFLECTION_RECONSTRUCTION : 0) |
 					  (CVAR_TO_BOOL(rt_reflection_blur) ? RENDERER_FLAG_REFLECTION_BLUR : 0) |

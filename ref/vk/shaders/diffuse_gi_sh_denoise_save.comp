@@ -19,6 +19,8 @@ layout(set = 0, binding = 3, rgba8)   uniform readonly image2D base_color_a;
 layout(set = 0, binding = 4, rgba16f) uniform readonly image2D normals_gs;
 layout(set = 0, binding = 5, rgba16f) uniform readonly image2D sh1_pong;
 layout(set = 0, binding = 6, rgba16f) uniform readonly image2D sh2_pong;
+layout(set = 0, binding = 8, rgba16f) uniform readonly image2D sh1_ping;
+layout(set = 0, binding = 9, rgba16f) uniform readonly image2D sh2_ping;
 
 #define GLSL
 #include "ray_interop.h"
@@ -55,8 +57,13 @@ void main() {
 
 	// global illumination re-light
 	SH low_freq;
-	low_freq.shY = FIX_NAN(imageLoad(sh1_pong, pix));
-	low_freq.CoCg = FIX_NAN(imageLoad(sh2_pong, pix)).xy;
+	if ((ubo.ubo.renderer_flags & RENDERER_FLAG_GI_SH_BLUR) != 0u) {
+		low_freq.shY = FIX_NAN(imageLoad(sh1_pong, pix));
+		low_freq.CoCg = FIX_NAN(imageLoad(sh2_pong, pix)).xy;
+	} else {
+		low_freq.shY = FIX_NAN(imageLoad(sh1_ping, pix));
+		low_freq.CoCg = FIX_NAN(imageLoad(sh2_ping, pix)).xy;
+	}
 
 	const vec3 diffuse_gi = project_SH_irradiance(low_freq, shading_normal);
 
