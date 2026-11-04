@@ -9,7 +9,7 @@
 #define AMD_REFLECTION_DIRECTION_PDF_IMAGE reflection_direction_pdf
 #define AMD_NORMALS_GS_IMAGE normals_gs
 #define AMD_MATERIAL_RMXX_IMAGE material_rmxx
-#define AMD_INDIRECT_SPECULAR_IMAGE firefly_filtered_specular
+#define AMD_INDIRECT_SPECULAR_IMAGE reflection_reused_specular
 #define AMD_PREV_TEMPORAL_AMD_RADIANCE_IMAGE prev_temporal_amd_radiance
 #define AMD_PREV_TEMPORAL_AMD_GEOMETRY_IMAGE prev_temporal_amd_geometry
 #define AMD_PREV_TEMPORAL_AMD_DEPTH_IMAGE prev_temporal_amd_depth

@@ -6,8 +6,27 @@ layout(set=0,binding=0) uniform UBO { UniformBuffer ubo; } ubo;
 layout(set=0,binding=1,rgba16f) uniform readonly image2D FIREFLY_INPUT;
 layout(set=0,binding=2,rgba16f) uniform writeonly image2D FIREFLY_OUTPUT;
 
+#if FIREFLY_SPLIT_REFLECTION
+layout(set=0,binding=3,rgba32f) uniform readonly image2D reflection_reuse_radiance;
+layout(set=0,binding=4,rgba32f) uniform writeonly image2D out_reflection_reuse_base;
+#if REFLECTION_REUSE_FIREFLIES
+layout(set=0,binding=5,rgba32f) uniform writeonly image2D out_reflection_fireflies;
+#endif
+#endif
+
 float luminance(vec3 color) {
     return dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+}
+
+void storeSplit(ivec2 p, vec4 signal, float scale) {
+    imageStore(FIREFLY_OUTPUT, p, vec4(signal.rgb * scale, signal.a));
+#if FIREFLY_SPLIT_REFLECTION
+    vec4 source = imageLoad(reflection_reuse_radiance, p);
+    imageStore(out_reflection_reuse_base, p, vec4(source.rgb * scale, source.a));
+#if REFLECTION_REUSE_FIREFLIES
+    imageStore(out_reflection_fireflies, p, vec4(source.rgb * (1.0 - scale), source.a));
+#endif
+#endif
 }
 
 void main() {
@@ -17,7 +36,7 @@ void main() {
 
     vec4 signal = imageLoad(FIREFLY_INPUT, p);
     if ((ubo.ubo.renderer_flags & RENDERER_FLAG_FIREFLY_REJECTION) == 0u) {
-        imageStore(FIREFLY_OUTPUT, p, signal);
+        storeSplit(p, signal, 1.0);
         return;
     }
 
@@ -37,12 +56,13 @@ void main() {
         }
     }
 
+    float scale = 1.0;
     if (count > 0) {
         float mean = sum / float(count);
         float sigma = sqrt(max(sumSquared / float(count) - mean * mean, 0.0));
         float limit = mean + 2.0 * sigma;
         float center = luminance(signal.rgb);
-        if (center > limit) signal.rgb *= limit / center;
+        if (center > limit) scale = limit / center;
     }
-    imageStore(FIREFLY_OUTPUT, p, signal);
+    storeSplit(p, signal, scale);
 }

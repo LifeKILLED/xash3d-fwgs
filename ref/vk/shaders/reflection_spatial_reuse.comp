@@ -1,4 +1,5 @@
 #version 460
+#include "reflection_firefly_config.glsl"
 
 #define RECON_USE_DEPTH_WEIGHT 1
 #define RECON_USE_NORMAL_WEIGHT 1
@@ -9,5 +10,6 @@
 #define RECON_DEPTH_FADE_START 0.03
 #define RECON_DEPTH_FADE_END 0.10
 #define RECON_MAX_RADIUS 12.0
+#define RECON_FIREFLY_RADIUS 24.0
 
 #include "reflection_spatial_reuse.glsl"

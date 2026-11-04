@@ -6,7 +6,7 @@
 
 #define SPATIAL_RECONSTRUCTION_PASSTHROUGH 1
 #define SPATIAL_RECONSTRUCTION_RADIUS 7.
-#define SPECULAR_INPUT_IMAGE firefly_filtered_specular
+#define SPECULAR_INPUT_IMAGE reflection_reused_specular
 #define SPECULAR_OUTPUT_IMAGE out_indirect_specular_reconstructed
 #define SPATIAL_RECONSTRUCTION_INPUT_RAY_LENGTH(pix) length(imageLoad(reflection_direction_pdf, pix).xyz)
 #define SPATIAL_RECONSTRUCTION_FINAL_PASS 1
