@@ -1,0 +1,9 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define REFLECTION_BLUR_INPUT reflection_blur_intermediate
+#define REFLECTION_BLUR_OUTPUT out_indirect_specular_blurred
+#define REFLECTION_BLUR_RADIUS 16.0
+// Rotate the second kernel by 22.5 degrees.
+#define REFLECTION_BLUR_ROTATION mat2(0.923880, 0.382683, -0.382683, 0.923880)
+#include "reflection_blur.glsl"

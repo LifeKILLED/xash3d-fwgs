@@ -163,6 +163,12 @@
 	"spatial_reconstruction_pass1": {
 		"comp": "spatial_reconstruction_pass1"
 	},
+	"reflection_blur_pass1": {
+		"comp": "reflection_blur_pass1"
+	},
+	"reflection_blur_pass2": {
+		"comp": "reflection_blur_pass2"
+	},
 	"final_precombine": {
 		"comp": "final_precombine"
 	},

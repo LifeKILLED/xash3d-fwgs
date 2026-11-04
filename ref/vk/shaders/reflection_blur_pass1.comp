@@ -1,0 +1,8 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+
+#define REFLECTION_BLUR_INPUT indirect_specular_reconstructed
+#define REFLECTION_BLUR_OUTPUT out_reflection_blur_intermediate
+#define REFLECTION_BLUR_RADIUS 8.0
+#define REFLECTION_BLUR_ROTATION mat2(1.0)
+#include "reflection_blur.glsl"
