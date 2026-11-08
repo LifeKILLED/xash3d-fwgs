@@ -57,6 +57,26 @@ float ltcContourIntegral(vec3 sum) {
 	return ltcHorizonIntegral(sum.z / max(len, 1e-8), len);
 }
 
+#ifdef HEITZ_SHADOWS
+// Heitz, Hill & McGuire 2018: correlated stochastic S_N and U_N,
+// with a separate deterministic LTC U. Only primary direct lighting uses these.
+vec3 heitz_analytic_diffuse = vec3(0.0), heitz_analytic_specular = vec3(0.0);
+vec3 heitz_unshadowed_diffuse = vec3(0.0), heitz_unshadowed_specular = vec3(0.0);
+
+void accumulateHeitz(vec3 analytic_diffuse, vec3 analytic_specular,
+	vec3 sample_diffuse, vec3 sample_specular, bool visible,
+	inout vec3 diffuse, inout vec3 specular) {
+	heitz_analytic_diffuse += analytic_diffuse;
+	heitz_analytic_specular += analytic_specular;
+	heitz_unshadowed_diffuse += sample_diffuse;
+	heitz_unshadowed_specular += sample_specular;
+	if (visible) {
+		diffuse += sample_diffuse;
+		specular += sample_specular;
+	}
+}
+#endif
+
 #if LIGHT_POLYGON && LIGHT_POLYGON_ANALYTIC
 void accumulatePolygonLightLtc(PolygonLight poly, vec3 P, vec3 N, vec3 V,
 	MaterialProperties material, inout vec3 diffuse, inout vec3 specular) {
@@ -66,16 +86,41 @@ void accumulatePolygonLightLtc(PolygonLight poly, vec3 P, vec3 N, vec3 V,
 		return;
 	}
 
+#ifdef HEITZ_SHADOWS
+	// Area-weighted triangle fan: uniform triangle selection biases irregular polygons.
+	const vec3 first = lights.m.polygon_vertices[offset].xyz - P;
+	float area = 0.0;
+	for (uint i = 1u; i + 1u < count; ++i) {
+		area += 0.5 * length(cross(lights.m.polygon_vertices[offset+i].xyz - P - first,
+								  lights.m.polygon_vertices[offset+i+1u].xyz - P - first));
+	}
+	if (area <= 1e-8) return;
+	float selection = heitz_light_random.z * area;
+	uint triangle = count - 2u;
+	for (uint i = 1u; i + 1u < count; ++i) {
+		selection -= 0.5 * length(cross(lights.m.polygon_vertices[offset+i].xyz - P - first,
+									   lights.m.polygon_vertices[offset+i+1u].xyz - P - first));
+		if (selection <= 0.0) { triangle = i; break; }
+	}
+#else
 	const uint triangle = 1u + min(uint(rand01() * float(count - 2u)), count - 3u);
 	const vec3 first = lights.m.polygon_vertices[offset].xyz - P;
+#endif
 	const vec3 b = lights.m.polygon_vertices[offset + triangle].xyz - P;
 	const vec3 c = lights.m.polygon_vertices[offset + triangle + 1u].xyz - P;
+#ifdef HEITZ_SHADOWS
+	const float r = sqrt(heitz_light_random.x);
+	const float v = heitz_light_random.y;
+#else
 	const float r = sqrt(rand01());
-	const vec3 shadow_offset = mix(first, mix(b, c, rand01()), r);
+	const float v = rand01();
+#endif
+	const vec3 shadow_offset = mix(first, mix(b, c, v), r);
 	const float shadow_dist = length(shadow_offset);
-	if (shadow_dist <= 1e-6 || shadowed(P, shadow_offset / shadow_dist, shadow_dist)) {
-		return;
-	}
+	if (shadow_dist <= 1e-6) return;
+#ifndef HEITZ_SHADOWS
+	if (shadowed(P, shadow_offset / shadow_dist, shadow_dist)) return;
+#endif
 
 	const float ndotv = clamp(dot(N, V), 0.0, 1.0);
 	vec3 amplitude;
@@ -100,11 +145,23 @@ void accumulatePolygonLightLtc(PolygonLight poly, vec3 P, vec3 N, vec3 V,
 	const float len = length(diffuse_sum);
 	const float projected = ltcHorizonIntegral(dot(N, diffuse_sum) / max(len, 1e-8), len);
 	// Preserve the diffuse scale of the experimental polygon evaluator.
-	diffuse += poly.emissive * projected * (2.0 * kOneOverPi)
+	vec3 analytic_diffuse = poly.emissive * projected * (2.0 * kOneOverPi)
 		* ltcDiffuseAmplitude(normalize(poly.center - P), V, material);
-	if (ndotv > 1e-5) {
-		specular += poly.emissive * amplitude * ltcContourIntegral(specular_sum);
-	}
+	const vec3 analytic_specular = ndotv > 1e-5
+		? poly.emissive * amplitude * ltcContourIntegral(specular_sum) : vec3(0.0);
+#ifdef HEITZ_SHADOWS
+	const vec3 L = shadow_offset / shadow_dist;
+	vec3 sample_diffuse, sample_specular;
+	evalSplitBRDF(N, L, V, material, sample_diffuse, sample_specular);
+	const vec3 sample_weight = poly.emissive * area * max(0.0, -dot(poly.plane.xyz, L))
+		/ (shadow_dist * shadow_dist);
+	accumulateHeitz(analytic_diffuse, analytic_specular,
+		sample_diffuse * sample_weight, sample_specular * sample_weight,
+		!shadowed(P, L, shadow_dist), diffuse, specular);
+#else
+	diffuse += analytic_diffuse;
+	specular += analytic_specular;
+#endif
 }
 #endif
 
@@ -148,34 +205,55 @@ void accumulatePointLightLtc(PointLight light, vec3 P, vec3 N, vec3 V,
 	}
 
 	const mat3 basis = orthonormalBasisZ(axis);
-	const vec3 shadow_direction = normalize(basis * sampleConeZ(vec2(rand01(), rand01()), cos_radius));
+#ifdef HEITZ_SHADOWS
+	const vec2 shadow_random = heitz_light_random.xy;
+#else
+	const vec2 shadow_random = vec2(rand01(), rand01());
+#endif
+	const vec3 shadow_direction = normalize(basis * sampleConeZ(shadow_random, cos_radius));
+#ifndef HEITZ_SHADOWS
 	if (environment ? shadowedSky(P, shadow_direction)
 	                : shadowed(P, shadow_direction, distance + shadow_offset_fudge)) {
 		return;
 	}
 
+#endif
 	const vec3 color = light.color_stopdot.rgb * attenuation;
-	diffuse += color * ltcHorizonIntegral(elevation, sin_radius2) * ltcDiffuseAmplitude(axis, V, material);
+	vec3 analytic_diffuse = color * ltcHorizonIntegral(elevation, sin_radius2) * ltcDiffuseAmplitude(axis, V, material);
 
 	const float ndotv = clamp(dot(N, V), 0.0, 1.0);
-	if (ndotv <= 1e-5) {
-		return;
+	vec3 analytic_specular = vec3(0.0);
+	if (ndotv > 1e-5) {
+		// Approximate the apparent disk by its inscribed octagon in LTC space.
+		const vec2 ring[8] = vec2[8](
+			vec2(1.0, 0.0), vec2(0.70710678), vec2(0.0, 1.0), vec2(-0.70710678, 0.70710678),
+			vec2(-1.0, 0.0), vec2(-0.70710678), vec2(0.0, -1.0), vec2(0.70710678, -0.70710678));
+		vec3 amplitude;
+		const mat3 transform = ltcSpecularTransform(N, V, ndotv, material, amplitude) * basis;
+		vec3 previous = normalize(transform * vec3(ring[7] * sin_radius, cos_radius));
+		vec3 sum = vec3(0.0);
+		for (int i = 0; i < 8; ++i) {
+			const vec3 current = normalize(transform * vec3(ring[i] * sin_radius, cos_radius));
+			sum += ltcIntegrateEdge(previous, current);
+			previous = current;
+		}
+		analytic_specular = color * amplitude * ltcContourIntegral(sum);
 	}
-
-	// Approximate the apparent disk by its inscribed octagon in LTC space.
-	const vec2 ring[8] = vec2[8](
-		vec2(1.0, 0.0), vec2(0.70710678), vec2(0.0, 1.0), vec2(-0.70710678, 0.70710678),
-		vec2(-1.0, 0.0), vec2(-0.70710678), vec2(0.0, -1.0), vec2(0.70710678, -0.70710678));
-	vec3 amplitude;
-	const mat3 transform = ltcSpecularTransform(N, V, ndotv, material, amplitude) * basis;
-	vec3 previous = normalize(transform * vec3(ring[7] * sin_radius, cos_radius));
-	vec3 sum = vec3(0.0);
-	for (int i = 0; i < 8; ++i) {
-		const vec3 current = normalize(transform * vec3(ring[i] * sin_radius, cos_radius));
-		sum += ltcIntegrateEdge(previous, current);
-		previous = current;
-	}
-	specular += color * amplitude * ltcContourIntegral(sum);
+#ifdef HEITZ_SHADOWS
+	vec3 sample_diffuse, sample_specular;
+	evalSplitBRDF(N, shadow_direction, V, material, sample_diffuse, sample_specular);
+	// Stable 1-cos(theta), including small apparent spherical lights.
+	const float solid_angle = 2.0 * kPi * sin_radius2 / max(1.0 + cos_radius, 1e-8);
+	const float sample_attenuation = environment ? 1.0 : ltcSpotAttenuation(light, shadow_direction);
+	const vec3 sample_weight = light.color_stopdot.rgb * sample_attenuation * solid_angle;
+	const bool visible = environment ? !shadowedSky(P, shadow_direction)
+		: !shadowed(P, shadow_direction, distance + shadow_offset_fudge);
+	accumulateHeitz(analytic_diffuse, analytic_specular,
+		sample_diffuse * sample_weight, sample_specular * sample_weight, visible, diffuse, specular);
+#else
+	diffuse += analytic_diffuse;
+	specular += analytic_specular;
+#endif
 }
 #endif
 

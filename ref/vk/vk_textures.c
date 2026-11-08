@@ -94,7 +94,18 @@ static void generateFallbackNoiseTextures( const rgbdata_t *pic ) {
 	}
 }
 
+static void produceBlueNoiseTexture(struct Producer* producer, struct vk_combuf_s *combuf, const FrameContext *ctx) {
+	// Uploaded during initialization; descriptor acquisition handles image barriers.
+	(void)producer;
+	(void)combuf;
+	(void)ctx;
+}
+
 static void loadBlueNoiseTextures(void) {
+	static Producer producer = {
+		.name = "blue_noise_texture",
+		.produce = produceBlueNoiseTexture,
+	};
 	const size_t blue_noise_count = BLUE_NOISE_SIZE * BLUE_NOISE_SIZE * BLUE_NOISE_SIZE;
 	const size_t blue_noise_size = blue_noise_count * sizeof(uint32_t);
 	uint32_t *const scratch = Mem_Malloc(vk_core.pool /* TODO textures pool */, blue_noise_size);
@@ -165,6 +176,7 @@ static void loadBlueNoiseTextures(void) {
 				.name = "blue_noise_texture",
 				.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 				.acquire_descriptor = acquireSampledImageDescriptor,
+				.producer = &producer,
 				.refcount = 1,
 			},
 			.image = &g_vktextures.blue_noise.vk.image,

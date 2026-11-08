@@ -68,6 +68,9 @@
 	"spatial_reconstruction_pass2": {
 		"comp": "spatial_reconstruction_pass2"
 	},
+	"heitz_shadow_noise": { "comp": "heitz_shadow_noise" },
+	"heitz_shadow_noise_blur": { "comp": "heitz_shadow_noise_blur" },
+	"heitz_shadow_horizontal": { "comp": "heitz_shadow_horizontal" },
 	"denoiser": {
 		"comp": "denoiser"
 	},

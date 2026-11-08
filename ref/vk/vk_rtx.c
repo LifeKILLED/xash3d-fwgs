@@ -105,6 +105,10 @@ static void parseDebugDisplayValue( void ) {
 	X(MATERIAL, "red = roughness, green = metalness") \
 	X(DIFFUSE, "direct + indirect diffuse, spatially denoised") \
 	X(SPECULAR, "direct + indirect specular, spatially denoised") \
+	X(SHADOW_DIFF, "Heitz filtered diffuse visibility") \
+	X(SHADOW_SPEC, "Heitz filtered specular visibility") \
+	X(SHADOW_SIGMA_DIFF, "Heitz diffuse filter sigma, white = maximum") \
+	X(SHADOW_SIGMA_SPEC, "Heitz specular filter sigma, white = maximum") \
 
 #define X(suffix, info) \
 	if (0 == Q_stricmp(cvalue, #suffix)) { \

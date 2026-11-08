@@ -4,6 +4,13 @@
 #include "ray_kusochki.glsl"
 #include "color_spaces.glsl"
 
+#ifdef HEITZ_SHADOWS
+layout(set = 0, binding = 35) uniform sampler3D blue_noise_texture;
+#include "bluenoise.glsl"
+// Shared by every light, independent of cluster order and early light culling.
+vec4 heitz_light_random = vec4(0.5);
+#endif
+
 #include "light.glsl"
 
 void readNormals(ivec2 uv, out vec3 geometry_normal, out vec3 shading_normal) {
@@ -28,6 +35,13 @@ void main() {
 #endif
 
 	rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
+#ifdef HEITZ_SHADOWS
+	// One nearest-neighbor fetch per pixel in each direct-light dispatch. Both
+	// dispatches read the same texel; there are no per-light hashes or shifts.
+	// Decode UNORM8 to bin centers so no variate is exactly zero or one.
+	const vec4 noise = blueNoise(ivec3(pix, int(ubo.ubo.frame_counter % BLUE_NOISE_SIZE)));
+	heitz_light_random = (noise * 255.0 + 0.5) / 256.0;
+#endif
 
 	// FIXME incorrect for reflection/refraction
 	const vec4 target    = ubo.ubo.inv_proj * vec4(uv.x, uv.y, 1, 1);
@@ -65,11 +79,23 @@ void main() {
 	DEBUG_VALIDATE_RANGE_VEC3("direct.specular", specular, 0., 1e6);
 
 #if LIGHT_POINT
+#ifdef HEITZ_SHADOWS
+	imageStore(out_heitz_point_analytic_diffuse, pix, vec4(heitz_analytic_diffuse, 0.0));
+	imageStore(out_heitz_point_analytic_specular, pix, vec4(heitz_analytic_specular, 0.0));
+	imageStore(out_heitz_point_unshadowed_diffuse, pix, vec4(heitz_unshadowed_diffuse, 0.0));
+	imageStore(out_heitz_point_unshadowed_specular, pix, vec4(heitz_unshadowed_specular, 0.0));
+#endif
 	imageStore(out_light_point_diffuse, pix, vec4(diffuse, 0.f));
 	imageStore(out_light_point_specular, pix, vec4(specular, 0.f));
 #endif
 
 #if LIGHT_POLYGON
+#ifdef HEITZ_SHADOWS
+	imageStore(out_heitz_poly_analytic_diffuse, pix, vec4(heitz_analytic_diffuse, 0.0));
+	imageStore(out_heitz_poly_analytic_specular, pix, vec4(heitz_analytic_specular, 0.0));
+	imageStore(out_heitz_poly_unshadowed_diffuse, pix, vec4(heitz_unshadowed_diffuse, 0.0));
+	imageStore(out_heitz_poly_unshadowed_specular, pix, vec4(heitz_unshadowed_specular, 0.0));
+#endif
 	imageStore(out_light_poly_diffuse, pix, vec4(diffuse, 0.f));
 	imageStore(out_light_poly_specular, pix, vec4(specular, 0.f));
 #endif
