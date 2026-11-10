@@ -178,6 +178,7 @@ static void produceUboResource(struct Producer* p, struct vk_combuf_s *combuf, c
 
 static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args_t *args, float fov_angle_y, int frame_width, int frame_height ) {
 	struct UniformBuffer ret;
+	ret.blue_noise_2d_texture = (uint32_t)tglob.blueNoise2DTexture;
 	matrix4x4 proj_inv, view_inv;
 	Matrix4x4_Invert_Full(proj_inv, *args->projection);
 	Matrix4x4_ToArrayFloatGL(proj_inv, (float*)ret.inv_proj);

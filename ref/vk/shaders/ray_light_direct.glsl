@@ -4,11 +4,12 @@
 #include "ray_kusochki.glsl"
 #include "color_spaces.glsl"
 
+#include "heitz_shadow_config.glsl"
 #ifdef HEITZ_SHADOWS
-layout(set = 0, binding = 35) uniform sampler3D blue_noise_texture;
-#include "bluenoise.glsl"
-// Shared by every light, independent of cluster order and early light culling.
 vec4 heitz_light_random = vec4(0.5);
+vec3 heitzLightRandom() {
+    return heitz_light_random.xyz;
+}
 #endif
 
 #include "light.glsl"
@@ -36,11 +37,12 @@ void main() {
 
 	rand01_state = ubo.ubo.random_seed + pix.x * 1833 + pix.y * 31337;
 #ifdef HEITZ_SHADOWS
-	// One nearest-neighbor fetch per pixel in each direct-light dispatch. Both
-	// dispatches read the same texel; there are no per-light hashes or shifts.
-	// Decode UNORM8 to bin centers so no variate is exactly zero or one.
-	const vec4 noise = blueNoise(ivec3(pix, int(ubo.ubo.frame_counter % BLUE_NOISE_SIZE)));
-	heitz_light_random = (noise * 255.0 + 0.5) / 256.0;
+    // Stable 128x128 screen-space mask, shared by all lights and both dispatches.
+    // UNORM8 bin centers keep barycentric variates strictly inside (0,1).
+    const int noise_texture = int(ubo.ubo.blue_noise_2d_texture);
+    const ivec2 noise_size = textureSize(textures[noise_texture], 0);
+    const vec4 noise = texelFetch(textures[noise_texture], pix % noise_size, 0);
+    heitz_light_random = (noise * 255.0 + 0.5) / 256.0;
 #endif
 
 	// FIXME incorrect for reflection/refraction

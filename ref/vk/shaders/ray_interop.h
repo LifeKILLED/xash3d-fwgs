@@ -218,6 +218,7 @@ struct UniformBuffer {
 	uint debug_flags;
 
 	uint renderer_flags;
+	uint blue_noise_2d_texture; // index in the existing textures[] descriptor array
 };
 
 #undef PAD

@@ -1,3 +1,4 @@
+#include "heitz_shadow_config.glsl"
 // Heitz, Hill & McGuire, I3D 2018, sections 4.1-4.2.
 // Current-frame only. Filter correlated estimates before taking their ratio.
 const int HEITZ_MAX_RADIUS = 24;
@@ -34,4 +35,21 @@ vec2 heitzSigma(vec2 noise) {
 	// threshold: sparse penumbra samples must not be classified as noise-free.
 	// The scale/cap are experimental spatial-only settings, not author defaults.
 	return clamp(noise * HEITZ_NOISE_TO_SIGMA, vec2(0.0), vec2(HEITZ_MAX_SIGMA));
+}
+
+vec3 heitzFilterEncode(vec3 value) {
+#if HEITZ_GAMMA_FILTER
+    return pow(max(value, vec3(0.0)), vec3(1.0 / HEITZ_FILTER_GAMMA));
+#else
+    return value;
+#endif
+}
+vec3 heitzFilterDecodeRatio(vec3 numerator, vec3 denominator) {
+    vec3 ratio = heitzRatio(numerator, denominator);
+#if HEITZ_GAMMA_FILTER
+    // For a pure power encoding the common filter normalization cancels.
+    return pow(ratio, vec3(HEITZ_FILTER_GAMMA));
+#else
+    return ratio;
+#endif
 }

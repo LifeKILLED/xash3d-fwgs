@@ -32,13 +32,13 @@ void heitzDirect(ivec2 res, ivec2 p, out vec3 diffuse, out vec3 specular) {
 	}
 	if (ubo.ubo.debug_display_only == DEBUG_DISPLAY_SHADOW_DIFF ||
 		ubo.ubo.debug_display_only == DEBUG_DISPLAY_SHADOW_SPEC) {
-		diffuse = heitzRatio(sd, ud);
-		specular = heitzRatio(ss, us);
+		diffuse = heitzFilterDecodeRatio(sd, ud);
+		specular = heitzFilterDecodeRatio(ss, us);
 		return;
 	}
 	// The common normalization cancels in S_N/U_N. U stays at this pixel.
 	diffuse = (imageLoad(heitz_poly_analytic_diffuse, p).rgb
-			 + imageLoad(heitz_point_analytic_diffuse, p).rgb) * heitzRatio(sd, ud);
+			 + imageLoad(heitz_point_analytic_diffuse, p).rgb) * heitzFilterDecodeRatio(sd, ud);
 	specular = (imageLoad(heitz_poly_analytic_specular, p).rgb
-			  + imageLoad(heitz_point_analytic_specular, p).rgb) * heitzRatio(ss, us);
+			  + imageLoad(heitz_point_analytic_specular, p).rgb) * heitzFilterDecodeRatio(ss, us);
 }

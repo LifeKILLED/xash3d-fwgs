@@ -87,6 +87,7 @@ void accumulatePolygonLightLtc(PolygonLight poly, vec3 P, vec3 N, vec3 V,
 	}
 
 #ifdef HEITZ_SHADOWS
+	const vec3 shadow_random = heitzLightRandom();
 	// Area-weighted triangle fan: uniform triangle selection biases irregular polygons.
 	const vec3 first = lights.m.polygon_vertices[offset].xyz - P;
 	float area = 0.0;
@@ -95,7 +96,7 @@ void accumulatePolygonLightLtc(PolygonLight poly, vec3 P, vec3 N, vec3 V,
 								  lights.m.polygon_vertices[offset+i+1u].xyz - P - first));
 	}
 	if (area <= 1e-8) return;
-	float selection = heitz_light_random.z * area;
+	float selection = shadow_random.z * area;
 	uint triangle = count - 2u;
 	for (uint i = 1u; i + 1u < count; ++i) {
 		selection -= 0.5 * length(cross(lights.m.polygon_vertices[offset+i].xyz - P - first,
@@ -109,8 +110,8 @@ void accumulatePolygonLightLtc(PolygonLight poly, vec3 P, vec3 N, vec3 V,
 	const vec3 b = lights.m.polygon_vertices[offset + triangle].xyz - P;
 	const vec3 c = lights.m.polygon_vertices[offset + triangle + 1u].xyz - P;
 #ifdef HEITZ_SHADOWS
-	const float r = sqrt(heitz_light_random.x);
-	const float v = heitz_light_random.y;
+	const float r = sqrt(shadow_random.x);
+	const float v = shadow_random.y;
 #else
 	const float r = sqrt(rand01());
 	const float v = rand01();
@@ -206,7 +207,7 @@ void accumulatePointLightLtc(PointLight light, vec3 P, vec3 N, vec3 V,
 
 	const mat3 basis = orthonormalBasisZ(axis);
 #ifdef HEITZ_SHADOWS
-	const vec2 shadow_random = heitz_light_random.xy;
+	const vec2 shadow_random = heitzLightRandom().xy;
 #else
 	const vec2 shadow_random = vec2(rand01(), rand01());
 #endif

@@ -23,6 +23,8 @@ void main() {
 	const int radius = min(HEITZ_MAX_RADIUS, int(ceil(3.0 * max(sigma.x, sigma.y))));
 	vec3 sd, ud, ss, us;
 	heitzRaw(p, sd, ud, ss, us);
+	sd = heitzFilterEncode(sd); ud = heitzFilterEncode(ud);
+	ss = heitzFilterEncode(ss); us = heitzFilterEncode(us);
 	vec2 total = vec2(1.0);
 	for (int x = -radius; x <= radius; ++x) {
 		if (x == 0) continue;
@@ -33,6 +35,8 @@ void main() {
 		if (max(w.x,w.y) < 1e-5) continue;
 		vec3 tsd, tud, tss, tus;
 		heitzRaw(tap, tsd, tud, tss, tus);
+		tsd = heitzFilterEncode(tsd); tud = heitzFilterEncode(tud);
+		tss = heitzFilterEncode(tss); tus = heitzFilterEncode(tus);
 		sd += tsd*w.x; ud += tud*w.x; ss += tss*w.y; us += tus*w.y;
 		total += w;
 	}

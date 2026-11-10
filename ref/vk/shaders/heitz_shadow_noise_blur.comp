@@ -10,6 +10,7 @@ layout(set = 0, binding = 2, rgba16f) uniform readonly image2D normals_gs;
 #include "heitz_shadow_common.glsl"
 layout(set = 0, binding = 3, rgba16f) uniform readonly image2D heitz_noise;
 layout(set = 0, binding = 4, rgba16f) uniform writeonly image2D out_heitz_noise_blurred;
+
 void main() {
 	const ivec2 p = ivec2(gl_GlobalInvocationID.xy), res = ubo.ubo.res;
 	if (!heitzInside(p, res)) return;
@@ -21,5 +22,7 @@ void main() {
 		noise += imageLoad(heitz_noise, tap).rg;
 		count += 1.0;
 	}
-	imageStore(out_heitz_noise_blurred, p, vec4(noise / count, 0.0, 0.0));
+    noise /= count;
+
+    imageStore(out_heitz_noise_blurred, p, vec4(noise, 0.0, 0.0));
 }
