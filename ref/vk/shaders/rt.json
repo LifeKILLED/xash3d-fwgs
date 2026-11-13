@@ -10,7 +10,6 @@
 	"lc_gbuffer_raster": { "comp": "lc_gbuffer_raster" },
 	"lc_update_point": { "comp": "lc_update_point" },
 	"lc_update_polygon": { "comp": "lc_update_polygon" },
-	"lc_filter": { "comp": "lc_filter" },
 	"primary_ray": {
 		/*
 		"rgen": "ray_primary",

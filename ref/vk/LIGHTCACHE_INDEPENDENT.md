@@ -1,7 +1,7 @@
 # RGB light cache и seed replay
 
 Активные проходы: lc_gbuffer_clear, lc_gbuffer_raster,
-lc_update_point, lc_update_polygon, lc_filter,
+lc_update_point, lc_update_polygon,
 primary/G-buffer, lc_reflection и lc_bounce, существующие denoiser/compositor.
 Старые reflection prepare/claim исключены из rt.json: новые проходы сами
 вычисляют адрес истории. Legacy исходники сохранены отдельно.
@@ -74,18 +74,24 @@ Position.w содержит surface ID + 1 (ноль — пусто), normal.w �
 CPU-входы графа, подготовка которых локализована в `R_BrushPrepareLightcache`.
 Изменений `sebastian.py` не требуется. Lookup buffer, owner-image,
 world-position/normal images и плотная упаковка probes не используются.
-3×3 и bilinear фильтры принимают только texels того же владельца; bilinear
+Bilinear фильтр принимает только texels того же владельца; bilinear
 веса оставшихся texels нормализуются. Материал и камера не участвуют в обновлении.
 
 ## Обновление cache
 
 Point и polygon перебирают все источники legacy light cluster по мировой
-позиции probe. Для каждого источника берётся один конкретный sample;
-его случайность стабильна по исходному LM texel и ID источника, без frame seed.
+позиции probe. Видимость и вклад рассчитываются по направлению к центру источника;
+для polygon используется центр площади, для environment — ось источника.
+Случайного выбора точки на источнике нет.
 При нулевом вкладе visibility ray не запускается. RIS-вариант удалён.
 RGB cache хранит unit-albedo outgoing diffuse radiance (E/pi), без SH.
-Фильтр — равновесный box 3x3 в пределах island. Темпорального смешивания нет.
-При отключении обновления сохраняется предыдущий cache.
+Отдельного прохода фильтрации и темпорального смешивания нет. Bounce, reflection
+и debug читают готовую сумму из lc_radiance с bilinear интерполяцией в пределах island.
+Первый update-проход записывает lc_point; второй добавляет к нему polygon-вклад
+и записывает lc_radiance. Отдельного прохода суммирования нет.
+Light cache использует постоянные текстуры lc_point/lc_radiance, без истории
+и ping-pong. При отключении обновления update-проходы не перезаписывают текстуры;
+в кадре инициализации отключённый cache обнуляется.
 
 ## Пути и история
 

@@ -35,9 +35,7 @@ layout(set = 0, binding = 14, rgba32f) uniform readonly image2D position_t;
 
 layout(set = 0, binding = 15, rgba32f) uniform readonly image2D surface_lightmap_uv;
 #include "lightcache_geometry.glsl"
-layout(set=0,binding=91,rgba16f) uniform readonly image2D temporal_lc_radiance;
-layout(set=0,binding=93,rgba16f) uniform readonly image2D lc_point;
-layout(set=0,binding=95,rgba16f) uniform readonly image2D lc_polygon;
+layout(set=0,binding=93,rgba16f) uniform readonly image2D lc_radiance;
 
 layout(set=0,binding=96,rgba16f) uniform readonly image2D nrd_diffuse;
 layout(set=0,binding=97,rgba16f) uniform readonly image2D nrd_specular;
@@ -118,7 +116,7 @@ void main() {
         vec3 color = vec3(0.0);
         if (encoded > 0u && lightcacheInCapacity(encoded - 1u, res)) {
             const ivec2 tap = lightcachePixel(encoded - 1u, res);
-            color = imageLoad(lc_point,tap).rgb + imageLoad(lc_polygon,tap).rgb;
+            color = imageLoad(lc_radiance,tap).rgb;
         } else if (encoded > 0u) {
             color = vec3(1.0, 0.0, 1.0);
         }
@@ -133,7 +131,7 @@ void main() {
         if (encoded > 0u && lightcacheInCapacity(encoded - 1u, res)) {
             ivec2 taps[4]; vec4 weights;
             if (lightcacheBilinearFootprint(encoded-1u,uv.xy,res,taps,weights)) {
-                for (int i=0;i<4;++i) color += imageLoad(temporal_lc_radiance,taps[i]).rgb*weights[i];
+                for (int i=0;i<4;++i) color += imageLoad(lc_radiance,taps[i]).rgb*weights[i];
                 color=max(color,vec3(0));
             } else color=vec3(1,0,1);
         } else if (encoded > 0u) {

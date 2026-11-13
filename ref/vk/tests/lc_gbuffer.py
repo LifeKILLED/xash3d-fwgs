@@ -24,7 +24,7 @@ surface = re.sub(r"(\w+)\.xyz", r"xyz(\1)", surface)
 graph = re.sub(r"//[^\n]*|/\*.*?\*/", "", (SHADERS / "rt.json").read_text(), flags=re.S)
 passes = list(json.loads(re.sub(r",\s*([}\]])", r"\1", graph)))
 chain = ["lc_gbuffer_clear", "lc_gbuffer_raster",
-         "lc_update_point", "lc_update_polygon", "lc_filter"]
+         "lc_update_point", "lc_update_polygon"]
 assert [passes.index(p) for p in chain] == sorted(passes.index(p) for p in chain)
 
 harness = r"""

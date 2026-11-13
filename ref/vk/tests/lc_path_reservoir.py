@@ -30,7 +30,9 @@ passes = list(json.loads(re.sub(r",\s*([}\]])", r"\1", graph)))
 for producer, consumer in (
     ("primary_ray", "lc_bounce"), ("primary_ray", "lc_reflection"),
     ("temporal_reprojection_resolve", "lc_bounce"),
-    ("lc_filter", "lc_bounce"), ("lc_filter", "lc_reflection"),
+    ("lc_update_point", "lc_update_polygon"),
+    ("lc_update_point", "lc_bounce"), ("lc_update_polygon", "lc_bounce"),
+    ("lc_update_point", "lc_reflection"), ("lc_update_polygon", "lc_reflection"),
     ("lc_reflection", "spatial_reconstruction_pass1"),
     ("lc_bounce", "indiff_sh_init"), ("lc_bounce", "indiff_at1"),
     ("indiff_sh_save", "final_precombine"),

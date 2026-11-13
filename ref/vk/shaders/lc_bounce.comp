@@ -15,7 +15,7 @@ layout(set=0,binding=6) uniform sampler2D textures[MAX_TEXTURES];
 layout(set=0,binding=7) uniform samplerCube skybox;
 layout(set=0,binding=10,rgba32f) uniform readonly image2D position_t;
 layout(set=0,binding=11,rgba16f) uniform readonly image2D normals_gs;
-layout(set=0,binding=14,rgba16f) uniform readonly image2D temporal_lc_radiance;
+layout(set=0,binding=14,rgba16f) uniform readonly image2D lc_radiance;
 layout(set=0,binding=20,rgba16f) uniform writeonly image2D out_indirect_diffuse;
 layout(set=0,binding=22,rgba32f) uniform writeonly image2D out_first_bounce_direction;
 layout(set=0,binding=30,std430) readonly buffer ModelHeaders { ModelHeader a[]; } model_headers;
@@ -63,7 +63,7 @@ vec3 cachedIrradiance(vec4 uv) {
     ivec2 taps[4]; vec4 weights;
     if (!lightcacheBilinearFootprint(encoded-1u,uv.xy,ubo.ubo.res,taps,weights)) return vec3(0);
     vec3 color=vec3(0);
-    for (int i=0;i<4;++i) color+=imageLoad(temporal_lc_radiance,taps[i]).rgb*weights[i];
+    for (int i=0;i<4;++i) color+=imageLoad(lc_radiance,taps[i]).rgb*weights[i];
     return max(color,vec3(0));
 }
 // A seed identifies every random dimension of the complete variable-length path.
