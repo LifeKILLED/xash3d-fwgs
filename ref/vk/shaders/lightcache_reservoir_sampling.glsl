@@ -2,7 +2,6 @@
 #if 0
 // Address the diffuse light cache at the receiving surface of each RIS pass.
 // Current-frame cache reservoirs are already shadow-tested by the cache update.
-#define LIGHTCACHE_GEOMETRY_BINDING 90
 #include "lightcache_geometry.glsl"
 #ifdef RIS_LIGHTCACHE_UV_IMAGE
 layout(set = 0, binding = 93, rgba32f) uniform readonly image2D RIS_LIGHTCACHE_UV_IMAGE;
@@ -47,7 +46,7 @@ RisTemporalReservoir risSeedLightcacheReservoirUV(
         // Outside taps are rejected, never replaced by a clamped edge texel.
         if (any(lessThan(taps[tap], ivec2(0)))) continue;
         vec4 state = imageLoad(temporal_lightcache_state, taps[tap]);
-        if (state.x != float(lightcache_geometry.info.y) ||
+        if (state.x != float(lightcacheEpoch()) ||
             any(notEqual(state.yz, vec2(ubo.ubo.res))) ||
             state.w != float(ubo.ubo.frame_counter)) continue;
         RisTemporalReservoir source = risDecodeTemporalReservoir(imageLoad(RIS_LC_RESERVOIR, taps[tap]));

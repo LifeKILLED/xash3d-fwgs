@@ -14,6 +14,12 @@ void R_BrushShutdown( void );
 qboolean R_BrushModelLoad(struct model_s *mod, qboolean is_worldmodel);
 void R_BrushModelDestroyAll( void );
 
+struct vk_combuf_s;
+// NULL combuf registers graph inputs during startup. Otherwise uploads the frame's
+// data and returns whether the GPU must initialize the lightmap G-buffer.
+qboolean R_BrushPrepareLightcache(struct vk_combuf_s *combuf, qboolean reinitialize);
+void R_BrushLightcacheShutdown(void);
+
 void R_BrushModelDraw( const cl_entity_t *ent, int render_mode, float blend, const matrix4x4 transform );
 
 const texture_t *R_TextureAnimation( const cl_entity_t *ent, const msurface_t *s );

@@ -1,6 +1,7 @@
 # RGB light cache и seed replay
 
-Активные проходы: lc_update_point, lc_update_polygon, lc_filter,
+Активные проходы: lc_gbuffer_clear, lc_gbuffer_raster,
+lc_update_point, lc_update_polygon, lc_filter,
 primary/G-buffer, lc_reflection и lc_bounce, существующие denoiser/compositor.
 Старые reflection prepare/claim исключены из rt.json: новые проходы сами
 вычисляют адрес истории. Legacy исходники сохранены отдельно.
@@ -9,22 +10,48 @@ primary/G-buffer, lc_reflection и lc_bounce, существующие denoiser/
 
 * `ray_interop.h`: `UniformBuffer`, `PointLight`, `PolygonLight`, `LightsMetadata`,
   `ModelHeader`, `Kusok`, `Vertex`, маски TLAS; структуры должны совпадать на CPU/GPU.
-* `lightcache_geometry.glsl` / `lightcache_layout.h` / `vk_lightcache.c`: SSBO
-  `lightcache_geometry` — info (число probes, epoch), lookup 1024×1024,
-  transforms[512] и плотно упакованные `LightcacheProbe`. На probe нужны локальная
-  позиция, geometry normal, индекс brush transform, island, начало/размер сетки,
-  локальный индекс и прямоугольник исходного LM-атласа.
-* CPU создаёт probes при выделении BSP lightmap через `RT_LightCacheAddSurface`.
-  Шаг — два исходных LM-текселя, размер острова `ceil(width/2) × ceil(height/2)`.
-  Последняя позиция при нечётном размере прижата к последнему исходному текселю.
-  Позиции ограничены BSP-полигоном. Трансформы brush обновляются каждый кадр.
+* CPU-подготовка probes и прежний geometry SSBO удалены. `UniformBuffer.lightcache_init_frame`
+  хранит номер кадра последней инициализации LM G-buffer. При загрузке карты,
+  перезагрузке графа или пересоздании изображений CPU назначает текущий кадр
+  кадром инициализации. GPU строит G-buffer только при равенстве
+  lightcache_init_frame и frame_counter; номер сохраняется как поколение кэша.
+* `lc_gbuffer_clear/raster.comp` работают только в кадре инициализации.
+  Clear обнуляет position/normal images. Raster читает `lc_brush_surfaces`,
+  существующие index и vertex buffers; один invocation обрабатывает поверхность.
+  В каждом texel восстанавливаются barycentrics и локальные position/geometry
+  normal; точки вне треугольников прижимаются к ближайшей точке поверхности.
+  Запись идёт прямо в `rgba32f image2D` через `imageStore`, без атомиков,
+  owner-image и отдельного resolve-прохода. Диапазон записи включает только
+  центры texels внутри LM-прямоугольника, без расширения на соседние острова.
+* Вся подготовка CPU-данных находится в одной функции `R_BrushPrepareLightcache`
+  в `vk_brush.c`. Она использует готовый список brush-моделей и их render geometry:
+  при rebuild заполняет `lc_brush_surfaces` (vertex offset, index offset, count,
+  стабильный brush ID), каждый кадр обновляет `lc_brush_transforms` (три строки
+  affine transform на brush). Поверхности хранятся в RGBA32F image2D;
+  матрицы — в отдельном std430 SSBO, по 48 байт на brush. Ёмкость буфера —
+  MAX_MODELS (192 КиБ в текущей сборке), каждый кадр загружается только
+  занятый диапазон. Матрицы пишутся прямо в существующий staging без CPU-копии
+  всей таблицы. Создание и загрузка используют существующие resource/staging API;
+  отдельная shutdown-функция только освобождает ресурсы. Внутри подготовки
+  последовательно расположены регистрация ресурсов, перестроение и загрузка
+  данных уровня, затем обновление матриц текущего кадра. Привязка brush к entity
+  представлена одной структурой, состояния STATIC/UNBOUND имеют именованные константы.
+* `Kusok`, `ModelHeader` (96 байт), код загрузки и обработки instances не изменены.
+  В UBO из новых данных остался только номер кадра `lightcache_init_frame`.
+* Привязка brush к entity сохраняется на CPU; матрицы обновляются независимо
+  от camera visibility/TLAS. Для мира используется identity, для origin patches —
+  матрица переноса из patch. Поздние entity привязываются при появлении.
+* `lightcacheSurface` читает brush ID из normal.w и напрямую получает три строки
+  матрицы из SSBO по адресу brush_id * 3. Трансформация выполняется один раз
+  на texel в каждом lighting pass,
+  до перебора источников и shadow rays. Поиска instance и transform-pass нет.
 * BSP: исходный `Vertex.lm_tc` поступает из того же пути построения lightmap UV,
   который использует обычный Vulkan renderer. `rayLightmapUV` интерполирует три
   `lm_tc` по barycentrics уже committed intersection. Повторного луча нет.
 * Studio: `R_LightVecSurface` в `rlight.c` возвращает поверхность и локальную
   точку из ванильного поиска света для entity. `R_LightmapCoord` переводит эту
   точку в UV того же атласа. Поля `lightmap_uv` / `lightmap_uv_valid` проходят
-  через model draw / instance в 96-байтный `ModelHeader`. Все submodels используют
+  через model draw / instance в `ModelHeader`. Все submodels используют
   одну привязку entity; это ванильная привязка к освещающей BSP-поверхности,
   а не отдельная развёртка studio mesh. Sky/fullbright без LM-попадания не имеют UV.
 * `rayLightmapUV` сначала проверяет studio binding в `ModelHeader`, затем BSP UV.
@@ -34,11 +61,21 @@ primary/G-buffer, lc_reflection и lc_bounce, существующие denoiser/
 
 ## Обновление и представление
 
-Все storage images имеют размер viewport; probe `i` хранится в
-`(i % res.x, i / res.x)`. Lookup возвращает `i+1`, ноль означает отсутствие
-привязки. Обязательно проверять capacity; недостающие probes не алиасить.
-Материалы и направление камеры не участвуют в обновлении.
+Логический LM-атлас — 512×512 (половина исходного 1024×1024).
+Нормализованные LM UV не меняются: texel = ivec2(uv * 512).
+Изображения используют существующее backing allocation графа (минимум 1280×800),
+но кэш занимает только область 512×512. Циклы в compute покрывают весь атлас
+даже при viewport меньше 512. Экранное разрешение не меняет адрес кэша.
 
+Два G-buffer images `lc_local_position/normal` хранят локальную геометрию.
+Position.w содержит surface ID + 1 (ноль — пусто), normal.w — стабильный brush ID.
+Оба G-buffer images объявлены в шейдерах и автоматически создаются существующим
+графом через `out_`; формат RGBA32F. `lc_brush_surfaces/transforms` — внешние
+CPU-входы графа, подготовка которых локализована в `R_BrushPrepareLightcache`.
+Изменений `sebastian.py` не требуется. Lookup buffer, owner-image,
+world-position/normal images и плотная упаковка probes не используются.
+3×3 и bilinear фильтры принимают только texels того же владельца; bilinear
+веса оставшихся texels нормализуются. Материал и камера не участвуют в обновлении.
 
 ## Обновление cache
 
@@ -91,7 +128,8 @@ SH в cache не используется.
 
 Порядок rt.json существенен: cache filter и primary должны предшествовать
 lc_reflection/lc_bounce, затем идут spatial reconstruction и SH denoising.
-Проверки: python waf build; python ref/vk/tests/lc_path_reservoir.py;
+Проверки: python waf build; python ref/vk/tests/lc_gbuffer.py;
+python ref/vk/tests/lc_path_reservoir.py;
 spirv-val --target-env vulkan1.2 для SPIR-V новых проходов.
 
 ## Эксперимент: permutation sampling

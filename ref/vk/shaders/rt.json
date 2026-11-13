@@ -6,6 +6,8 @@
 	// 	"comp": "regir_onion_poly"
 	// },
 	// Independent RGB cache experiment. Original passes remain in their source files.
+	"lc_gbuffer_clear": { "comp": "lc_gbuffer_clear" },
+	"lc_gbuffer_raster": { "comp": "lc_gbuffer_raster" },
 	"lc_update_point": { "comp": "lc_update_point" },
 	"lc_update_polygon": { "comp": "lc_update_polygon" },
 	"lc_filter": { "comp": "lc_filter" },

@@ -20,7 +20,7 @@ void main() {
     if (any(greaterThanEqual(pix, res)) || !lightcacheEnabled()) return;
     if (lightcacheUpdateDisabled()) {
         vec4 state = imageLoad(prev_temporal_lightcache_state, pix);
-        bool valid = state.x == float(lightcache_geometry.info.y) &&
+        bool valid = !lightcacheIsInitFrame() && state.x == float(lightcacheEpoch()) &&
             all(equal(state.yz, vec2(res))) && state.w + 1.0 == float(ubo.ubo.frame_counter);
         imageStore(out_temporal_lightcache_shy, pix, valid ? imageLoad(prev_temporal_lightcache_shy, pix) : vec4(0));
         imageStore(out_temporal_lightcache_cocg, pix, valid ? imageLoad(prev_temporal_lightcache_cocg, pix) : vec4(0));
@@ -34,7 +34,7 @@ void main() {
         // Stable lightmap texels reproject to the same address, independently
         // of camera/brush movement and RIS reservoir permutations.
         vec4 state = imageLoad(prev_temporal_lightcache_state, pix);
-        bool valid = state.x == float(lightcache_geometry.info.y) &&
+        bool valid = !lightcacheIsInitFrame() && state.x == float(lightcacheEpoch()) &&
             all(equal(state.yz, vec2(res))) && state.w + 1.0 == float(ubo.ubo.frame_counter);
         if (valid) {
             SH history;

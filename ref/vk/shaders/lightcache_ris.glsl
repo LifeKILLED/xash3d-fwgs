@@ -44,9 +44,7 @@ bool lcLightSlotValid(uint id) { return id < lcLightCount(); }
 // Concrete emitter sample is fixed in lightmap space, independent of frame,
 // random_seed, packed storage coordinates, and the brush's world transform.
 vec3 lcStableSampleRandom(uint index, uint light_id) {
-    LightcacheProbe probe = lightcache_geometry.probes[index];
-    uvec2 local = uvec2(probe.local_index % probe.width, probe.local_index / probe.width);
-    uvec2 lm_texel = uvec2(probe.lm_s, probe.lm_t) + 2u * local;
+    uvec2 lm_texel = 2u*uvec2(lightcachePixel(index,ivec2(LIGHTCACHE_SIDE)));
     uint seed = xxhash32(uvec4(lm_texel, light_id, uint(LIGHT_POINT)));
     return vec3(
         uintToFloat01(xxhash32(uvec2(seed, 0x6c637378u))),
@@ -77,7 +75,7 @@ bool lcSample(RisLightSample light, vec3 rnd, vec3 P, vec3 N,
 
 bool lcHistoryReady(ivec2 hp, ivec2 res) {
     vec4 state = imageLoad(prev_temporal_lightcache_state, hp);
-    return state.x == float(lightcache_geometry.info.y) && all(equal(state.yz, vec2(res))) &&
+    return !lightcacheIsInitFrame() && state.x == float(lightcacheEpoch()) && all(equal(state.yz, vec2(res))) &&
         state.w + 1.0 == float(ubo.ubo.frame_counter);
 }
 RisVisibilityWindow lcWindow(vec4 meta) {
@@ -234,6 +232,6 @@ void main() {
     imageStore(LC_OUT_DIRECTION, pix, vec4(direction, 0));
 #if LIGHT_POINT
     imageStore(out_temporal_lightcache_state, pix, cache_active ?
-        vec4(float(lightcache_geometry.info.y), vec2(res), float(ubo.ubo.frame_counter)) : vec4(0));
+        vec4(float(lightcacheEpoch()), vec2(res), float(ubo.ubo.frame_counter)) : vec4(0));
 #endif
 }

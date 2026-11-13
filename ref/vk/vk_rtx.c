@@ -1,5 +1,4 @@
 #include "vk_rtx.h"
-#include "vk_lightcache.h"
 
 #include "shaders/ray_interop.h" // DEBUG_DISPLAY_...
 
@@ -10,6 +9,7 @@
 #include "vk_core.h"
 #include "vk_cvar.h"
 #include "vk_light.h"
+#include "vk_brush.h"
 #include "vk_math.h"
 #include "vulkan/VMeatpipe.h"
 #include "nrd_port/cpu.h"
@@ -58,6 +58,8 @@ static struct {
 
 	qboolean reload_pipeline;
 	qboolean discontinuity;
+	qboolean lightcache_needs_init;
+	uint32_t lightcache_init_frame;
 
 	int max_frame_width, max_frame_height;
 
@@ -491,6 +493,7 @@ static void denoiserRefractionParamCmd( void ) {
 #undef LIST_ASVGF_REPROJECTION_BOOL_PARAMS
 
 void VK_RayNewMapBegin( void ) {
+	g_rtx.lightcache_needs_init = true;
 	// TODO it seems like these are unnecessary leftovers. Moreover, they are actively harmful,
 	// as they recreate things that are in fact pretty much static. Untangle this.
 	RT_VkAccelNewMap();
@@ -604,6 +607,7 @@ static void produceUboResource(struct Producer* p, struct vk_combuf_s *combuf, c
 
 static struct UniformBuffer prepareUniformBuffer( const vk_ray_frame_render_args_t *args, float fov_angle_y, int frame_width, int frame_height, uint32_t frame_counter ) {
 	struct UniformBuffer ret = {0};
+	ret.lightcache_init_frame = g_rtx.lightcache_init_frame;
 	Matrix4x4_ToArrayFloatGL(*args->projection, (float*)ret.proj);
 	Matrix4x4_ToArrayFloatGL(*args->view, (float*)ret.view);
 	matrix4x4 proj_inv, view_inv;
@@ -741,6 +745,8 @@ static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_
 	APROF_SCOPE_DECLARE_BEGIN(perform, __FUNCTION__);
 	const VkCommandBuffer cmdbuf = combuf->cmdbuf;
 	DEBUG_BEGIN(cmdbuf, "yay tracing");
+	if (R_BrushPrepareLightcache(combuf, g_rtx.lightcache_needs_init))
+		g_rtx.lightcache_init_frame = args->frame_counter;
 
 	g_rtx.uniform.current = prepareUniformBuffer(args->render_args, args->fov_angle_y, args->frame_width, args->frame_height, args->frame_counter);
 
@@ -759,6 +765,7 @@ static r_vk_image_t* performTracing( vk_combuf_t *combuf, const perform_tracing_
 		DEBUG("discontinuity => false");
 		g_rtx.discontinuity = false;
 	}
+	g_rtx.lightcache_needs_init = false;
 
 	DEBUG_END(cmdbuf);
 	APROF_SCOPE_END(perform);
@@ -782,6 +789,7 @@ static qboolean reloadMeatpipe(void) {
 	destroyMeatpipe();
 
 	g_rtx.meatpipe = newpipe;
+	g_rtx.lightcache_needs_init = true;
 	g_rtx.meatpipe_out = R_VkResourceFindByName("dest");
 	ASSERT(g_rtx.meatpipe_out);
 
@@ -818,6 +826,7 @@ static void reloadOrResizeIfNeeded(const vk_ray_frame_render_args_t* args) {
 	}
 
 	if (need_resize) {
+		g_rtx.lightcache_needs_init = true;
 		if (!R_VkMeatpipeAcquireResources(g_rtx.meatpipe, g_rtx.max_frame_width, g_rtx.max_frame_height)) {
 			ERR("Unable to reacquire resources and resize RT framebuffer. Bad things will happen.");
 		}
@@ -893,9 +902,6 @@ qboolean VK_RayInit( void )
 	g_rtx.max_frame_width = MIN_FRAME_WIDTH;
 	g_rtx.max_frame_height = MIN_FRAME_HEIGHT;
 
-	if (!RT_LightCacheInit())
-		return false;
-
 	if (!RT_VkAccelInit())
 		return false;
 
@@ -935,6 +941,7 @@ qboolean VK_RayInit( void )
 		return false;
 	}
 
+	R_BrushPrepareLightcache(NULL, false);
 	reloadMeatpipe();
 	if (!g_rtx.meatpipe)
 		return false;
@@ -968,7 +975,7 @@ void VK_RayShutdown( void ) {
 
 	destroyMeatpipe();
 
-	RT_LightCacheShutdown();
+	R_BrushLightcacheShutdown();
 	RT_DecalsShutdown();
 	RT_KusochkiShutdown();
 	VK_BufferDestroy(&g_rtx.uniform.buffer);

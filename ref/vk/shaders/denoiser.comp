@@ -34,7 +34,6 @@ layout(set = 0, binding = 13, rgba16f) uniform readonly image2D temporal_asvgf_r
 layout(set = 0, binding = 14, rgba32f) uniform readonly image2D position_t;
 
 layout(set = 0, binding = 15, rgba32f) uniform readonly image2D surface_lightmap_uv;
-#define LIGHTCACHE_GEOMETRY_BINDING 90
 #include "lightcache_geometry.glsl"
 layout(set=0,binding=91,rgba16f) uniform readonly image2D temporal_lc_radiance;
 layout(set=0,binding=93,rgba16f) uniform readonly image2D lc_point;

@@ -1,6 +1,5 @@
 #ifndef LIGHTCACHE_SAMPLING_GLSL
 #define LIGHTCACHE_SAMPLING_GLSL
-#define LIGHTCACHE_GEOMETRY_BINDING 90
 #include "lightcache_geometry.glsl"
 #include "spherical_harmonics.glsl"
 layout(set = 0, binding = 91, rgba16f) uniform readonly image2D temporal_lightcache_shy;

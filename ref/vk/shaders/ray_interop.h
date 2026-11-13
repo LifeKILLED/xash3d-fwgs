@@ -388,6 +388,9 @@ struct UniformBuffer {
 	uint di_visibility_reuse; // Zero = legacy; bit 0 = reuse, upper bits = confidence-cap history epoch.
 	float di_visibility_history;
 
+	uint lightcache_init_frame; // Frame that last initialized the lightmap G-buffer.
+	PAD(3)
+
 	STRUCT AsvgfParams asvgf;
 
 	uint bounce_count; // rt_bounces; independent GI keeps the entire path in one pixel.

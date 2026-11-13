@@ -1,3 +1,5 @@
+> Historical SH/RIS implementation. For the active compute-rasterized RGB cache, see [LIGHTCACHE_INDEPENDENT.md](LIGHTCACHE_INDEPENDENT.md).
+
 # Direct diffuse lightmap cache
 
 Enable the experimental view with:
