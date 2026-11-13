@@ -26,8 +26,23 @@ bool lightcacheInCapacity(uint index,ivec2 res) {
 }
 uint lightcacheLookup(vec2 uv) {
     if (any(lessThan(uv,vec2(0))) || any(greaterThanEqual(uv,vec2(1)))) return 0u;
-    ivec2 pix=ivec2(uv*float(LIGHTCACHE_SIDE));
-    return lightcacheValidPixel(pix) ? lightcacheIndex(pix)+1u : 0u;
+    // Resolve the island from the nearest occupied texel in the same 2x2
+    // footprint used for interpolation. The containing texel may be empty.
+    vec2 coordinate=uv*float(LIGHTCACHE_SIDE)-0.5;
+    ivec2 lo=ivec2(floor(coordinate));
+    uint encoded=0u;
+    float best_distance2=1e30;
+    for (int i=0;i<4;++i) {
+        ivec2 tap=lo+ivec2(i&1,i>>1);
+        if (!lightcacheValidPixel(tap)) continue;
+        vec2 delta=vec2(tap)-coordinate;
+        float distance2=dot(delta,delta);
+        if (distance2<best_distance2) {
+            best_distance2=distance2;
+            encoded=lightcacheIndex(tap)+1u;
+        }
+    }
+    return encoded;
 }
 void lightcacheSurface(uint index,out vec3 P,out vec3 N) {
     ivec2 pix=lightcachePixel(index,ivec2(LIGHTCACHE_SIDE));
